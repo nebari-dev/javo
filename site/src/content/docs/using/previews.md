@@ -27,7 +27,7 @@ A preview of a pull request from the same repository copies its parent's [sharin
 - API access: always None.
 - Previews of its own.
 - A preview of a fork's pull request also gets no repository token.
-- When apps share the web UI's host (no apps host, see [App addresses](/admin/app-addresses/)), a preview of a fork's pull request does not open: its page could act as you.
+- When apps share one origin (no apps host, or an apps host in path mode, see [App addresses](/admin/app-addresses/)), no preview opens: its page could act as you.
 
 ## Faster updates with a webhook
 

@@ -455,17 +455,31 @@ func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
 	}
 }
 
+// previews returns a preview of the app parentID of pull request 7 from a
+// fork and one of pull request 8 from the repository itself.
+func previews(parentID string) []any {
+	var out []any
+	for _, pr := range []struct {
+		name string
+		n    int32
+		fork bool
+	}{{"sales-app-pr-7", 7, true}, {"sales-app-pr-8", 8, false}} {
+		a := gatewaytest.App(apitest.AliceID, pr.name)
+		a.Template, a.PullNumber, a.ParentID = "streamlit", pr.n, parentID
+		a.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "abc123", Fork: pr.fork}
+		out = append(out, a)
+	}
+	return out
+}
+
 // On one host an app's page runs in the UI's origin and can call the API as
 // whoever views it, so the proxy does not show a platform admin someone
-// else's app, nor anyone a preview of a pull request from a fork.
-func TestOneHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
+// else's app, nor anyone a preview of a pull request, whose code the owner
+// has not necessarily read.
+func TestOneHostRefusesAdminOpensAndPreviews(t *testing.T) {
 	t.Parallel()
-	fork := gatewaytest.App(apitest.AliceID, "sales-app-pr-7")
-	fork.Template, fork.PullNumber = "streamlit", 7
-	fork.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "abc123", Fork: true}
 	f := newOneHost(t, salesApp(nil))
-	fork.ParentID = f.getWorkspaceIn(apitest.AliceID, "sales-app").ID
-	gatewaytest.Seed(t, f.db, []any{fork})
+	gatewaytest.Seed(t, f.db, previews(f.getWorkspaceIn(apitest.AliceID, "sales-app").ID))
 	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
 	refused := func(who authz.Principal, path string, code reasons.MessageCode) {
 		t.Helper()
@@ -478,7 +492,8 @@ func TestOneHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
 	if n := len(f.adminOpens()); n != 0 {
 		t.Fatalf("%d admin opens recorded", n)
 	}
-	refused(alice(), "/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgForkPreviewNeedsAppsHost)
+	refused(alice(), "/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgPreviewNeedsAppsHost)
+	refused(alice(), "/u/"+apitest.AliceID+"/sales-app-pr-8/", reasons.MsgPreviewNeedsAppsHost)
 	if w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(alice()))); w.Code != 200 {
 		t.Fatalf("owner: %d", w.Code)
 	}
@@ -487,14 +502,10 @@ func TestOneHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
 // With an apps host in path mode every app shares one origin, so an app's
 // page can script another app the visitor opens: the proxy applies the same
 // refusals as on one host.
-func TestPathModeWithAppsHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
+func TestPathModeWithAppsHostRefusesAdminOpensAndPreviews(t *testing.T) {
 	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
-	fork := gatewaytest.App(apitest.AliceID, "sales-app-pr-7")
-	fork.Template, fork.PullNumber = "streamlit", 7
-	fork.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "abc123", Fork: true}
-	fork.ParentID = f.getWorkspaceIn(apitest.AliceID, "sales-app").ID
-	gatewaytest.Seed(t, f.db, []any{fork})
+	gatewaytest.Seed(t, f.db, previews(f.getWorkspaceIn(apitest.AliceID, "sales-app").ID))
 	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
 	refused := func(who authz.Principal, appURL string, code reasons.MessageCode) {
 		t.Helper()
@@ -507,7 +518,8 @@ func TestPathModeWithAppsHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
 	if n := len(f.adminOpens()); n != 0 {
 		t.Fatalf("%d admin opens recorded", n)
 	}
-	refused(alice(), "https://"+appsHost+"/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgForkPreviewNeedsAppsHost)
+	refused(alice(), "https://"+appsHost+"/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgPreviewNeedsAppsHost)
+	refused(alice(), "https://"+appsHost+"/u/"+apitest.AliceID+"/sales-app-pr-8/", reasons.MsgPreviewNeedsAppsHost)
 	if w := f.serve(f.srv, "GET", salesURL, f.open(f.ui(alice()), salesURL)); w.Code != 200 {
 		t.Fatalf("owner: %d", w.Code)
 	}

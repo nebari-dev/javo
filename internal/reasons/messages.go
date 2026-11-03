@@ -19,23 +19,23 @@ const (
 	MsgNotAllowedFromApp  MessageCode = "NotAllowedFromApp"
 	// The proxy while apps share an origin: with the UI (one host) or with
 	// each other (path mode with an apps host).
-	MsgAdminOpenNeedsAppsHost   MessageCode = "AdminOpenNeedsAppsHost"
-	MsgForkPreviewNeedsAppsHost MessageCode = "ForkPreviewNeedsAppsHost"
-	MsgOpenedFromAnotherApp     MessageCode = "OpenedFromAnotherApp"
-	MsgAppNotFound              MessageCode = "AppNotFound"
-	MsgAppChanged               MessageCode = "AppChanged"
-	MsgTemplateChanged          MessageCode = "TemplateChanged"
-	MsgTemplateManagedByHelm    MessageCode = "TemplateManagedByHelm"
-	MsgTemplateNameInvalid      MessageCode = "TemplateNameInvalid"
-	MsgNameNeedsLetter          MessageCode = "NameNeedsLetter"
-	MsgNameInvalid              MessageCode = "NameInvalid"
-	MsgNameTaken                MessageCode = "NameTaken"
-	MsgNameTakenByYou           MessageCode = "NameTakenByYou" // arg: existing display name
-	MsgTemplateUnavailable      MessageCode = "TemplateUnavailable"
-	MsgSizeUnavailable          MessageCode = "SizeUnavailable"
-	MsgSizeTooBig               MessageCode = "SizeTooBig" // args: the largest machine's CPU and memory in words
-	MsgSizeTooBigShort          MessageCode = "SizeTooBigShort"
-	MsgSizeNoMachine            MessageCode = "SizeNoMachine" // arg: what the size needs in words, with its GPUs and labels
+	MsgAdminOpenNeedsAppsHost MessageCode = "AdminOpenNeedsAppsHost"
+	MsgPreviewNeedsAppsHost   MessageCode = "PreviewNeedsAppsHost"
+	MsgOpenedFromAnotherApp   MessageCode = "OpenedFromAnotherApp"
+	MsgAppNotFound            MessageCode = "AppNotFound"
+	MsgAppChanged             MessageCode = "AppChanged"
+	MsgTemplateChanged        MessageCode = "TemplateChanged"
+	MsgTemplateManagedByHelm  MessageCode = "TemplateManagedByHelm"
+	MsgTemplateNameInvalid    MessageCode = "TemplateNameInvalid"
+	MsgNameNeedsLetter        MessageCode = "NameNeedsLetter"
+	MsgNameInvalid            MessageCode = "NameInvalid"
+	MsgNameTaken              MessageCode = "NameTaken"
+	MsgNameTakenByYou         MessageCode = "NameTakenByYou" // arg: existing display name
+	MsgTemplateUnavailable    MessageCode = "TemplateUnavailable"
+	MsgSizeUnavailable        MessageCode = "SizeUnavailable"
+	MsgSizeTooBig             MessageCode = "SizeTooBig" // args: the largest machine's CPU and memory in words
+	MsgSizeTooBigShort        MessageCode = "SizeTooBigShort"
+	MsgSizeNoMachine          MessageCode = "SizeNoMachine" // arg: what the size needs in words, with its GPUs and labels
 	// Custom CPU and memory (authz.ActCustomSize and the request checks).
 	MsgCustomSizeNotAllowed MessageCode = "CustomSizeNotAllowed"
 	MsgCustomSizeOverLimit  MessageCode = "CustomSizeOverLimit" // arg: the limit in words, "4 CPU and 16 GB"
@@ -265,7 +265,7 @@ var messages = map[MessageCode]string{
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
 	MsgAdminOpenNeedsAppsHost: "Platform admins cannot open other people's apps while apps share one address, because the app's page could act as you. " +
 		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
-	MsgForkPreviewNeedsAppsHost: "Previews of pull requests from forks do not open while apps share one address, because a stranger's code could act as you. " +
+	MsgPreviewNeedsAppsHost: "Previews of pull requests do not open while apps share one address, because the pull request's code could act as you. " +
 		"Ask your platform admin to give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgOpenedFromAnotherApp:  "This app cannot be opened from inside another app. Open it from its own address or from your list of apps.",
 	MsgAppNotFound:           "No app with that name.",

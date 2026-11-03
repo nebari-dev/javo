@@ -341,7 +341,8 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 // host). There a page of one app can act as whoever views it: on one host it
 // calls the API with their session, on an apps host it scripts their other
 // apps. So a platform admin does not open other people's apps, and nobody
-// opens a preview of a pull request from a fork, which runs a stranger's code.
+// opens a preview of a pull request, which runs code the owner has not
+// necessarily read (a stranger's, for a fork).
 func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision) (reasons.MessageCode, bool) {
 	if !p.appsShareOrigin() {
 		return "", false
@@ -349,8 +350,8 @@ func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision) (reasons.M
 	switch {
 	case d.Via == "platform-admin":
 		return reasons.MsgAdminOpenNeedsAppsHost, true
-	case app.ParentID != "" && app.Source != nil && app.Source.Fork:
-		return reasons.MsgForkPreviewNeedsAppsHost, true
+	case app.ParentID != "":
+		return reasons.MsgPreviewNeedsAppsHost, true
 	}
 	return "", false
 }

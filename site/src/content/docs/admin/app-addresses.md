@@ -31,7 +31,7 @@ An app runs code its owner chose. When apps share the web UI's host, a page in a
 Javo refuses state-changing API calls from other sites: the web UI marks each call with an `X-Javo-Request` header that another site cannot add, and calls whose `Sec-Fetch-Site`, `Origin` or `Referer` point at another site or at a page under `/u/` are refused too. Clients with an API token (`Authorization: Bearer`) need no header. None of this stops a page served under `/u/` on the UI's own host. So while apps share the UI's host:
 
 - a platform admin cannot open other people's apps (they get "Platform admins cannot open other people's apps while apps share one address");
-- nobody can open a preview of a pull request from a fork;
+- nobody can open a preview of a pull request, from a fork or from the same repository: it runs code the owner has not necessarily read;
 - **sharing beyond Private is refused.** Serve apps on an apps host or on subdomains and sharing works (an apps host in path mode still puts all apps in one origin, see below). To allow sharing on one host anyway, knowing the risk, set:
 
 ```yaml
@@ -46,7 +46,7 @@ The Docker Compose install does this, since it serves everything on one address.
 
 An apps host keeps apps away from the web UI, but in path mode every app of every owner is served from the same origin (`https://apps.example.com`). Browsers isolate pages by origin, not by path: a cookie's `Path` does not keep it from a script on another path of the same origin. So a page of one app can load another app the visitor can open in a frame and script it as them, for example a JupyterLab terminal. **Only subdomain mode gives each app an origin of its own, and only it isolates apps from each other.**
 
-Path mode with an apps host gets the same refusals as one host: a platform admin cannot open other people's apps, and previews of pull requests from forks do not open. Sharing is still allowed there.
+Path mode with an apps host gets the same refusals as one host: a platform admin cannot open other people's apps, and previews of pull requests do not open. Sharing is still allowed there.
 
 ### The cross-app guard
 
