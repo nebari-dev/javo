@@ -33,6 +33,18 @@ rules:
     resources: [secrets]
     resourceNames: [{{ .Values.notifications.secretName | quote }}]
     verbs: [get, list, watch]
+  # The key of people's secrets, read at start (--secrets-key-secret).
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ include "javo.secretsKeySecret" . | quote }}]
+    verbs: [get]
+  {{- if not .Values.secrets.existingKeySecret }}
+  # Making it on the first start (--secrets-key-create). Create cannot be
+  # narrowed by name; nothing here changes or deletes Secrets.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  {{- end }}
   {{- if include "javo.backupClaimByController" . }}
   # The Postgres backup claim javo-backups (--backup-claim). Create cannot be
   # narrowed by name; nothing here reads, changes or deletes claims.

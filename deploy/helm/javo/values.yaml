@@ -94,15 +94,16 @@ backupTarget:
 # People's secrets (Settings > Secrets). Their values are encrypted in the
 # database under a data keyset, which is itself encrypted by a key-encryption
 # key (32 random bytes) that never goes into the database. By default the
-# chart makes that key once, in the Secret javo-secrets-key, keeps it on
-# upgrade and uninstall, and mounts it in the controller only. Losing it makes
-# every stored secret unreadable: back it up, apart from the database backups.
+# controller makes that key on its first start, in the Secret
+# javo-secrets-key, and never changes it; the chart does not render it, so
+# Helm and Argo CD never touch it. Only the controller reads it. Losing it
+# makes every stored secret unreadable: back it up, apart from the database
+# backups.
 secrets:
   # Name of a Secret in the release namespace whose key "kek" holds 32 random
   # bytes (head -c 32 /dev/urandom > kek; kubectl create secret generic NAME
-  # --from-file=kek). Set it when a tool renders the chart without access to
-  # the cluster (helm template, Argo CD): the chart cannot look up its own key
-  # there and would make a new one on every render.
+  # --from-file=kek), such as a key restored from a backup. The controller
+  # then only reads it and never makes one.
   existingKeySecret: ""
 
 # Namespace holding Workspaces and their pods, services and PVCs when

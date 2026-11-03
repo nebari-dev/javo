@@ -86,6 +86,14 @@ rules:
   - patch
   - update
 - apiGroups:
+  - ""
+  resourceNames:
+  - javo-secrets-key
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
   - batch
   resources:
   - cronjobs

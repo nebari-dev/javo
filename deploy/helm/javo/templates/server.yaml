@@ -112,7 +112,6 @@ spec:
             {{- with include "javo.bucketMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
-            {{- include "javo.secretsKeyMount" . | nindent 12 }}
             {{- with include "javo.backupMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
@@ -135,7 +134,6 @@ spec:
         {{- with include "javo.bucketVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}
-        {{- include "javo.secretsKeyVolume" . | nindent 8 }}
         {{- with include "javo.backupVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}

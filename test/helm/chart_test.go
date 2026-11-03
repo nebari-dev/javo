@@ -343,9 +343,10 @@ func TestNoRoleCreatesPodsInReleaseNamespace(t *testing.T) {
 }
 
 // API tokens are database rows, so nothing in the release namespace needs a
-// Secret written: the controller's Role there only reads the Secrets it is
-// named for.
-func TestNoRoleWritesSecretsInReleaseNamespace(t *testing.T) {
+// Secret changed: the controller's Role there reads the Secrets it is named
+// for and may create one (the key of people's secrets, on the first start),
+// but never updates or deletes a Secret, so the gateway's stay as they are.
+func TestNoRoleChangesSecretsInReleaseNamespace(t *testing.T) {
 	t.Parallel()
 	out, err := render(t)
 	if err != nil {
@@ -361,7 +362,7 @@ func TestNoRoleWritesSecretsInReleaseNamespace(t *testing.T) {
 				continue
 			}
 			for _, verb := range rule.Verbs {
-				if verb != "get" && verb != "list" && verb != "watch" {
+				if verb != "get" && verb != "list" && verb != "watch" && verb != "create" {
 					t.Errorf("Role %s may %s Secrets in the release namespace: %v", r.Name, verb, rule)
 				}
 			}

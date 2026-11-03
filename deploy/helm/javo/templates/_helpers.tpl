@@ -151,18 +151,13 @@ where apps live; the controller binds it in each managed namespace. */}}
 {{- end -}}
 
 {{/* Volume mounts and volumes for the database. */}}
-{{/* The key-encryption key of people's secrets: the controller's only. */}}
-{{- define "javo.secretsKeyDir" -}}/etc/javo-secrets-key{{- end -}}
-{{- define "javo.secretsKeyMount" -}}
-- {name: secrets-key, mountPath: {{ include "javo.secretsKeyDir" . }}, readOnly: true}
-{{- end -}}
-{{- define "javo.secretsKeyVolume" -}}
-- name: secrets-key
-  secret:
-    secretName: {{ .Values.secrets.existingKeySecret | default "javo-secrets-key" }}
-    defaultMode: 0400
-    items: [{key: kek, path: kek}]
-{{- end -}}
+{{/*
+The Secret holding the key-encryption key of people's secrets: the
+controller's only, read through the API at start. The chart renders no key:
+the controller makes javo-secrets-key on its first start, unless
+secrets.existingKeySecret names one made elsewhere.
+*/}}
+{{- define "javo.secretsKeySecret" -}}{{ .Values.secrets.existingKeySecret | default "javo-secrets-key" }}{{- end -}}
 
 {{- define "javo.databaseMounts" -}}
 {{- if eq (include "javo.engine" .) "sqlite" -}}
@@ -268,7 +263,10 @@ true
 {{- range .Values.imagePullSecrets }}
 - --image-pull-secret={{ .name }}
 {{- end }}
-- --secrets-key-file={{ include "javo.secretsKeyDir" . }}/kek
+- --secrets-key-secret={{ include "javo.secretsKeySecret" . }}
+{{- if not .Values.secrets.existingKeySecret }}
+- --secrets-key-create=true
+{{- end }}
 - --netprobe-control-url=http://javo-gateway.{{ .Release.Namespace }}.svc:{{ .Values.gateway.service.port }}/healthz
 - --netprobe-interval={{ .Values.networkPolicy.probeInterval }}
 {{- if .Values.notifications.enabled }}
