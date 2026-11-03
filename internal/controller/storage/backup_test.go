@@ -27,15 +27,12 @@ import (
 	"github.com/nebari-dev/javo/internal/store"
 )
 
-// backupClock is the backup reconciler's time in these tests: 10:00 UTC,
-// with backups scheduled at 01:00 every night.
-var backupClock = time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-
 func backupReconciler(t *testing.T) *BackupReconciler {
 	t.Helper()
+	e := env(t)
 	r := &BackupReconciler{
-		Client: k8s, Reader: k8s, Rows: testRows(), Image: testImage, UIDs: fixedUIDs(),
-		Storage: podstorage.Resolver{Homes: db.Homes(), Folders: db.SharedFolders()},
+		Client: e.k8s, Reader: e.k8s, Rows: testRows(t), Image: testImage, UIDs: fixedUIDs(t),
+		Storage: podstorage.Resolver{Homes: e.db.Homes(), Folders: e.db.SharedFolders()},
 		Backups: &HomeBackups{
 			Target: restic.Target{
 				Endpoint: "https://s3.example.com", Bucket: "backups", Prefix: "javo", BucketLookup: "path",
@@ -43,7 +40,7 @@ func backupReconciler(t *testing.T) *BackupReconciler {
 			},
 			Keep: restic.Keep{Daily: 7, Weekly: 4, Monthly: 6},
 		},
-		Now: func() time.Time { return backupClock },
+		Now: func() time.Time { return e.backupClock },
 	}
 	return r
 }
@@ -62,13 +59,13 @@ func readyHome(t *testing.T, owner string) {
 	t.Helper()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 1})
 	newHome(t, owner, "10Gi")
-	settled(t, homeReconciler(k8s), owner)
+	settled(t, homeReconciler(t, env(t).k8s), owner)
 }
 
 func jobsOf(t *testing.T, owner, role string) []batchv1.Job {
 	t.Helper()
 	var l batchv1.JobList
-	must(t, k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{model.LabelRole: role, model.LabelOwner: owner}))
+	must(t, env(t).k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{model.LabelRole: role, model.LabelOwner: owner}))
 	return l.Items
 }
 
@@ -81,12 +78,13 @@ func finishWith(t *testing.T, j batchv1.Job, ok bool, r backup.JobResult) {
 // askRun asks every home to be backed up as part of run.
 func askRun(t *testing.T, run string) {
 	t.Helper()
-	if _, _, err := db.Homes().RequestBackupRun(ctx, model.Actor{Person: "admin"}, run, backupClock); err != nil {
+	if _, _, err := env(t).db.Homes().RequestBackupRun(ctx, model.Actor{Person: "admin"}, run, env(t).backupClock); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestNothingIsBackedUpUntilARunAsks(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("ann")
 	readyHome(t, owner)
 	r := backupReconciler(t)
@@ -100,6 +98,7 @@ func TestNothingIsBackedUpUntilARunAsks(t *testing.T) {
 }
 
 func TestARunBacksTheHomeUpAsItsOwnerReadOnly(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("ben")
 	readyHome(t, owner)
 	askRun(t, "run-1")
@@ -143,7 +142,7 @@ func TestARunBacksTheHomeUpAsItsOwnerReadOnly(t *testing.T) {
 	}
 	// The values are in the namespace's Secret, never in the Job.
 	var s corev1.Secret
-	must(t, k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: BackupSecretName}, &s))
+	must(t, env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: BackupSecretName}, &s))
 	if string(s.Data["RESTIC_PASSWORD"]) != "pw" || string(s.Data["AWS_SECRET_ACCESS_KEY"]) != "key" {
 		t.Errorf("secret keys = %v", slices.Collect(func(yield func(string) bool) {
 			for k := range s.Data {
@@ -165,6 +164,7 @@ func TestARunBacksTheHomeUpAsItsOwnerReadOnly(t *testing.T) {
 }
 
 func TestABackupsOutcomeIsRecorded(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("cy")
 	readyHome(t, owner)
 	askRun(t, "run-1")
@@ -183,8 +183,8 @@ func TestABackupsOutcomeIsRecorded(t *testing.T) {
 	}
 
 	// The next night's run fails: the last good backup stays, with the reason.
-	backupClock = backupClock.Add(24 * time.Hour)
-	defer func() { backupClock = backupClock.Add(-24 * time.Hour) }()
+	env(t).backupClock = env(t).backupClock.Add(24 * time.Hour)
+	defer func() { env(t).backupClock = env(t).backupClock.Add(-24 * time.Hour) }()
 	askRun(t, "run-2")
 	reconcileBackup(t, r, owner)
 	jobs := jobsOf(t, owner, model.RoleHomeBackup)
@@ -208,13 +208,14 @@ func restoring(t *testing.T, owner string) *metav1.Condition {
 
 func requestRestore(t *testing.T, owner, mode string) {
 	t.Helper()
-	_, err := db.Homes().RequestRestore(ctx, model.Actor{Person: "admin"}, getHome(t, owner).ID, model.HomeRestoreRequest{
+	_, err := env(t).db.Homes().RequestRestore(ctx, model.Actor{Person: "admin"}, getHome(t, owner).ID, model.HomeRestoreRequest{
 		Snapshot: "abc123", SnapshotTime: metav1.NewTime(time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)), Mode: mode,
-	}, backupClock)
+	}, env(t).backupClock)
 	must(t, err)
 }
 
 func TestARestoreHoldsTheAppsRunsAndLetsThemGo(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("dee")
 	readyHome(t, owner)
 	pod := appPod(t, owner, owner+"-lab")
@@ -232,7 +233,7 @@ func TestARestoreHoldsTheAppsRunsAndLetsThemGo(t *testing.T) {
 		t.Fatal("a restore job started while an app runs")
 	}
 
-	must(t, k8s.Delete(ctx, pod, client.GracePeriodSeconds(0)))
+	must(t, env(t).k8s.Delete(ctx, pod, client.GracePeriodSeconds(0)))
 	reconcileBackup(t, r, owner)
 	jobs := jobsOf(t, owner, model.RoleHomeRestore)
 	if len(jobs) != 1 {
@@ -267,17 +268,18 @@ func TestARestoreHoldsTheAppsRunsAndLetsThemGo(t *testing.T) {
 // The run of the restore job itself runs in its owner's home; it does not
 // hold up the restore of that very home.
 func TestTheRestoreJobsOwnRunDoesNotHoldUpItsHome(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("gus")
 	readyHome(t, owner)
-	job, err := db.Jobs().Create(ctx, model.Actor{Person: owner}, &model.Job{Namespace: homeNS, Name: "restore", Owner: owner,
+	job, err := env(t).db.Jobs().Create(ctx, model.Actor{Person: owner}, &model.Job{Namespace: homeNS, Name: "restore", Owner: owner,
 		Spec: model.JobSpec{Template: model.BackupTemplate, Engine: "command", Command: []string{"/javo", "backup", "restore-run"}}})
 	must(t, err)
 	p := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: owner + "-restore-run", Namespace: homeNS, Labels: map[string]string{model.LabelOwner: owner, model.LabelJob: job.ID}},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "x"}}},
 	}
-	must(t, k8s.Create(ctx, p))
-	t.Cleanup(func() { _ = k8s.Delete(ctx, p, client.GracePeriodSeconds(0)) })
+	must(t, env(t).k8s.Create(ctx, p))
+	t.Cleanup(func() { _ = env(t).k8s.Delete(ctx, p, client.GracePeriodSeconds(0)) })
 	requestRestore(t, owner, model.RestoreReplace)
 	reconcileBackup(t, backupReconciler(t), owner)
 	if n := len(jobsOf(t, owner, model.RoleHomeRestore)); n != 1 {
@@ -286,6 +288,7 @@ func TestTheRestoreJobsOwnRunDoesNotHoldUpItsHome(t *testing.T) {
 }
 
 func TestAFailedRestoreSaysWhyAndLetsTheAppsGo(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("eve")
 	readyHome(t, owner)
 	requestRestore(t, owner, model.RestoreReplace)
@@ -309,6 +312,7 @@ func TestAFailedRestoreSaysWhyAndLetsTheAppsGo(t *testing.T) {
 // After a disaster the database comes back with homes whose claims are
 // gone: a restore lets the home get a new claim first.
 func TestARestoreOfAHomeWithoutItsClaimGivesItANewOne(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("fay")
 	readyHome(t, owner)
 	editHome(t, homeNS, owner, func(h *model.Home) { h.Status.ClaimName = naming.HomeClaimNameGen(owner, 7) })
@@ -327,10 +331,11 @@ func TestARestoreOfAHomeWithoutItsClaimGivesItANewOne(t *testing.T) {
 // A full run backs up every ready shared folder too: read-only, as a member
 // of its group (the folder's gid), never as root.
 func TestARunBacksUpASharedFolderAsAGroupMember(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 1})
 	f := newFolder(t, "/data", nil)
 	f.Status = model.SharedFolderStatus{ClaimName: "folder-" + f.Name, GID: 200123, Prepared: true}
-	got, err := db.SharedFolders().Update(ctx, *f, f.Version)
+	got, err := env(t).db.SharedFolders().Update(ctx, *f, f.Version)
 	must(t, err)
 	askRun(t, "run-9")
 	r := &FolderBackupReconciler{BackupReconciler: *backupReconciler(t)}
@@ -338,7 +343,7 @@ func TestARunBacksUpASharedFolderAsAGroupMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	var l batchv1.JobList
-	must(t, k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{model.LabelFolder: got.ID, model.LabelRole: model.RoleFolderBackup}))
+	must(t, env(t).k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{model.LabelFolder: got.ID, model.LabelRole: model.RoleFolderBackup}))
 	if len(l.Items) != 1 {
 		t.Fatalf("%d folder backup jobs", len(l.Items))
 	}
@@ -361,7 +366,7 @@ func TestARunBacksUpASharedFolderAsAGroupMember(t *testing.T) {
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: got.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := db.SharedFolders().Get(ctx, got.ID)
+	after, err := env(t).db.SharedFolders().Get(ctx, got.ID)
 	must(t, err)
 	if b := after.Status.Backup; b == nil || b.Run != "run-9" || b.Snapshot != "f1" || b.Job != "" {
 		t.Fatalf("folder backup = %+v", b)
@@ -379,6 +384,7 @@ func envOf(c corev1.Container, name string) *corev1.EnvVar {
 // username, local or SSO), the home, its claim and the node it runs on, and
 // restic reports its progress every second.
 func TestABackupJobCarriesWhoAndWhereForItsLog(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("hal")
 	readyHome(t, owner)
 	askRun(t, "run-1")
@@ -417,11 +423,12 @@ func (l labelOf) PersonLabel(_ context.Context, owner string) (string, bool, err
 // is still backed up: first a Job reads who owns its files, then the backup
 // runs as that uid, read-only.
 func TestAHomeVolumeWithoutAnAccountIsBackedUpAsItsFilesOwner(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("old")
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 1})
 	newHome(t, owner, "10Gi")
 	claim := naming.HomeClaimName(owner)
-	must(t, k8s.Create(ctx, &corev1.PersistentVolumeClaim{
+	must(t, env(t).k8s.Create(ctx, &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: claim, Namespace: homeNS, Labels: map[string]string{model.LabelOwner: owner}},
 		Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
@@ -429,7 +436,7 @@ func TestAHomeVolumeWithoutAnAccountIsBackedUpAsItsFilesOwner(t *testing.T) {
 	editHome(t, homeNS, owner, func(h *model.Home) { h.Status.ClaimName = claim })
 	askRun(t, "run-1")
 	r := backupReconciler(t)
-	r.UIDs = ids.People{People: db.People(store.IDRange{}), Mode: config.UIDModeAllocated}
+	r.UIDs = ids.People{People: env(t).db.People(store.IDRange{}), Mode: config.UIDModeAllocated}
 	r.People = labelOf{}
 	reconcileBackup(t, r, owner)
 	probes := jobsOf(t, owner, model.RoleHomeOwnerProbe)
@@ -478,6 +485,7 @@ func TestAHomeVolumeWithoutAnAccountIsBackedUpAsItsFilesOwner(t *testing.T) {
 // Every home volume javo made is found, even one whose row is gone (from
 // before the database): it gets a home row, so it is listed and backed up.
 func TestHomeVolumesWithoutARowGetOne(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 1})
 	lost, known := uniqueOwner("lost"), uniqueOwner("kept")
 	newHome(t, known, "10Gi")
@@ -488,23 +496,24 @@ func TestHomeVolumesWithoutARowGetOne(t *testing.T) {
 		if c.owner != "" {
 			labels[model.LabelOwner] = c.owner
 		}
-		must(t, k8s.Create(ctx, &corev1.PersistentVolumeClaim{
+		must(t, env(t).k8s.Create(ctx, &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: c.name, Namespace: homeNS, Labels: labels},
 			Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
 		}))
 	}
-	a := VolumeFinder{Reader: k8s, Store: db, Namespaces: []string{homeNS}, Now: func() time.Time { return backupClock }}
+	e := env(t)
+	a := VolumeFinder{Reader: e.k8s, Store: e.db, Namespaces: []string{homeNS}, Now: func() time.Time { return e.backupClock }}
 	n, err := a.AdoptHomes(ctx)
 	must(t, err)
 	// envtest keeps the claims of earlier tests, whose rows are gone too.
 	if n < 1 {
 		t.Fatalf("adopted %d, want the lost one", n)
 	}
-	if hs, _ := db.Homes().ListByOwner(ctx, known); len(hs) != 1 {
+	if hs, _ := env(t).db.Homes().ListByOwner(ctx, known); len(hs) != 1 {
 		t.Fatalf("the known home has %d rows", len(hs))
 	}
-	if _, err := db.Homes().ByOwner(ctx, homeNS, lost); err != nil {
+	if _, err := env(t).db.Homes().ByOwner(ctx, homeNS, lost); err != nil {
 		t.Fatalf("no row for the lost volume: %v", err)
 	}
 	if n, _ := a.AdoptHomes(ctx); n != 0 {
@@ -514,14 +523,14 @@ func TestHomeVolumesWithoutARowGetOne(t *testing.T) {
 	// A volume found while a full backup runs joins that run.
 	askRun(t, "run-7")
 	late := uniqueOwner("late")
-	must(t, k8s.Create(ctx, &corev1.PersistentVolumeClaim{
+	must(t, env(t).k8s.Create(ctx, &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: naming.HomeClaimName(late), Namespace: homeNS, Labels: map[string]string{model.LabelOwner: late}},
 		Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
 	}))
 	_, err = a.AdoptHomes(ctx)
 	must(t, err)
-	if h, err := db.Homes().ByOwner(ctx, homeNS, late); err != nil || h.Spec.Backup == nil || h.Spec.Backup.Run != "run-7" {
+	if h, err := env(t).db.Homes().ByOwner(ctx, homeNS, late); err != nil || h.Spec.Backup == nil || h.Spec.Backup.Run != "run-7" {
 		t.Fatalf("the late volume's home = %+v, %v", h.Spec.Backup, err)
 	}
 }
@@ -529,6 +538,7 @@ func TestHomeVolumesWithoutARowGetOne(t *testing.T) {
 // A home row with no account whose volume is gone (or going) does not hold a
 // run up: its step fails at once, saying so.
 func TestAGoneVolumeWithNoAccountFailsItsStepAtOnce(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("gone")
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 1})
 	newHome(t, owner, "10Gi")
@@ -547,6 +557,7 @@ func TestAGoneVolumeWithNoAccountFailsItsStepAtOnce(t *testing.T) {
 // another account's (owner annotation disagrees with its label) never gets a
 // claim: its step fails at once, saying so, instead of holding the run up.
 func TestAForeignVolumeWithNoAccountFailsItsStepAtOnce(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("foreign")
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 1})
 	newHome(t, owner, "10Gi")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,13 +45,12 @@ func pullsTestImage(spec corev1.PodSpec) bool {
 
 const homeNS = "default"
 
-var homeSeq int
+var homeSeq atomic.Int32
 
 // uniqueOwner gives each test its own owner: claims made in envtest are never
 // really removed (nothing clears their protection finalizer).
 func uniqueOwner(prefix string) string {
-	homeSeq++
-	return fmt.Sprintf("%s-%02d", prefix, homeSeq)
+	return fmt.Sprintf("%s-%02d", prefix, homeSeq.Add(1))
 }
 
 type storageOpts struct {
@@ -71,7 +71,7 @@ func homeStorage(t *testing.T, o storageOpts) {
 	clean(t)
 	if o.maxSize != "" {
 		q := resource.MustParse(o.maxSize)
-		cfg.Home.MaxSize = &q
+		env(t).cfg.Home.MaxSize = &q
 	}
 	setStatus(t, model.ClusterStorageStatus{
 		Nodes: o.nodes,
@@ -90,7 +90,7 @@ func newHome(t *testing.T, owner, size string) *model.Home {
 		v := resource.MustParse(size)
 		q = &v
 	}
-	h, err := db.Homes().Ensure(ctx, homeNS, owner, q)
+	h, err := env(t).db.Homes().Ensure(ctx, homeNS, owner, q)
 	must(t, err)
 	return &h
 }
@@ -104,14 +104,14 @@ func testBackends() map[model.HomeMode]storage.Backend {
 }
 
 // fixedUIDs gives everyone the fixed ids, as identity.uidMode fixed does.
-func fixedUIDs() ids.UserIDs {
-	return ids.People{People: db.People(store.IDRange{}), Mode: config.UIDModeFixed}
+func fixedUIDs(t *testing.T) ids.UserIDs {
+	return ids.People{People: env(t).db.People(store.IDRange{}), Mode: config.UIDModeFixed}
 }
 
-func homeReconciler(c client.Client) *HomeReconciler {
+func homeReconciler(t *testing.T, c client.Client) *HomeReconciler {
 	return &HomeReconciler{
-		Client: c, Reader: c, Rows: testRows(), Image: testImage,
-		Backends: testBackends(), UIDs: fixedUIDs(),
+		Client: c, Reader: c, Rows: testRows(t), Image: testImage,
+		Backends: testBackends(), UIDs: fixedUIDs(t),
 	}
 }
 
@@ -129,7 +129,7 @@ func getHome(t *testing.T, owner string) *model.Home { return homeOf(t, homeNS, 
 func getClaim(t *testing.T, name string) *corev1.PersistentVolumeClaim {
 	t.Helper()
 	c := &corev1.PersistentVolumeClaim{}
-	must(t, k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: name}, c))
+	must(t, env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: name}, c))
 	return c
 }
 
@@ -145,7 +145,7 @@ func ready(t *testing.T, h *model.Home) *metav1.Condition {
 func prepareJob(t *testing.T, owner string) batchv1.Job {
 	t.Helper()
 	var l batchv1.JobList
-	must(t, k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{
+	must(t, env(t).k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{
 		model.LabelRole: model.RoleHomePrepare, model.LabelOwner: owner}))
 	if len(l.Items) != 1 {
 		t.Fatalf("prepare jobs of %s = %d, want 1", owner, len(l.Items))
@@ -172,7 +172,7 @@ func finishJob(t *testing.T, j batchv1.Job, ok bool, termMessage string) {
 			{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded", Message: "Job has reached the specified backoff limit"},
 		}
 	}
-	must(t, k8s.Status().Update(ctx, &j))
+	must(t, env(t).k8s.Status().Update(ctx, &j))
 	if termMessage == "" {
 		return
 	}
@@ -181,10 +181,10 @@ func finishJob(t *testing.T, j batchv1.Job, ok bool, termMessage string) {
 		ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-pod", Namespace: homeNS, Labels: map[string]string{batchv1.JobNameLabel: j.Name}},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "prepare", Image: "x"}}},
 	}
-	must(t, k8s.Create(ctx, p))
+	must(t, env(t).k8s.Create(ctx, p))
 	p.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "prepare", State: corev1.ContainerState{
 		Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Message: termMessage}}}}
-	must(t, k8s.Status().Update(ctx, p))
+	must(t, env(t).k8s.Status().Update(ctx, p))
 }
 
 // settled takes a new Home through binding and its prepare Job, so later
@@ -194,7 +194,7 @@ func settled(t *testing.T, r *HomeReconciler, owner string) {
 	reconcileHome(t, r, owner)
 	claim := getClaim(t, naming.HomeClaimName(owner))
 	claim.Status.Phase = corev1.ClaimBound
-	must(t, k8s.Status().Update(ctx, claim))
+	must(t, env(t).k8s.Status().Update(ctx, claim))
 	finishJob(t, prepareJob(t, owner), true, "")
 	reconcileHome(t, r, owner)
 	if !getHome(t, owner).Status.Prepared {
@@ -203,6 +203,7 @@ func settled(t *testing.T, r *HomeReconciler, owner string) {
 }
 
 func TestANewHomeGetsAClaimForTheChosenMode(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		mode   model.HomeMode
 		access corev1.PersistentVolumeAccessMode
@@ -214,7 +215,7 @@ func TestANewHomeGetsAClaimForTheChosenMode(t *testing.T) {
 			homeStorage(t, storageOpts{mode: tc.mode, class: "fast", sizeEnforced: true, nodes: 3})
 			owner := uniqueOwner("alice")
 			newHome(t, owner, "10Gi")
-			reconcileHome(t, homeReconciler(k8s), owner)
+			reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 
 			claim := getClaim(t, naming.HomeClaimName(owner))
 			if got := claim.Spec.AccessModes; len(got) != 1 || got[0] != tc.access {
@@ -238,11 +239,12 @@ func TestANewHomeGetsAClaimForTheChosenMode(t *testing.T) {
 }
 
 func TestAPerUserHomeMadeOnAOneNodeClusterIsMarked(t *testing.T) {
+	t.Parallel()
 	for nodes, want := range map[int32]bool{1: true, 3: false} {
 		homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: nodes})
 		owner := uniqueOwner("bob")
 		newHome(t, owner, "")
-		reconcileHome(t, homeReconciler(k8s), owner)
+		reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 		if got := getHome(t, owner).Status.CreatedOnSingleNode; got != want {
 			t.Errorf("%d nodes: createdOnSingleNode = %v, want %v", nodes, got, want)
 		}
@@ -252,6 +254,7 @@ func TestAPerUserHomeMadeOnAOneNodeClusterIsMarked(t *testing.T) {
 // An M1 claim carries the owner label and no storage class of the new kind.
 // Taking it over must change nothing on it.
 func TestAnEarlierClaimWithTheOwnerLabelIsAdoptedUntouched(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModeShared, class: "fast", expandable: true, nodes: 3})
 	owner := uniqueOwner("carol")
 	old := &corev1.PersistentVolumeClaim{
@@ -261,9 +264,9 @@ func TestAnEarlierClaimWithTheOwnerLabelIsAdoptedUntouched(t *testing.T) {
 			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("10Gi")}},
 		},
 	}
-	must(t, k8s.Create(ctx, old))
+	must(t, env(t).k8s.Create(ctx, old))
 	newHome(t, owner, "10Gi")
-	reconcileHome(t, homeReconciler(k8s), owner)
+	reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 
 	got := getClaim(t, old.Name)
 	if !equality.Semantic.DeepEqual(got.Spec.Resources, old.Spec.Resources) || !slices.Equal(got.Spec.AccessModes, old.Spec.AccessModes) {
@@ -280,6 +283,7 @@ func TestAnEarlierClaimWithTheOwnerLabelIsAdoptedUntouched(t *testing.T) {
 }
 
 func TestAClaimWithoutTheOwnerLabelIsNotAdopted(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("dave")
 	other := &corev1.PersistentVolumeClaim{
@@ -289,9 +293,9 @@ func TestAClaimWithoutTheOwnerLabelIsNotAdopted(t *testing.T) {
 			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
 		},
 	}
-	must(t, k8s.Create(ctx, other))
+	must(t, env(t).k8s.Create(ctx, other))
 	newHome(t, owner, "")
-	reconcileHome(t, homeReconciler(k8s), owner)
+	reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 
 	h := getHome(t, owner)
 	if h.Status.ClaimName != "" {
@@ -307,10 +311,11 @@ func TestAClaimWithoutTheOwnerLabelIsNotAdopted(t *testing.T) {
 
 // Nothing changes silently: a new mode applies to new homes only.
 func TestChangingTheChosenModeLeavesAnExistingHomeAlone(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("erin")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 
 	cs := get(t)
@@ -328,13 +333,14 @@ func TestChangingTheChosenModeLeavesAnExistingHomeAlone(t *testing.T) {
 }
 
 func TestHomeSizeChanges(t *testing.T) {
+	t.Parallel()
 	size := func(c *corev1.PersistentVolumeClaim) string {
 		q := c.Spec.Resources.Requests[corev1.ResourceStorage]
 		return q.String()
 	}
 	resize := func(t *testing.T, owner, to string) {
 		t.Helper()
-		_, err := db.Homes().SetSize(ctx, model.Actor{Person: "admin"}, getHome(t, owner).ID, resource.MustParse(to))
+		_, err := env(t).db.Homes().SetSize(ctx, model.Actor{Person: "admin"}, getHome(t, owner).ID, resource.MustParse(to))
 		must(t, err)
 	}
 
@@ -342,9 +348,9 @@ func TestHomeSizeChanges(t *testing.T) {
 		homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", expandable: true, nodes: 3})
 		owner := uniqueOwner("frank")
 		// The API server only resizes claims of a class that allows it.
-		must(t, k8s.Create(ctx, &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "fast"}, Provisioner: "example.com/csi", AllowVolumeExpansion: ptr.To(true)}))
+		must(t, env(t).k8s.Create(ctx, &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "fast"}, Provisioner: "example.com/csi", AllowVolumeExpansion: ptr.To(true)}))
 		newHome(t, owner, "10Gi")
-		r := homeReconciler(k8s)
+		r := homeReconciler(t, env(t).k8s)
 		settled(t, r, owner)
 		resize(t, owner, "20Gi")
 		reconcileHome(t, r, owner)
@@ -356,7 +362,7 @@ func TestHomeSizeChanges(t *testing.T) {
 		homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 		owner := uniqueOwner("grace")
 		newHome(t, owner, "10Gi")
-		r := homeReconciler(k8s)
+		r := homeReconciler(t, env(t).k8s)
 		settled(t, r, owner)
 		resize(t, owner, "20Gi")
 		reconcileHome(t, r, owner)
@@ -370,9 +376,9 @@ func TestHomeSizeChanges(t *testing.T) {
 	t.Run("grow past the maximum", func(t *testing.T) {
 		homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", expandable: true, nodes: 3, maxSize: "20Gi"})
 		owner := uniqueOwner("judy")
-		must(t, k8s.Create(ctx, &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "fast"}, Provisioner: "example.com/csi", AllowVolumeExpansion: ptr.To(true)}))
+		must(t, env(t).k8s.Create(ctx, &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "fast"}, Provisioner: "example.com/csi", AllowVolumeExpansion: ptr.To(true)}))
 		newHome(t, owner, "10Gi")
-		r := homeReconciler(k8s)
+		r := homeReconciler(t, env(t).k8s)
 		settled(t, r, owner)
 		resize(t, owner, "500Gi")
 		reconcileHome(t, r, owner)
@@ -388,7 +394,7 @@ func TestHomeSizeChanges(t *testing.T) {
 		homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", expandable: true, nodes: 3})
 		owner := uniqueOwner("heidi")
 		newHome(t, owner, "20Gi")
-		r := homeReconciler(k8s)
+		r := homeReconciler(t, env(t).k8s)
 		settled(t, r, owner)
 		resize(t, owner, "10Gi")
 		reconcileHome(t, r, owner)
@@ -402,12 +408,13 @@ func TestHomeSizeChanges(t *testing.T) {
 }
 
 func TestAHomeLargerThanTheMaximumGetsNoClaim(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3, maxSize: "50Gi"})
 	owner := uniqueOwner("ivan")
 	newHome(t, owner, "100Gi")
-	reconcileHome(t, homeReconciler(k8s), owner)
+	reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 
-	if err := k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: naming.HomeClaimName(owner)}, &corev1.PersistentVolumeClaim{}); !apierrors.IsNotFound(err) {
+	if err := env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: naming.HomeClaimName(owner)}, &corev1.PersistentVolumeClaim{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("a claim over the maximum was created: %v", err)
 	}
 	c := ready(t, getHome(t, owner))
@@ -431,11 +438,12 @@ func (q quotaFull) Create(ctx context.Context, obj client.Object, opts ...client
 }
 
 func TestAnExhaustedQuotaIsTeamStorageFullWithTheAPIMessage(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("judy")
 	newHome(t, owner, "10Gi")
 	const apiMsg = "exceeded quota: team-storage, requested: requests.storage=10Gi, used: requests.storage=95Gi, limited: requests.storage=100Gi"
-	reconcileHome(t, homeReconciler(quotaFull{k8s, apiMsg}), owner)
+	reconcileHome(t, homeReconciler(t, quotaFull{env(t).k8s, apiMsg}), owner)
 
 	got := ready(t, getHome(t, owner))
 	if got.Status != metav1.ConditionFalse || got.Reason != string(reasons.TeamStorageFull) || !strings.Contains(got.Message, apiMsg) {
@@ -447,10 +455,11 @@ func TestAnExhaustedQuotaIsTeamStorageFullWithTheAPIMessage(t *testing.T) {
 }
 
 func TestThePrepareJobMountsOnlyTheHomeAndSetsFSGroup(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("kate")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 	reconcileHome(t, r, owner) // a second pass must not make a second Job
 
@@ -494,10 +503,11 @@ func TestThePrepareJobMountsOnlyTheHomeAndSetsFSGroup(t *testing.T) {
 }
 
 func TestAHomeIsPreparedOnceItsJobCompletes(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("liam")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 	finishJob(t, prepareJob(t, owner), true, "")
 	reconcileHome(t, r, owner)
@@ -514,10 +524,11 @@ func TestAHomeIsPreparedOnceItsJobCompletes(t *testing.T) {
 // A driver that ignores fsGroup makes the Job fail; the home stays unprepared
 // and the Job's own words reach the condition.
 func TestAFailedPrepareJobIsEvidenceNotAReadyHome(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("mia")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 	const said = "volume at /home-root is owned by 0:0 with mode drwxr-xr-x, which user 1000 in group 100 cannot write: the storage driver did not apply fsGroup"
 	finishJob(t, prepareJob(t, owner), false, said)
@@ -534,28 +545,30 @@ func TestAFailedPrepareJobIsEvidenceNotAReadyHome(t *testing.T) {
 }
 
 func TestAHomeWaitsForTheOwnersUIDInAllocatedMode(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("noah")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
-	r.UIDs = ids.People{People: db.People(store.IDRange{}), Mode: config.UIDModeAllocated}
+	r := homeReconciler(t, env(t).k8s)
+	r.UIDs = ids.People{People: env(t).db.People(store.IDRange{}), Mode: config.UIDModeAllocated}
 	reconcileHome(t, r, owner)
 
 	if c := ready(t, getHome(t, owner)); c.Status != metav1.ConditionFalse || c.Reason != string(reasons.IdentityPending) {
 		t.Fatalf("Ready = %+v", c)
 	}
 	var jobs batchv1.JobList
-	must(t, k8s.List(ctx, &jobs, client.InNamespace(homeNS), client.MatchingLabels{model.LabelOwner: owner}))
+	must(t, env(t).k8s.List(ctx, &jobs, client.InNamespace(homeNS), client.MatchingLabels{model.LabelOwner: owner}))
 	if len(jobs.Items) != 0 {
 		t.Fatal("a Job ran as an unknown uid")
 	}
 }
 
 func TestAHomeWithoutAStorageChoiceWaits(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	owner := uniqueOwner("olga")
 	newHome(t, owner, "")
-	res := reconcileHome(t, homeReconciler(k8s), owner)
+	res := reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 	if res.RequeueAfter == 0 {
 		t.Fatal("a Home read before the cluster was inspected must be looked at again")
 	}
@@ -565,6 +578,7 @@ func TestAHomeWithoutAStorageChoiceWaits(t *testing.T) {
 }
 
 func TestAnAdoptedClaimKeepsItsSizeWhateverTheClusterDefaultIs(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, claim, cluster string }{{"larger default", "10Gi", "20Gi"}, {"smaller default", "20Gi", "10Gi"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			homeStorage(t, storageOpts{mode: model.HomeModeShared, class: "fast", expandable: true, nodes: 3})
@@ -576,12 +590,12 @@ func TestAnAdoptedClaimKeepsItsSizeWhateverTheClusterDefaultIs(t *testing.T) {
 					Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(tc.claim)}},
 				},
 			}
-			must(t, k8s.Create(ctx, old))
+			must(t, env(t).k8s.Create(ctx, old))
 			old.Status.Phase = corev1.ClaimBound
-			must(t, k8s.Status().Update(ctx, old))
+			must(t, env(t).k8s.Status().Update(ctx, old))
 			old = getClaim(t, old.Name)
 			newHome(t, owner, tc.cluster) // what the workspace controller asks for a new Home
-			r := homeReconciler(k8s)
+			r := homeReconciler(t, env(t).k8s)
 			reconcileHome(t, r, owner)
 			reconcileHome(t, r, owner)
 
@@ -602,6 +616,7 @@ func TestAnAdoptedClaimKeepsItsSizeWhateverTheClusterDefaultIs(t *testing.T) {
 }
 
 func TestThePrepareJobStaysOnTheNodeOfTheOwnersPodsOnlyWhenTheDiskIsPerUserOnManyNodes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		mode  model.HomeMode
@@ -616,7 +631,7 @@ func TestThePrepareJobStaysOnTheNodeOfTheOwnersPodsOnlyWhenTheDiskIsPerUserOnMan
 			homeStorage(t, storageOpts{mode: tc.mode, class: "fast", nodes: tc.nodes})
 			owner := uniqueOwner("niaj")
 			newHome(t, owner, "")
-			reconcileHome(t, homeReconciler(k8s), owner)
+			reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 			aff := prepareJob(t, owner).Spec.Template.Spec.Affinity
 			if !tc.want {
 				if aff != nil {
@@ -648,11 +663,12 @@ func (c claimRefused) Create(ctx context.Context, obj client.Object, opts ...cli
 }
 
 func TestARefusedClaimShowsTheAPIErrorOnTheHome(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("nina")
 	newHome(t, owner, "10Gi")
 	const apiMsg = "maximum storage usage per PersistentVolumeClaim is 5Gi, but request is 10Gi"
-	res := reconcileHome(t, homeReconciler(claimRefused{k8s, apiMsg}), owner)
+	res := reconcileHome(t, homeReconciler(t, claimRefused{env(t).k8s, apiMsg}), owner)
 
 	got := ready(t, getHome(t, owner))
 	if got.Status != metav1.ConditionFalse || got.Reason != string(reasons.HomePending) || !strings.Contains(got.Message, apiMsg) {
@@ -664,10 +680,11 @@ func TestARefusedClaimShowsTheAPIErrorOnTheHome(t *testing.T) {
 }
 
 func TestAChosenModeWithoutABackendShowsOnTheHome(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("omar")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	r.Backends = nil
 	reconcileHome(t, r, owner)
 
@@ -678,10 +695,11 @@ func TestAChosenModeWithoutABackendShowsOnTheHome(t *testing.T) {
 }
 
 func TestAFailedPrepareIsReportedAsFailedWithTheJobsWords(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("pia")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 	const said = "the storage driver did not apply fsGroup"
 	finishJob(t, prepareJob(t, owner), false, said)
@@ -696,10 +714,11 @@ func TestAFailedPrepareIsReportedAsFailedWithTheJobsWords(t *testing.T) {
 // A setup that can never work is not retried for ever: after the last
 // attempt the Job stays as the evidence and no new one is made.
 func TestAHomeWhosePrepareKeepsFailingStopsGettingNewJobs(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})
 	owner := uniqueOwner("quin")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	for i := 0; i < maxPrepareAttempts; i++ {
 		reconcileHome(t, r, owner)
 		j := prepareJob(t, owner)
@@ -710,7 +729,7 @@ func TestAHomeWhosePrepareKeepsFailingStopsGettingNewJobs(t *testing.T) {
 		finishJob(t, j, false, said)
 		reconcileHome(t, r, owner)
 		if i < maxPrepareAttempts-1 {
-			must(t, k8s.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))) // what the TTL does
+			must(t, env(t).k8s.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))) // what the TTL does
 		}
 	}
 	last := prepareJob(t, owner)
@@ -731,6 +750,7 @@ func TestAHomeWhosePrepareKeepsFailingStopsGettingNewJobs(t *testing.T) {
 // or one without the role label) is never used, and the Home says which Job
 // is in the way instead of staying at "preparing".
 func TestAPrepareJobNameTakenByAnotherJobShowsOnTheHome(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		owned bool
@@ -750,8 +770,8 @@ func TestAPrepareJobNameTakenByAnotherJobShowsOnTheHome(t *testing.T) {
 			if tc.owned {
 				other.Labels = map[string]string{model.LabelHome: h.ID}
 			}
-			must(t, k8s.Create(ctx, other))
-			res := reconcileHome(t, homeReconciler(k8s), owner)
+			must(t, env(t).k8s.Create(ctx, other))
+			res := reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 
 			c := ready(t, getHome(t, owner))
 			if c.Status != metav1.ConditionFalse || c.Reason != string(reasons.HomePending) || !strings.Contains(c.Message, jobName) {
@@ -793,16 +813,17 @@ func (c *afterHomeGet) List(ctx context.Context, list client.ObjectList, opts ..
 // wrote Migrating=True must not write its older conditions over it: that would
 // lift the hold on the owner's apps in the middle of a copy.
 func TestAStaleHomePassDoesNotOverwriteTheMigratingHold(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3, expandable: true})
 	owner := uniqueOwner("rex")
 	newHome(t, owner, "10Gi")
-	c := &afterHomeGet{Client: k8s}
+	c := &afterHomeGet{Client: env(t).k8s}
 	c.hook = func() {
 		editHome(t, homeNS, owner, func(h *model.Home) {
 			meta.SetStatusCondition(&h.Status.Conditions, metav1.Condition{Type: model.ConditionMigrating, Status: metav1.ConditionTrue, Reason: "Copying", Message: "x"})
 		})
 	}
-	r := homeReconciler(c)
+	r := homeReconciler(t, c)
 	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: getHome(t, owner).ID}})
 
 	if err != nil {
@@ -828,7 +849,7 @@ func jobPod(t *testing.T, j batchv1.Job) *corev1.Pod {
 		ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-x1", Namespace: j.Namespace, Labels: map[string]string{batchv1.JobNameLabel: j.Name}},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "prepare", Image: "x"}}},
 	}
-	must(t, k8s.Create(ctx, p))
+	must(t, env(t).k8s.Create(ctx, p))
 	return p
 }
 
@@ -836,7 +857,7 @@ func jobPod(t *testing.T, j batchv1.Job) *corev1.Pod {
 // and seen again just now.
 func podWarning(t *testing.T, p *corev1.Pod, reason, msg string, first time.Time) {
 	t.Helper()
-	must(t, k8s.Create(ctx, &corev1.Event{
+	must(t, env(t).k8s.Create(ctx, &corev1.Event{
 		ObjectMeta:     metav1.ObjectMeta{GenerateName: "ev-", Namespace: p.Namespace},
 		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: p.Name, Namespace: p.Namespace, UID: p.UID},
 		Reason:         reason, Message: msg, Type: corev1.EventTypeWarning, Count: 5,
@@ -849,12 +870,13 @@ const noNFSHelper = "MountVolume.MountDevice failed for volume \"pvc-1\" : mount
 // A prepare Job whose volume never mounts is not "setting up" for ever: once
 // the kubelet has kept failing past the grace, the Home fails with its words.
 func TestAPrepareJobWhoseVolumeKeepsFailingToMountFailsTheHome(t *testing.T) {
+	t.Parallel()
 	for _, reason := range []string{"FailedMount", "FailedAttachVolume"} {
 		t.Run(reason, func(t *testing.T) {
 			homeStorage(t, storageOpts{mode: model.HomeModeShared, class: "longhorn", nodes: 3})
 			owner := uniqueOwner("sven")
 			newHome(t, owner, "")
-			r := homeReconciler(k8s)
+			r := homeReconciler(t, env(t).k8s)
 			reconcileHome(t, r, owner)
 			podWarning(t, jobPod(t, prepareJob(t, owner)), reason, noNFSHelper, time.Now().Add(-5*time.Minute))
 			res := reconcileHome(t, r, owner)
@@ -873,10 +895,11 @@ func TestAPrepareJobWhoseVolumeKeepsFailingToMountFailsTheHome(t *testing.T) {
 // The first mount attempts of a new volume often fail while it is attached;
 // they are not a failure yet.
 func TestAMountFailureWithinTheGraceIsStillSettingUp(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModeShared, class: "longhorn", nodes: 3})
 	owner := uniqueOwner("tove")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 	podWarning(t, jobPod(t, prepareJob(t, owner)), "FailedMount", noNFSHelper, time.Now().Add(-5*time.Second))
 	reconcileHome(t, r, owner)
@@ -889,10 +912,11 @@ func TestAMountFailureWithinTheGraceIsStillSettingUp(t *testing.T) {
 // The Job's deadline ends a pod that never mounted; the Home still says it
 // was the mount, not a setup that failed.
 func TestAPrepareJobThatTimedOutMountingSaysItWasTheMount(t *testing.T) {
+	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModeShared, class: "longhorn", nodes: 3})
 	owner := uniqueOwner("ulla")
 	newHome(t, owner, "")
-	r := homeReconciler(k8s)
+	r := homeReconciler(t, env(t).k8s)
 	reconcileHome(t, r, owner)
 	j := prepareJob(t, owner)
 	podWarning(t, jobPod(t, j), "FailedMount", noNFSHelper, time.Now().Add(-10*time.Minute))
