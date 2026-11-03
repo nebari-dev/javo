@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -80,12 +81,19 @@ func createPostgres(ctx context.Context, adminDSN, template string) (store.Confi
 	if template != "" {
 		create += " TEMPLATE " + template
 	}
-	if _, err := admin.ExecContext(ctx, create); err != nil {
-		admin.Close()
+	_, err = admin.ExecContext(ctx, create)
+	// The admin connection is not held for the test: parallel tests would
+	// otherwise each keep one open and run the server out of connections.
+	admin.Close()
+	if err != nil {
 		return store.Config{}, nil, fmt.Errorf("storetest: postgres at %s unreachable: %w", u.Host, err)
 	}
 	u.Path = "/" + name
 	cleanup := func() {
+		admin, err := sql.Open("pgx", adminDSN)
+		if err != nil {
+			return
+		}
 		defer admin.Close()
 		_, _ = admin.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	}
@@ -157,17 +165,21 @@ func Exec(t testing.TB, s *store.Store, query string, args ...any) {
 	}
 }
 
-// New returns a migrated store on a fresh database. On Postgres the schema
-// is migrated once per test binary into a template database and each New is
-// a copy of it, which is many times faster than migrating every database.
+// New returns a migrated store on a fresh database. The schema is migrated
+// once per test binary into a template database (a file on SQLite) and each
+// New is a copy of it, which is many times faster than migrating every one.
 func New(t testing.TB) *store.Store {
 	t.Helper()
 	if Engine() != store.EnginePostgres {
-		s := Open(t, Config(t))
-		if err := s.Migrate(context.Background()); err != nil {
+		img, err := sqliteTemplate()
+		if err != nil {
 			t.Fatal(err)
 		}
-		return s
+		cfg := Config(t)
+		if err := os.WriteFile(cfg.Path, img, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return Open(t, cfg)
 	}
 	adminDSN := os.Getenv(envPGDSN)
 	tpl, err := migratedTemplate(adminDSN)
@@ -181,6 +193,33 @@ func New(t testing.TB) *store.Store {
 	t.Cleanup(cleanup)
 	return Open(t, cfg)
 }
+
+// sqliteTemplate migrates a SQLite database once per process and returns its
+// file, which New copies: copying a file is much faster than migrating.
+var sqliteTemplate = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "storetest-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	cfg := store.Config{Engine: store.EngineSQLite, Path: filepath.Join(dir, "javo.db")}
+	s, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		return nil, err
+	}
+	err = s.Migrate(context.Background())
+	if cerr := s.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return nil, fmt.Errorf("storetest: migrate the template database: %w", err)
+	}
+	// Closing the last connection folds the write-ahead log into the file.
+	if _, err := os.Stat(cfg.Path + "-wal"); err == nil {
+		return nil, errors.New("storetest: the template database kept its write-ahead log")
+	}
+	return os.ReadFile(cfg.Path)
+})
 
 var template struct {
 	once sync.Once
