@@ -251,6 +251,12 @@ true
 {{/* The controller's own flags. */}}
 {{- define "javo.controllerArgs" -}}
 - --network-policy={{ .Values.networkPolicy.enabled }}
+{{- with .Values.networkPolicy.egress }}
+- --egress-deny-cidrs={{ join "," .denyCIDRs }}
+{{- with .allowCIDRs }}
+- --egress-allow-cidrs={{ join "," . }}
+{{- end }}
+{{- end }}
 - --gateway-pod-labels={{ include "javo.gatewayPodLabels" . }}
 {{- if ne (include "javo.namespaceMode" .) "shared" }}
 {{- range $sa := list "javo-gateway" "javo-controller" }}

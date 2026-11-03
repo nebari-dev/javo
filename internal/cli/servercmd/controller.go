@@ -60,6 +60,8 @@ type controllerOptions struct {
 	gatewayNS    string
 	gatewayPods  map[string]string
 	networkPol   bool
+	egressDeny   []string
+	egressAllow  []string
 	appBindings  []string
 	metricsAddr  string
 	probeAddr    string
@@ -92,6 +94,10 @@ func (o *controllerOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.gatewayNS, "gateway-namespace", os.Getenv("POD_NAMESPACE"), "namespace of the gateway pods, the only ones allowed to reach apps")
 	f.StringToStringVar(&o.gatewayPods, "gateway-pod-labels", nil, "labels of the gateway pods (key=value,...)")
 	f.BoolVar(&o.networkPol, "network-policy", true, "keep the default-deny NetworkPolicies in every workspace namespace")
+	f.StringSliceVar(&o.egressDeny, "egress-deny-cidrs", []string{"169.254.169.254/32", "fd00:ec2::254/128"},
+		"address ranges app and job pods may not reach; empty denies none")
+	f.StringSliceVar(&o.egressAllow, "egress-allow-cidrs", nil,
+		"if set, the only address ranges app and job pods may reach, besides DNS, the gateway and their own namespace")
 	f.StringSliceVar(&o.appBindings, "app-role-binding", nil,
 		"bind a ClusterRole to a service account in every workspace namespace (clusterrole=namespace/serviceaccount, repeatable)")
 	f.StringVar(&o.metricsAddr, "metrics-bind-address", ":8081", "metrics endpoint address")
@@ -159,6 +165,10 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if err != nil {
 		return err
 	}
+	egress, err := namespace.ParseEgress(o.egressDeny, o.egressAllow)
+	if err != nil {
+		return err
+	}
 	backupClaimSize, err := resource.ParseQuantity(o.backupClaim.size)
 	if err != nil {
 		return fmt.Errorf("--backup-claim-size: %w", err)
@@ -192,7 +202,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if err := (&namespace.Reconciler{
 		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Store: db, Placement: wiring.Placement(platform),
 		Gateway:       namespace.GatewayPods{Namespace: o.gatewayNS, Labels: o.gatewayPods},
-		NetworkPolicy: o.networkPol, Bindings: bindings, Extra: extra,
+		NetworkPolicy: o.networkPol, Egress: egress, Bindings: bindings, Extra: extra,
 		PullSecrets: namespace.PullSecrets{Namespace: releaseNS, Names: o.pullSecrets},
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err

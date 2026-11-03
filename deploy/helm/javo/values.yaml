@@ -140,6 +140,20 @@ networkPolicy:
   # at start and this often. Templates with appLogin: Disabled start only
   # while the result is Enforced (the result is stored in the database).
   probeInterval: 6h
+  # Where app and job pods may connect to (file picker pods have no egress
+  # at all). The controller keeps this as the limit-egress NetworkPolicy in
+  # every workspace namespace.
+  egress:
+    # Address ranges no pod may reach. The default are the cloud metadata
+    # addresses (AWS, GCP, Azure and others), which hand out the node's cloud
+    # credentials. [] denies nothing. Pod addresses are not affected.
+    denyCIDRs: [169.254.169.254/32, "fd00:ec2::254/128"]
+    # When set, the only address ranges pods may reach (less denyCIDRs),
+    # besides DNS (port 53), the gateway and their own namespace. Other pods
+    # in the cluster, the internet and the ingress address (apps call the API
+    # at config.urls.uiHost) must be listed to stay reachable. Empty: anything
+    # but denyCIDRs.
+    allowCIDRs: []
 
 # Host (and port, if not the default) browsers reach the gateway at, e.g.
 # javo.example.com. Panel and Bokeh accept websockets only from this origin

@@ -687,3 +687,32 @@ func TestControllerCannotListSecretsInReleaseNamespace(t *testing.T) {
 		})
 	}
 }
+
+// The controller keeps the egress policy from these values: by default it
+// denies the cloud metadata addresses, and an allow list is passed on.
+func TestEgressValuesReachTheController(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{nil, []string{"--egress-deny-cidrs=169.254.169.254/32,fd00:ec2::254/128"}},
+		{[]string{"--set-json", "networkPolicy.egress.denyCIDRs=[]"}, []string{"--egress-deny-cidrs="}},
+		{[]string{"--set-json", `networkPolicy.egress.allowCIDRs=["10.0.0.0/8","192.0.2.0/24"]`},
+			[]string{"--egress-deny-cidrs=169.254.169.254/32,fd00:ec2::254/128", "--egress-allow-cidrs=10.0.0.0/8,192.0.2.0/24"}},
+	} {
+		out, err := render(t, c.args...)
+		if err != nil {
+			t.Fatalf("%v: render: %v\n%s", c.args, err, out)
+		}
+		var got []string
+		for _, a := range controllerArgs(t, out) {
+			if strings.HasPrefix(a, "--egress-") {
+				got = append(got, a)
+			}
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%v: egress args = %v, want %v", c.args, got, c.want)
+		}
+	}
+}

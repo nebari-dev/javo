@@ -1,7 +1,8 @@
 // Package namespace keeps the namespaces workspaces live in: it creates each
-// one the placement wants, labels it, and gives it the policy that keeps apps
-// reachable only through the gateway. It never deletes a namespace: they hold
-// people's home volumes.
+// one the placement wants, labels it, and gives it the policies that keep apps
+// reachable only through the gateway and limit where pods connect to (never
+// the cloud metadata addresses, by default). It never deletes a namespace:
+// they hold people's home volumes.
 package namespace
 
 import (
@@ -66,6 +67,8 @@ type Reconciler struct {
 	Gateway   GatewayPods
 	// NetworkPolicy adds the policies below to every namespace.
 	NetworkPolicy bool
+	// Egress is what the limit-egress policy lets pods reach.
+	Egress Egress
 	// Bindings are made in every namespace kept.
 	Bindings []Binding
 	// Extra are namespaces kept besides the placement's, like them (labels,
@@ -138,7 +141,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 // person change or restart. Namespaces the controller does not manage are
 // left alone.
 func (r *Reconciler) reconcilePolicy(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if req.Name != policyAllowGateway && req.Name != policyDenyEgress {
+	if req.Name != policyAllowGateway && req.Name != policyDenyEgress && req.Name != policyLimitEgress {
 		return ctrl.Result{}, nil
 	}
 	var ns corev1.Namespace
@@ -249,7 +252,7 @@ func (r *Reconciler) ensurePolicies(ctx context.Context, ns string) error {
 	if !r.NetworkPolicy {
 		return nil
 	}
-	for _, build := range []func(string) *networkingv1.NetworkPolicy{r.allowGatewayOnly, denyFilesEgress} {
+	for _, build := range []func(string) *networkingv1.NetworkPolicy{r.allowGatewayOnly, denyFilesEgress, r.limitEgress} {
 		want := build(ns)
 		got := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: want.Namespace, Name: want.Name}}
 		err := r.reader().Get(ctx, client.ObjectKeyFromObject(got), got)
