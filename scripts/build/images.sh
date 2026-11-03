@@ -11,7 +11,8 @@
 #
 # Usage: scripts/build/images.sh <registry> <values-file> [image...]
 #   registry     host address of the registry, e.g. localhost:5001
-#                (scripts/dev/registry-up.sh)
+#                (scripts/dev/registry-up.sh); this machine checks it at
+#                JAVO_REGISTRY_PROBE when set (scripts/dev/remote-env.sh)
 #   values-file  Helm values written: image
 #   image        only these (javo, fakegithub: the e2e tests' fake GitHub
 #                API); default javo. Images not named keep the reference
@@ -29,12 +30,13 @@ cd "$root"
 want=("$@")
 if [ ${#want[@]} -eq 0 ]; then want=(javo); fi
 platform="$(docker version -f '{{.Server.Os}}/{{.Server.Arch}}')"
+probe=${JAVO_REGISTRY_PROBE:-$registry}
 
 # in_registry <repo> <tag>: the registry has that manifest.
 in_registry() {
   curl -fsS -o /dev/null -I \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
-    "http://$registry/v2/$1/manifests/$2" 2>/dev/null
+    "http://$probe/v2/$1/manifests/$2" 2>/dev/null
 }
 
 # refs: "name ref" lines, what values-file had, then this run's.
