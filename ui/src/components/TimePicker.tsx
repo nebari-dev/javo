@@ -31,7 +31,7 @@ export function TimePicker({
         {label}
       </span>
       <div className="timepick" role="group" aria-labelledby={id}>
-        <Select aria-label="Hour" value={hour} onChange={(e) => onChange(Number(e.target.value), minute)}>
+        <Select aria-label="Hour" value={hour} onValueChange={(v) => onChange(Number(v), minute)}>
           {HOURS.map((h) => (
             <option key={h} value={h}>
               {hourLabel(h, locale)}
@@ -41,7 +41,7 @@ export function TimePicker({
         <span className="timepick-sep" aria-hidden="true">
           :
         </span>
-        <Select aria-label="Minute" value={minute} onChange={(e) => onChange(hour, Number(e.target.value))}>
+        <Select aria-label="Minute" value={minute} onValueChange={(v) => onChange(hour, Number(v))}>
           {MINUTES.map((m) => (
             <option key={m} value={m}>
               {pad(m)}

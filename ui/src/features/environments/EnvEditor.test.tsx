@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { EnvEditor, envBody, envChanged, envLabel, rowsOf, type EnvRow } from './EnvEditor'
+import { choose } from '../../test/select'
 
 function Harness({
   initial = [] as EnvRow[],
@@ -67,14 +68,14 @@ describe('envBody', () => {
 })
 
 describe('EnvEditor', () => {
-  it('takes a typed value, then a secret named after itself until a name is typed', () => {
+  it('takes a typed value, then a secret named after itself until a name is typed', async () => {
     let last: EnvRow[] = []
     render(<Harness onRows={(r) => (last = r)} />)
     fireEvent.click(screen.getByRole('button', { name: 'Add a variable' }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'LOG_LEVEL' } })
     fireEvent.change(screen.getByLabelText('Value'), { target: { value: 'debug' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add a variable' }))
-    fireEvent.change(screen.getAllByLabelText('From')[1], { target: { value: 'secret' } })
+    await choose(screen.getAllByLabelText('From')[1], 'Secret')
     fireEvent.click(screen.getByRole('combobox', { name: 'Secret' }))
     fireEvent.click(screen.getByRole('option', { name: 'OPENAI_KEY' }))
     expect((screen.getAllByLabelText('Name')[1] as HTMLInputElement).value).toBe('OPENAI_KEY')

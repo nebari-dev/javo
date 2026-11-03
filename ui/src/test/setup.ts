@@ -10,6 +10,9 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 }
 Element.prototype.scrollIntoView ??= function () {}
+// Radix Select (the dropdowns) asks about pointer capture, which jsdom lacks.
+Element.prototype.hasPointerCapture ??= () => false
+Element.prototype.releasePointerCapture ??= () => {}
 Object.assign(globalThis, { EventSource: FakeEventSource })
 import { noteIdpHeader } from '../lib/idp'
 import { applyBrand, DEFAULT_BRAND } from '../lib/brand'

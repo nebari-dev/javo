@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { AdminApp, BackupRunSummary, BackupsOutputBody, TransferRow } from '../../../api'
 import { mockApi, renderApp } from '../../../test/api'
 import { adminMe, allReady, allStopped, me, ws } from '../../../test/fixtures'
+import { choose, optionsOf } from '../../../test/select'
 
 const plots: AdminApp = {
   id: 'a-1',
@@ -233,11 +234,12 @@ describe('Settings for platform admins', () => {
       'POST /api/admin/backups/restore': { status: 201, body: { job: 'restore', owner: 'admin-00000000', runId: 'run-9' } },
     })
     renderApp('/settings/backups')
-    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Backup to restore' }), 'backup-r1')
+    // The older backup, the one without problems.
+    await choose(await screen.findByRole('combobox', { name: 'Backup to restore' }), /^(?!.*with problems)/)
     // Two people called alice tell apart by display name, username and how they sign in.
-    expect(screen.getByRole('option', { name: 'Alice Example (alice, local)' })).toBeTruthy()
-    expect(screen.getByRole('option', { name: 'alice (SSO)' })).toBeTruthy()
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Whose files' }), 'alice-aaaaaaaa')
+    const whose = screen.getByRole('combobox', { name: 'Whose files' })
+    expect(await optionsOf(whose)).toEqual(expect.arrayContaining(['Alice Example (alice, local)', 'alice (SSO)']))
+    await choose(whose, 'Alice Example (alice, local)')
     await userEvent.click(screen.getByRole('radio', { name: /Put beside current files/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Restore' }))
     const post = api.calls.find((c) => c.method === 'POST' && c.path === '/api/admin/backups/restore')

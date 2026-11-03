@@ -74,7 +74,7 @@ export function ScheduleBuilder({ value, onChange, cronError, onCronBlur }: Sche
     <div className="sched">
       <div className="field">
         <label htmlFor={ids.kind}>Repeats</label>
-        <Select id={ids.kind} value={value.kind} onChange={(e) => onChange(switchTo(e.target.value as ScheduleKind, value))}>
+        <Select id={ids.kind} value={value.kind} onValueChange={(v) => onChange(switchTo(v as ScheduleKind, value))}>
           {KINDS.map(([k, l]) => (
             <option key={k} value={k}>
               {l}
@@ -86,7 +86,7 @@ export function ScheduleBuilder({ value, onChange, cronError, onCronBlur }: Sche
       {value.kind === 'minutes' && (
         <div className="field">
           <label htmlFor={ids.every}>Every</label>
-          <Select id={ids.every} value={value.every} onChange={(e) => onChange({ ...value, every: Number(e.target.value) })}>
+          <Select id={ids.every} value={value.every} onValueChange={(v) => onChange({ ...value, every: Number(v) })}>
             {MINUTE_STEPS.map((n) => (
               <option key={n} value={n}>
                 {n} minutes
@@ -98,7 +98,7 @@ export function ScheduleBuilder({ value, onChange, cronError, onCronBlur }: Sche
       {value.kind === 'hourly' && (
         <div className="field">
           <label htmlFor={ids.minute}>At minute</label>
-          <Select id={ids.minute} value={value.minute} onChange={(e) => onChange({ ...value, minute: Number(e.target.value) })}>
+          <Select id={ids.minute} value={value.minute} onValueChange={(v) => onChange({ ...value, minute: Number(v) })}>
             {Array.from({ length: 60 }, (_, m) => (
               <option key={m} value={m}>
                 :{pad(m)}
@@ -123,7 +123,7 @@ export function ScheduleBuilder({ value, onChange, cronError, onCronBlur }: Sche
         <div className="sched-pair">
           <div className="field">
             <label htmlFor={ids.day}>On day</label>
-            <Select id={ids.day} value={value.day} onChange={(e) => onChange({ ...value, day: Number(e.target.value) })}>
+            <Select id={ids.day} value={value.day} onValueChange={(v) => onChange({ ...value, day: Number(v) })}>
               {Array.from({ length: 31 }, (_, i) => (
                 <option key={i + 1} value={i + 1}>
                   {ordinal(i + 1)}

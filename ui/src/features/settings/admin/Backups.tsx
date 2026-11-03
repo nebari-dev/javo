@@ -232,7 +232,7 @@ function RestoreFull({ b }: { b: BucketState }) {
         <>
           <div className="field fit">
             <label htmlFor={ids.date}>Backup to restore</label>
-            <Select id={ids.date} value={from} onChange={(e) => setPicked(e.target.value)}>
+            <Select id={ids.date} value={from} onValueChange={(v) => setPicked(v)}>
               {runs.map((r) => (
                 <option key={r.run} value={r.run}>
                   {when(r.startedAt)}
@@ -243,7 +243,7 @@ function RestoreFull({ b }: { b: BucketState }) {
           </div>
           <div className="field fit">
             <label htmlFor={ids.who}>Whose files</label>
-            <Select id={ids.who} value={person} onChange={(e) => setPerson(e.target.value)}>
+            <Select id={ids.who} value={person} onValueChange={(v) => setPerson(v)}>
               <option value="">Everyone</option>
               {homes.map((h) => (
                 <option key={h.id} value={h.owner}>

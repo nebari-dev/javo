@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mockApi, renderIn } from '../../test/api'
 import { LIMIT_TEXT, previewApp, repoApp } from '../../test/fixtures'
 import { isGitHubRepo, PreviewsCard } from './PreviewsCard'
+import { choose, optionsOf } from '../../test/select'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -96,8 +97,7 @@ describe('PreviewsCard', () => {
     renderIn(<PreviewsCard ws={repoApp('site')} />)
     await screen.findByRole('list', { name: 'Pull requests' })
     await userEvent.click(screen.getByRole('button', { name: 'Limit, pull requests from forks and webhook' }))
-    const options = within(screen.getByLabelText('Previews at most')).getAllByRole('option')
-    expect(options.map((o) => o.textContent)).toEqual(['1', '2', '3', '4'])
+    expect(await optionsOf(screen.getByLabelText('Previews at most'))).toEqual(['1', '2', '3', '4'])
   })
 
   it('saves a new limit and the forks switch', async () => {
@@ -105,7 +105,7 @@ describe('PreviewsCard', () => {
     renderIn(<PreviewsCard ws={repoApp('site')} />)
     await screen.findByRole('list', { name: 'Pull requests' })
     await userEvent.click(screen.getByRole('button', { name: 'Limit, pull requests from forks and webhook' }))
-    await userEvent.selectOptions(screen.getByLabelText('Previews at most'), '5')
+    await choose(screen.getByLabelText('Previews at most'), '5')
     await waitFor(() => expect(m.calls.filter((c) => c.method === 'PUT').at(-1)?.body).toEqual({ enabled: true, max: 5, forks: false }))
     await userEvent.click(screen.getByRole('switch', { name: 'Also preview pull requests from forks' }))
     await waitFor(() => expect(m.calls.filter((c) => c.method === 'PUT').at(-1)?.body).toEqual({ enabled: true, max: 3, forks: true }))

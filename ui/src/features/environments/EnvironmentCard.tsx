@@ -25,7 +25,7 @@ export function EnvironmentCard({ value, onChange, error, what }: { value: strin
         <Select
           id={ids.select}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onValueChange={(v) => onChange(v)}
           disabled={items.length === 0}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? ids.err : ids.hint}

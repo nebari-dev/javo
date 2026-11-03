@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
 import { allReady, idlePolicy, me, stepsAt, stoppedIdle, templates, ws } from '../../test/fixtures'
+import { choose, optionsOf } from '../../test/select'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -33,7 +34,7 @@ describe('New app Stop when idle', () => {
     const api = setup()
     await openAdvanced()
     expect(screen.getByRole('switch', { name: 'Stop when idle' }).getAttribute('aria-checked')).toBe('true')
-    expect((screen.getByRole('combobox', { name: 'Stop after' }) as HTMLSelectElement).value).toBe('60')
+    expect(screen.getByRole('combobox', { name: 'Stop after' }).textContent).toBe('60 minutes')
     await create()
     expect(createBody(api)).not.toHaveProperty('idleStopMinutes')
   })
@@ -42,9 +43,8 @@ describe('New app Stop when idle', () => {
     const api = setup({ ...idlePolicy, minMinutes: 30, maxMinutes: 240 })
     await openAdvanced()
     const after = screen.getByRole('combobox', { name: 'Stop after' })
-    const offered = within(after).getAllByRole('option').map((o) => o.textContent)
-    expect(offered).toEqual(['30 minutes', '60 minutes', '2 hours', '4 hours'])
-    await userEvent.selectOptions(after, '120')
+    expect(await optionsOf(after)).toEqual(['30 minutes', '60 minutes', '2 hours', '4 hours'])
+    await choose(after, '2 hours')
     await create()
     expect(createBody(api)).toMatchObject({ idleStopMinutes: 120 })
   })
@@ -71,7 +71,7 @@ describe('New app Stop when idle', () => {
     const sw = screen.getByRole('switch', { name: 'Stop when idle' })
     expect(sw.getAttribute('aria-checked')).toBe('false')
     await userEvent.click(sw)
-    expect((screen.getByRole('combobox', { name: 'Stop after' }) as HTMLSelectElement).value).toBe('60')
+    expect(screen.getByRole('combobox', { name: 'Stop after' }).textContent).toBe('60 minutes')
     await create()
     expect(createBody(api)).toMatchObject({ idleStopMinutes: 60 })
   })

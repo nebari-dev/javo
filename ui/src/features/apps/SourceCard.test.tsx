@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mockApi, renderIn } from '../../test/api'
 import { previewApp, repoApp, staticTemplate, ws, allReady } from '../../test/fixtures'
 import { SourceCard } from './SourceCard'
+import { choose } from '../../test/select'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -70,10 +71,9 @@ describe('SourceCard', () => {
     expect(screen.getByText('From OLD_TOKEN')).toBeTruthy()
     expect(screen.queryByLabelText('Token from')).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Change or remove the access token' }))
-    const pick = (await screen.findByLabelText('Token from')) as HTMLSelectElement
-    expect(pick.value).toBe('OLD_TOKEN')
-    await waitFor(() => expect(within(pick).getByRole('option', { name: 'GH_TOKEN' })).toBeTruthy())
-    await userEvent.selectOptions(pick, 'GH_TOKEN')
+    const pick = await screen.findByLabelText('Token from')
+    expect(pick.textContent).toBe('OLD_TOKEN')
+    await choose(pick, 'GH_TOKEN')
     await userEvent.click(screen.getByRole('button', { name: 'Save token' }))
     await waitFor(() => expect(api.calls.find((c) => c.method === 'PUT')?.body).toEqual({ secret: 'GH_TOKEN' }))
   })
@@ -97,8 +97,7 @@ describe('SourceCard', () => {
     expect(screen.getByText('Not set')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Add a token for a private repository' }))
     expect(screen.queryByRole('button', { name: 'Remove token' })).toBeNull()
-    await waitFor(() => expect(screen.getByRole('option', { name: 'GH_TOKEN' })).toBeTruthy())
-    await userEvent.selectOptions(screen.getByLabelText('Token from'), 'GH_TOKEN')
+    await choose(screen.getByLabelText('Token from'), 'GH_TOKEN')
     await userEvent.click(screen.getByRole('button', { name: 'Save token' }))
     expect(await screen.findByText(/Only the owner can change/)).toBeTruthy()
   })

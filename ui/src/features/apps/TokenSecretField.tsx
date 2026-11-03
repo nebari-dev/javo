@@ -41,7 +41,7 @@ export function TokenSecretField({
         id={ids.input}
         className={`mono${error ? ' err' : ''}`}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onValueChange={(v) => onChange(v)}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${ids.hint} ${ids.err}` : ids.hint}
       >

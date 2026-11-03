@@ -217,8 +217,8 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
                 <Select
                   id={ids.tpl}
                   value={templateName}
-                  onChange={(e) => {
-                    setTemplateName(e.target.value)
+                  onValueChange={(v) => {
+                    setTemplateName(v)
                     setSource('')
                     setKernel('')
                   }}
@@ -302,7 +302,7 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
             {wantsKernel && (
               <div className="field">
                 <label htmlFor={ids.kernel}>Kernel</label>
-                <Select id={ids.kernel} value={kernelValue} onChange={(e) => setKernel(e.target.value)}>
+                <Select id={ids.kernel} value={kernelValue} onValueChange={(v) => setKernel(v)}>
                   {kernels.map((k) => (
                     <option key={k} value={k}>
                       {k}
@@ -328,7 +328,7 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
             {params.map((p, i) => (
               <div key={i} className="param-row">
                 <input className="input" aria-label={`Parameter ${i + 1} name`} placeholder="name" value={p.name} onChange={(e) => setParam(i, { name: e.target.value })} />
-                <Select aria-label={`Parameter ${i + 1} type`} value={p.type} onChange={(e) => setParam(i, { type: e.target.value as JobParam['type'] })}>
+                <Select aria-label={`Parameter ${i + 1} type`} value={p.type} onValueChange={(v) => setParam(i, { type: v as JobParam['type'] })}>
                   {PARAM_TYPES.map((t) => (
                     <option key={t}>{t}</option>
                   ))}
@@ -412,7 +412,7 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
               {mode === 'schedule' && (
                 <div className="field">
                   <label htmlFor={`${ids.cron}-overlap`}>If a run is still going when the next is due</label>
-                  <Select id={`${ids.cron}-overlap`} value={overlap} onChange={(e) => setOverlap(e.target.value as typeof overlap)}>
+                  <Select id={`${ids.cron}-overlap`} value={overlap} onValueChange={(v) => setOverlap(v as typeof overlap)}>
                     <option value="Forbid">Skip the new run</option>
                     <option value="Allow">Run both</option>
                     <option value="Replace">Replace the old run</option>

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SecretView } from '../../api'
 import { location, mockApi, renderApp } from '../../test/api'
 import { engines, jobTemplate, me, printTimeDetail, templates, weeklyDetail } from '../../test/fixtures'
+import { choose } from '../../test/select'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -46,7 +47,7 @@ describe('Environment variables of jobs', () => {
     await userEvent.type(within(card).getByLabelText('Name'), 'REGION')
     await userEvent.type(within(card).getByLabelText('Value'), 'emea')
     await userEvent.click(within(card).getByRole('button', { name: 'Add a variable' }))
-    await userEvent.selectOptions(within(card).getAllByLabelText('From')[1], 'secret')
+    await choose(within(card).getAllByLabelText('From')[1], 'Secret')
     await userEvent.click(within(card).getByRole('combobox', { name: 'Secret' }))
     await userEvent.click(await screen.findByRole('option', { name: 'WAREHOUSE_PASSWORD' }))
     const name = within(card).getAllByLabelText('Name')[1]

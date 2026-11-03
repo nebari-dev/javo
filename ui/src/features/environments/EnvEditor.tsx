@@ -96,7 +96,7 @@ function Row({
       </div>
       <div className="field env-kind">
         <label htmlFor={ids.kind}>From</label>
-        <Select id={ids.kind} value={row.kind} onChange={(e) => onChange({ ...row, kind: e.target.value as EnvRow['kind'] })}>
+        <Select id={ids.kind} value={row.kind} onValueChange={(v) => onChange({ ...row, kind: v as EnvRow['kind'] })}>
           <option value="value">Value</option>
           <option value="secret">Secret</option>
         </Select>

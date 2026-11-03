@@ -6,6 +6,7 @@ import { makeQueryClient } from '../../lib/queries'
 import { location, mockApi, renderApp, type Reply } from '../../test/api'
 import { RunLog } from './RunLog'
 import { customJobTemplate, engines, failureProblem, jobTemplate, me, printTimeDetail, templates, weeklyDetail, weeklyView } from '../../test/fixtures'
+import { choose, optionsOf } from '../../test/select'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -83,7 +84,7 @@ describe('Jobs list', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Try a sample job: Print the time/ }))
     await waitFor(() => expect(location()).toBe('/jobs/new?sample=python-jobs'))
     expect(await screen.findByRole('heading', { name: 'New job' })).toBeTruthy()
-    expect((screen.getByLabelText('Template') as HTMLSelectElement).value).toBe('python-jobs')
+    expect(screen.getByLabelText('Template').textContent).toBe('Python jobs')
     expect((screen.getByLabelText('Command') as HTMLInputElement).value).toBe('bash /opt/javo/samples/jobs/print-time.sh')
     expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Print the time')
     expect((screen.getByLabelText('Parameter 1 name') as HTMLInputElement).value).toBe('greeting')
@@ -408,7 +409,7 @@ describe('New job', () => {
     expect(help.getByText(/tag one cell parameters/i)).toBeTruthy()
     await userEvent.click(help.getByRole('button', { name: 'Add a parameter' }))
     await userEvent.type(screen.getByLabelText('Parameter 1 name'), 'days')
-    await userEvent.selectOptions(screen.getByLabelText('Parameter 1 type'), 'integer')
+    await choose(screen.getByLabelText('Parameter 1 type'), 'integer')
     await userEvent.type(screen.getByLabelText('Parameter 1 value'), '7')
     expect(help.getByText('days = 7')).toBeTruthy()
     expect(help.getByText(/^These are default values/).textContent).toMatch(/Run now uses them.*API.*that run only/)
@@ -423,7 +424,7 @@ describe('New job', () => {
     })
     renderApp('/jobs/new')
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
-    await userEvent.selectOptions(screen.getByLabelText('Repeats'), 'Custom (cron)')
+    await choose(screen.getByLabelText('Repeats'), 'Custom (cron)')
     const cron = await screen.findByLabelText('Cron')
     await userEvent.clear(cron)
     await userEvent.type(cron, '0 25 * * *')
@@ -438,7 +439,7 @@ describe('New job', () => {
     renderApp('/jobs/new')
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
     const zone = await screen.findByRole('combobox', { name: 'Time zone' })
-    await userEvent.selectOptions(screen.getByLabelText('Repeats'), 'Custom (cron)')
+    await choose(screen.getByLabelText('Repeats'), 'Custom (cron)')
     await userEvent.clear(screen.getByLabelText('Cron'))
     await userEvent.type(screen.getByLabelText('Cron'), '0 2 * * *')
     // Typing searches every zone by any part of its name, spaces matching underscores.
@@ -478,7 +479,7 @@ describe('New job', () => {
     })
     renderApp('/jobs/new')
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
-    await userEvent.selectOptions(screen.getByLabelText('Repeats'), 'Custom (cron)')
+    await choose(screen.getByLabelText('Repeats'), 'Custom (cron)')
     await userEvent.clear(screen.getByLabelText('Cron'))
     await userEvent.type(screen.getByLabelText('Cron'), '0 2 * * *')
     // A zone with daylight saving, whatever zone the machine running the test is in.
@@ -501,7 +502,7 @@ describe('New job', () => {
     const api = base({ 'POST /api/schedule/preview': { body: { next: ['2026-11-02T09:00:00Z'], warnings: [] } } })
     renderApp('/jobs/new')
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
-    expect((screen.getByLabelText('Repeats') as HTMLSelectElement).value).toBe('daily')
+    expect(screen.getByLabelText('Repeats').textContent).toBe('Daily')
     expect(cronField().value).toBe('0 9 * * *')
     await waitFor(() => expect(api.calls.some((c) => c.path === '/api/schedule/preview' && (c.body as { cron?: string }).cron === '0 9 * * *')).toBe(true))
     expect(await screen.findByRole('list', { name: 'Next runs' })).toBeTruthy()
@@ -512,18 +513,18 @@ describe('New job', () => {
     renderApp('/jobs/new')
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
     const repeats = screen.getByLabelText('Repeats')
-    await userEvent.selectOptions(repeats, 'Every minute')
+    await choose(repeats, 'Every minute')
     expect(cronField().value).toBe('* * * * *')
-    await userEvent.selectOptions(repeats, 'Every few minutes')
-    await userEvent.selectOptions(screen.getByLabelText('Every'), '15 minutes')
+    await choose(repeats, 'Every few minutes')
+    await choose(screen.getByLabelText('Every'), '15 minutes')
     expect(cronField().value).toBe('*/15 * * * *')
-    await userEvent.selectOptions(repeats, 'Hourly')
-    await userEvent.selectOptions(screen.getByLabelText('At minute'), ':30')
+    await choose(repeats, 'Hourly')
+    await choose(screen.getByLabelText('At minute'), ':30')
     expect(cronField().value).toBe('30 * * * *')
-    await userEvent.selectOptions(repeats, 'Monthly')
-    await userEvent.selectOptions(screen.getByLabelText('On day'), '15th')
+    await choose(repeats, 'Monthly')
+    await choose(screen.getByLabelText('On day'), '15th')
     expect(cronField().value).toBe('30 9 15 * *')
-    await userEvent.selectOptions(repeats, 'Weekly')
+    await choose(repeats, 'Weekly')
     expect(cronField().value).toBe('30 9 * * 1')
     // With no day on, nothing is written and the form says what is missing.
     await userEvent.click(screen.getByRole('button', { name: 'Monday' }))
@@ -534,17 +535,17 @@ describe('New job', () => {
     expect(screen.getByRole('button', { name: 'Friday' }).getAttribute('aria-pressed')).toBe('true')
     expect(cronField().value).toBe('30 9 * * 1,5')
     // Custom starts from what the builder wrote.
-    await userEvent.selectOptions(repeats, 'Custom (cron)')
+    await choose(repeats, 'Custom (cron)')
     expect((screen.getByLabelText('Cron') as HTMLInputElement).value).toBe('30 9 * * 1,5')
   })
 
   it('opens an existing schedule on its preset', async () => {
     base()
     renderApp('/jobs/weekly-report/edit')
-    expect(((await screen.findByLabelText('Repeats')) as HTMLSelectElement).value).toBe('weekly')
+    expect((await screen.findByLabelText('Repeats')).textContent).toBe('Weekly')
     expect(screen.getByRole('button', { name: 'Monday' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Tuesday' }).getAttribute('aria-pressed')).toBe('false')
-    expect((screen.getByLabelText('Hour') as HTMLSelectElement).value).toBe('6')
+    expect(screen.getByLabelText('Hour').textContent).toMatch(/^06( AM)?$/)
     expect(cronField().value).toBe('0 6 * * 1')
   })
 
@@ -554,8 +555,8 @@ describe('New job', () => {
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
     await userEvent.clear(cronField())
     await userEvent.type(cronField(), '*/15 * * * *')
-    expect((screen.getByLabelText('Repeats') as HTMLSelectElement).value).toBe('minutes')
-    expect((screen.getByLabelText('Every') as HTMLSelectElement).value).toBe('15')
+    expect(screen.getByLabelText('Repeats').textContent).toBe('Every few minutes')
+    expect(screen.getByLabelText('Every').textContent).toBe('15 minutes')
     expect(cronField().value).toBe('*/15 * * * *')
   })
 
@@ -565,7 +566,7 @@ describe('New job', () => {
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
     await userEvent.clear(cronField())
     await userEvent.type(cronField(), '0 6 1-7 * 1')
-    expect((screen.getByLabelText('Repeats') as HTMLSelectElement).value).toBe('custom')
+    expect(screen.getByLabelText('Repeats').textContent).toBe('Custom (cron)')
     expect(cronField().value).toBe('0 6 1-7 * 1')
   })
 
@@ -575,7 +576,7 @@ describe('New job', () => {
     await userEvent.click(await screen.findByRole('radio', { name: /On a schedule/ }))
     // Daily at 09:00 is "0 9 * * *"; typing on turns it into an expression no preset matches.
     await userEvent.type(cronField(), ',1')
-    expect((screen.getByLabelText('Repeats') as HTMLSelectElement).value).toBe('custom')
+    expect(screen.getByLabelText('Repeats').textContent).toBe('Custom (cron)')
     const sent = () => api.calls.filter((c) => c.path === '/api/schedule/preview').map((c) => (c.body as { cron: string }).cron)
     expect(sent()).not.toContain('0 9 * * *,')
     await userEvent.tab()
@@ -585,7 +586,7 @@ describe('New job', () => {
   it('opens a schedule no preset matches as custom cron', async () => {
     base({ 'GET /api/jobs/weekly-report': { body: { ...weeklyDetail, schedule: { ...weeklyDetail.schedule, cron: '0 6 1-7 * 1' } } } })
     renderApp('/jobs/weekly-report/edit')
-    expect(((await screen.findByLabelText('Repeats')) as HTMLSelectElement).value).toBe('custom')
+    expect((await screen.findByLabelText('Repeats')).textContent).toBe('Custom (cron)')
     expect((screen.getByLabelText('Cron') as HTMLInputElement).value).toBe('0 6 1-7 * 1')
   })
 
@@ -599,10 +600,10 @@ describe('New job', () => {
     await userEvent.type(screen.getByLabelText('Name'), 'Weekly report')
     await userEvent.click(screen.getByRole('radio', { name: /On a schedule/ }))
     // Weekly on Monday at 06:00, built without writing cron.
-    await userEvent.selectOptions(screen.getByLabelText('Repeats'), 'Weekly')
+    await choose(screen.getByLabelText('Repeats'), 'Weekly')
     expect(screen.getByRole('button', { name: 'Monday' }).getAttribute('aria-pressed')).toBe('true')
-    await userEvent.selectOptions(screen.getByLabelText('Hour'), '6')
-    await userEvent.selectOptions(screen.getByLabelText('Minute'), '0')
+    await choose(screen.getByLabelText('Hour'), /^06( AM)?$/)
+    await choose(screen.getByLabelText('Minute'), '00')
     expect(screen.getByText(/^At 06:00( AM)?, only on Monday$/)).toBeTruthy()
     expect(cronField().value).toBe('0 6 * * 1')
     await userEvent.click(screen.getByRole('button', { name: 'Create job' }))
@@ -673,9 +674,9 @@ describe('New command job', () => {
     })
     renderApp('/jobs/new')
     // First in the picker and chosen to start with; it runs only typed scripts, so there is no File choice.
-    const picker = (await screen.findByLabelText('Template')) as HTMLSelectElement
-    expect(picker.value).toBe('jobs-command')
-    expect(picker.options[0].textContent).toBe('Custom command')
+    const picker = await screen.findByLabelText('Template')
+    expect(picker.textContent).toBe('Custom command')
+    expect((await optionsOf(picker))[0]).toBe('Custom command')
     const cmd = await screen.findByLabelText('Command')
     expect(screen.queryByRole('radio', { name: 'Command' })).toBeNull()
     expect(cmd.tagName).toBe('TEXTAREA')

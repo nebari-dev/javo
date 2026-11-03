@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
 import { engines, jobTemplate, me, printTimeDetail, stepsAt, templateCategories, templates, ws } from '../../test/fixtures'
+import { choose } from '../../test/select'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -42,7 +43,7 @@ describe('Environments on New app', () => {
     })
     renderApp('/apps/new?template=streamlit')
     const card = (await screen.findByRole('heading', { name: 'Environment' })).closest('.part') as HTMLElement
-    await userEvent.selectOptions(within(card).getByLabelText('Environment'), 'ws-1')
+    await choose(within(card).getByLabelText('Environment'), 'sales (bob)')
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     await waitFor(() => expect(location()).toBe('/apps/dash'))
     expect(api.calls.find((c) => c.method === 'POST' && c.path === '/api/workspaces')?.body).toMatchObject({ environment: { id: 'ws-1' } })
@@ -88,7 +89,7 @@ describe('Environments on New job', () => {
     await userEvent.type(screen.getByLabelText('Command'), 'python etl.py')
     await userEvent.type(screen.getByLabelText('Name'), 'Print the time')
     const card = (await screen.findByRole('heading', { name: 'Environment' })).closest('.part') as HTMLElement
-    await userEvent.selectOptions(within(card).getByLabelText('Environment'), 'ws-1')
+    await choose(within(card).getByLabelText('Environment'), 'sales (bob)')
     await userEvent.click(screen.getByRole('button', { name: 'Create job' }))
     await waitFor(() => expect(location()).toBe('/jobs/print-the-time'))
     expect(api.calls.find((c) => c.method === 'POST' && c.path === '/api/jobs')?.body).toMatchObject({ environment: { id: 'ws-1' } })

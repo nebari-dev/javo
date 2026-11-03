@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp, type Reply } from '../../test/api'
 import { agentTemplate, allowance, containerTemplate, customTemplate, singleNodeSizes, me, nodeTemplate, REASONS, sizes, staticTemplate, stepsAt, storageView, templateCategories, templates, TOO_BIG, ws } from '../../test/fixtures'
+import { choose } from '../../test/select'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -991,8 +992,7 @@ describe('New app from a Git repository', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Git repository' }))
     await userEvent.type(screen.getByLabelText('Repository address'), 'https://github.com/example-org/private-site')
     await userEvent.click(screen.getByRole('button', { name: 'Folder, access token and build options' }))
-    await waitFor(() => expect(screen.getByRole('option', { name: 'GH_TOKEN' })).toBeTruthy())
-    await userEvent.selectOptions(screen.getByLabelText('Access token'), 'GH_TOKEN')
+    await choose(screen.getByLabelText('Access token'), 'GH_TOKEN')
     await userEvent.type(screen.getByLabelText('Folder in the repository'), 'web')
     expect((screen.getByLabelText('Build command') as HTMLInputElement).value).toBe('npm ci && npm run build')
     expect((screen.getByLabelText('Output folder') as HTMLInputElement).value).toBe('dist')
@@ -1138,7 +1138,7 @@ describe('New app from a Git repository', () => {
     await userEvent.type(screen.getByLabelText('App file'), 'app.py')
     await userEvent.click(await screen.findByRole('switch', { name: 'Preview open pull requests' }))
     await userEvent.click(screen.getByRole('button', { name: 'Limit, pull requests from forks and webhook' }))
-    await userEvent.selectOptions(screen.getByLabelText('Previews at most'), '2')
+    await choose(screen.getByLabelText('Previews at most'), '2')
     await userEvent.click(screen.getByRole('button', { name: 'Set up webhook' }))
     expect(await screen.findByText(hook.url)).toBeTruthy()
     expect(screen.getByText(hook.secret)).toBeTruthy()

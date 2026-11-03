@@ -56,7 +56,7 @@ export function IdleStopChoice({
           <Select
             id={selectId}
             value={String(value > 0 ? value : onValue(policy))}
-            onChange={(e) => onChange(Number(e.target.value))}
+            onValueChange={(v) => onChange(Number(v))}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errId : undefined}
           >

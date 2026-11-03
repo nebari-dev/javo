@@ -100,7 +100,7 @@ export function PreviewSettings({
     <div className="stack">
       <div className="field tight">
         <label htmlFor={`${id}-previews-max`}>Previews at most</label>
-        <Select id={`${id}-previews-max`} value={max} onChange={(e) => onChange({ max: Number(e.target.value) })}>
+        <Select id={`${id}-previews-max`} value={max} onValueChange={(v) => onChange({ max: Number(v) })}>
           {Array.from({ length: maxAllowed }, (_, i) => i + 1).map((n) => (
             <option key={n} value={n}>
               {n}
