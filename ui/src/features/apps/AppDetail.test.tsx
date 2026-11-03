@@ -96,6 +96,15 @@ describe('App status page', () => {
     expect(within(steps).getAllByRole('listitem')[0].dataset.state).toBe('now')
   })
 
+  it('shows next to Running how long the app has been up, from its Ready time', async () => {
+    const ready = new Date(Date.now() - (2 * 3600 + 14 * 60 + 30) * 1000).toISOString()
+    detail(ws('sales-app', 'Sales app', 'Running', withSince(allReady(), ready, [0, 0, 0, 0, 0])))
+    renderApp('/apps/sales-app')
+    const up = await screen.findByText('2 h 14 min')
+    expect(up.closest('.dhead')).not.toBeNull()
+    expect(up.getAttribute('dateTime')).toBe(ready)
+  })
+
   it('says Started in n s from the API step times, also for an app that was already running', async () => {
     const steps = withSince(allReady(), '2026-10-30T12:00:00Z', [0, 1, 30, 31, 42])
     detail(ws('sales-app', 'Sales app', 'Running', steps))

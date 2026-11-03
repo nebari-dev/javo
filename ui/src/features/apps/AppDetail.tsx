@@ -31,6 +31,7 @@ import { choiceOf, SizeSetting } from '../sizes/SizeSetting'
 import { SharingPanel } from '../sharing/SharingPanel'
 import { Tabs } from '../../components/Tabs'
 import { ThumbnailCard } from './ThumbnailCard'
+import { Uptime } from './Uptime'
 import { Timeline, type StepState, type TimelineStep } from '../../components/Timeline'
 import { fieldErrors, problemText } from '../../lib/http'
 import {
@@ -706,6 +707,7 @@ export function AppDetail() {
           <div className="row">
             <h1 className="flush">{ws.displayName}</h1>
             <Pill status={pillStatus(ws.phase)} />
+            <Uptime ws={ws} />
           </div>
         </div>
         <Actions ws={ws} managed={managed} />

@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
-import { allReady, allStopped, me, NOTICES, stepsAt, storageView, templates, ws } from '../../test/fixtures'
+import { allReady, allStopped, me, NOTICES, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -85,6 +85,18 @@ describe('Apps', () => {
     expect(row.textContent).not.toContain('/u/alice/research-lab/')
     expect(within(table).queryByRole('columnheader', { name: 'Link' })).toBeNull()
     expect(within(rowOf('Sales app')).getByText('sales/app.py')).toBeTruthy()
+  })
+
+  it('shows how long a running app has been up on its card and row, and nothing for a stopped one', async () => {
+    const ready = new Date(Date.now() - (3 * 86400 + 4 * 3600 + 60) * 1000).toISOString()
+    const up = { ...running, steps: withSince(allReady(), ready, [0, 0, 0, 0, 0]) }
+    withApps({ 'GET /api/workspaces': { body: { items: [up, stopped] } } })
+    renderApp('/apps')
+    expect(await screen.findByText('3 d 4 h')).toBeTruthy()
+    const table = await listView()
+    expect(within(rowOf('Research lab')).getByText('3 d 4 h')).toBeTruthy()
+    expect(rowOf('Sales app').querySelector('time')).toBeNull()
+    expect(within(table).getAllByText(/^\d+ (s|min|h|d)/)).toHaveLength(1)
   })
 
   it('opens running apps and starts stopped ones from the row', async () => {

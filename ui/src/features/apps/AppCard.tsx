@@ -11,6 +11,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
 import { StopButton } from './StopButton'
+import { Uptime } from './Uptime'
 
 /** Open, Start or Stop for one app, shared by its card and its table row. */
 export function RunActions({ ws }: { ws: Workspace }) {
@@ -53,6 +54,7 @@ export function AppCard({ ws }: { ws: Workspace }) {
           <div className="faint small">{template}</div>
         </div>
         <Pill status={pillStatus(ws.phase)} />
+        <Uptime ws={ws} />
       </div>
       {problem && (
         <div className={`why ${problem.tone}`}>

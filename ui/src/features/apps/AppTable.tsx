@@ -5,6 +5,7 @@ import { heldStep, pillStatus, problemNote, stopNote } from './status'
 import { RunActions } from './AppCard'
 import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
+import { Uptime } from './Uptime'
 
 function AppRow({ ws }: { ws: Workspace }) {
   const template = useTemplateName(ws.template)
@@ -24,7 +25,7 @@ function AppRow({ ws }: { ws: Workspace }) {
       </th>
       <td className="col-type">{template}</td>
       <td>
-        <Pill status={pillStatus(ws.phase)} />
+        <Pill status={pillStatus(ws.phase)} /> <Uptime ws={ws} />
       </td>
       <td className="col-file mono">{ws.file}</td>
       <td className="col-act">
