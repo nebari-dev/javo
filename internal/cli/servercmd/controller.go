@@ -32,6 +32,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/manager"
 	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/preview"
+	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/features/placementperteam"
@@ -72,6 +73,10 @@ type controllerOptions struct {
 	notif       notificationFlags
 	// secretsKey is the key-encryption key file of people's secrets.
 	secretsKey string
+	// secretsKeySecret names the Secret in the release namespace holding
+	// that key instead; secretsKeyCreate makes it when it does not exist.
+	secretsKeySecret string
+	secretsKeyCreate bool
 	// backupClaim is the Postgres backup claim the controller makes in the
 	// release namespace; empty makes none.
 	backupClaim backupClaimFlags
@@ -99,7 +104,9 @@ func (o *controllerOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.notif.configMap, "notifications-config-map", "javo-notifications", "ConfigMap with notifications-engine services, templates, triggers and subscriptions")
 	f.StringVar(&o.notif.secret, "notifications-secret", "javo-notifications", "Secret with the service credentials the ConfigMap refers to as $key")
 	f.StringVar(&o.probe.controlURL, "netprobe-control-url", "", "URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller")
-	f.StringVar(&o.secretsKey, "secrets-key-file", "", "file holding the 32-byte key-encryption key of people's secrets (a mounted Secret); empty: apps that get secrets do not start")
+	f.StringVar(&o.secretsKey, "secrets-key-file", "", "file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start")
+	f.StringVar(&o.secretsKeySecret, "secrets-key-secret", "", "Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start")
+	f.BoolVar(&o.secretsKeyCreate, "secrets-key-create", false, "make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards")
 	f.DurationVar(&o.probe.every, "netprobe-interval", 6*time.Hour, "how often the NetworkPolicy enforcement probe runs (it also runs at start)")
 	f.StringVar(&o.backupClaim.name, "backup-claim", "", "make this claim in the release namespace, if missing, for the Postgres backup CronJob's dumps; never changed or deleted after; empty makes none")
 	f.StringVar(&o.backupClaim.size, "backup-claim-size", "5Gi", "size of the --backup-claim claim")
@@ -157,7 +164,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		return fmt.Errorf("--backup-claim-size: %w", err)
 	}
 	ctrl.SetLogger(zap.New())
-	keys, err := o.secretKeys(ctx, db)
+	keys, err := o.secretKeys(ctx, db, releaseNS)
 	if err != nil {
 		return err
 	}
@@ -345,13 +352,9 @@ func (o *controllerOptions) setupStorage(mgr ctrl.Manager, feed *dbsource.Feed, 
 // database has none. A key that does not open the stored keyset is logged
 // and kept: apps that get secrets then fail as SecretsUnreadable, the others
 // run, and the keyset is never replaced (that would lose every value).
-func (o *controllerOptions) secretKeys(ctx context.Context, db *store.Store) (*secrets.Keys, error) {
-	if o.secretsKey == "" {
-		ctrl.Log.Info("no --secrets-key-file: apps that get secrets will not start")
-		return nil, nil
-	}
-	kek, err := secrets.KEKFromFile(o.secretsKey)
-	if err != nil {
+func (o *controllerOptions) secretKeys(ctx context.Context, db *store.Store, releaseNS string) (*secrets.Keys, error) {
+	kek, err := o.loadKEK(ctx, releaseNS)
+	if err != nil || kek == nil {
 		return nil, err
 	}
 	keys := &secrets.Keys{Store: db, KEK: kek}
@@ -359,6 +362,27 @@ func (o *controllerOptions) secretKeys(ctx context.Context, db *store.Store) (*s
 		ctrl.Log.Error(err, "the secrets key does not open the stored secrets keyset; apps that get secrets will not start")
 	}
 	return keys, nil
+}
+
+// loadKEK reads the key-encryption key from --secrets-key-file or the
+// --secrets-key-secret Secret (made first with --secrets-key-create); nil
+// when neither is set.
+func (o *controllerOptions) loadKEK(ctx context.Context, releaseNS string) (secrets.KEK, error) {
+	switch {
+	case o.secretsKey != "" && o.secretsKeySecret != "":
+		return nil, errors.New("--secrets-key-file and --secrets-key-secret are both set; use one")
+	case o.secretsKey != "":
+		return secrets.KEKFromFile(o.secretsKey)
+	case o.secretsKeySecret != "":
+		// Read once at start, before the manager's cache exists.
+		c, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
+		if err != nil {
+			return nil, err
+		}
+		return secretskey.Secret{Client: c, Namespace: releaseNS, Name: o.secretsKeySecret, Create: o.secretsKeyCreate}.Load(ctx)
+	}
+	ctrl.Log.Info("no --secrets-key-file or --secrets-key-secret: apps that get secrets will not start")
+	return nil, nil
 }
 
 // teamNamespaces lists each configured team's namespace with its storage limit.

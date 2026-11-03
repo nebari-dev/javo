@@ -294,7 +294,9 @@ Flags:
       --public-host string                  host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
       --ready-timeout duration              how long a running app may stay unready before it is reported as not answering (default 3m0s)
       --runner-image string                 image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller
-      --secrets-key-file string             file holding the 32-byte key-encryption key of people's secrets (a mounted Secret); empty: apps that get secrets do not start
+      --secrets-key-create                  make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secrets-key-file string             file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
+      --secrets-key-secret string           Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
       --sizes-file string                   YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
       --workspace-namespace string          namespace holding apps and their pods (default "javo-apps")
 ```
@@ -632,8 +634,10 @@ Usage:
   javo secrets rotate [flags]
 
 Flags:
-  -h, --help              help for rotate
-      --key-file string   the key-encryption key file (the chart mounts it in the controller)
+  -h, --help                help for rotate
+      --key-file string     the key-encryption key file
+      --key-secret string   the Secret holding the key-encryption key under kek (the chart's is javo-secrets-key, or secrets.existingKeySecret)
+      --namespace string    namespace of --key-secret (default $POD_NAMESPACE)
 
 Global Flags:
       --database-dsn-file string   file holding the Postgres connection string
@@ -682,7 +686,9 @@ Flags:
       --public-host string                  host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
       --ready-timeout duration              how long a running app may stay unready before it is reported as not answering (default 3m0s)
       --runner-image string                 image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller
-      --secrets-key-file string             file holding the 32-byte key-encryption key of people's secrets (a mounted Secret); empty: apps that get secrets do not start
+      --secrets-key-create                  make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secrets-key-file string             file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
+      --secrets-key-secret string           Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
       --secure-cookies                      mark the session cookie Secure even when urls.scheme is http (it always is with https)
       --sizes-file string                   YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
       --templates-dir string                directory of built-in template files (*.yaml) to install into the database at start

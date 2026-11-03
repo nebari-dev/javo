@@ -93,7 +93,7 @@ func GitToken(ctx context.Context, all []store.SealedBinding, target authz.Objec
 
 // ErrNoKey is the evidence for secrets on a controller started without the
 // key-encryption key.
-var ErrNoKey = errors.New("secrets are given, but the controller has no secrets key (--secrets-key-file)")
+var ErrNoKey = errors.New("secrets are given, but the controller has no secrets key (--secrets-key-file or --secrets-key-secret)")
 
 // Open opens each value with keys (nil: the controller has no key), keyed by
 // variable. unreadable is why they could not be opened (never a value), for
