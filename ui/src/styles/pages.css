@@ -171,19 +171,20 @@ a.btn{text-decoration:none}
 .size-gpu{display:flex;align-items:center;gap:4px;margin-top:2px}
 /* The open Custom amount carries the selected card's treatment: it is the choice. */
 .custom-amount{display:flex;flex-direction:column;gap:10px;padding:16px;border:1.5px solid var(--accent);border-radius:var(--radius-sm);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
-.custom-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+/* Two fields side by side where they fit, one under the other in a narrow column. */
+.custom-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
 .unit-input{position:relative;display:block}
 .unit-input .input{padding-right:56px;font-variant-numeric:tabular-nums}
 .unit-input .unit{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-2);font-size:var(--fs-sm);pointer-events:none}
 /* Custom amount: minus and plus keys beside the field, which hides the browser's spinner. */
-.stepper{display:flex;align-items:stretch;gap:6px}
+.stepper{display:flex;align-items:stretch;gap:8px}
 .stepper .unit-input{flex:1;min-width:0}
-.stepper .input{appearance:textfield;-moz-appearance:textfield}
+.stepper .input{appearance:textfield;-moz-appearance:textfield;padding-right:44px}
+.stepper .unit{right:10px}
 .stepper .input::-webkit-inner-spin-button,.stepper .input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-.stepper .icon-btn{width:auto;height:auto;aspect-ratio:1;align-self:stretch;border-radius:10px;border-color:var(--border-strong);background:var(--surface);color:var(--text);box-shadow:inset 0 1px 0 var(--key-hi),0 1px 0 var(--key-edge)}
+.stepper .icon-btn{width:40px;height:auto;align-self:stretch;border-radius:10px;border-color:var(--border-strong);background:var(--surface);color:var(--text);box-shadow:inset 0 1px 0 var(--key-hi),0 1px 0 var(--key-edge)}
 .stepper .icon-btn:hover{background:var(--surface-2)}
 .stepper .icon-btn:disabled{background:var(--surface);border-color:var(--border-strong);box-shadow:none}
-@media (max-width:520px){.custom-fields{grid-template-columns:minmax(0,1fr)}}
 .sample-card{border:1.5px solid var(--border)}
 .sample-card:hover{border-color:var(--border-strong)}
 .sample-card:focus-within{outline:2px solid var(--accent);outline-offset:2px}
