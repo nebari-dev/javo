@@ -1,0 +1,124 @@
+{{- /* RBAC cannot say which namespaces the controller may bind roles in or
+which namespace labels it may change: it needs cluster-wide rolebindings and
+namespaces rights because the namespaces apps live in are created later. These
+ValidatingAdmissionPolicies (Kubernetes 1.30+) let the API server refuse
+anything outside what the controller does. Older clusters install without
+them. */ -}}
+{{- if .Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy" }}
+{{- $controller := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "javo.account" (list . "javo-controller")) }}
+{{- $managed := include "javo.groupKey" "managed" }}
+{{- $group := include "javo.group" . }}
+{{- $shared := eq (include "javo.namespaceMode" .) "shared" }}
+{{- /* Namespaces the controller may label before they carry the managed
+label: the shared one, or in the other modes the ones named <prefix>-... */ -}}
+{{- $adopt := printf "object.metadata.name.startsWith('%s-')" ((default (dict) .Values.config.namespaces).prefix | default "javo") }}
+{{- if $shared }}
+{{- $adopt = printf "object.metadata.name == '%s'" .Values.workspaceNamespace }}
+{{- end }}
+{{- $name := printf "%s-%s-javo-controller-namespaces" .Release.Name .Release.Namespace }}
+# Namespaces the controller patches: only its own (managed, or named for it),
+# and only Javo's labels and annotations plus the restricted Pod Security level.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        resources: [namespaces]
+        operations: [UPDATE]
+  matchConditions:
+    - name: controller
+      expression: request.userInfo.username == '{{ $controller }}'
+  variables:
+    - name: oldLabels
+      expression: oldObject.metadata.?labels.orValue({})
+    - name: newLabels
+      expression: object.metadata.?labels.orValue({})
+    - name: oldAnnotations
+      expression: oldObject.metadata.?annotations.orValue({})
+    - name: newAnnotations
+      expression: object.metadata.?annotations.orValue({})
+    - name: changedLabels
+      expression: >-
+        variables.newLabels.filter(k, !(k in variables.oldLabels) || variables.oldLabels[k] != variables.newLabels[k])
+        + variables.oldLabels.filter(k, !(k in variables.newLabels))
+    - name: changedAnnotations
+      expression: >-
+        variables.newAnnotations.filter(k, !(k in variables.oldAnnotations) || variables.oldAnnotations[k] != variables.newAnnotations[k])
+        + variables.oldAnnotations.filter(k, !(k in variables.newAnnotations))
+  validations:
+    - expression: >-
+        ('{{ $managed }}' in variables.oldLabels && variables.oldLabels['{{ $managed }}'] == 'true')
+        || {{ $adopt }}
+      message: the Javo controller may change only namespaces labelled {{ $managed }}=true or named for Javo
+    - expression: >-
+        variables.changedLabels.all(k, k.startsWith('{{ $group }}/')
+        || (k in ['pod-security.kubernetes.io/enforce', 'pod-security.kubernetes.io/warn', 'pod-security.kubernetes.io/audit']
+            && k in variables.newLabels && variables.newLabels[k] == 'restricted'))
+      message: the Javo controller may change only {{ $group }}/ labels, and set Pod Security labels only to restricted
+    - expression: variables.changedAnnotations.all(k, k.startsWith('{{ $group }}/'))
+      message: the Javo controller may change only {{ $group }}/ annotations
+    - expression: object.spec == oldObject.spec && object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
+      message: the Javo controller may change only labels and annotations of a namespace
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}
+  validationActions: [Deny]
+{{- if not $shared }}
+{{- $name = printf "%s-%s-javo-controller-rolebindings" .Release.Name .Release.Namespace }}
+---
+# RoleBindings the controller makes in each managed namespace
+# (--app-role-binding): only there, and only to the two app ClusterRoles.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: ["*"]
+        resources: [rolebindings]
+        operations: [CREATE, UPDATE, DELETE]
+  matchConditions:
+    - name: controller
+      expression: request.userInfo.username == '{{ $controller }}'
+  variables:
+    - name: namespaceLabels
+      expression: namespaceObject.metadata.?labels.orValue({})
+  validations:
+    - expression: >-
+        '{{ $managed }}' in variables.namespaceLabels && variables.namespaceLabels['{{ $managed }}'] == 'true'
+      message: the Javo controller may change RoleBindings only in namespaces labelled {{ $managed }}=true
+    - expression: >-
+        request.operation == 'DELETE'
+        || (object.roleRef.kind == 'ClusterRole'
+            && object.roleRef.name in ['{{ include "javo.appRoleName" (list . "javo-gateway") }}', '{{ include "javo.appRoleName" (list . "javo-controller") }}'])
+      message: the Javo controller may bind only the chart's app ClusterRoles
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}
+  validationActions: [Deny]
+{{- end }}
+{{- end }}
