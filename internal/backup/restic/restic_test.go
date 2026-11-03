@@ -12,31 +12,15 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/backup/restic"
+	"github.com/nebari-dev/javo/internal/backup/restic/restictest"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
-// bin is the restic the tests run: $JAVO_TEST_RESTIC, else the one
-// `make bin/restic` downloads (scripts/build/fetch-restic.sh). A missing restic fails the
-// tests, like a missing Postgres does.
-func bin(t *testing.T) string {
-	t.Helper()
-	if b := os.Getenv("JAVO_TEST_RESTIC"); b != "" {
-		return b
-	}
-	b, err := filepath.Abs("../../../bin/restic")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(b); err != nil {
-		t.Fatalf("no restic at %s: run make bin/restic or set JAVO_TEST_RESTIC", b)
-	}
-	return b
-}
-
-// localRepo is a restic repository in a folder of the test's own.
+// localRepo is an initialised restic repository in a folder of the test's
+// own, cheap to open (see restictest).
 func localRepo(t *testing.T, password string) restic.Repo {
 	t.Helper()
-	return restic.Repo{Bin: bin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=" + password}}
+	return restictest.New(t, password)
 }
 
 func write(t *testing.T, path, content string) {
@@ -59,6 +43,7 @@ func read(t *testing.T, path string) string {
 }
 
 func TestRepositoryOfATarget(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		t    restic.Target
@@ -77,6 +62,7 @@ func TestRepositoryOfATarget(t *testing.T) {
 }
 
 func TestTargetPassesCredentialsAndOptions(t *testing.T) {
+	t.Parallel()
 	r := restic.Target{
 		Endpoint: "https://s3.example.com", Bucket: "b", Region: "eu-west-1", BucketLookup: "path",
 		InsecureTLS: true, CACertFile: "/etc/ca.crt", AccessKeyID: "id", SecretAccessKey: "secret", Password: "pw",
@@ -95,11 +81,14 @@ func TestTargetPassesCredentialsAndOptions(t *testing.T) {
 }
 
 func TestBackUpAFolderAndRestoreIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	r := localRepo(t, "pw")
+	// No repository yet: Ensure makes it with restic init.
+	r := restic.Repo{Bin: restictest.Bin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=pw"}}
 	if err := r.Ensure(ctx); err != nil {
 		t.Fatal(err)
 	}
+	restictest.Cheapen(t, r.URL, "pw")
 	// A second Ensure finds the repository and leaves it.
 	if err := r.Ensure(ctx); err != nil {
 		t.Fatal(err)
@@ -165,6 +154,7 @@ func TestBackUpAFolderAndRestoreIt(t *testing.T) {
 }
 
 func TestBackUpAStreamKeepTheNewestAndDumpIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := localRepo(t, "pw")
 	if err := r.Ensure(ctx); err != nil {
@@ -201,6 +191,7 @@ func TestBackUpAStreamKeepTheNewestAndDumpIt(t *testing.T) {
 }
 
 func TestFailuresNameTheirReason(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := localRepo(t, "right")
 	if err := r.Ensure(ctx); err != nil {
@@ -225,7 +216,7 @@ func TestFailuresNameTheirReason(t *testing.T) {
 
 	// restic keeps retrying an address that does not answer; the caller's
 	// deadline ends it, and that is the bucket being unreachable.
-	gone := restic.Target{Endpoint: "http://127.0.0.1:1", Bucket: "b", AccessKeyID: "a", SecretAccessKey: "s", Password: "p"}.Repo(bin(t), "x")
+	gone := restic.Target{Endpoint: "http://127.0.0.1:1", Bucket: "b", AccessKeyID: "a", SecretAccessKey: "s", Password: "p"}.Repo(restictest.Bin(t), "x")
 	short, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if _, err := gone.Snapshots(short); !errors.As(err, &re) || re.Code != reasons.BackupUnreachable {
@@ -234,6 +225,7 @@ func TestFailuresNameTheirReason(t *testing.T) {
 }
 
 func TestAFileThatCannotBeReadStillMakesASnapshot(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads every file")
 	}
@@ -261,6 +253,7 @@ func TestAFileThatCannotBeReadStillMakesASnapshot(t *testing.T) {
 // A backup reports restic's own progress while it runs (from its --json
 // status lines) and a full summary; forgetting says what it kept and removed.
 func TestBackupReportsProgressAndForgetSaysWhatItRemoved(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := localRepo(t, "pw")
 	r.Env = append(r.Env, "RESTIC_PROGRESS_FPS=50")
