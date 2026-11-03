@@ -229,6 +229,10 @@ func TestRawContentTypesComeFromAnAllowList(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ file, typ string }{
 		{"a.png", "image/png"},
+		{"a.jpg", "image/jpeg"},
+		{"a.JPEG", "image/jpeg"},
+		{"a.gif", "image/gif"},
+		{"a.webp", "image/webp"},
 		{"a.svg", "image/svg+xml"},
 		{"a.pdf", "application/pdf"},
 		{"run.log", "text/plain; charset=utf-8"},

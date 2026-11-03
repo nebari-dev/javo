@@ -237,6 +237,10 @@ func HomeError(err error, user, op, rel string, notFound, failed reasons.Message
 var rawTypes = map[string]string{
 	".html": "text/html; charset=utf-8",
 	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
 	".svg":  "image/svg+xml",
 	".pdf":  "application/pdf",
 	".log":  "text/plain; charset=utf-8",
