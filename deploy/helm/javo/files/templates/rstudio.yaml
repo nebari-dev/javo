@@ -1,0 +1,42 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: rstudio
+spec:
+  # Runs without a password: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: RStudio
+  description: R in the browser
+  category: notebooks
+  kind: rstudio
+  # The Rocker project's rocker/rstudio, unmodified and pinned by digest
+  # (DEPENDENCIES.md): RStudio Server is not on conda-forge. It runs as a
+  # non-root user instead of through its root-only s6 init, with the pod
+  # files (start.sh, its settings, the sample) beside it. Set
+  # workspaceTemplates.rstudio.image to use a mirror.
+  image: rocker/rstudio:4.6.0@sha256:414997459073d9b012076e782beb353fa113d794c0798de3fbcf49ee9eaf8b9b
+  podFiles: true
+  port: 8787
+  # The pod's /etc/passwd names its uid with the home folder as its home
+  # (internal/podfiles): rserver will not start as a uid it cannot look up,
+  # and takes a session's home from that entry. The start script then sets up
+  # the server settings (no login, scratch state under /tmp) and the
+  # per-start session key, and runs rserver as that user.
+  command: ["/opt/javo/pod-user.sh", "/opt/javo/rstudio/start.sh"]
+  args:
+    - "--www-port={{.Port}}"
+  # RStudio expects a proxy that removes the prefix and names it in this header.
+  basePath: Strip
+  proxyHeaders:
+    X-RStudio-Root-Path: "{{.BaseURL}}"
+  appLogin: Disabled
+  fileExtensions: []
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/"
+  resources:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 4Gi}
+  sample:
+    path: /opt/javo/samples/rstudio
+    title: mtcars analysis

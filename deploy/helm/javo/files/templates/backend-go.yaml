@@ -1,0 +1,37 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: backend-go
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  # The server must listen on $PORT and answer / with a success status, for
+  # example with the command go run . (modules and the build cache go to
+  # the home folder, ~/go and ~/.cache).
+  displayName: Go back-end
+  description: Go server
+  category: web
+  kind: go
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/backend-go (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: backend-go
+  port: 8080
+  # The command each app types runs in the repository folder (or the folder of
+  # the chosen home file, else the home) and serves on {{.Port}}, through
+  # pod-user.sh, which runs it in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh"]
+  userCommand: Required
+  # The gateway removes the URL prefix, so the server serves at /.
+  basePath: Strip
+  appLogin: Disabled
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}

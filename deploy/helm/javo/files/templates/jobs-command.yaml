@@ -1,0 +1,30 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: jobs-command
+spec:
+  # Job-only: runs a command or a script a person types, through bash
+  # (engine bash: bash -lc <script>, in the home folder), so variables, pipes
+  # and several lines work. Parameters arrive as JAVO_PARAM_<NAME>. It is
+  # marked jobOnly, so it is not offered as an app; the fields below that only
+  # an app needs (kind, port, command) are placeholders the schema requires.
+  jobOnly: true
+  displayName: Custom command
+  description: Your own command
+  category: jobs
+  kind: custom
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/jobs-command (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: jobs-command
+  port: 8080
+  command: ["true"]
+  appLogin: Disabled
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  jobs:
+    engines: [bash]

@@ -1,0 +1,23 @@
+
+Starting python3 kernel...[IPKernelApp] WARNING | Kernel is running over TCP without encryption. All communication (including code and outputs) is sent in plain text and is susceptible to eavesdropping. Use IPC transport or launch with kernel manager-provisioned CurveZMQ keys to enable transport encryption.
+Done
+
+Executing 'bad.quarto_ipynb'
+  Cell 1/3: ''...Done
+  Cell 2/3: ''...Done
+  Cell 3/3: ''...
+
+An error occurred while executing the following cell:
+------------------
+raise KeyError("region")
+------------------
+
+
+[31m---------------------------------------------------------------------------[39m
+[31mKeyError[39m                                  Traceback (most recent call last)
+[36mCell[39m[36m [39m[32mIn[3][39m[32m, line 1[39m
+[32m----> [39m[32m1[39m [38;5;28;01mraise[39;00m KeyError([33m"region"[39m)
+
+[31mKeyError[39m: 'region'
+
+[33mWARN: Error encountered when rendering files[39m

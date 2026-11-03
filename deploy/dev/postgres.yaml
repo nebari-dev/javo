@@ -1,0 +1,57 @@
+# Postgres for the kind dev cluster with JAVO_DB=postgres (scripts/dev/up.sh).
+# Same image and digest as scripts/test/postgres-test.sh (DEPENDENCIES.md). Its own
+# namespace, because the image starts as root and the release namespace is
+# Pod Security restricted. Data lives in an emptyDir: a dev database that
+# goes with the pod. The password Secret javo-postgres (key password) is
+# created by dev-up from .dev/postgres.password.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: javo-postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: javo-postgres
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+          env:
+            - name: POSTGRES_DB
+              value: javo
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: javo-postgres, key: password}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - {name: postgres, containerPort: 5432}
+          readinessProbe:
+            exec:
+              command: ["psql", "-h", "127.0.0.1", "-U", "postgres", "-d", "javo", "-tAc", "select 1"]
+            periodSeconds: 3
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: javo-postgres
+spec:
+  selector: {app: postgres}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}

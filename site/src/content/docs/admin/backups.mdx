@@ -1,0 +1,261 @@
+---
+title: Backups and restore
+description: Scheduled database copies, nightly home folder backups to an S3-compatible bucket, restoring one person or everyone, and disaster recovery.
+sidebar:
+  order: 7
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+All of Javo's data (people, accounts, apps, templates, sharing, sessions, tokens, jobs, run history, audit log) is in its database. A complete backup is a copy of the database plus the home folders. Platform admins see both under **Settings, Backups**: the database backups and their health, whether home folders are backed up, a restore preview, and restored apps waiting to start.
+
+Home folders are backed up by turning on backups to an S3-compatible **backup bucket** (`backupTarget` in the Helm values), on any disk: every database backup is copied there and every home folder and shared folder is backed up there each night, so losing the machine loses nothing. Without a bucket, home folders are in no backup.
+
+## 1. Scheduled database backups
+
+The database is backed up every night at 02:00 by default. These are the defaults; change them in the Helm values:
+
+```yaml
+database:
+  backup:
+    schedule: "0 2 * * *"   # standard cron; "" turns backups off
+    keep: 7                 # newest copies kept
+    size: 5Gi
+```
+
+| Engine | Who takes the copy | File |
+|---|---|---|
+| SQLite | The Javo server, on the schedule (`VACUUM INTO`: a consistent copy while it keeps running) | `javo-<UTC time>.db` |
+| Postgres | CronJob `javo-db-backup`, `pg_dump --format=custom` in the pinned postgres image, connection string from the Secret named by `database.postgres.dsnSecret` | `javo-<UTC time>.dump` |
+
+Copies go to the claim `javo-backups` in the release namespace, which is kept on uninstall. A copy on the same cluster does not survive losing the cluster, so also use a bucket (or copy the files off). On a managed Postgres you can set `schedule: ""` and use its own backups.
+
+With Postgres the claim is made by the controller, not the release: its only user is the nightly backup, so on storage that binds a claim when its first pod starts (k3s and kind `local-path`) a claim in the release would wait unbound until the first backup, and `helm install --wait` with it. The controller makes it once, if missing, and never changes or deletes it. With a backup bucket Postgres needs no claim at all: each dump is taken into scratch space and copied to the bucket. An install from an earlier release keeps its `javo-backups` claim and the dumps on it after the upgrade; with a bucket it is no longer written, so delete it once its files are copied off.
+
+## 2. Back up to an S3-compatible bucket
+
+Any S3-compatible bucket works: AWS S3, MinIO, Backblaze B2, Cloudflare R2.
+
+```yaml
+backupTarget:
+  enabled: true
+  endpoint: https://s3.us-east-1.amazonaws.com   # with its scheme
+  region: us-east-1
+  bucket: example-javo-backups
+  prefix: javo                 # folder in the bucket
+  bucketLookup: auto          # path for most S3-compatible servers
+  existingSecret: javo-backup-s3
+  homes:                      # what is kept of each home and group folder
+    keepDaily: 7
+    keepWeekly: 4
+    keepMonthly: 6
+```
+
+The access key is a Secret you make in the release namespace; the key must be able to read, write and delete in the bucket:
+
+```sh
+kubectl -n javo-system create secret generic javo-backup-s3 \
+  --from-literal=AWS_ACCESS_KEY_ID=<key id> --from-literal=AWS_SECRET_ACCESS_KEY=<secret>
+```
+
+`backupTarget.keys` renames the two keys; `backupTarget.tls.caSecret` names a Secret with a `ca.crt` for a private CA; `backupTarget.tls.insecureSkipVerify` skips the certificate check.
+
+Everything in the bucket is a [restic](https://restic.net) repository: encrypted, and only changed data is uploaded. The chart makes its password once, in the Secret `javo-backup-password`, and keeps it on upgrade and uninstall.
+
+<Aside type="caution" title="Keep the password apart from the cluster">
+Without the backup password nothing in the bucket can be read. Copy it somewhere safe, together with the [secrets key](/admin/secrets-and-keys/):
+
+```sh
+kubectl -n javo-system get secret javo-backup-password -o jsonpath='{.data.password}' | base64 -d > javo-backup-password.txt
+```
+</Aside>
+
+A bucket on the same machine or cluster as Javo (an in-cluster MinIO, say) is not an off-site copy.
+
+## 3. Set up the backup job
+
+A full backup is one ordinary [job](/using/jobs/) run, from the built-in **Backups** template (platform admins only). Under **Settings, Backups**, press **Set up backups** once. It makes two jobs owned by you:
+
+- `backup`: every night at 01:00 in your time zone. Change its schedule, pause it, read each run's log and get failure notices like any job.
+- `restore`: on demand.
+
+A backup run covers the database, every home folder and every group folder, with one result. Each home is read by a short Job that runs as its owner, on the node that holds the home, without stopping their apps, so it works on local disks with no snapshot support. A run of the backup job (`javo backup run`) asks the platform for a full backup and follows it, printing each step and, once a step ended, that step's own log:
+
+| Step | Where in the bucket | Kept |
+|---|---|---|
+| The database: backed up (`VACUUM INTO`) and copied. Postgres: the `javo-db-backup` CronJob copies its own dumps | `<prefix>/database` | the newest `database.backup.keep` |
+| Each home folder, read by a Job that runs as its owner, on the node that holds the home, without stopping their apps; only what changed is uploaded | `<prefix>/homes/<namespace>/<person>` | `keepDaily` daily, `keepWeekly` weekly, `keepMonthly` monthly |
+| Each group folder, read by a Job that runs as a member of its group | `<prefix>/folders/<namespace>/<folder>` | as the home folders |
+
+Every snapshot carries the run's tag, so a run can be restored from the bucket alone. The run fails when any step failed; the Backups page says so in one line and shows each home folder and group folder behind Show. The job's own pod never holds the bucket's key nor reads a home: the run talks to the API with its owner's token, and the controller copies the access key and the password into the Secret `javo-backup` of each namespace with homes, for the step Jobs only.
+
+The run's log (the job run's log viewer, or `kubectl logs` of its pod) has one timestamped line per event, as key=value fields: which step, who (display name, username, local or SSO), the home's id, claim and node, and what happens, with restic's own numbers. For example:
+
+```
+14:03:12 step=database action=dump file=javo-20261102T140313Z.db size=1.2MiB
+14:03:13 step=database action=upload snapshot=8aea8a8b added=1.2MiB uploaded=310.4KiB took=0.7s dest=s3://example-javo-backups/javo/database
+14:03:20 step=home person="Alice Example (alice, local)" home=01a19c... claim=home-alice-e8cedb8d node=node-1 action=start dir=/home/user dest=s3://example-javo-backups/javo/homes/javo-apps/alice-e8cedb8d
+14:03:25 step=home person="Alice Example (alice, local)" ... action=progress files=1200/3400 bytes=12.0MiB/40.0MiB rate=2.4MiB/s percent=30 eta=11s errors=0
+14:03:37 step=home person="Alice Example (alice, local)" ... action=snapshot id=1e49116f files=3400 dirs=210 new=12 changed=3 unchanged=3385 bytes=40.0MiB added=1.1MiB uploaded=612.0KiB took=16.8s dest=s3://...
+14:03:38 step=home person="Alice Example (alice, local)" ... action=forget kept=7 removed=1 policy="daily=7 weekly=4 monthly=6"
+```
+
+It ends with a summary table (each step, who, files, size, what was uploaded, how long, where) and one line: N home folders of people, M home volumes with no account, K group folders and the database.
+
+**Home volumes with no account.** Every home volume Javo made is backed up, also one that has no home row: a volume from before the database, or one whose person was removed with their row. The controller finds such a claim (named like a home and labelled with an owner) and gives it a home row; the Backups page lists it as "Home volume with no account: `<claim>`". Its backup first reads who owns its files (a Job that only looks, as nobody) and then runs as that uid, read-only. Decide what to do with it: delete the claim and run `javo home prune --orphans --yes` to forget it.
+
+**Back up now** on the Backups page starts a run of the backup job at once. `javo backup status` in the server pod says how each part stands:
+
+```sh
+kubectl -n javo-system exec deploy/javo -- /javo backup status
+```
+
+## Restore
+
+Under **Settings, Backups, Restore**, pick a date (a run of the backup job) and whose files:
+
+- **Everyone**: every home folder becomes as it was then, and apps deleted since come back and wait under **Restored apps** until you start them.
+- **One person**: their deleted apps come back the same way, and their home folder either **Replace files** (exactly as it was; newer files are removed) or **Put beside current files** (into a `restored-<date>` folder).
+
+The restore is a run of the restore job, with its steps and logs like a backup's. Each person's apps stop while their files come back ("Your files are being restored") and start again by themselves after; the audit log has each request. One person from the CLI:
+
+```sh
+kubectl -n javo-system exec deploy/javo -- /javo backup snapshots alice
+kubectl -n javo-system exec deploy/javo -- /javo backup restore alice --snapshot <id> --mode beside
+```
+
+### Bring back some apps
+
+To bring back apps deleted since a backup without replacing the database, open **Settings, Backups**, pick a backup and press **Preview** (`POST /api/admin/backups/<file>/preview`, optional `{"owner": "<identity name>", "app": "<short name>"}`). Each app in the backup is compared with now:
+
+| Outcome | Meaning |
+|---|---|
+| Create | gone now; Restore brings it back |
+| Exists | an app with the same owner and name exists; it is left as it is |
+| OwnerUnknown | its owner has no account here; they must sign in once first |
+| TemplateMissing | its template is gone; add it first |
+
+Restore (`POST /api/admin/backups/<file>/restore`) creates only the Create rows. They wait like a whole restore does, until you release them. This reads SQLite backups only; with Postgres restore with `pg_restore`.
+
+### Restore the whole database (SQLite)
+
+To take a copy now: **Back up now** under **Settings, Backups** (`POST /api/admin/backups`), or in the running pod (works while the server runs):
+
+```sh
+kubectl -n javo-system exec deploy/javo -- /javo db backup /var/lib/javo-backups/manual-$(date -u +%Y%m%dT%H%M%SZ).db
+```
+
+This needs `database.backup.schedule` set (it is by default), so the claim is mounted. Without it write to `/tmp` and `kubectl cp` the file out. With Postgres: `kubectl -n javo-system create job --from=cronjob/javo-db-backup javo-db-backup-manual`.
+
+To restore:
+
+<Steps>
+
+1. Stop the server so nothing has the database open:
+
+   ```sh
+   kubectl -n javo-system scale deploy/javo --replicas=0
+   ```
+
+2. Run `javo db restore` in a one-off pod that mounts both claims. Replace `<image>` with the image of the `javo` Deployment and `<file>` with the backup name:
+
+   ```yaml
+   apiVersion: v1
+   kind: Pod
+   metadata: {name: javo-restore, namespace: javo-system}
+   spec:
+     restartPolicy: Never
+     securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+     containers:
+       - name: restore
+         image: <image>
+         args: [db, restore, --database-path=/var/lib/javo/javo.db, /var/lib/javo-backups/<file>]
+         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+         volumeMounts:
+           - {name: data, mountPath: /var/lib/javo}
+           - {name: backups, mountPath: /var/lib/javo-backups}
+     volumes:
+       - {name: data, persistentVolumeClaim: {claimName: javo-data}}
+       - {name: backups, persistentVolumeClaim: {claimName: javo-backups}}
+   ```
+
+   It checks the file is a healthy SQLite database first, refuses while anything has the database open, and keeps the old one as `javo.db.before-restore`; delete it once you are satisfied.
+
+3. Read `kubectl -n javo-system logs javo-restore`, delete the pod and scale back:
+
+   ```sh
+   kubectl -n javo-system scale deploy/javo --replicas=1
+   ```
+
+4. When the server starts it migrates a restored older backup to the current schema, and the controller removes runtime objects whose row is gone. Every app in the restored database waits, held under the backup's file name: the controller starts nothing for it, not even its home claim (a volume restore may still be bringing the old one back), and stops a pod it still had. Release them under **Settings, Backups, Restored apps** (`POST /api/admin/restores/<backup file>/release`): **Start at N per minute** (the apps that were running) or **Leave stopped**.
+
+</Steps>
+
+### Restore the whole database (Postgres)
+
+<Steps>
+
+1. Scale the components to 0:
+
+   ```sh
+   kubectl -n javo-system scale deploy/javo-gateway deploy/javo-controller --replicas=0
+   ```
+
+2. Run `pg_restore` from a pod that mounts `javo-backups` (or, with a bucket, holds a dump fetched with `javo backup db fetch`, as in the disaster recovery below), with the same image as the CronJob (`database.backup.image`) and the connection string in the environment:
+
+   ```sh
+   pg_restore --clean --if-exists --no-owner --dbname "$JAVO_DSN" /backups/<file>
+   ```
+
+   Use a `pg_restore` of at least the version that wrote the dump. To restore into a new empty database, create it first and point the Secret at it.
+
+3. Scale the components back to their replica counts.
+
+</Steps>
+
+## Disaster recovery: a new machine
+
+Everything comes back from the bucket, the backup password and the secrets key.
+
+<Steps>
+
+1. On the new cluster, before installing, make the Secrets from your copies: the bucket's access key (`javo-backup-s3`), the backup password as `javo-backup-password-old` (key `password`) and the secrets key as `javo-secrets-key-old` (key `kek`).
+
+2. Install the chart with the same values (`backupTarget` pointing at the same bucket and prefix, `database.backup.schedule` set) plus the lines below. Javo starts with an empty database.
+
+   ```yaml
+   backupTarget:
+     password:
+       existingSecret: javo-backup-password-old
+   secrets:
+     existingKeySecret: javo-secrets-key-old
+   ```
+
+3. Fetch the newest database copy and restore it as above:
+
+   ```sh
+   kubectl -n javo-system exec deploy/javo -- /javo backup db list
+   kubectl -n javo-system exec deploy/javo -- /javo backup db fetch latest /var/lib/javo-backups/from-bucket.db
+   ```
+
+   Then restore `/var/lib/javo-backups/from-bucket.db` as in the SQLite restore above (every app comes back held). With Postgres, run `javo backup db fetch latest /tmp/javo.dump` in a gateway or controller pod, copy it out and `pg_restore` it as above.
+
+4. Restore every home folder from its newest backup. Their old claims are gone, so each home gets a new claim first, then its files:
+
+   ```sh
+   kubectl -n javo-system exec deploy/javo -- /javo backup restore --all --snapshot latest
+   kubectl -n javo-system exec deploy/javo -- /javo backup status    # until every restore is Done
+   ```
+
+5. Release the restored apps under **Settings, Backups, Restored apps**.
+
+</Steps>
+
+## People who leave
+
+`javo user remove <name>` forgets the person's home folder: it is no longer listed or backed up, but its files stay on their claim, and someone added again under the same name gets them back (`--delete-home` deletes them). Their backups stay in the bucket until you remove them there. `javo home prune --orphans` lists homes with no files left from people removed earlier; add `--yes` to forget them:
+
+```sh
+kubectl -n javo-system exec deploy/javo -- /javo home prune --orphans
+kubectl -n javo-system exec deploy/javo -- /javo home prune --orphans --yes
+```

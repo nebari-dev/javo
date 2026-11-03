@@ -1,0 +1,16 @@
+.dev/
+bin/
+ui/node_modules/
+ui/dist/
+ui/tools/gen-api/node_modules/
+/bin
+# Local secrets and tool state; never committed.
+/.env
+.superpowers/
+ui/tsconfig.tsbuildinfo
+# Site settings of the Compose install (JAVO_PORT and friends).
+deploy/compose/.env
+# Documentation site (site/): dependencies, build output and Astro's cache.
+site/node_modules/
+site/dist/
+site/.astro/

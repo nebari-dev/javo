@@ -1,0 +1,94 @@
+# javo on one Docker host: single-node k3s in a privileged container plus a
+# one-shot installer that applies the javo Helm chart (same chart and code
+# path as every other install). See "Docker Compose" in README.md.
+#
+#   docker compose --profile build up -d   # build the javo image here, then install
+#   docker compose up -d                   # install with the image already built or pulled
+#   docker compose logs -f installer       # install progress
+#   docker compose exec k3s cat /var/lib/javo-secrets/admin.password
+#
+# Variables (shell environment or deploy/compose/.env):
+#   JAVO_PORT            host port of the gateway (default 8080)
+#   JAVO_PUBLIC_URL      URL browsers use (default http://localhost:${JAVO_PORT})
+#   JAVO_API_PORT        host port of the Kubernetes API, bound to 127.0.0.1 (default 6443)
+#   JAVO_IMAGE_REGISTRY  registry to pull the javo image from, e.g.
+#                       ghcr.io/<org>; empty (default) uses the image built here
+#   JAVO_IMAGE_TAG       tag of the javo image (default compose)
+name: javo
+
+x-build-image: &build-image
+  profiles: [build]
+  pull_policy: build
+  restart: "no"
+
+services:
+  k3s:
+    # rancher/k3s, pinned by digest in the Dockerfile (stage k3s).
+    build: {context: ../.., target: k3s}
+    image: javo-k3s:${JAVO_IMAGE_TAG:-compose}
+    pull_policy: build
+    hostname: javo
+    privileged: true
+    restart: unless-stopped
+    command:
+      - server
+      # A fixed node name: home folders (local-path volumes) are tied to it.
+      - --node-name=javo
+      - --tls-san=k3s
+      - --disable=traefik,servicelb,metrics-server
+      - --write-kubeconfig=/var/lib/javo-kubeconfig/kubeconfig.yaml
+      - --write-kubeconfig-mode=0600
+    ports:
+      - "${JAVO_PORT:-8080}:30080"
+      - "127.0.0.1:${JAVO_API_PORT:-6443}:6443"
+    tmpfs: [/run, /var/run, /var/lib/cni]
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      # local-path volumes: the home folders.
+      - homes:/var/lib/rancher/k3s/storage
+      - kubelet:/var/lib/kubelet
+      - logs:/var/log
+      - kubeconfig:/var/lib/javo-kubeconfig
+      - secrets:/var/lib/javo-secrets:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:30080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15m
+      start_interval: 5s
+
+  installer:
+    build: {context: ../.., target: compose-installer}
+    image: javo-compose-installer:${JAVO_IMAGE_TAG:-compose}
+    pull_policy: build
+    restart: "no"
+    environment:
+      JAVO_PUBLIC_URL: ${JAVO_PUBLIC_URL:-http://localhost:${JAVO_PORT:-8080}}
+      JAVO_IMAGE_REGISTRY: ${JAVO_IMAGE_REGISTRY:-}
+      JAVO_IMAGE_TAG: ${JAVO_IMAGE_TAG:-compose}
+    volumes:
+      - kubeconfig:/var/lib/javo-kubeconfig:ro
+      - secrets:/var/lib/javo-secrets
+      # Copies images built on this host into k3s (docker save, ctr import).
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      k3s: {condition: service_started}
+      javo: {condition: service_completed_successfully, required: false}
+
+  # The image built from this checkout (profile build), the only one: apps
+  # and jobs run upstream images, which k3s pulls. The container only exits
+  # 0; the installer copies the image into k3s.
+  javo:
+    <<: *build-image
+    build: {context: ../..}
+    image: javo:${JAVO_IMAGE_TAG:-compose}
+    command: ["--help"]
+
+volumes:
+  k3s-data:
+  homes:
+  kubelet:
+  logs:
+  kubeconfig:
+  secrets:

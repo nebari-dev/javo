@@ -1,0 +1,6 @@
+apiVersion: v2
+name: javo
+description: Kubernetes-native workspace platform (controller and gateway)
+type: application
+version: 0.1.3
+appVersion: "0.1.3"

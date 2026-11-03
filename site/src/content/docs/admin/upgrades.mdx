@@ -1,0 +1,33 @@
+---
+title: Upgrades
+description: Upgrade a Javo release and what happens to the database.
+sidebar:
+  order: 12
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+## Upgrade a Helm install
+
+<Steps>
+
+1. Take a database backup first (**Back up now** under Settings, Backups, or see [Backups](/admin/backups/#restore-the-whole-database-sqlite)).
+
+2. Build and push the image of the new version, as at [install](/getting-started/helm/), under a new tag.
+
+3. Upgrade the release with the same values and the new tag:
+
+   ```sh
+   helm upgrade javo deploy/helm/javo --namespace javo-system -f values.yaml \
+     --set image.tag=0.2.0 --wait
+   ```
+
+</Steps>
+
+Every gateway and controller pod runs `javo db upgrade` in an init container before it starts, which brings the database schema up to date; each process also checks the schema when it opens the database. The chart keeps the database volume, the secrets key and the backup password across upgrades.
+
+The [Docker Compose install](/getting-started/compose/#upgrade) upgrades with `git pull` and `docker compose --profile build up -d`.
+
+<Aside type="note">
+With SQLite the one pod uses the Recreate strategy, so the web UI is briefly down during an upgrade. Running apps keep running: they are separate pods.
+</Aside>

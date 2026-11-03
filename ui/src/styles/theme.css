@@ -1,0 +1,59 @@
+:root{
+  --font-sans:'Fira Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+  /* Type scale: the only place font sizes are set. Body is --fs-md. */
+  --fs-2xs:13.5px; --fs-xs:14.5px; --fs-sm:15.5px; --fs-md:17px; --fs-lg:24px; --fs-xl:26px; --fs-2xl:30px;
+  /* Button sizes: the only place they are set (standard 40px controls, 88px minimum width). */
+  --btn-h:40px; --btn-px:20px; --btn-min-w:88px; --btn-h-sm:34px; --btn-px-sm:14px; --btn-min-w-sm:72px;
+  --font-mono:'Fira Code',ui-monospace,Menlo,monospace;
+  --bg:#eef0f4; --surface:#ffffff; --surface-2:#f6f7f9; --border:#e2e5eb; --border-strong:#cfd4dd;
+  --text:#1d2133; --text-2:#5b6175; --text-3:#8a90a3;
+  --ink:#1d2133; --on-ink:#ffffff; --key-edge:#d3d8e1; --key-hi:rgba(255,255,255,.9);
+  --accent:#3d63dd; --accent-soft:#eaeefb; --accent-text:#2f50bd;
+  --ok:#1f8a4c; --ok-soft:#e5f4ea; --warn:#a66400; --warn-soft:#fdf2df; --err:#c8283a; --err-soft:#fbe9eb; --info:#3d63dd; --info-soft:#eaeefb; --idle:#7d8396; --idle-soft:#eef0f4;
+  --shadow:0 1px 0 var(--key-edge),0 1px 3px rgba(29,33,51,.04); --shadow-lg:0 24px 64px rgba(29,33,51,.22); --scrim:rgba(29,33,51,.28);
+  --logo-marimo:#1c7361;
+  /* Log colours: a hue each, every one at least 4.5:1 on --log-bg and the error and warning row tints (theme.test.ts). */
+  --log-dim:#62687a; --log-err:#c71f2c; --log-warn:#8c5d00; --log-ok:#17773a; --log-info:#0866d0; --log-key:#b3430c;
+  --log-string:#08765a; --log-number:#7a44d6; --log-path:#0a7286; --log-source:#b3337f;
+  /* Log viewer surfaces, and the tint behind error and warning rows. */
+  --log-bg:#fcfcfd; --log-head:#f6f7f9; --log-err-bg:#fcf0f1; --log-warn-bg:#fcf4e6;
+  --radius:14px; --radius-sm:10px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1015; --surface:#161920; --surface-2:#1c2028; --border:#262b35; --border-strong:#353b48;
+  --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#737a8c;
+  --ink:#e9ebf1; --on-ink:#12141a; --key-edge:#08090c; --key-hi:rgba(255,255,255,.05);
+  --accent:#7c9bff; --accent-soft:#1b2342; --accent-text:#9db4ff;
+  --ok:#3ccf7a; --ok-soft:#10261a; --warn:#f0b04a; --warn-soft:#2b220e; --err:#ff6b6b; --err-soft:#341417; --info:#7c9bff; --info-soft:#1b2342; --idle:#8b91a3; --idle-soft:#1c2028;
+  --shadow:0 1px 0 var(--key-edge),0 2px 8px rgba(0,0,0,.25); --scrim:rgba(0,0,0,.56);
+  --logo-marimo:#cccccc;
+  --log-dim:#8b92a4; --log-err:#ff7b72; --log-warn:#e3b341; --log-ok:#3fb950; --log-info:#6cb6ff; --log-key:#ffa657;
+  --log-string:#56d4bc; --log-number:#d2a8ff; --log-path:#39c5cf; --log-source:#f778ba;
+  --log-bg:#111319; --log-head:#1a1d25; --log-err-bg:#24151a; --log-warn-bg:#221d12;
+}}
+:root[data-theme="dark"]{
+  --bg:#0e1015; --surface:#161920; --surface-2:#1c2028; --border:#262b35; --border-strong:#353b48;
+  --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#737a8c;
+  --ink:#e9ebf1; --on-ink:#12141a; --key-edge:#08090c; --key-hi:rgba(255,255,255,.05);
+  --accent:#7c9bff; --accent-soft:#1b2342; --accent-text:#9db4ff;
+  --ok:#3ccf7a; --ok-soft:#10261a; --warn:#f0b04a; --warn-soft:#2b220e; --err:#ff6b6b; --err-soft:#341417; --info:#7c9bff; --info-soft:#1b2342; --idle:#8b91a3; --idle-soft:#1c2028;
+  --shadow:0 1px 0 var(--key-edge),0 2px 8px rgba(0,0,0,.25); --scrim:rgba(0,0,0,.56);
+  --logo-marimo:#cccccc;
+  --log-dim:#8b92a4; --log-err:#ff7b72; --log-warn:#e3b341; --log-ok:#3fb950; --log-info:#6cb6ff; --log-key:#ffa657;
+  --log-string:#56d4bc; --log-number:#d2a8ff; --log-path:#39c5cf; --log-source:#f778ba;
+  --log-bg:#111319; --log-head:#1a1d25; --log-err-bg:#24151a; --log-warn-bg:#221d12;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:var(--fs-md);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent-text);text-decoration:none}
+button,input{font-family:inherit;font-size:inherit}
+button{cursor:pointer}
+code,.mono{font-family:var(--font-mono);font-size:var(--fs-xs)}
+h1{font-size:var(--fs-2xl);font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
+h2{font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;margin:0}
+h3{font-size:var(--fs-md);font-weight:600;margin:0}
+.sub{color:var(--text-2);margin:0}
+.muted{color:var(--text-2)}.faint{color:var(--text-3)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

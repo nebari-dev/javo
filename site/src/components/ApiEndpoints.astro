@@ -1,0 +1,33 @@
+---
+// Lists every endpoint of the gateway's OpenAPI document (ui/openapi.json,
+// written by `make openapi`), grouped by tag, so this page follows the API.
+import spec from '../../../ui/openapi.json';
+
+type Operation = { summary?: string; tags?: string[]; operationId?: string };
+const methods = ['get', 'post', 'put', 'patch', 'delete'] as const;
+
+const groups = new Map<string, { method: string; path: string; summary: string }[]>();
+for (const [path, item] of Object.entries(spec.paths as Record<string, Record<string, Operation>>)) {
+  for (const method of methods) {
+    const op = item[method];
+    if (!op) continue;
+    const tag = op.tags?.[0] ?? 'other';
+    if (!groups.has(tag)) groups.set(tag, []);
+    groups.get(tag)!.push({ method: method.toUpperCase(), path, summary: op.summary ?? '' });
+  }
+}
+const tags = [...groups.keys()].sort();
+---
+{tags.map((tag) => (
+  <>
+    <h3 id={`tag-${tag}`}>{tag}</h3>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>What it does</th></tr></thead>
+      <tbody>
+        {groups.get(tag)!.map((e) => (
+          <tr><td><code>{e.method}</code></td><td><code>{e.path}</code></td><td>{e.summary}</td></tr>
+        ))}
+      </tbody>
+    </table>
+  </>
+))}

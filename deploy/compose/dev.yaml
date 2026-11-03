@@ -1,0 +1,26 @@
+# Development override of compose.yaml (scripts/dev/up.sh, `make up`): only the
+# k3s service runs; the host installs the chart. k3s pulls the images from
+# the registry every checkout shares (scripts/dev/registry-up.sh): references to
+# localhost:5001 go to javo-registry:5000 on the network javo-registry. The
+# project name and the host ports come from scripts/dev/env.sh, so checkouts
+# run side by side:
+#
+#   JAVO_HTTP_PORT      UI and apps (NodePort 30080)
+#   JAVO_KEYCLOAK_PORT  dev Keycloak (NodePort 30081)
+#   JAVO_API_PORT       Kubernetes API, on 127.0.0.1
+services:
+  k3s:
+    # Built once (Dockerfile stage k3s); compose.yaml's "build" policy
+    # rebuilds and recreates the container on every up.
+    pull_policy: missing
+    ports: !override
+      - "127.0.0.1:${JAVO_HTTP_PORT:?}:30080"
+      - "127.0.0.1:${JAVO_KEYCLOAK_PORT:?}:30081"
+      - "127.0.0.1:${JAVO_API_PORT:?}:6443"
+    volumes:
+      - ./registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    networks: [default, javo-registry]
+
+networks:
+  javo-registry:
+    external: true

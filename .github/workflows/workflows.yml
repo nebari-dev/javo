@@ -1,0 +1,27 @@
+name: Workflows
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/**']
+  pull_request:
+    paths: ['.github/**']
+
+permissions:
+  contents: read
+
+jobs:
+  no-emulation:
+    name: No emulation in workflows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Builds cross-compile on the runner's own platform; emulated builds
+      # are slow and never allowed in any workflow.
+      - run: |
+          if git grep -n -i -E 'q[e]mu|b[i]nfmt' -- '*.yml' '*.yaml'; then
+            echo "::error::emulated build setup found in a workflow"
+            exit 1
+          fi

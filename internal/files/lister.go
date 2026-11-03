@@ -1,0 +1,861 @@
+// Package files lists the folders of a user's home for the file picker and
+// opens files from it.
+//
+// The gateway cannot mount home claims itself, so each user gets a small file
+// pod that mounts their home read-only and runs `rclone rcd`. The gateway asks
+// it for folder listings over the pod network. A file pod is created on the
+// first request and deleted after it has been idle for a while.
+package files
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"path"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/reasons"
+	"github.com/nebari-dev/javo/internal/status"
+	"github.com/nebari-dev/javo/internal/storage/podstorage"
+)
+
+const (
+	roleFiles = model.RoleFiles
+
+	rcPort      = 5572
+	dataDir     = podstorage.HomeDir
+	scratchDir  = podstorage.ScratchDir
+	runAsUser   = 1000
+	runAsGroup  = 100
+	defaultIdle = 10 * time.Minute
+	reapEvery   = time.Minute
+	// MaxEntries is the most entries one folder listing returns.
+	MaxEntries = 5000
+	// maxListing bounds how much of an rclone answer is read: MaxEntries
+	// entries of typical size (rclone repeats the full path in each entry).
+	maxListing = 8 << 20
+	// MaxOpenBytes is the largest file Open serves (50 MiB).
+	MaxOpenBytes = 50 << 20
+)
+
+// Error values are internal; user-facing copy lives in internal/reasons.
+var (
+	// ErrOutsideHome means the requested path leaves the home folder.
+	ErrOutsideHome = errors.New("files: path is outside the home folder")
+	// ErrNotFound means the folder does not exist (or is not a real folder).
+	ErrNotFound = errors.New("files: folder not found")
+	// ErrNoHome means the user has no home claim yet (no app was ever started).
+	ErrNoHome = errors.New("home claim does not exist")
+	// ErrTooLarge means the file is bigger than MaxOpenBytes.
+	ErrTooLarge = errors.New("files: file is too large to open")
+	// ErrHomeStarting means the file pod is not ready yet; retry shortly.
+	ErrHomeStarting = errors.New("file pod is starting")
+	// ErrHomeBusy means the home is attached to another node (ReadWriteOnce).
+	ErrHomeBusy = errors.New("home is attached to another node")
+	// ErrHomeConflict means the home claim records a different owner (two
+	// owners' slugs collide); it is never mounted for this user.
+	ErrHomeConflict = errors.New("files: home claim belongs to another owner")
+	// ErrForeignPod means a pod with the file pod's name is not this user's
+	// file pod; it is left untouched.
+	ErrForeignPod = errors.New("files: pod with the file pod name is not this user's file pod")
+)
+
+// Entry is one item of a folder listing.
+type Entry struct {
+	Name    string
+	IsDir   bool
+	Size    int64
+	ModTime time.Time
+}
+
+// Listing is one folder's entries, cut at MaxEntries (or at the byte cap).
+type Listing struct {
+	Entries   []Entry
+	Truncated bool
+}
+
+// CleanPath turns a requested path into a clean path relative to the home
+// folder ("" is the home folder itself). Paths that climb above it fail with
+// ErrOutsideHome.
+func CleanPath(raw string) (string, error) {
+	c := path.Clean(strings.TrimLeft(raw, "/"))
+	if c == ".." || strings.HasPrefix(c, "../") {
+		return "", ErrOutsideHome
+	}
+	if c == "." {
+		return "", nil
+	}
+	return c, nil
+}
+
+// Remote reads the home and group folders mounted in the file pod at addr.
+// fs is the directory a call is about: the home mount or a group folder's.
+type Remote interface {
+	// List lists remote, a path inside fs.
+	List(ctx context.Context, addr, fs, remote string) (Listing, error)
+	// Open streams one file; remote is relative to the home mount.
+	Open(ctx context.Context, addr, remote string) (io.ReadCloser, error)
+	// Stat describes one entry inside fs without symlink following for the
+	// last name; a missing entry gives ErrNotFound.
+	Stat(ctx context.Context, addr, fs, remote string) (Entry, error)
+	// FindFile returns the real file called name in folder dir of the home,
+	// however many entries the folder holds; ErrNotFound if there is none.
+	FindFile(ctx context.Context, addr, dir, name string) (Entry, error)
+	// About reports the space used on the volume the home is on.
+	About(ctx context.Context, addr string) (Usage, error)
+}
+
+// Usage is the space used and the size of the volume under the home, in bytes.
+type Usage struct {
+	Used, Total int64
+}
+
+// HomeUsage is what the gateway reports for a home. Used and Total are set
+// only when Enforced: where the storage does not hold the home to its size,
+// the volume's numbers describe a disk shared with others and are not shown.
+type HomeUsage struct {
+	Enforced    bool
+	Used, Total int64
+}
+
+// FileInfo describes a file returned by Lister.Open.
+type FileInfo struct {
+	Name    string
+	Size    int64
+	ModTime time.Time
+}
+
+// Rclone calls the rclone remote control API.
+type Rclone struct {
+	// HTTP is the client to use; nil means one with a 10 second timeout.
+	HTTP *http.Client
+}
+
+// post sends one rclone remote control call; args name the fs. The caller
+// closes the body.
+func (r Rclone) post(ctx context.Context, addr, op string, args map[string]any) (*http.Response, error) {
+	hc := r.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: 10 * time.Second}
+	}
+	body, err := json.Marshal(args)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/"+op, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("rclone %s: %w", op, err)
+	}
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return resp, nil
+	case resp.StatusCode == http.StatusNotFound:
+		resp.Body.Close()
+		return nil, ErrNotFound
+	case resp.StatusCode != http.StatusOK:
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		return nil, fmt.Errorf("rclone %s: status %d: %s", op, resp.StatusCode, data)
+	}
+	return resp, nil
+}
+
+// list calls operations/list on remote inside fs, with extra request fields
+// (nil for none).
+func (r Rclone) list(ctx context.Context, addr, fs, remote string, extra map[string]any) (Listing, error) {
+	args := map[string]any{"fs": fs, "remote": remote}
+	for k, v := range extra {
+		args[k] = v
+	}
+	resp, err := r.post(ctx, addr, "operations/list", args)
+	if err != nil {
+		return Listing{}, err
+	}
+	defer resp.Body.Close()
+	out, err := decodeListing(resp.Body, maxListing)
+	if err != nil {
+		return Listing{}, fmt.Errorf("rclone operations/list: %w", err)
+	}
+	return out, nil
+}
+
+// List calls operations/list for remote (relative to the mount fs). It
+// stops at MaxEntries entries or maxListing bytes and marks the result
+// Truncated.
+func (r Rclone) List(ctx context.Context, addr, fs, remote string) (Listing, error) {
+	return r.list(ctx, addr, fs, remote, nil)
+}
+
+// About calls operations/about for the home mount: the used and total bytes
+// of the volume under it.
+func (r Rclone) About(ctx context.Context, addr string) (Usage, error) {
+	resp, err := r.post(ctx, addr, "operations/about", map[string]any{"fs": dataDir})
+	if err != nil {
+		return Usage{}, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Used  int64 `json:"used"`
+		Total int64 `json:"total"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out); err != nil {
+		return Usage{}, fmt.Errorf("rclone operations/about: %w", err)
+	}
+	return Usage{Used: out.Used, Total: out.Total}, nil
+}
+
+// Stat calls operations/stat for remote. A name that does not exist gives
+// ErrNotFound. stat does not follow a symlink named last (it reports a
+// non-folder), but it does follow symlinked folders earlier in the path, so
+// callers check each folder on the way.
+func (r Rclone) Stat(ctx context.Context, addr, fs, remote string) (Entry, error) {
+	resp, err := r.post(ctx, addr, "operations/stat", map[string]any{"fs": fs, "remote": remote})
+	if err != nil {
+		return Entry{}, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Item *Entry `json:"item"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return Entry{}, fmt.Errorf("rclone operations/stat: %w", err)
+	}
+	if out.Item == nil {
+		return Entry{}, ErrNotFound
+	}
+	return *out.Item, nil
+}
+
+// globEscaper escapes the characters rclone filter rules treat as patterns.
+var globEscaper = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`, `{`, `\{`, `}`, `\}`)
+
+// FindFile returns the file called name in folder dir (relative to the home
+// mount) without listing the whole folder: the listing asks rclone for that
+// one name. Like every listing it skips symlinks, so a symlink is not found.
+// A folder, a missing name or a different name gives ErrNotFound.
+func (r Rclone) FindFile(ctx context.Context, addr, dir, name string) (Entry, error) {
+	l, err := r.list(ctx, addr, dataDir, dir, map[string]any{
+		"opt":     map[string]any{"filesOnly": true},
+		"_filter": map[string]any{"IncludeRule": []string{globEscaper.Replace(name)}},
+	})
+	if err != nil {
+		return Entry{}, err
+	}
+	i := slices.IndexFunc(l.Entries, func(e Entry) bool { return !e.IsDir && e.Name == name })
+	if i < 0 {
+		return Entry{}, ErrNotFound
+	}
+	return l.Entries[i], nil
+}
+
+// Open serves remote from the rclone object server (rcd --rc-serve). A file
+// that does not exist gives ErrNotFound. The caller closes the body.
+func (r Rclone) Open(ctx context.Context, addr, remote string) (io.ReadCloser, error) {
+	hc := r.HTTP
+	if hc == nil {
+		// No overall timeout: a large file takes as long as it takes. The
+		// header wait is bounded by the request context.
+		hc = &http.Client{}
+	}
+	u := url.URL{Scheme: "http", Host: addr, Path: "/[" + dataDir + "]/" + remote}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("rclone serve: %w", err)
+	}
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		resp.Body.Close()
+		return nil, ErrNotFound
+	case resp.StatusCode != http.StatusOK:
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		return nil, fmt.Errorf("rclone serve: status %d: %s", resp.StatusCode, data)
+	}
+	return resp.Body, nil
+}
+
+// decodeListing streams {"list":[...]} one entry at a time, reading at most
+// limit bytes. If the cap is reached before the list closes, the cut can fall
+// anywhere (inside an entry, between entries, before "]"), so running out of
+// input once the cap is reached means truncated: the entries read so far
+// are returned without an error.
+func decodeListing(r io.Reader, limit int64) (Listing, error) {
+	lr := &io.LimitedReader{R: r, N: limit}
+	out := Listing{Entries: []Entry{}}
+	err := decodeList(json.NewDecoder(lr), &out)
+	if lr.N <= 0 && (errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF)) {
+		out.Truncated = true
+		return out, nil
+	}
+	return out, err
+}
+
+func decodeList(dec *json.Decoder, out *Listing) error {
+	if err := expectDelim(dec, '{'); err != nil {
+		return err
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if key != "list" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := expectDelim(dec, '['); err != nil {
+			return err
+		}
+		for dec.More() {
+			if len(out.Entries) == MaxEntries {
+				out.Truncated = true
+				return nil
+			}
+			var e Entry
+			if err := dec.Decode(&e); err != nil {
+				return err
+			}
+			out.Entries = append(out.Entries, e)
+		}
+		// The list is complete only once its "]" is read.
+		return expectDelim(dec, ']')
+	}
+	return errors.New("answer has no list")
+}
+
+func expectDelim(dec *json.Decoder, want json.Delim) error {
+	t, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if d, ok := t.(json.Delim); !ok || d != want {
+		return fmt.Errorf("unexpected %v, want %v", t, want)
+	}
+	return nil
+}
+
+// HomePods returns the address of a user's ready file pod and deletes it
+// when an app needs the home; Pods implements it. Users are named by
+// their full ID.
+type HomePods interface {
+	Ensure(ctx context.Context, userID string) (string, error)
+	// EnsureGroup is Ensure for a pod that also mounts the group folder dir.
+	EnsureGroup(ctx context.Context, userID, dir string) (string, error)
+	Release(ctx context.Context, userID string) error
+	Touch(userID string)
+}
+
+// Lister lists folders of a user's home.
+type Lister struct {
+	pods   HomePods
+	remote Remote
+}
+
+// NewLister returns a Lister that reaches homes through pods and remote.
+func NewLister(pods HomePods, remote Remote) *Lister {
+	return &Lister{pods: pods, remote: remote}
+}
+
+// List returns the entries of rel, a path from CleanPath.
+//
+// rclone skips symlinks when listing a folder but follows one that is named
+// directly, so a symlink in the home could otherwise list the file pod's own
+// filesystem. Each folder on the path is therefore checked with stat, which
+// reports a symlink as a non-folder. A swap between two of these calls is not
+// prevented; it could only list names in the file pod's container, which holds
+// no secrets.
+func (l *Lister) List(ctx context.Context, userID, rel string) (Listing, error) {
+	return l.list(ctx, userID, dataDir, "", rel)
+}
+
+// ListGroup lists rel, a path from CleanPath, inside the folder of a group
+// the file pod mounts at /shared/<dir> (dir is naming.GroupDir of the group).
+// The caller has checked that the user is in the group and the folder is ready.
+func (l *Lister) ListGroup(ctx context.Context, userID, dir, rel string) (Listing, error) {
+	return l.list(ctx, userID, path.Join(podstorage.SharedRoot, dir), dir, rel)
+}
+
+// list lists rel inside fs; group is the folder fs is, or "" for the home.
+func (l *Lister) list(ctx context.Context, userID, fs, group, rel string) (Listing, error) {
+	addr, err := l.pods.EnsureGroup(ctx, userID, group)
+	if errors.Is(err, ErrNoHome) {
+		if rel == "" {
+			return Listing{Entries: []Entry{}}, nil
+		}
+		return Listing{}, ErrNotFound
+	}
+	if err != nil {
+		return Listing{}, err
+	}
+	if err := l.checkFolders(ctx, addr, fs, rel); err != nil {
+		return Listing{}, err
+	}
+	return l.remote.List(ctx, addr, fs, rel)
+}
+
+// checkFolders fails with ErrNotFound unless every folder on rel (inside fs)
+// is a real folder (not a symlink). Stat asks about one name, so a folder past
+// the listing cap of its parent is still found.
+func (l *Lister) checkFolders(ctx context.Context, addr, fs, rel string) error {
+	if rel == "" {
+		return nil
+	}
+	at := ""
+	for _, part := range strings.Split(rel, "/") {
+		at = path.Join(at, part)
+		e, err := l.remote.Stat(ctx, addr, fs, at)
+		if err != nil {
+			return err
+		}
+		if !e.IsDir {
+			return ErrNotFound
+		}
+	}
+	return nil
+}
+
+// Open streams the file at rel, a non-empty path from CleanPath.
+//
+// rclone serves a symlink named directly but never lists one, so the file
+// must be found by a listing of its folder (FindFile), the folders on the way
+// must be real folders (checkFolders), and it must not exceed MaxOpenBytes. At
+// most MaxOpenBytes are read even if the file grows after the check.
+func (l *Lister) Open(ctx context.Context, userID, rel string) (io.ReadCloser, FileInfo, error) {
+	dir, name := path.Split(rel)
+	if name == "" {
+		return nil, FileInfo{}, ErrNotFound
+	}
+	addr, err := l.pods.Ensure(ctx, userID)
+	if errors.Is(err, ErrNoHome) {
+		return nil, FileInfo{}, ErrNotFound
+	}
+	if err != nil {
+		return nil, FileInfo{}, err
+	}
+	dir = strings.TrimSuffix(dir, "/")
+	if err := l.checkFolders(ctx, addr, dataDir, dir); err != nil {
+		return nil, FileInfo{}, err
+	}
+	e, err := l.remote.FindFile(ctx, addr, dir, name)
+	if err != nil {
+		return nil, FileInfo{}, err
+	}
+	if e.Size > MaxOpenBytes {
+		return nil, FileInfo{}, ErrTooLarge
+	}
+	body, err := l.remote.Open(ctx, addr, rel)
+	if err != nil {
+		return nil, FileInfo{}, err
+	}
+	capped := struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(body, MaxOpenBytes), body}
+	return capped, FileInfo{Name: e.Name, Size: e.Size, ModTime: e.ModTime}, nil
+}
+
+// Touch keeps the user's file pod, if any, for another idle period.
+func (l *Lister) Touch(userID string) { l.pods.Touch(userID) }
+
+// Usage reports how full the user's home is, but only when sizeEnforced (the
+// home's status.sizeEnforced): otherwise it answers without starting a file
+// pod and without numbers. A user with no home yet has nothing used.
+func (l *Lister) Usage(ctx context.Context, userID string, sizeEnforced bool) (HomeUsage, error) {
+	if !sizeEnforced {
+		return HomeUsage{}, nil
+	}
+	addr, err := l.pods.Ensure(ctx, userID)
+	if errors.Is(err, ErrNoHome) {
+		return HomeUsage{Enforced: true}, nil
+	}
+	if err != nil {
+		return HomeUsage{}, err
+	}
+	u, err := l.remote.About(ctx, addr)
+	if err != nil {
+		return HomeUsage{}, err
+	}
+	return HomeUsage{Enforced: true, Used: u.Used, Total: u.Total}, nil
+}
+
+// Release frees the user's home for an app by deleting the file pod.
+func (l *Lister) Release(ctx context.Context, userID string) error {
+	return l.pods.Release(ctx, userID)
+}
+
+type nsKey struct{}
+
+// WithNamespace says which namespace the user's home is in for calls made
+// with the returned context; without it Pods uses PodsConfig.Namespace.
+func WithNamespace(ctx context.Context, ns string) context.Context {
+	return context.WithValue(ctx, nsKey{}, ns)
+}
+
+// NamespaceOf is the namespace WithNamespace put in ctx.
+func NamespaceOf(ctx context.Context) (string, bool) {
+	ns, ok := ctx.Value(nsKey{}).(string)
+	return ns, ok && ns != ""
+}
+
+// PodsConfig configures NewPods.
+type PodsConfig struct {
+	// Client must read from the API server, not a cache: Ensure reads a pod
+	// right after creating it and lists events by involvedObject.name.
+	Client client.Client
+	// Namespace is where homes are unless a call's context says otherwise
+	// (WithNamespace).
+	Namespace string
+	// ReapIn lists the namespaces Reap sweeps; nil means only Namespace.
+	ReapIn func(ctx context.Context) ([]string, error)
+	// ReapAcrossNamespaces makes Reap list file pods cluster-wide in one call
+	// and keep those in the ReapIn namespaces, for when there is a namespace
+	// per person. It needs a cluster-wide grant on pods.
+	ReapAcrossNamespaces bool
+	// Image is the rclone image, pinned by digest.
+	Image string
+	// Storage resolves what a file pod mounts: the owner's home (its current
+	// claim), group folders and co-location, as for the owner's apps.
+	// Required.
+	Storage Storage
+	// IdleAfter is how long a file pod lives after its user was last
+	// active (Ensure or Touch); zero means 10 minutes.
+	IdleAfter time.Duration
+	// Now is the clock; nil means time.Now.
+	Now func() time.Time
+}
+
+// Storage resolves the storage input of an owner's pods; podstorage.Resolver
+// is the implementation. The file pod applies it read-only.
+type Storage interface {
+	Input(ctx context.Context, namespace, owner string) (podstorage.Input, error)
+}
+
+// Pods creates, reports on and reaps file pods.
+type Pods struct {
+	cfg     PodsConfig
+	mu      sync.Mutex
+	lastUse map[string]time.Time
+}
+
+// NewPods returns a file pod manager. Call Run to delete idle pods.
+func NewPods(cfg PodsConfig) (*Pods, error) {
+	if cfg.Client == nil || cfg.Namespace == "" || cfg.Image == "" || cfg.Storage == nil {
+		return nil, errors.New("files: client, namespace, image and storage are required")
+	}
+	if cfg.IdleAfter == 0 {
+		cfg.IdleAfter = defaultIdle
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	return &Pods{cfg: cfg, lastUse: map[string]time.Time{}}, nil
+}
+
+// ns is the namespace of the home a call is about.
+func (p *Pods) ns(ctx context.Context) string {
+	if ns, ok := NamespaceOf(ctx); ok {
+		return ns
+	}
+	return p.cfg.Namespace
+}
+
+func podName(userSlug string) string { return model.FilesPodPrefix + userSlug }
+
+// Ensure returns "<podIP>:5572" when the user's file pod is ready. Otherwise it
+// creates the pod if needed and returns ErrHomeStarting, ErrHomeBusy,
+// ErrNoHome or ErrHomeConflict. The home claim (the one the user's home
+// records, after a mode change the new one) must record userID as its owner,
+// checked on every call because a colliding slug shares the pod name.
+func (p *Pods) Ensure(ctx context.Context, userID string) (string, error) {
+	return p.EnsureGroup(ctx, userID, "")
+}
+
+// EnsureGroup is Ensure for a pod that also mounts the group folder dir (""
+// for none). A pod that exists without that mount, because the folder became
+// ready or the user joined the group after it was created, is deleted and
+// ErrHomeStarting returned so the next call creates it with the folder.
+func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, error) {
+	p.Touch(userID)
+
+	c, ns := p.cfg.Client, p.ns(ctx)
+	in, err := p.cfg.Storage.Input(ctx, ns, userID)
+	if err != nil {
+		return "", err
+	}
+	claimName := naming.HomeClaimName(userID)
+	if in.Home != nil && in.Home.Status.ClaimName != "" {
+		claimName = in.Home.Status.ClaimName
+	}
+	var claim corev1.PersistentVolumeClaim
+	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: claimName}, &claim)
+	if apierrors.IsNotFound(err) {
+		return "", ErrNoHome
+	}
+	if err != nil {
+		return "", err
+	}
+	if claim.Annotations[model.AnnotationOwnerID] != userID {
+		return "", ErrHomeConflict
+	}
+
+	var pod corev1.Pod
+	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: podName(userID)}, &pod)
+	if apierrors.IsNotFound(err) {
+		if err := c.Create(ctx, buildPod(userID, ns, p.cfg.Image, in)); err != nil && !apierrors.IsAlreadyExists(err) {
+			return "", err
+		}
+		return "", ErrHomeStarting
+	}
+	if err != nil {
+		return "", err
+	}
+	if !isFilePodOf(&pod, userID) {
+		return "", ErrForeignPod
+	}
+	if pod.DeletionTimestamp != nil {
+		return "", ErrHomeStarting
+	}
+	if dir != "" && !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == podstorage.GroupVolume(dir) }) {
+		if err := deleteExact(ctx, c, &pod); err != nil {
+			return "", err
+		}
+		return "", ErrHomeStarting
+	}
+	if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		if err := deleteExact(ctx, c, &pod); err != nil {
+			return "", err
+		}
+		return "", ErrHomeStarting
+	}
+
+	var evs corev1.EventList
+	if err := c.List(ctx, &evs, client.InNamespace(ns), client.MatchingFields{"involvedObject.name": pod.Name}); err != nil {
+		return "", err
+	}
+	mine := evs.Items[:0]
+	for _, e := range evs.Items {
+		if e.InvolvedObject.UID == pod.UID {
+			mine = append(mine, e)
+		}
+	}
+	// Reuse the workspace status rules so the file pod and apps agree on
+	// what counts as a busy home.
+	phase, conds, _ := status.Derive(&model.App{}, status.Observed{Pod: &pod, Events: mine, Now: p.cfg.Now()})
+	if phase == "Running" && pod.Status.PodIP != "" {
+		return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(rcPort)), nil
+	}
+	for _, cd := range conds {
+		if cd.Status == metav1.ConditionFalse && cd.Reason == string(reasons.HomeBusy) {
+			return "", ErrHomeBusy
+		}
+	}
+	return "", ErrHomeStarting
+}
+
+// Touch records that the user is active, so their file pod (if any) is
+// kept for another IdleAfter. It never creates a pod.
+func (p *Pods) Touch(userID string) {
+	p.mu.Lock()
+	p.lastUse[userID] = p.cfg.Now()
+	p.mu.Unlock()
+}
+
+// Reap deletes file pods unused for IdleAfter. A pod this gateway has not
+// served (for example after a restart) counts as used when it was created.
+func (p *Pods) Reap(ctx context.Context) error {
+	namespaces := []string{p.cfg.Namespace}
+	if p.cfg.ReapIn != nil {
+		var err error
+		if namespaces, err = p.cfg.ReapIn(ctx); err != nil {
+			return err
+		}
+	}
+	var errs []error
+	var pods corev1.PodList
+	onlyFiles := client.MatchingLabels{model.LabelRole: roleFiles}
+	if p.cfg.ReapAcrossNamespaces && p.cfg.ReapIn != nil {
+		var all corev1.PodList
+		if err := p.cfg.Client.List(ctx, &all, onlyFiles); err != nil {
+			return err
+		}
+		managed := make(map[string]bool, len(namespaces))
+		for _, ns := range namespaces {
+			managed[ns] = true
+		}
+		for _, pod := range all.Items {
+			if managed[pod.Namespace] {
+				pods.Items = append(pods.Items, pod)
+			}
+		}
+	} else {
+		// One namespace failing must not stop the others being swept.
+		for _, ns := range namespaces {
+			var part corev1.PodList
+			if err := p.cfg.Client.List(ctx, &part, client.InNamespace(ns), onlyFiles); err != nil {
+				errs = append(errs, fmt.Errorf("list file pods in %s: %w", ns, err))
+				continue
+			}
+			pods.Items = append(pods.Items, part.Items...)
+		}
+	}
+	now := p.cfg.Now()
+	var idle []*corev1.Pod
+	p.mu.Lock()
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		last, ok := p.lastUse[pod.Labels[model.LabelOwner]]
+		if !ok {
+			last = pod.CreationTimestamp.Time
+		}
+		if now.Sub(last) >= p.cfg.IdleAfter {
+			idle = append(idle, pod)
+		}
+	}
+	for s, last := range p.lastUse {
+		if now.Sub(last) >= p.cfg.IdleAfter {
+			delete(p.lastUse, s)
+		}
+	}
+	p.mu.Unlock()
+
+	for _, pod := range idle {
+		if err := deleteExact(ctx, p.cfg.Client, pod); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// deleteExact deletes pod only if it is still the same object (same UID), so
+// a pod recreated under the same name in between is kept.
+func deleteExact(ctx context.Context, c client.Client, pod *corev1.Pod) error {
+	err := c.Delete(ctx, pod, client.Preconditions{UID: &pod.UID})
+	if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
+		return nil
+	}
+	return err
+}
+
+// Run reaps idle file pods every minute until ctx is done.
+func (p *Pods) Run(ctx context.Context) {
+	t := time.NewTicker(reapEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := p.Reap(ctx); err != nil {
+				slog.Error("reap file pods", "err", err)
+			}
+		}
+	}
+}
+
+// buildPod returns the file pod: rclone with the owner's storage (the layout
+// podstorage builds for in) mounted read-only.
+func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Pod {
+	in.ReadOnly, in.UID, in.GID = true, runAsUser, runAsGroup
+	in.ScratchMax = resource.MustParse("64Mi")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName(userSlug),
+			Namespace: namespace,
+			Labels:    map[string]string{model.LabelRole: roleFiles, model.LabelOwner: userSlug},
+		},
+		Spec: corev1.PodSpec{
+			AutomountServiceAccountToken: ptr.To(false),
+			EnableServiceLinks:           ptr.To(false),
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot:   ptr.To(true),
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+			},
+			Containers: []corev1.Container{{
+				Name:  "rclone",
+				Image: image,
+				// --rc-no-auth is safe only because the workspace namespace's
+				// NetworkPolicy (deploy/helm/javo/templates/namespace.yaml)
+				// admits ingress from the gateway alone. Without that policy
+				// any pod could read every user's home, and with --rc-serve every
+				// file in it, through this port.
+				Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-no-auth", "--rc-serve"},
+				Env: []corev1.EnvVar{
+					{Name: "HOME", Value: scratchDir},
+					{Name: "RCLONE_CONFIG", Value: scratchDir + "/rclone.conf"},
+					{Name: "RCLONE_CACHE_DIR", Value: scratchDir + "/cache"},
+				},
+				Ports: []corev1.ContainerPort{{Name: "rc", ContainerPort: rcPort}},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
+					Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+				},
+				SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: ptr.To(false),
+					ReadOnlyRootFilesystem:   ptr.To(true),
+					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+				},
+				// rclone listens within milliseconds of starting, so the probe
+				// runs at once and every second: the picker waits on it.
+				ReadinessProbe: &corev1.Probe{
+					ProbeHandler:  corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(rcPort)}},
+					PeriodSeconds: 1,
+				},
+			}},
+		},
+	}
+	podstorage.Build(userSlug, in).Apply(pod, &pod.Spec.Containers[0])
+	return pod
+}
+
+// Release deletes the user's file pod, if any, so the home claim is free
+// for an app (a single-node home attaches to one node at a time).
+func (p *Pods) Release(ctx context.Context, userID string) error {
+	p.mu.Lock()
+	delete(p.lastUse, userID)
+	p.mu.Unlock()
+	var pod corev1.Pod
+	err := p.cfg.Client.Get(ctx, client.ObjectKey{Namespace: p.ns(ctx), Name: podName(userID)}, &pod)
+	if err != nil || !isFilePodOf(&pod, userID) {
+		// A same-named pod that is not this user's file pod is left alone.
+		return client.IgnoreNotFound(err)
+	}
+	return deleteExact(ctx, p.cfg.Client, &pod)
+}
+
+// isFilePodOf reports whether pod carries the file pod labels for userSlug.
+func isFilePodOf(pod *corev1.Pod, userSlug string) bool {
+	return pod.Labels[model.LabelRole] == roleFiles && pod.Labels[model.LabelOwner] == userSlug
+}

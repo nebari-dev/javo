@@ -1,0 +1,79 @@
+---
+title: Apps
+description: Create apps from templates, run them from your home folder or a Git repository, pick a size, read logs, stop when idle, export and import.
+sidebar:
+  order: 1
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+An app is something you open in the browser: a notebook, an editor, a dashboard or a web service. Each app runs in its own pod, from a **template**, with your home folder attached.
+
+## Templates
+
+Press **New app** and pick a card. The built-in templates are grouped like this:
+
+| Group | Templates |
+|---|---|
+| Notebooks | JupyterLab, marimo, Pluto.jl, RStudio, VS Code |
+| Dashboards | Bokeh, Dash, Gradio, Panel, Streamlit, Voila |
+| Web | FastAPI, Static site, Node back-end, Go back-end, Custom command, Container image |
+| Agents | Claude Code, herdr (agents in a terminal), pi coding agent |
+
+Your admin may turn some off, and template admins can add their own. Templates that only run [jobs](/using/jobs/) do not show here.
+
+**Container image** runs an image of your choice: give its reference, the port it listens on (8080 is offered first) and, if you like, a command that replaces the image's own. The app's URL prefix is removed before requests reach it, so an image that serves at `/` works. It runs under the same restrictions as every app (never as root, no extra privileges); an image that needs root fails with a reason saying so. Admins can limit which registries images may come from.
+
+## Where the code comes from
+
+Templates that run your code ask **Where is the code?**
+
+- **Home folder**: choose a file from your home folder, or keep the template's sample.
+- **Git repository**: Javo clones the repository into the app's pod each time it starts.
+  - **Repository address**: an `https://` address.
+  - **Branch, tag or commit**: empty means the default branch.
+  - **App file**: the file the template runs.
+  - Under the options: **Folder in the repository**, and an **Access token** for a private repository. The token is one of your [secrets](/using/secrets/); pick **None, the repository is public** otherwise.
+
+**Static site** also takes a build command and an output folder.
+
+Apps from a GitHub repository can have a [preview for every pull request](/using/previews/). An app from Git can bring its own `pixi.toml` and `pixi.lock`: see [Environments](/using/environments/).
+
+## Size
+
+Pick one of the sizes your admin defined. A size sets the CPU and memory the app gets (and GPUs, for GPU sizes). Some sizes may be limited to certain groups, and some people may type a custom CPU and memory amount instead. A size bigger than every machine in the cluster shows disabled.
+
+## Advanced options
+
+- **API access**: None, Read, or Read and write. With access, the app gets `JAVO_URL` and `JAVO_TOKEN` in its environment and can call the [API](/using/api/) as you. Read allows only reads. Changing the level restarts the app and revokes the old token.
+- **Environment variables**: typed values or [secrets](/using/secrets/).
+- **When nobody uses it**: [stop when idle](#stop-when-idle).
+
+<Aside type="caution">
+An app with API access acts as you. Anyone you share it with can make it act as you.
+</Aside>
+
+## The app page
+
+The app page has **Open**, **Start**, **Restart**, **Stop** and **Delete**, an Overview tab and a [Sharing](/using/sharing/) tab.
+
+While the app starts, a timeline shows each step: find a machine, attach your home folder, download the image, build the site (static sites), start the app, check it answers. If a step fails, it says why, and shows the events, the latest app log and the build log next to it. A live log view follows the app's output.
+
+## Addresses
+
+Your admin picks one of two shapes:
+
+- **Path**: `https://<javo address>/u/<owner>/<app>/`, or the same path on a separate apps host.
+- **Subdomain**: `https://<owner>-<app>.<apps domain>/`. Long names are shortened and end in a short hash.
+
+## Stop when idle
+
+When your admin allows it, the **Stop when idle** switch and **Stop after** choice (from 15 minutes to 7 days, within your admin's limits) stop an app that has had no visits and no open connections for that long. An open JupyterLab or terminal tab counts as use. The app shows **Stopped when idle**; its files and settings are kept, and it starts again from its card. Jobs are not affected.
+
+## Export and import
+
+Export and import go through the [API](/using/api/), not a page. `GET /api/workspaces/export` returns your apps as a YAML file; `POST /api/workspaces/import/preview` shows what importing such a file would do, and `POST /api/workspaces/import` does it. Both take `{"yaml": "...", "onExists": "skip"}`, where `onExists` says what to do when a name is taken: `skip` it or `rename` (add a copy). Imported apps arrive stopped. Exports carry environment variable values you typed and the names of secrets, never a secret's value.
+
+```sh
+curl -H "Authorization: Bearer $JAVO_TOKEN" -o javo-apps.yaml https://javo.example.com/api/workspaces/export
+```

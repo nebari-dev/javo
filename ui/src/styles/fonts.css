@@ -1,0 +1,20 @@
+/*
+ * UI fonts, served from the same origin (nothing is fetched from a font CDN).
+ * Files are copied unmodified from the pinned upstream releases; each folder holds its OFL 1.1 license.
+ *
+ * Fira Sans 4.202: https://github.com/mozilla/Fira at tag 4.202 (commit 48a8d0a0354e933c0d1cfcf9feb07ccb00eb6fa9), woff2/
+ *   FiraSans-Regular.woff2  sha256 0fe48aded097c2a11942a70bfef48510abf875a8e800f43d4007dce8d2a3aebe
+ *   FiraSans-Medium.woff2   sha256 e1aa3f0abca6fd9f7b868c56ab3ec0e0db21222ef50e84fabbf21963c10dd704
+ *   FiraSans-SemiBold.woff2 sha256 a68802f9a523c6f43c21ad60a7d64ca5a978b86358a136a60430643fbd0f4b36
+ *   FiraSans-Bold.woff2     sha256 799cc549b16fe25059ffa78c83cc8264f2ce87332c5b9426ff7389a86d2f980f
+ *
+ * Fira Code 6.2: https://github.com/tonsky/FiraCode/releases/tag/6.2 (tag commit eee6db993696aba61ff4eef03698e2987d79910c)
+ *   Fira_Code_v6.2.zip sha256 0949915ba8eb24d89fd93d10a7ff623f42830d7c5ffc3ecbf960e4ecad3e3e79
+ *   woff2/FiraCode-VF.woff2 (variable, weights 300 to 700) sha256 408e876a202f15ea6ee307a70a65cf40ceb222c589a0b17e0a3a371db96dd49f
+ *   OFL.txt is the release's license, the same file as pod/files/fonts/FiraCode-OFL.txt.
+ */
+@font-face{font-family:'Fira Sans';font-style:normal;font-weight:400;font-display:swap;src:url('../assets/fonts/fira-sans/FiraSans-Regular.woff2') format('woff2')}
+@font-face{font-family:'Fira Sans';font-style:normal;font-weight:500;font-display:swap;src:url('../assets/fonts/fira-sans/FiraSans-Medium.woff2') format('woff2')}
+@font-face{font-family:'Fira Sans';font-style:normal;font-weight:600;font-display:swap;src:url('../assets/fonts/fira-sans/FiraSans-SemiBold.woff2') format('woff2')}
+@font-face{font-family:'Fira Sans';font-style:normal;font-weight:700;font-display:swap;src:url('../assets/fonts/fira-sans/FiraSans-Bold.woff2') format('woff2')}
+@font-face{font-family:'Fira Code';font-style:normal;font-weight:300 700;font-display:swap;src:url('../assets/fonts/fira-code/FiraCode-VF.woff2') format('woff2')}

@@ -1,0 +1,54 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: herdr
+spec:
+  # Runs without a password: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: herdr
+  description: Agents in a terminal
+  category: agents
+  kind: herdr
+  # The terminal runs code as you, with your home folder: never shared.
+  maxSharing: Private
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/agents (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: agents
+  # The environment has ttyd, herdr, git, ripgrep, fd and the agents (Claude
+  # Code and pi) to run in its panes (pod/files/envs/agents). No API key is
+  # baked in: each agent signs in with its own flow and keeps its credentials
+  # in the home folder.
+  port: 7681
+  # pod-user.sh gives the pod's uid a passwd entry, then runs the rest.
+  command: ["/opt/javo/pod-user.sh"]
+  args:
+    - "ttyd"
+    - "--port={{.Port}}"
+    # ttyd is read-only unless told otherwise.
+    - "--writable"
+    # Refuse a websocket whose Origin is not the host the page came from.
+    - "--check-origin"
+    # The terminal page: Fira Code, and OSC 52 copy to the browser clipboard.
+    - "--index=/opt/javo/agents/terminal.html"
+    - "--cwd={{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+    # herdr keeps its panes in a background server, so the agents keep
+    # running when a tab closes; every tab is a client of that server. No
+    # tmux: herdr is the multiplexer. herdr.sh turns off its update checks.
+    - "/opt/javo/agents/herdr.sh"
+  # ttyd serves at /; its page finds the websocket relative to its own URL.
+  basePath: Strip
+  appLogin: Disabled
+  fileExtensions: []
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/"
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/herdr
+    title: Starter project

@@ -1,0 +1,6 @@
+[deps]
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+Malt = "36869731-bdee-424d-aa32-cab38c994e3b"
+Pluto = "c3e4b0f8-55cb-11ea-2926-15256bba5781"
+Reseau = "802f3686-a58f-41ce-bb0c-3c43c75bba36"
+URIs = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"

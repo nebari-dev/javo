@@ -1,0 +1,68 @@
+{{- if and (not .Values.networkPolicy.enabled) (not .Values.networkPolicy.iUnderstandAppsAreUnauthenticated) }}
+{{- fail "networkPolicy.enabled=false leaves every workspace app (they have no auth of their own) open to any pod in the cluster. Set networkPolicy.iUnderstandAppsAreUnauthenticated=true to proceed anyway." }}
+{{- end }}
+{{- /* Per-user and per-team namespaces are created by the controller. Only
+shared mode has a namespace that exists from the start; the controller
+labels and protects it too (Pod Security, default-deny NetworkPolicies). */ -}}
+{{- if and .Values.createWorkspaceNamespace (eq (include "javo.namespaceMode" .) "shared") }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.workspaceNamespace }}
+  annotations:
+    # Never delete user data (home PVCs) on helm uninstall.
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+    {{ include "javo.groupKey" "managed" }}: "true"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+{{- end }}
+{{- /* Upgrade window only: earlier charts rendered these two policies in the
+shared namespace, and Helm would delete them on upgrade, leaving apps open
+until the new controller takes the lease. Rendering them with keep means Helm
+never removes them; the controller owns and repairs them from then on. Remove
+one release after every install has upgraded. */ -}}
+{{- if and .Values.networkPolicy.enabled (eq (include "javo.namespaceMode" .) "shared") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-only
+  namespace: {{ .Values.workspaceNamespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "javo.selector" (dict "root" . "component" "gateway") | nindent 14 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-egress-files
+  namespace: {{ .Values.workspaceNamespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{ include "javo.groupKey" "role" }}: files
+  policyTypes: [Egress]
+  egress: []
+{{- end }}

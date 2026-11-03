@@ -1,0 +1,70 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: jupyterlab
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: JupyterLab
+  description: Notebooks and files
+  category: notebooks
+  kind: jupyterlab
+  maxSharing: Private
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/jupyterlab (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). Set workspaceTemplates.<name>.image to use a
+  # mirror.
+  environment: jupyterlab
+  # JupyterLab serves kernels: an environment picked from Nebi is installed
+  # beside this one, offered as a kernel named after it and in terminals as
+  # `javo-env <name>`; JupyterLab itself keeps running in this environment.
+  servesKernels: true
+  # With the platform's Nebi integration on (config.nebi), apps get their
+  # owner's Nebi token as a file, renewed while the owner uses the app: the
+  # nebi CLI works in terminals and every Nebi environment of the owner shows
+  # as a kernel (nb_nebi_kernels). Anyone the app is shared with acts as the
+  # owner in Nebi; maxSharing Private above keeps it the owner's.
+  nebiToken: true
+  port: 8888
+  # Run jupyter-lab through pod-user.sh, which runs it in the environment
+  # (pod/files); the pod's passwd names the uid for the terminal, git and
+  # the kernels (internal/podfiles).
+  # It opens in the sample's folder, the chosen folder, or the folder of a
+  # chosen notebook. jupyter-lab exits at start when preferred_dir is not an
+  # existing folder, so a folder that is gone opens the home instead.
+  command:
+    - /opt/javo/pod-user.sh
+    - sh
+    - -c
+    - 'd=$0; [ -f "$d" ] && d=$(dirname "$d"); [ -d "$d" ] || d={{.Home}}; exec jupyter-lab "--ServerApp.preferred_dir=$d" "$@"'
+    - "{{if .Sample}}{{.Sample}}{{else if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+  args:
+    - "--no-browser"
+    - "--ip=0.0.0.0"
+    - "--port={{.Port}}"
+    - "--ServerApp.base_url={{.BaseURL}}"
+    - "--ServerApp.root_dir={{.Home}}"
+    # No token or password: the gateway authenticates every request.
+    - "--IdentityProvider.token="
+    # Empty keeps the same-origin check; never "*".
+    - "--ServerApp.allow_origin="
+    - "--ServerApp.allow_remote_access=True"
+  fileExtensions: []
+  readinessPath: "{{.BaseURL}}api"
+  # Idle stop asks the Jupyter server what was used (/api/status, or busy
+  # kernels) while a tab is open, instead of counting the tab's open
+  # websockets as use. The environment's jupyter_server_config.json shuts
+  # down idle kernels and terminals.
+  activity: Jupyter
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/jupyterlab
+    title: Notebook tour
+  # The environment has papermill (pod/files/envs/jupyterlab) for notebook jobs.
+  jobs:
+    engines: [papermill]
+    kernels: [python3]

@@ -1,0 +1,524 @@
+# Image used by every component (one binary: `javo server`, `javo controller`,
+# `javo gateway`, `javo db`). If digest is set it wins over tag.
+image:
+  repository: javo
+  tag: dev
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Secrets (kubernetes.io/dockerconfigjson, in the release namespace) the
+# image is pulled with when it is private, standard Kubernetes shape:
+#   imagePullSecrets:
+#     - name: ghcr
+# The chart's pods use them; the controller copies them into every namespace
+# it runs pods in and gives them to every pod it makes with this image. It
+# may read only these Secrets of the release namespace, by name.
+imagePullSecrets: []
+
+# Where all javo data lives (people, accounts, apps, templates, sharing,
+# sessions, jobs, run history, audit log). Kubernetes holds only what runs.
+database:
+  # sqlite: the gateway and the controller run in one pod (one replica,
+  # Recreate), the database is a file on a volume that is kept on uninstall.
+  # postgres: one gateway Deployment and one controller Deployment, each with
+  # as many replicas as gateway.replicas and controller.replicas say (the
+  # controller replicas elect one leader).
+  engine: sqlite
+  sqlite:
+    size: 1Gi
+    storageClass: ""
+  postgres:
+    # Name of a Secret in the release namespace whose key dsn holds the
+    # connection string (postgres://user:password@host:5432/javo?sslmode=require).
+    dsnSecret: ""
+  # Scheduled backups, nightly at 02:00 by default; an empty schedule turns
+  # them off (site/src/content/docs/admin/backups.mdx).
+  # sqlite: the server copies its database (VACUUM INTO) on the schedule.
+  # postgres: a CronJob runs pg_dump --format=custom. Both write to the claim
+  # javo-backups, which is kept on uninstall, and keep the newest `keep` copies
+  # (postgres: the controller makes the claim; with backupTarget the dumps go
+  # to the bucket and no claim is used).
+  # Turn it off and use your own when Postgres is managed (cloud, CloudNativePG).
+  backup:
+    schedule: "0 2 * * *"    # standard cron; "" turns backups off
+    keep: 7
+    size: 5Gi
+    storageClass: ""
+    # pg_dump and its shell script, postgres only. Use a major version at
+    # least that of the server.
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+
+# Backups to an S3-compatible bucket (AWS S3, MinIO, Backblaze B2,
+# Cloudflare R2; site/src/content/docs/admin/backups.mdx). Off by default; when off nothing
+# changes. When on, every database backup above is also copied to the bucket
+# (keeping database.backup.keep copies there), and every home folder is
+# backed up nightly with restic: encrypted, only changed data uploaded, the
+# files read directly, so it works on local disks without snapshots.
+backupTarget:
+  enabled: false
+  # The S3 address with its scheme, for example https://s3.eu-west-1.amazonaws.com
+  # or http://minio.example.internal:9000.
+  endpoint: ""
+  bucket: ""
+  region: ""
+  # Folder in the bucket every backup goes under.
+  prefix: javo
+  # auto, dns or path (path for most S3-compatible servers).
+  bucketLookup: auto
+  tls:
+    insecureSkipVerify: false
+    # Secret with key ca.crt: trust that CA for the endpoint.
+    caSecret: ""
+  # Secret in the release namespace with the bucket's access key: one that
+  # may read, write and delete in the bucket. keys names its two entries.
+  existingSecret: ""
+  keys:
+    accessKeyID: AWS_ACCESS_KEY_ID
+    secretAccessKey: AWS_SECRET_ACCESS_KEY
+  # The password every backup is encrypted with. By default the chart makes
+  # it once, in the Secret javo-backup-password, and keeps it on upgrade and
+  # uninstall. Back it up apart from the cluster: without it no backup in the
+  # bucket can be read. Name a Secret with key "password" to bring your own
+  # (needed when the chart is rendered without cluster access, and to point
+  # a new install at the bucket of an old one).
+  password:
+    existingSecret: ""
+  # Which backups of each home folder and shared folder are kept. When
+  # backups run is the schedule of the backup job (Settings, Backups sets it
+  # up; change it on the Jobs page).
+  homes:
+    keepDaily: 7
+    keepWeekly: 4
+    keepMonthly: 6
+
+# People's secrets (Settings > Secrets). Their values are encrypted in the
+# database under a data keyset, which is itself encrypted by a key-encryption
+# key (32 random bytes) that never goes into the database. By default the
+# chart makes that key once, in the Secret javo-secrets-key, keeps it on
+# upgrade and uninstall, and mounts it in the controller only. Losing it makes
+# every stored secret unreadable: back it up, apart from the database backups.
+secrets:
+  # Name of a Secret in the release namespace whose key "kek" holds 32 random
+  # bytes (head -c 32 /dev/urandom > kek; kubectl create secret generic NAME
+  # --from-file=kek). Set it when a tool renders the chart without access to
+  # the cluster (helm template, Argo CD): the chart cannot look up its own key
+  # there and would make a new one on every render.
+  existingKeySecret: ""
+
+# Namespace holding Workspaces and their pods, services and PVCs when
+# config.namespaces.mode is shared. The other modes (per-user, per-team) use
+# namespaces the controller creates, named from config.namespaces.prefix.
+workspaceNamespace: javo-apps
+# Lets `javo import jupyterhub-homes` copy the home folders of a JupyterHub
+# install (the Nebari data science pack) into Javo homes: the server may then
+# make and delete claims and Jobs in this namespace, and move a volume it
+# made between namespaces (get, list and patch PersistentVolumes). Empty
+# grants nothing. Set it for the import, then empty it again.
+jupyterhubImport:
+  namespace: ""
+# Create the shared workspace namespace (shared mode only). It is labelled for
+# Pod Security Admission "restricted" (workspace pods run non-root uid 1000,
+# drop ALL, seccomp RuntimeDefault) and is kept on uninstall
+# (helm.sh/resource-policy: keep). The controller applies the same labels to
+# every namespace it creates.
+createWorkspaceNamespace: true
+
+# The controller keeps default-deny ingress in every workspace namespace,
+# allowing only gateway pods.
+# Workspace apps (JupyterLab, Streamlit, file picker) have no auth of their own
+# and depend on this. Keep it enabled, and make sure the CNI enforces
+# NetworkPolicy (k3s does by default via its embedded network policy
+# controller; verify on kind, whose default CNI may not).
+# Rendering fails with enabled=false unless iUnderstandAppsAreUnauthenticated
+# is also true: without the policy any pod in the cluster can open any app.
+networkPolicy:
+  enabled: true
+  iUnderstandAppsAreUnauthenticated: false
+  # The controller checks that the CNI really enforces the policy (a probe
+  # pod outside the gateway must not reach a pod in the workspace namespace)
+  # at start and this often. Templates with appLogin: Disabled start only
+  # while the result is Enforced (the result is stored in the database).
+  probeInterval: 6h
+
+# Host (and port, if not the default) browsers reach the gateway at, e.g.
+# javo.example.com. Panel and Bokeh accept websockets only from this origin
+# when apps share the UI host (apps on an apps host or subdomain are told that
+# host instead); leave empty and their pages load but stay static.
+publicHost: ""
+
+# Sizes users pick for an app. The app container gets the size's cpu and
+# memory as both requests and limits, replacing its template's cpu and
+# memory. name is stored on each app (keep it once apps use it); displayName
+# is shown. An empty list offers no choice and keeps template resources.
+# A size bigger than every node's allocatable CPU or memory is shown
+# disabled and refused, and an app already at it fails as SizeTooBig. Set
+# allowUnschedulable: true on a size an autoscaler can add a node for, so it
+# is offered and waits for that node instead.
+sizes:
+  - {name: small, displayName: Small, cpu: "1", memory: 2Gi}
+  - {name: medium, displayName: Medium, cpu: "4", memory: 8Gi}
+  - {name: large, displayName: Large, cpu: "8", memory: 32Gi}
+# The size new apps get when the user does not pick one; one of the names
+# above (empty when sizes is empty).
+defaultSize: small
+# A size can be limited to groups with allowedGroups: [group, ...] and to
+# identity provider roles (config.auth.oidc.rolesClaim) with
+# allowedProviderRoles: [role, ...]; either one is enough (platform admins
+# always may use it). People outside them do not see it.
+#
+# GPU sizes: gpu: N gives the app container N of gpuResource (default
+# nvidia.com/gpu; for example amd.com/gpu) as request and limit. nodeSelector
+# (labels the node must have) and tolerations (Kubernetes tolerations) place
+# the pod, for GPU nodes tainted to keep other pods off; both also work on a
+# size without GPUs. A GPU size fits only when one node has the CPU, memory,
+# GPUs and labels together; otherwise it is refused like a too-big size. A
+# default that does not fit never falls back to a GPU size. Example:
+#   - {name: gpu, displayName: GPU, cpu: "8", memory: 32Gi, gpu: 1,
+#      nodeSelector: {nvidia.com/gpu.present: "true"},
+#      tolerations: [{key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}],
+#      allowedGroups: [ml]}
+
+# Custom CPU and memory: who may ask for an amount of their own instead of a
+# size, and up to what. A rule matches holders of any of its roles
+# (platform-admin, template-admin, member), members of any of its groups or
+# holders of any of its providerRoles (identity provider roles);
+# maxCPU and maxMemory are Kubernetes quantities, and an empty one has no
+# limit but the largest machine. A person matching several rules gets the
+# largest of each amount. Example: {groups: [data-science], maxCPU: "4", maxMemory: 16Gi}
+customSize:
+  enabled: true
+  rules:
+    - roles: [platform-admin]
+
+# Failure notices for scheduled and manual job runs (notifications-engine).
+# Enabled, the controller reads the ConfigMap and Secret below in the release
+# namespace: services, templates, triggers and subscriptions in the ConfigMap,
+# service credentials in the Secret (referenced as $key). The chart renders an
+# example ConfigMap with a webhook service when none is named in `configMap`.
+notifications:
+  enabled: false
+  # Names of the ConfigMap and Secret the controller may read (and no others).
+  configMapName: javo-notifications
+  secretName: javo-notifications
+  # URL the example ConfigMap posts failed runs to; empty renders no example.
+  webhookURL: ""
+
+# Resources of the single pod of database.engine=sqlite.
+server:
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+controller:
+  # More than one needs database.engine=postgres.
+  replicas: 1
+  metricsPort: 8081
+  probePort: 8082
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+gateway:
+  # More than one needs database.engine=postgres.
+  replicas: 1
+  # Set true when served over TLS (adds Secure to the session cookie).
+  secureCookies: false
+  # CIDRs of reverse proxies in front of the gateway. Login rate limits key
+  # on the client address; from these peers the gateway takes it from
+  # X-Forwarded-For (the rightmost entry that is not a trusted proxy).
+  # Empty trusts no header, so every client behind a proxy shares the
+  # proxy's limit. To find the address the gateway sees for your proxy, sign
+  # in once and read the "peer" of the "login attempt" log line:
+  #   kubectl -n <release namespace> logs deploy/javo | grep 'login attempt'
+  trustedProxies: []
+  # Name of a Secret in the release namespace whose key client-secret is the
+  # OIDC client secret. The gateway mounts it, and config.auth.oidc
+  # .clientSecretFile points at it unless set. Empty: a public client.
+  oidcClientSecret: ""
+  port: 8080
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  service:
+    type: ClusterIP # ClusterIP or NodePort
+    port: 80
+    nodePort: null # used when type=NodePort (kind dev loop uses 30080)
+
+# File picker: the gateway starts one short-lived pod per user that mounts
+# the home folder read-only and runs rclone to list it and to serve single
+# files (run outputs), reachable from the gateway only.
+files:
+  # rclone 1.75.2, pinned by digest.
+  image: rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5
+  # How long a user's pod is kept after their last request from the UI (any
+  # page, not only the picker; a hidden browser tab sends none). Pages that
+  # may open the picker start the pod on load, so it is usually ready first.
+  # The pod requests 10m CPU and 32Mi; starting it again takes a few seconds,
+  # during which the picker shows the last listing it saw. Go duration.
+  idleAfter: 10m
+
+# Built-in templates, installed into the database at start from files/templates/<name>.yaml.
+# image overrides the template's image (for your own registry). allowedGroups
+# and allowedProviderRoles limit who may use a template: members of any of
+# the groups or holders of any of the identity provider's roles (read from
+# config.auth.oidc.rolesClaim); platform and template admins always may.
+# Example: jupyterlab: {enabled: true, image: "", allowedProviderRoles: [gpu-users]}
+workspaceTemplates:
+  jupyterlab: {enabled: true, image: ""}
+  streamlit: {enabled: true, image: ""}
+  marimo: {enabled: true, image: ""}
+  pluto: {enabled: true, image: ""}
+  panel: {enabled: true, image: ""}
+  bokeh: {enabled: true, image: ""}
+  dash: {enabled: true, image: ""}
+  gradio: {enabled: true, image: ""}
+  voila: {enabled: true, image: ""}
+  fastapi: {enabled: true, image: ""}
+  custom: {enabled: true, image: ""}
+  static-site: {enabled: true, image: ""}
+  backend-node: {enabled: true, image: ""}
+  backend-go: {enabled: true, image: ""}
+  vscode: {enabled: true, image: ""}
+  rstudio: {enabled: true, image: ""}
+  claude-code: {enabled: true, image: ""}
+  pi: {enabled: true, image: ""}
+  herdr: {enabled: true, image: ""}
+  jobs-command: {enabled: true, image: ""}
+  jobs-python: {enabled: true, image: ""}
+  jobs-r: {enabled: true, image: ""}
+  jobs-julia: {enabled: true, image: ""}
+
+# The Container image template: people run an image of their choice
+# (reference, port and optional command), served with the URL prefix
+# removed. It runs under the same restricted pod security as every app
+# (never root, no privilege escalation, no capabilities, seccomp
+# RuntimeDefault); an image that needs root fails with a reason saying so.
+containerImages:
+  enabled: true
+  # Registries images may come from: a registry host (docker.io,
+  # registry.example.com:5000) or a host and path prefix (ghcr.io/example).
+  # Short Docker Hub names such as nginx count as docker.io. Empty allows
+  # any registry.
+  allowedRegistries: []
+
+# Apps that run from a Git repository clone it in an init container of their
+# own pod. cloneImage is git-sync, pinned by digest (see DEPENDENCIES.md); set a
+# mirror here where the cluster cannot reach registry.k8s.io.
+source:
+  cloneImage: registry.k8s.io/git-sync/git-sync:v4.7.1@sha256:c5e1976da735bf0b53979f079a07475d77174c51863cd084e928ff6074480717
+  # Passed to every clone as git-sync's --git-config ("section.key:value,..."),
+  # for example http.sslVerify:false against a test server with a self-signed
+  # certificate. Leave empty in production.
+  gitConfig: ""
+  # One preview app per open pull request of an app from a GitHub repository.
+  # Off until enabled. The controller lists pull requests through the GitHub
+  # API (never runs git); a token the app's owner pasted is used for their repo.
+  previews:
+    enabled: false
+    pollInterval: 2m # at least 30s
+    maxPerApp: 10 # platform cap on previews per app, at most 10
+    github:
+      apiURL: https://api.github.com
+      # File with a token for public repos whose owner pasted none (a higher
+      # hourly request limit); the chart does not mount it. Use a token with
+      # public-repo read access only. Empty means anonymous.
+      tokenFile: ""
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+# Run as non-root, read-only root filesystem, no capabilities.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}
+tolerations: []
+
+# White-label look of the UI, shown to everyone, signed in or not (the sign-in
+# page too). Display only: Kubernetes object names, labels, cookies and env
+# vars stay javo. Empty keeps the built-in Javo name, mark, favicon and accent.
+# Each image takes ONE of:
+#   url: an https address the browser loads the image from (the UI's
+#        Content-Security-Policy then allows images from that host);
+#   svg: the SVG file's text, e.g. --set-file branding.logo.light.svg=logo.svg;
+#   base64: the base64 of a PNG, JPEG, GIF, WebP or ICO file.
+# svg and base64 images go into ConfigMap javo-branding and the gateway serves
+# them at /branding/<name>; each must be at most 256 KiB, and the gateway
+# refuses to start on a file that is not one of those image types. An SVG is
+# served with a Content-Security-Policy that stops it from running script.
+branding:
+  name: "" # product name in the sidebar, sign-in page and tab title; default Javo
+  accent: "" # "#rrggbb" or "#rgb", the accent of both themes; default the built-in blue
+  logo:
+    # Top left of the sidebar and on the sign-in page, drawn 30px high.
+    light: {url: "", svg: "", base64: ""}
+    # The dark theme's logo; empty uses light there too.
+    dark: {url: "", svg: "", base64: ""}
+  favicon: {url: "", svg: "", base64: ""}
+
+# Platform config, rendered into ConfigMap javo-config and read by both the
+# controller and the gateway (see internal/config for every key).
+# namespaces.shared is taken from workspaceNamespace above.
+config:
+  auth:
+    local:
+      enabled: true
+    # oidc:
+    #   issuer: https://idp.example.com/auth/realms/javo
+    #   clientID: javo
+    #   # clientSecretFile defaults to the Secret named by gateway.oidcClientSecret
+    #   groupsClaim: groups # dotted path to the groups claim
+    #   # Dotted path to a claim listing the provider's roles, for
+    #   # allowedProviderRoles on templates and sizes; empty reads none.
+    #   rolesClaim: resource_access.javo.roles
+  roles:
+    platformAdmin: {groups: []}
+    templateAdmin: {groups: []}
+    member: {groups: []} # empty: every signed-in person is a member
+  urls:
+    mode: path # path or subdomain (subdomain needs appsDomain)
+  namespaces:
+    mode: shared # shared, per-user or per-team (per-team needs teams)
+    # prefix: javo # per-user and per-team namespaces are named <prefix>-<identity or team slug>
+    # teams: # per-team mode
+    #   - {group: /org/ds, slug: ds, storageLimit: 200Gi} # storageLimit: total claims in the team namespace; unset uses storage.teamStorage.limit
+  identity:
+    uidMode: allocated
+    uidRange: {first: 100000, last: 199999}
+    # Groups get a gid from here the first time a shared folder of the group
+    # needs one; must not overlap uidRange.
+    gidRange: {first: 200000, last: 299999}
+  # Homes, group folders and scratch. The platform finds out what storage the
+  # cluster offers and picks the home mode; `javo storage report` says what it
+  # found. Nothing changes an existing home: a new mode applies to new homes,
+  # and existing ones move only when an admin schedules it (the admin storage
+  # page, or javo storage migrate schedule).
+  storage:
+    home:
+      mode: auto # auto, perUser (a disk per person) or shared (one shared drive)
+      # storageClassName: "" # the class for homes; default: chosen from what the cluster offers
+      size: 10Gi # what a new home asks for
+      # maxSize: 100Gi # the largest a home may be given
+    sharedFolders:
+      # storageClassName: ""
+      defaultSize: 20Gi
+    scratch:
+      sizeLimit: 20Gi # node-local space for caches and environments, per pod
+    # teamStorage: {limit: 500Gi} # per-team mode: what a team's claims may request in total
+    # classOverrides: # facts the platform cannot detect
+    #   - {name: longhorn, rwxFile: true, posixOwnership: true, sizeEnforced: true}
+    probe:
+      timeout: 5m # how long `javo storage verify` may take
+    migration:
+      keepOldFor: 168h # how long the old claim is kept after a home moved
+  sessions:
+    ttl: 12h
+    sweepEvery: 5m # how often each gateway deletes expired sessions
+  sharing:
+    allowOneHost: false
+  # Pictures on app cards: an app's owner (or a platform admin) uploads a PNG
+  # or JPEG screenshot, shown on its card to everyone who may open the app.
+  # Uploads are checked by their bytes, encoded again and shrunk, and stored
+  # in the database. Off: no upload, and cards show the app kind's logo.
+  thumbnails:
+    enabled: false
+  # Stop when idle: an app with a timeout is stopped after that many minutes
+  # with no requests and no open connections (an open JupyterLab or terminal
+  # tab holds one) through the gateway. Its files and settings are kept and
+  # it starts again from its card. Job runs are not affected.
+  idleStop:
+    # What a new app gets when its creator picks nothing; 0 is Off. Off by
+    # default so an upgrade never stops a shared dashboard or a long
+    # computation that nobody watches; set 60 to free unused apps' CPU and
+    # memory after an hour.
+    defaultMinutes: 0
+    # The shortest and longest timeout people may pick.
+    minMinutes: 10
+    maxMinutes: 10080 # 7 days
+    # Whether people may pick Off. Platform admins always may. false needs a
+    # defaultMinutes between minMinutes and maxMinutes.
+    allowOff: true
+  # Personal API tokens (Settings in the UI) and the API docs page.
+  api:
+    tokens:
+      # A token acts with the groups of its owner's last sign-in and stops
+      # working this long after it, until they sign in again.
+      groupsMaxAge: 720h
+      # The longest expiry a new token may have; 0s allows tokens that never expire.
+      maxLifetime: 0s
+    docs:
+      # Serve a Swagger UI page for the API at /api/docs/ (assets from the
+      # pinned swagger-ui-dist package in the image, never a CDN). People
+      # can try calls there with a token (Authorize).
+      enabled: false
+  # Model features: Explain more on a failure, Describe it on New app, Ask
+  # AI in the search palette and the admin's cluster question. Off by
+  # default: then nothing connects to a model and no AI control shows. The
+  # rules-based diagnosis, plans and MCP work either way. The key comes from
+  # the Secret named in ai.apiKeySecret below, never from these values.
+  ai:
+    enabled: false
+    # anthropic, or openai for any OpenAI-compatible server (OpenAI, Azure
+    # OpenAI, vLLM, Ollama, llama.cpp; set baseURL, such as http://host:8000/v1).
+    provider: anthropic
+    model: claude-opus-5-5
+    baseURL: ""
+    timeout: 60s
+    features: {explain: true, draft: true, palette: true, admin: true}
+    # Model tokens each person may use per UTC day.
+    dailyTokensPerUser: 200000
+    # The most evidence sent in one call; the oldest log lines go first.
+    maxInputRunes: 24000
+    # Name app owners in what the admin assistant sends to the model.
+    admin: {includeOwners: false}
+  # Agents (Claude Code, Cursor) reach the platform at /mcp with a personal
+  # API token. They can read and propose changes; a person approves every
+  # change in the browser. Needs no model.
+  mcp:
+    enabled: true
+    # Where agents reach the gateway, for approve links; empty gives relative links.
+    publicURL: ""
+  # Proposed changes wait this long for approval.
+  plans:
+    ttl: 10m
+  # Nebi environments: New app and New job offer the person's Nebi
+  # environments, and the app or job runs in the one picked (its pixi.lock
+  # is copied in at that moment and installed in the pod at each start).
+  # Off by default: then nothing talks to Nebi and no form shows it. Needs
+  # auth.oidc: Nebi is asked as the person, with their OIDC ID token, so
+  # Nebi must trust the same issuer and accept that token's audience (see
+  # site/src/content/docs/admin/nebi.md).
+  nebi:
+    enabled: false
+    url: "" # Nebi's address as the gateway and the apps reach it, such as https://nebi.example.com
+  # The pixi environments apps and jobs run in (pod/files/envs: one per
+  # template, conda-forge, pinned by pixi.lock), a picked Nebi environment, or
+  # the pixi.lock of an app's repository. Each is installed into the owner's
+  # home (~/.javo/envs/<sha256 of its files>) by an init container on the
+  # first start and reused after. pixiImage runs those templates and installs
+  # the environments: upstream ghcr.io/prefix-dev/pixi, unmodified, pinned by
+  # digest (DEPENDENCIES.md). Pods need to reach conda.anaconda.org (and
+  # pypi.org, registry.npmjs.org and pkg.julialang.org for the few packages
+  # from there) on a first start.
+  environments:
+    pixiImage: ghcr.io/prefix-dev/pixi:0.83.0-trixie-slim@sha256:e68dfe75f1cc276c65163a4bea38d964b5bf59fd7966bf9a433ee0498b095a95
+
+# The Secret holding the model API key (used only with config.ai.enabled).
+ai:
+  apiKeySecret:
+    name: ""
+    key: api-key

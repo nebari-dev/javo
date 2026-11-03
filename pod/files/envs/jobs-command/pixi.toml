@@ -1,0 +1,9 @@
+[workspace]
+name = "jobs-command"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+exclude-newer = "2026-10-26"
+
+[dependencies]
+python = "==3.13.18"
+git = "==2.56.0"

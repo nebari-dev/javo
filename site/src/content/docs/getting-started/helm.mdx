@@ -1,0 +1,110 @@
+---
+title: Helm
+description: Install the Javo Helm chart on a Kubernetes cluster you already run.
+sidebar:
+  order: 2
+---
+
+import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The chart lives in `deploy/helm/javo` in the repository. It installs one image, `javo`, which runs the gateway (web UI, API and app proxy) and the controller. With the default SQLite database both run in one pod.
+
+## Requirements
+
+- A Kubernetes cluster and `kubectl` and `helm` pointed at it.
+- A default StorageClass, or one named in the values: the SQLite database lives on a volume (`javo-data`), and so do home folders.
+- A network plugin (CNI) that enforces NetworkPolicy. Apps have no sign-in of their own; a default-deny policy lets only the gateway reach them. k3s enforces it out of the box; check yours.
+- A container registry the cluster can pull from, since you build the image yourself.
+- Pods need internet access on a first start, to install their packages (see [Environments](/using/environments/)).
+
+## Install
+
+<Steps>
+
+1. Build and push the image from the repository root. The default target of the `Dockerfile` is the `javo` image.
+
+   ```sh
+   git clone https://github.com/nebari-dev/javo.git && cd javo
+   docker build -t registry.example.com/javo/javo:0.1.0 .
+   docker push registry.example.com/javo/javo:0.1.0
+   ```
+
+2. Write a values file. This one serves Javo at `javo.example.com` through an Ingress with TLS, and makes members of the group `javo-admins` platform admins.
+
+   ```yaml title="values.yaml"
+   image:
+     repository: registry.example.com/javo/javo
+     tag: "0.1.0"
+
+   publicHost: javo.example.com
+
+   ingress:
+     enabled: true
+     className: nginx
+     host: javo.example.com
+     tls:
+       enabled: true
+       secretName: javo-tls
+
+   gateway:
+     secureCookies: true   # served over TLS
+
+   config:
+     roles:
+       platformAdmin: {groups: [javo-admins]}
+   ```
+
+   Every value is described in the [Helm values reference](/reference/helm-values/). The [configuration guide](/admin/configuration/) walks through the ones most installs change.
+
+3. Install the release.
+
+   ```sh
+   helm upgrade --install javo deploy/helm/javo \
+     --namespace javo-system --create-namespace -f values.yaml --wait
+   ```
+
+4. Create the first local account, in the `javo-admins` group. The password is generated and written to `admin.password`; it is never printed.
+
+   <Tabs syncKey="db">
+   <TabItem label="SQLite (default)">
+   ```sh
+   kubectl -n javo-system exec deploy/javo -- \
+     /javo user add admin --group javo-admins --password-file - > admin.password
+   ```
+   </TabItem>
+   <TabItem label="Postgres">
+   ```sh
+   kubectl -n javo-system exec deploy/javo-controller -c controller -- \
+     /javo user add admin --group javo-admins --password-file - \
+     --database-engine=postgres --database-dsn-file=/etc/javo-db/dsn > admin.password
+   ```
+   </TabItem>
+   </Tabs>
+
+5. Open `https://javo.example.com` and sign in as `admin`. Next: [create a first app](/getting-started/first-app/).
+
+</Steps>
+
+<Aside type="tip" title="No Ingress yet?">
+Leave `ingress` off and reach the gateway's Service directly:
+
+```sh
+kubectl -n javo-system port-forward svc/javo-gateway 8080:80
+```
+
+Then open `http://localhost:8080`. Leave `gateway.secureCookies` off for plain HTTP.
+</Aside>
+
+## What the chart creates
+
+- Namespace `javo-system` (the release) and `javo-apps`, where apps and their pods run. `javo-apps` is labelled for Pod Security "restricted" and kept on uninstall.
+- With SQLite: one Deployment `javo` and the volume `javo-data`, kept on uninstall. With Postgres: Deployments `javo-gateway` and `javo-controller`.
+- Service `javo-gateway` (port 80).
+- Secret `javo-secrets-key`, the key that protects people's secrets. It is made once and kept on upgrade and uninstall. [Back it up](/admin/secrets-and-keys/).
+- The built-in templates, loaded into the database at start.
+
+## Next steps
+
+- [Sign-in](/admin/sign-in/): add an OpenID Connect provider such as Keycloak.
+- [App addresses](/admin/app-addresses/): serve apps on their own host, which sharing needs.
+- [Backups](/admin/backups/): turn on scheduled backups before people store work.

@@ -1,0 +1,7 @@
+# The precompile workloads of these two open ZMQ sockets and run a kernel;
+# precompiling without them is quicker and needs no free port at install.
+[IJulia]
+precompile_workload = false
+
+[ZMQ]
+precompile_workload = false

@@ -1,0 +1,50 @@
+{{- /*
+The built-in templates, one file each, mounted into the pod that runs the
+gateway; the gateway copies them into the database at start (a file adds or
+updates its template, a built-in whose file is gone is removed). The files
+carry {{.BaseURL}} and friends for the controller to render, so they are read
+as data (fromYaml) and never passed through tpl. container.yaml follows
+containerImages.enabled instead of workspaceTemplates, backup.yaml
+backupTarget.enabled (with javo's own image, for platform admins only).
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: javo-builtin-templates
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+data:
+{{- range $name, $cfg := .Values.workspaceTemplates }}
+{{- if $cfg.enabled }}
+{{- $tpl := $.Files.Get (printf "files/templates/%s.yaml" $name) | fromYaml }}
+{{- if not $tpl.spec }}
+{{- fail (printf "workspaceTemplates.%s: no template file files/templates/%s.yaml" $name $name) }}
+{{- end }}
+{{- if $cfg.image }}
+{{- $_ := set $tpl.spec "image" $cfg.image }}
+{{- end }}
+{{- with $cfg.allowedGroups }}
+{{- $_ := set $tpl.spec "allowedGroups" . }}
+{{- end }}
+{{- with $cfg.allowedProviderRoles }}
+{{- $_ := set $tpl.spec "allowedProviderRoles" . }}
+{{- end }}
+  {{ $name }}.yaml: |
+    {{- toYaml $tpl | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- if .Values.backupTarget.enabled }}
+{{- $tpl := $.Files.Get "files/templates/backup.yaml" | fromYaml }}
+{{- $_ := set $tpl.spec "image" (include "javo.image" .) }}
+{{- with ((.Values.config.roles).platformAdmin).groups }}
+{{- $_ := set $tpl.spec "allowedGroups" . }}
+{{- end }}
+  backup.yaml: |
+    {{- toYaml $tpl | nindent 4 }}
+{{- end }}
+{{- if .Values.containerImages.enabled }}
+{{- $tpl := $.Files.Get "files/templates/container.yaml" | fromYaml }}
+  container.yaml: |
+    {{- toYaml $tpl | nindent 4 }}
+{{- end }}

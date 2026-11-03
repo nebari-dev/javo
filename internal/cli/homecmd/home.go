@@ -1,0 +1,114 @@
+// Package homecmd is `javo home`: home folders whose owners are gone.
+package homecmd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/nebari-dev/javo/internal/auth/local"
+	"github.com/nebari-dev/javo/internal/cli/dbflag"
+	"github.com/nebari-dev/javo/internal/cli/kubeclient"
+	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/store"
+)
+
+// New is `javo home`: home folders whose owners are gone. Run it in
+// the server pod, which has the database and may read the claims.
+func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
+	home := &cobra.Command{Use: "home", Short: "Home folders whose owners are gone"}
+	openStore = dbflag.OrRegister(openStore, home.PersistentFlags())
+	var orphans, yes bool
+	prune := &cobra.Command{
+		Use:   "prune --orphans [--yes]",
+		Short: "Forget the homes whose owner has no account and whose files are gone",
+		Long: "A home is an orphan when its owner was a local account that no longer exists and its claim " +
+			"is gone: it holds nothing, yet it is still listed and asked to be backed up. Without --yes this " +
+			"only lists them. Homes of people who sign in through an identity provider, and homes with files, " +
+			"are never touched.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !orphans {
+				return errors.New("say what to prune: --orphans")
+			}
+			c, err := kubeclient.New(newClient)
+			if err != nil {
+				return err
+			}
+			return dbflag.With(cmd.Context(), openStore, func(db *store.Store) error {
+				found, err := orphanHomes(cmd.Context(), db, c)
+				if err != nil {
+					return err
+				}
+				out := cmd.OutOrStdout()
+				if len(found) == 0 {
+					fmt.Fprintln(out, "No orphan homes.")
+					return nil
+				}
+				for _, h := range found {
+					fmt.Fprintf(out, "%s (%s)\n", h.Spec.Owner, h.Namespace)
+				}
+				if !yes {
+					fmt.Fprintf(out, "%d orphan homes. Nothing was changed; run again with --yes to forget them.\n", len(found))
+					return nil
+				}
+				for _, h := range found {
+					if err := db.Homes().Delete(cmd.Context(), cliActor, h.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+						return err
+					}
+				}
+				fmt.Fprintf(out, "%d orphan homes forgotten.\n", len(found))
+				return nil
+			})
+		},
+	}
+	prune.Flags().BoolVar(&orphans, "orphans", false, "the homes whose owner has no account and no claim")
+	prune.Flags().BoolVar(&yes, "yes", false, "forget them; without it they are only listed")
+	home.AddCommand(prune)
+	return home
+}
+
+// cliActor is who the audit log names for homes `javo home prune` forgets.
+var cliActor = model.Actor{System: model.SystemCLI}
+
+// orphanHomes are the homes whose owner is a local account that is gone (no
+// account, and no person or a local one) and that have no claim left.
+func orphanHomes(ctx context.Context, db *store.Store, c client.Client) ([]model.Home, error) {
+	accounts, err := db.LocalAccounts().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	live := map[string]bool{}
+	for _, a := range accounts {
+		live[local.UserID(a.Username)] = true
+	}
+	homes, err := db.Homes().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []model.Home
+	for _, h := range homes {
+		if live[h.Spec.Owner] {
+			continue
+		}
+		switch p, err := db.People(store.IDRange{}).ByName(ctx, h.Spec.Owner); {
+		case errors.Is(err, store.ErrNotFound):
+		case err != nil:
+			return nil, err
+		case len(p.Subjects) == 0 || p.Subjects[0].Issuer != local.Issuer:
+			continue // signs in through an identity provider
+		}
+		var claims corev1.PersistentVolumeClaimList
+		if err := c.List(ctx, &claims, client.InNamespace(h.Namespace), client.MatchingLabels{model.LabelOwner: h.Spec.Owner}); err != nil {
+			return nil, fmt.Errorf("list the claims of %s: %w", h.Spec.Owner, err)
+		}
+		if len(claims.Items) == 0 {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}

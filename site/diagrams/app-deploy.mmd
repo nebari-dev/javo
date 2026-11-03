@@ -1,0 +1,69 @@
+---
+config:
+  look: handDrawn
+  theme: base
+  themeVariables:
+    fontFamily: "Fira Sans, sans-serif"
+    fontSize: "17px"
+    background: "#F5F3FF"
+    primaryColor: "#E0E7FF"
+    primaryBorderColor: "#4338CA"
+    primaryTextColor: "#312E81"
+    lineColor: "#7C3AED"
+    clusterBkg: "#FAF9FF"
+    clusterBorder: "#C4B5FD"
+    edgeLabelBackground: "#F5F3FF"
+  flowchart:
+    curve: basis
+    padding: 18
+---
+flowchart TB
+  person{{"`**Person**
+creates an app in the UI`"}}
+  gw["`**Gateway API**
+saves the app`"]
+  db[("`**Database**
+app row`")]
+  ctrl["`**Controller** (leader)
+hears the change feed`"]
+
+  subgraph pod["App pod in the apps namespace"]
+    direction TB
+    init["`**Init steps**
+home folder or git clone
+build, if any`"]
+    app["`**App container**
+image pulled
+size: CPU and memory`"]
+    mounts["`**Mounts**
+home volume
+secrets from a Secret`"]
+  end
+
+  ready["`**Readiness**
+probe passes`"]
+  proxy["`**Gateway proxy**
+checks sign-in, sharing
+forwards to the pod`"]
+  viewer{{"`**Visitor**
+apps host /u/owner/app/`"}}
+
+  person --> gw --> db --> ctrl
+  ctrl -- "builds the pod" --> init
+  init --> app
+  mounts --- app
+  app --> ready --> proxy
+  viewer --> proxy
+
+  classDef box fill:#E0E7FF,stroke:#4338CA,color:#312E81
+  classDef ext fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-dasharray:6 4
+  classDef chan fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
+  classDef good fill:#ECFDF5,stroke:#059669,color:#064E3B
+  classDef store fill:#E0F2FE,stroke:#0369A1,color:#0C4A6E
+  class person,viewer ext
+  class gw,ctrl,proxy box
+  class db store
+  class init,app chan
+  class mounts good
+  class ready chan
+  class pod good

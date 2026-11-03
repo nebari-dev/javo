@@ -1,0 +1,14 @@
+    self.papermill_execute_cells()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/tmp/pm/papermill/clientwrap.py", line 72, in papermill_execute_cells
+    self.execute_cell(cell, index)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/tmp/pm/jupyter_core/utils/__init__.py", line 165, in wrapped
+    return loop.run_until_complete(inner)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/opt/conda/lib/python3.13/asyncio/base_events.py", line 726, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/tmp/pm/nbclient/client.py", line 1009, in async_execute_cell
+    raise DeadKernelError("Kernel died") from None
+nbclient.exceptions.DeadKernelError: Kernel died

@@ -1,0 +1,14 @@
+{{- /*
+The app sizes users pick from. The controller and the gateway both mount
+this ConfigMap and read sizes.yaml (--sizes-file); internal/sizes parses it.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: javo-sizes
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+data:
+  sizes.yaml: |
+    {{- toYaml (dict "default" .Values.defaultSize "sizes" .Values.sizes "custom" .Values.customSize) | nindent 4 }}

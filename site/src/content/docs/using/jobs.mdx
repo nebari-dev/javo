@@ -1,0 +1,65 @@
+---
+title: Jobs
+description: Run scripts and notebooks on demand or on a schedule, with sizes, live logs, run history, environment variables and secrets.
+sidebar:
+  order: 4
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+A job runs a notebook, a script or a command to completion, once or on a schedule. Each run is a pod of its own, with your home folder attached, and leaves its log and outputs in your home folder.
+
+## Job templates
+
+| Template | What it runs |
+|---|---|
+| **Python jobs** | Jupyter notebooks (`.ipynb`, with papermill), marimo notebooks (`.py`), Quarto documents (`.qmd`, `.ipynb`), or a command |
+| **R jobs** | Jupyter notebooks with the R kernel, or a command |
+| **Julia jobs** | Jupyter notebooks with the Julia kernel, or a command |
+| **Custom command** | A script you type, run with `bash -lc` |
+
+A plain script runs as a command, for example `python report.py`, `Rscript report.R` or `julia report.jl`. A command runs without a shell; use **Custom command** for pipes and other shell features. A `.py` file picked as a file is treated as a marimo notebook.
+
+Admins also see **Backups**, the template of the [backup and restore jobs](/admin/backups/).
+
+## Create a job
+
+<Steps>
+
+1. Open **Jobs** and press **New job**, or try one of the sample jobs.
+2. Pick a template, then under **What runs** choose **File** (and a kernel for notebooks) or **Command**.
+3. Add **parameters** if the job takes any (text, whole number, number or yes/no). Commands get them as environment variables `JAVO_PARAM_<NAME>`.
+4. Add [environment variables and secrets](/using/secrets/), an [environment](/using/environments/) if your admin set up Nebi, and a **size**.
+5. Under **When should it run?** choose **Run once** (it starts as soon as you create the job) or **On a schedule**.
+
+</Steps>
+
+## Schedules
+
+The schedule builder offers every minute, every few minutes, hourly, daily, weekly (pick the days), monthly, or a custom cron expression. Pick a **time zone**: it defaults to your browser's, and the builder previews the next run times and warns about daylight-saving changes (or lets you use UTC).
+
+Hidden behind the options:
+
+- **When a run is still going**: skip the new run, run both, or replace the old run.
+- **Retries** after a failure.
+- **Time limit**, such as `1h`.
+
+On the job page, **Pause schedule** and **Resume schedule** stop and restart scheduled runs; **Run now** starts one at any time.
+
+## Runs, logs and outputs
+
+The job page lists each run with when it started, its outcome, how long it took and its output. A run's log is followed live while it runs, then read from its folder. A running run can be cancelled. After a failure, **Re-run with same inputs** starts it again, and **Open executed notebook** opens the notebook as it ran, with its outputs.
+
+Each run writes to `~/jobs/<job>/<run>/` in your home folder:
+
+- `run.log`: the run's log.
+- `output.ipynb` and `output.html` for notebooks, `output.html` for marimo.
+- `result.json`: the run's result.
+
+## Size, environment variables and secrets
+
+A job's size and environment variables can be changed on the job page after it is created. Secrets reach the run by reference, never in its spec: a scheduled run gets the values current at its start, so a changed secret applies from the next run; a run already going keeps what it started with.
+
+## Failure notices
+
+When your admin has set up notifications, a failed run sends a notice to the recipients the admin configured and to the job owner's verified email. The job page shows what the job notifies on.

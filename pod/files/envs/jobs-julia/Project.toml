@@ -1,0 +1,9 @@
+[deps]
+Conda = "8f4d0f93-b110-5947-807f-2305c1781a2d"
+IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
+JLLWrappers = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+Parsers = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+Preferences = "21216c6a-2e73-6563-6e65-726566657250"
+ZMQ = "c2297ded-f4af-51ae-bb23-16f91089e4e1"

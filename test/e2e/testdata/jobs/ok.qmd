@@ -1,0 +1,8 @@
+---
+title: Report
+format: html
+---
+
+```{python}
+print(sum(range(10)))
+```

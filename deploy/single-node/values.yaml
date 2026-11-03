@@ -1,0 +1,69 @@
+# Single-node k3s, amd64, no registry. Images are imported into k3s
+# containerd by scripts/install/deploy-single-node.sh, which sets image.tag.
+# TLS terminates at a reverse proxy in front (for example the k3s Traefik),
+# which forwards to NodePort 30080.
+image:
+  repository: javo
+  # The exact tag is passed by scripts/install/deploy-single-node.sh (--set image.tag=...).
+  pullPolicy: Never
+
+gateway:
+  # Served to browsers over HTTPS (the proxy), so the session cookie is Secure.
+  secureCookies: true
+  # The proxy reaches NodePort 30080 and kube-proxy rewrites the source to the
+  # node's pod-network bridge (cni0), 10.42.0.1 with the k3s default cluster
+  # CIDR. Check it: the "peer" in the gateway's "login attempt" log lines,
+  #   kubectl -n javo-system logs deploy/javo-gateway | grep 'login attempt'
+  trustedProxies: ["10.42.0.1/32"]
+  service:
+    type: NodePort
+    nodePort: 30080
+
+# One node runs SQLite: one pod runs the gateway and the controller, the
+# database is a file on the k3s local-path volume javo-data (kept on
+# uninstall). Backups are copies of it on the claim javo-backups, nightly.
+database:
+  engine: sqlite
+  sqlite:
+    size: 1Gi
+  backup:
+    schedule: "0 3 * * *"
+    keep: 7
+
+# Off-site backups (site/src/content/docs/admin/backups.mdx): every database backup is
+# also copied to an S3-compatible bucket, and every home folder is backed up
+# to it nightly with restic. Set the bucket in .dev/<site>.values.yaml, for
+# example:
+#   backupTarget:
+#     enabled: true
+#     endpoint: https://s3.us-east-1.amazonaws.com
+#     region: us-east-1
+#     bucket: my-backups
+#     existingSecret: javo-backup-s3   # keys AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+# The chart makes the backup password once, in javo-backup-password: keep a
+# copy of it apart from this machine.
+
+# As on kind: platform admins (Keycloak alice) without a limit of their own,
+# the data-science group (Keycloak bob) up to 1 CPU and 1 GB.
+customSize:
+  enabled: true
+  rules:
+    - roles: [platform-admin]
+    - {groups: [/org/data-science], maxCPU: "1", maxMemory: 1Gi}
+
+# As on kind: new apps stop after an hour unused; the e2e tests pick 1 minute.
+config:
+  idleStop:
+    defaultMinutes: 60
+    minMinutes: 1
+    maxMinutes: 1440
+    allowOff: true
+  # AI: point config.ai at any OpenAI-compatible server (vLLM, Ollama,
+  # llama.cpp) in .dev/<site>.values.yaml.
+  thumbnails:
+    enabled: true
+
+# Previews of GitHub pull requests: on, so they can be tried here.
+source:
+  previews:
+    enabled: true

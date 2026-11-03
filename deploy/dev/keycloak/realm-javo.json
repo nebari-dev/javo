@@ -1,0 +1,67 @@
+{
+  "realm": "javo",
+  "enabled": true,
+  "sslRequired": "external",
+  "groups": [
+    {"name": "javo-admins"},
+    {"name": "org", "subGroups": [{"name": "data-science"}]}
+  ],
+  "users": [
+    {
+      "id": "cd20e481-6e52-41b1-aff2-2ca0c50a2f4f",
+      "username": "alice",
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Example",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "${ALICE_PASSWORD}", "temporary": false}],
+      "groups": ["/javo-admins", "/org/data-science"]
+    },
+    {
+      "id": "73f18871-e252-4939-b6ea-54f5ffaf7e4e",
+      "username": "bob",
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Example",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "${BOB_PASSWORD}", "temporary": false}],
+      "groups": ["/org/data-science"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "javo",
+      "name": "javo",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${JAVO_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${JAVO_UI_URL}/auth/oidc/callback"],
+      "webOrigins": ["${JAVO_UI_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${JAVO_UI_URL}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "true",
+            "claim.name": "groups",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

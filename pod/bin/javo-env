@@ -1,0 +1,26 @@
+#!/bin/bash
+# javo-env NAME [COMMAND...]: run COMMAND (default: a shell) in the
+# environment NAME that was picked for this app and installed beside the
+# template's (internal/pixienv: Source.Beside). Without NAME it lists them.
+set -euo pipefail
+dir=/opt/javo-env/envs
+if [ $# -eq 0 ]; then
+  if [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ]; then
+    ls -1 "$dir"
+  else
+    echo "This app has no environment besides its own." >&2
+  fi
+  exit 0
+fi
+name=$1
+shift
+if [ ! -r "$dir/$name" ]; then
+  echo "javo-env: no environment named $name here; run javo-env to list them." >&2
+  exit 2
+fi
+# shellcheck disable=SC1090
+. "$dir/$name"
+if [ $# -eq 0 ]; then
+  exec bash -i
+fi
+exec "$@"

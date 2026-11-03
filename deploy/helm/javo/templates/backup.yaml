@@ -1,0 +1,147 @@
+{{- /*
+Scheduled backups (database.backup.schedule). SQLite: the server takes the
+copies itself (see server.yaml) into the claim javo-backups below, kept on
+uninstall. Postgres: this CronJob runs pg_dump in the pinned postgres image
+with the connection string from the same Secret the components use. With a
+bucket it dumps to scratch space and copies the dump to the bucket; without
+one it writes to the claim javo-backups, which the controller makes (see
+javo.backupClaimByController) and never deletes. The copy is written under a
+temporary name and renamed, so a failed dump never looks like a backup, and
+only the newest `keep` copies stay.
+
+Releases before this one rendered javo-backups for Postgres too, with
+helm.sh/resource-policy: keep, so an upgrade leaves that claim and its dumps
+in place and the CronJob keeps writing to it.
+*/ -}}
+{{- if include "javo.backupEnabled" . }}
+{{- $b := .Values.database.backup }}
+{{- if eq (include "javo.engine" .) "sqlite" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: javo-backups
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with $b.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $b.size }}
+{{- else }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: javo-db-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ $b.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "javo.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          {{- with include "javo.imagePullSecrets" . }}
+          {{- . | nindent 10 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            fsGroup: {{ .Values.securityContext.runAsGroup }}
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          {{- $copy := include "javo.bucketEnabled" . }}
+          {{- if $copy }}
+          # pg_dump first, then the copy of its file to the bucket.
+          initContainers:
+          {{- else }}
+          containers:
+          {{- end }}
+            - name: pg-dump
+              image: {{ $b.image | quote }}
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  file=/backups/javo-$(date -u +%Y%m%dT%H%M%SZ).dump
+                  pg_dump --format=custom --file="$file.partial" "$JAVO_DSN"
+                  mv "$file.partial" "$file"
+                  ls -1 /backups/javo-*.dump | sort -r | tail -n +{{ add (int $b.keep) 1 }} | xargs -r rm -f
+              env:
+                - name: JAVO_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "database.postgres.dsnSecret is required with database.engine=postgres" .Values.database.postgres.dsnSecret | quote }}
+                      key: dsn
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - {name: backups, mountPath: /backups}
+                - {name: tmp, mountPath: /tmp}
+          {{- if $copy }}
+          containers:
+            - name: copy
+              image: {{ include "javo.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args:
+                - backup
+                - db
+                - copy
+                - --newest-in
+                - /backups
+                - --keep={{ $b.keep }}
+                {{- include "javo.databaseArgs" . | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - {name: backups, mountPath: /backups, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+                - {name: config, mountPath: /etc/javo, readOnly: true}
+                {{- include "javo.databaseMounts" . | nindent 16 }}
+                {{- include "javo.bucketMounts" . | nindent 16 }}
+          {{- end }}
+          volumes:
+            - name: backups
+              {{- if $copy }}
+              emptyDir: {}
+              {{- else }}
+              persistentVolumeClaim: {claimName: javo-backups}
+              {{- end }}
+            - name: tmp
+              emptyDir: {}
+            {{- if $copy }}
+            - name: config
+              configMap: {name: javo-config}
+            {{- include "javo.databaseVolumes" . | nindent 12 }}
+            {{- include "javo.bucketVolumes" . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

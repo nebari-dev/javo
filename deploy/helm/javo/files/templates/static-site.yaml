@@ -1,0 +1,55 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: static-site
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Static site
+  # One HTML file of the home is copied when the app starts, so Redeploy picks
+  # up edits. A repository folder with a package.json is built with npm ci &&
+  # npm run build unless the app changes the build command; one without is
+  # served as it is. The site is served under a URL prefix, so it must use
+  # relative asset paths.
+  description: Web page or site
+  category: web
+  kind: static
+  maxSharing: Public
+  fromRepo: Optional
+  # nginx-unprivileged serves the files; its default command is kept, with a
+  # server config the pod writes (build.serverConfig): the image's own answers
+  # a folder without its trailing slash with an absolute redirect (http, the
+  # pod's port, no URL prefix) that leaves the app, so absolute_redirect is
+  # off and the Location is relative. The build runs in the node image: the repository folder's build command writes
+  # its output folder, which is copied to serveDir before nginx starts.
+  image: nginxinc/nginx-unprivileged:1.31.6-alpine-slim@sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4
+  port: 8080
+  build:
+    image: node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
+    command: npm ci && npm run build
+    # A folder without a package.json has nothing for npm to build.
+    ifFile: package.json
+    output: dist
+    serveDir: /usr/share/nginx/html
+    serverConfigDir: /etc/nginx/conf.d
+    serverConfig: |
+      server {
+        listen {{.Port}};
+        root {{.ServeDir}};
+        index index.html;
+        absolute_redirect off;
+        location / {
+          try_files $uri $uri/ =404;
+        }
+      }
+  # The gateway removes the URL prefix, so nginx serves at /.
+  basePath: Strip
+  appLogin: Disabled
+  # The home choice is one HTML file; a repository app names none.
+  fileExtensions: [".html"]
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/"
+  resources:
+    requests: {cpu: 50m, memory: 32Mi}
+    limits: {memory: 256Mi}

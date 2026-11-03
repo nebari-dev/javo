@@ -1,0 +1,44 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: bokeh
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Bokeh
+  description: Interactive plots
+  category: dashboards
+  kind: bokeh
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/bokeh (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: bokeh
+  port: 5006
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "bokeh"]
+  args:
+    - "serve"
+    - "{{.File}}"
+    - "--address=0.0.0.0"
+    - "--port={{.Port}}"
+    - "--prefix={{.BaseURL}}"
+    # The websocket is accepted only from the public host (helm value
+    # publicHost); never "*". Without it the page loads but stays static.
+    - "{{if .Host}}--allow-websocket-origin={{.Host}}{{end}}"
+  basePath: Prefix
+  appLogin: Disabled
+  fileExtensions: [".py"]
+  # bokeh serve names the app after the file; the prefix itself redirects there.
+  readinessPath: '{{.BaseURL}}{{base .File | trimSuffix ".py"}}'
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/bokeh
+    open: sample.py
+    title: Sine wave

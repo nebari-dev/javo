@@ -1,0 +1,6 @@
+# Applied on top of the dev release by the namespace-modes e2e test
+# (test/e2e/namespaces_test.go), which rolls back afterwards: every person's
+# apps go to their own namespace, javo-<identity>.
+config:
+  namespaces:
+    mode: per-user

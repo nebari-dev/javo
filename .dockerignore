@@ -1,0 +1,16 @@
+.git
+/.env
+.dev
+bin
+ui/node_modules
+ui/dist
+deploy
+site
+.superpowers
+scripts
+# The Compose installer image (Dockerfile stage compose-installer) needs these.
+!deploy/helm/javo
+!deploy/compose
+!scripts/install/install-chart.sh
+!scripts/install/ensure-local-user.sh
+!scripts/install/wait-healthz.sh

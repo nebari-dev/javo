@@ -1,0 +1,31 @@
+[91mERROR: YAMLException: missed comma between flow collection entries (3:1)
+
+ 1 | 
+ 2 | title: [unclosed
+ 3 | format: html
+-----^
+
+Stack trace:
+    at generateError2 (file:///work/qq/bin/quarto.js:16781:10)
+    at throwError2 (file:///work/qq/bin/quarto.js:16784:9)
+    at readFlowCollection2 (file:///work/qq/bin/quarto.js:17111:7)
+    at composeNode2 (file:///work/qq/bin/quarto.js:17575:135)
+    at readBlockMapping2 (file:///work/qq/bin/quarto.js:17382:11)
+    at composeNode2 (file:///work/qq/bin/quarto.js:17575:80)
+    at readDocument2 (file:///work/qq/bin/quarto.js:17707:3)
+    at loadDocuments2 (file:///work/qq/bin/quarto.js:17749:5)
+    at load$12 (file:///work/qq/bin/quarto.js:17767:19)
+    at parseWithNiceErrors (file:///work/qq/bin/quarto.js:18832:12)
+    at readYamlFromMarkdown (file:///work/qq/bin/quarto.js:18789:9)
+    at markdownExecutionEngine (file:///work/qq/bin/quarto.js:77271:16)
+    at fileExecutionEngine (file:///work/qq/bin/quarto.js:77388:14)
+    at async projectContext (file:///work/qq/bin/quarto.js:92270:28)
+    at async render (file:///work/qq/bin/quarto.js:142621:15)
+    at async _Command.actionHandler (file:///work/qq/bin/quarto.js:142901:24)
+    at async _Command.execute (file:///work/qq/bin/quarto.js:102249:7)
+    at async _Command.parseCommand (file:///work/qq/bin/quarto.js:102126:14)
+    at async quarto4 (file:///work/qq/bin/quarto.js:188304:5)
+    at async file:///work/qq/bin/quarto.js:188333:5
+    at async file:///work/qq/bin/quarto.js:188187:14
+    at async mainRunner (file:///work/qq/bin/quarto.js:188189:5)
+    at async file:///work/qq/bin/quarto.js:188326:3[39m

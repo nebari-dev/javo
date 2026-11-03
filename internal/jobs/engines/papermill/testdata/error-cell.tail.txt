@@ -1,0 +1,14 @@
+    raise_for_execution_errors(nb, output_path)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/tmp/pm/papermill/execute.py", line 251, in raise_for_execution_errors
+    raise error
+papermill.exceptions.PapermillExecutionError:
+---------------------------------------------------------------------------
+Exception encountered at "In [9]":
+---------------------------------------------------------------------------
+KeyError                                  Traceback (most recent call last)
+Cell In[9], line 1
+----> 1 cfg['region']
+
+KeyError: 'region'
+

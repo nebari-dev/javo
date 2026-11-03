@@ -1,0 +1,31 @@
+---
+title: Helm values
+description: Every value of the Javo Helm chart, with the comments from deploy/helm/javo/values.yaml.
+sidebar:
+  order: 2
+---
+
+{/* Astro's own Code: the theme's Expressive Code options cannot reach Starlight's <Code>. */}
+import { Code } from 'astro:components';
+import values from '../../../../../deploy/helm/javo/values.yaml?raw';
+
+These are the chart's default values, read from `deploy/helm/javo/values.yaml` when the site is built, so they always match the chart. The comments explain each value. Guides for the common ones:
+
+| Values | Guide |
+|---|---|
+| `image`, `database`, `ingress`, `gateway`, `publicHost` | [Configuration](/admin/configuration/) |
+| `config.auth`, `config.roles`, `gateway.oidcClientSecret` | [Sign-in and roles](/admin/sign-in/) |
+| `config.urls`, `config.sharing` | [App addresses](/admin/app-addresses/) |
+| `sizes`, `defaultSize`, `customSize` | [Sizes](/admin/sizes/) |
+| `config.idleStop` | [Idle stop](/admin/idle-stop/) |
+| `config.storage`, `config.namespaces` | [Storage](/admin/storage/) |
+| `database.backup`, `backupTarget` | [Backups and restore](/admin/backups/) |
+| `secrets` | [Secrets and keys](/admin/secrets-and-keys/) |
+| `config.ai`, `ai`, `config.mcp` | [AI](/admin/ai/) |
+| `config.nebi`, `config.environments` | [Nebi environments](/admin/nebi/) |
+| `config.thumbnails` | [App thumbnails](/admin/thumbnails/) |
+| `source.previews` | [Pull request previews](/using/previews/) |
+
+Override any of them in your own values file and pass it with `-f`.
+
+<Code code={values} lang="yaml" themes={{ light: 'github-light', dark: 'github-dark' }} />

@@ -1,0 +1,17 @@
+# The platform's JupyterLab settings, put where JupyterLab reads them in this
+# environment: overrides.json (Fira Code for code and the terminal, no news
+# or update checks), jupyter_lab_config.json (custom.css on, no update
+# check), jupyter_server_config.json (idle kernels and terminals are shut
+# down after 15 minutes, open tab or not, as in the Nebari data science
+# pack), jupyter_server_config.py (the Nebi kernels, on only in apps with
+# Nebi access) and custom.css with the Fira Code font from the pod files.
+# internal/pixienv runs this file in the activated environment, once per
+# lockfile.
+set -euo pipefail
+mkdir -p "$CONDA_PREFIX/share/jupyter/lab/settings" "$CONDA_PREFIX/etc/jupyter"
+cp overrides.json "$CONDA_PREFIX/share/jupyter/lab/settings/overrides.json"
+cp jupyter_lab_config.json jupyter_server_config.json "$CONDA_PREFIX/etc/jupyter/"
+cp jupyter_server_config.py "$CONDA_PREFIX/etc/jupyter/jupyter_server_config.py"
+custom=$(python -c 'import jupyter_server, os; print(os.path.join(os.path.dirname(jupyter_server.__file__), "static", "custom"))')
+mkdir -p "$custom"
+cp custom.css /opt/javo/fonts/FiraCode-VF.woff2 /opt/javo/fonts/FiraCode-OFL.txt "$custom/"

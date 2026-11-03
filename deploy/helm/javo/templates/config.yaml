@@ -1,0 +1,37 @@
+{{- /* One platform config file read by both the controller and the gateway.
+The shared workspace namespace always comes from workspaceNamespace,
+containerImages from the top-level containerImages values, branding from
+the top-level branding values,
+source.cloneImage and source.previews from the top-level source values,
+auth.oidc.clientSecretFile defaults to the file mounted from
+gateway.oidcClientSecret, and urls.uiHost defaults to the ingress host. */ -}}
+{{- $cfg := deepCopy .Values.config -}}
+{{- $_ := set $cfg "containerImages" (dict "enabled" .Values.containerImages.enabled "allowedRegistries" .Values.containerImages.allowedRegistries) -}}
+{{- $_ := set $cfg "source" (dict "cloneImage" .Values.source.cloneImage "gitConfig" .Values.source.gitConfig "previews" .Values.source.previews) -}}
+{{- $_ := set $cfg "branding" (include "javo.brandingConfig" . | fromJson) -}}
+{{- $_ := set $cfg "namespaces" (merge (dict "shared" .Values.workspaceNamespace) (default (dict) $cfg.namespaces)) -}}
+{{- $oidc := (default (dict) $cfg.auth).oidc -}}
+{{- if and .Values.gateway.oidcClientSecret $oidc (not $oidc.clientSecretFile) -}}
+{{- $_ := set $oidc "clientSecretFile" (printf "%s/client-secret" (include "javo.oidcSecretDir" .)) -}}
+{{- end -}}
+{{- if and .Values.ingress.host (not (default (dict) $cfg.urls).uiHost) -}}
+{{- $_ := set $cfg "urls" (merge (dict "uiHost" .Values.ingress.host) (default (dict) $cfg.urls)) -}}
+{{- end -}}
+{{- if include "javo.bucketEnabled" . -}}
+{{- $t := .Values.backupTarget -}}
+{{- $s3 := dict "endpoint" $t.endpoint "bucket" $t.bucket "prefix" $t.prefix "bucketLookup" $t.bucketLookup "homes" $t.homes -}}
+{{- with $t.region }}{{ $_ := set $s3 "region" . }}{{ end -}}
+{{- if $t.tls.insecureSkipVerify }}{{ $_ := set $s3 "insecureSkipVerify" true }}{{ end -}}
+{{- if $t.tls.caSecret }}{{ $_ := set $s3 "caCertFile" "/etc/javo-backup/ca/ca.crt" }}{{ end -}}
+{{- $_ := set $cfg "backup" (merge (dict "s3" $s3) (default (dict) $cfg.backup)) -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: javo-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml $cfg | nindent 4 }}

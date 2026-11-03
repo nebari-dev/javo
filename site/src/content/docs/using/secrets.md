@@ -1,0 +1,32 @@
+---
+title: Environment variables and secrets
+description: Give apps and jobs settings and credentials. Secrets are encrypted at rest and handed over by reference.
+sidebar:
+  order: 5
+---
+
+## Secrets
+
+Keep credentials under **Settings, Secrets**. A secret has a name (letters, digits and underscores), a value and an optional note. The value is write-only: after you save it, no page, API answer, log, export or backup shows it in clear. You can replace a value, change the note, or delete a secret that no app or job uses.
+
+## Environment variables
+
+Apps (under **Advanced** on New app, and on the app page) and jobs (on New job and the job page) take environment variables. Each row is a name and where its value comes from:
+
+- **Value**: typed in, stored as is and shown again. Use it for settings that are not secret.
+- **Secret**: one of your secrets, picked by name.
+
+A private Git repository's access token is also one of your secrets, picked on the app form.
+
+## When a value changes
+
+- **Apps** that use a secret restart when its value changes, or when you change which secrets they get.
+- **Scheduled jobs** get the new value from their next run. A run already going keeps the value it started with.
+
+## What never gets a secret
+
+[Pull request previews](/using/previews/) never get secrets, so code from a pull request cannot read them.
+
+## How values are protected
+
+Values are encrypted with envelope encryption (HPKE under a data key, itself encrypted by a key kept outside the database). The web-facing gateway can only seal values; only the controller can open them, and it hands them to a pod through a Kubernetes Secret that the pod reads by reference. Admins: see [Secrets and keys](/admin/secrets-and-keys/) for the key, its backup and rotation.

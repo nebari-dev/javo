@@ -1,0 +1,32 @@
+{{- if and .Values.notifications.enabled .Values.notifications.webhookURL }}
+# Example notifications-engine configuration: one webhook service that gets a
+# JSON body when the newest run of a job ends Failed, TimedOut or Lost. Edit
+# the ConfigMap (or name your own in notifications.configMapName) to add
+# Slack, email and others; see the notifications-engine services catalog.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.notifications.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+data:
+  service.webhook.javo: |
+    url: {{ .Values.notifications.webhookURL | quote }}
+    headers:
+      - name: Content-Type
+        value: application/json
+  template.on-run-failed: |
+    webhook:
+      javo:
+        method: POST
+        body: |
+          {"job": {{`{{ toJson .job.displayName }}`}}, "run": {{`{{ toJson .run.id }}`}}, "outcome": {{`{{ toJson .run.outcome }}`}}, "reason": {{`{{ toJson .reason.title }}`}}, "message": {{`{{ toJson .run.message }}`}}}
+  trigger.on-run-failed: |
+    - when: len(obj.status?.recentRuns ?? []) > 0 && obj.status.recentRuns[0].outcome in ['Failed', 'TimedOut', 'Lost']
+      oncePer: obj.status.recentRuns[0].id
+      send: [on-run-failed]
+  subscriptions: |
+    - recipients: [javo]
+      triggers: [on-run-failed]
+{{- end }}

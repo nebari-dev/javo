@@ -1,0 +1,41 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: vscode
+spec:
+  # Runs without a password: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: VS Code
+  description: Code in the browser
+  category: notebooks
+  kind: vscode
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/vscode (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: vscode
+  port: 8080
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "code-server"]
+  args:
+    - "--auth=none"
+    - "--bind-addr=0.0.0.0:{{.Port}}"
+    - "--disable-telemetry"
+    - "--disable-update-check"
+    # The folder to open: the chosen folder, else the home.
+    - "{{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+  # code-server expects a proxy that removes the prefix.
+  basePath: Strip
+  appLogin: Disabled
+  fileExtensions: []
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/healthz"
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/vscode
+    title: Hello folder

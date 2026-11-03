@@ -1,0 +1,16 @@
+{{- /*
+The branding images given as file contents (branding.*.svg or .base64). The
+gateway mounts them at javo.brandingDir and serves them under /branding/;
+the config file names each one.
+*/ -}}
+{{- with include "javo.brandingFiles" . | trim }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: javo-branding
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+binaryData:
+  {{- . | nindent 2 }}
+{{- end }}

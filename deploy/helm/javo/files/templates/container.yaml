@@ -1,0 +1,22 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: container
+spec:
+  # Installed while containerImages.enabled is true; the gateway checks each
+  # image against containerImages.allowedRegistries. Runs without a token:
+  # access control is the javo-apps NetworkPolicy (helm value
+  # networkPolicy.enabled) plus gateway authentication.
+  displayName: Container image
+  description: Any web image
+  category: web
+  kind: container
+  # Each app names its image and port; 8080 is the port offered first.
+  userImage: true
+  port: 8080
+  # An optional command replaces the image's default command (its CMD).
+  userCommand: Optional
+  # The gateway removes the URL prefix, so an image that serves at / works
+  # under a path and on its own subdomain.
+  basePath: Strip
+  appLogin: Disabled

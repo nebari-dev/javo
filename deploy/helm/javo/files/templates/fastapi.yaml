@@ -1,0 +1,44 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: fastapi
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: FastAPI
+  description: Python web APIs
+  category: web
+  kind: fastapi
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/fastapi (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: fastapi
+  port: 8000
+  # The gateway removes the prefix before forwarding (basePath Strip), so
+  # uvicorn --root-path only tells the app where it is mounted: any FastAPI
+  # file works, with no code reading the prefix.
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "uvicorn"]
+  args:
+    - "--app-dir={{dir .File}}"
+    - '{{base .File | trimSuffix ".py"}}:app'
+    - "--host=0.0.0.0"
+    - "--port={{.Port}}"
+    - "--root-path={{trimSuffix \"/\" .BaseURL}}"
+  basePath: Strip
+  appLogin: Disabled
+  fileExtensions: [".py"]
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/openapi.json"
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 1Gi}
+  sample:
+    path: /opt/javo/samples/fastapi
+    open: sample.py
+    title: Inventory API

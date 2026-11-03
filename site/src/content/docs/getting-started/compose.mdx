@@ -1,0 +1,119 @@
+---
+title: Docker Compose
+description: Run Javo on one machine with Docker Compose, a single-node k3s cluster in a container plus a one-shot installer.
+sidebar:
+  order: 1
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+`deploy/compose/compose.yaml` runs Javo on one Docker host. It starts a single-node [k3s](https://k3s.io) cluster in a privileged container, then a one-shot installer applies the same Helm chart every other install uses, with the values in `deploy/compose/values.yaml`.
+
+What you get:
+
+- Apps served under the web UI's address: `http://localhost:8080/u/<owner>/<app>/`.
+- Sharing turned on.
+- Network isolation between apps, enforced by k3s's built-in NetworkPolicy controller.
+- Home folders on k3s local-path volumes.
+- A local user `admin`, who is a platform admin.
+
+## Requirements
+
+- Docker Engine with Compose v2, allowed to run privileged containers (k3s needs it). Tested on Colima (Docker 29, arm64, cgroup v2); cgroup v1 hosts are untested.
+- About 4 GB of free disk for the images, which are stored twice (once in Docker, once in k3s). The k3s node refuses new pods while Docker's disk has less than 5% free; the installer then stops with `DiskPressure`.
+- Free host ports: `8080` for the web UI and `6443` for the Kubernetes API (bound to `127.0.0.1` only).
+- On a first start, apps download their packages, so the machine needs internet access (see [Environments](/using/environments/)).
+
+<Aside type="caution">
+The installer mounts the Docker socket to copy locally built images into k3s. Like the privileged k3s container, that is root on the Docker host. Use a machine you are happy to give that access to.
+</Aside>
+
+## Install
+
+<Steps>
+
+1. Get the code.
+
+   ```sh
+   git clone https://github.com/nebari-dev/javo.git
+   cd javo/deploy/compose
+   ```
+
+2. Build and install. The `build` profile builds the `javo` image from the checkout first.
+
+   ```sh
+   docker compose --profile build up -d
+   ```
+
+3. Follow the installer. It waits for k3s, copies the image in, installs the chart and creates the `admin` user. It ends with the URL.
+
+   ```sh
+   docker compose logs -f installer
+   ```
+
+4. Read the admin password. It is generated on the first install and never printed in the logs.
+
+   ```sh
+   docker compose exec k3s cat /var/lib/javo-secrets/admin.password
+   ```
+
+5. Open `http://localhost:8080` and sign in as `admin` with that password. Next: [create a first app](/getting-started/first-app/).
+
+</Steps>
+
+## Settings
+
+Set these in your shell or in `deploy/compose/.env`:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `JAVO_PORT` | `8080` | Host port of the web UI. |
+| `JAVO_PUBLIC_URL` | `http://localhost:<JAVO_PORT>` | The URL browsers use. Set it when people reach the machine by another name. |
+| `JAVO_API_PORT` | `6443` | Host port of the Kubernetes API, bound to `127.0.0.1`. |
+| `JAVO_IMAGE_TAG` | `compose` | Tag of the `javo` image. |
+| `JAVO_IMAGE_REGISTRY` | empty | Empty uses the image built on this host. Set it (for example `registry.example.com/javo`) to have k3s pull `<registry>/javo:<tag>` instead, and drop `--profile build`. |
+
+The Compose values are sized for a laptop: Small (0.5 CPU, 1 GiB), Medium (1 CPU, 2 GiB) and Large (2 CPUs, 4 GiB).
+
+## Day to day
+
+Run these from `deploy/compose/`:
+
+```sh
+docker compose --profile build down      # stop; the cluster, apps and home folders are kept
+docker compose up -d                     # start again with the images already built
+docker compose exec k3s kubectl get pods -A
+```
+
+To use `kubectl` from the host, copy the kubeconfig out. Its server is `https://127.0.0.1:6443`.
+
+```sh
+docker compose exec k3s cat /var/lib/javo-kubeconfig/kubeconfig.yaml > kubeconfig
+```
+
+## Upgrade
+
+```sh
+git pull
+docker compose --profile build up -d
+```
+
+The installer runs on every `up`: it copies only changed images into k3s, upgrades the release and keeps the `admin` user and its password.
+
+## Remove everything
+
+<Aside type="danger">
+This deletes the cluster, every app, every home folder and the admin password.
+</Aside>
+
+```sh
+docker compose --profile build down -v
+```
+
+## Serve it over HTTPS
+
+The Compose install serves plain HTTP on the published port. To serve it over HTTPS, put a TLS proxy in front, set `JAVO_PUBLIC_URL` to the `https://` address, and in `deploy/compose/values.yaml` set `gateway.secureCookies: true` and the proxy's address in `gateway.trustedProxies`.
+
+<Aside type="note" title="Sharing on one host">
+The Compose install serves apps on the same host as the web UI and still allows sharing (`config.sharing.allowOneHost: true`). A shared app could then act through its viewer's session on the web UI. Serving apps on a host of their own removes that risk: see [App addresses](/admin/app-addresses/).
+</Aside>

@@ -1,0 +1,22 @@
+#!/bin/sh
+# nebi: the nebi CLI as the app's owner. In an app whose template asks for
+# its owner's Nebi token (spec.nebiToken, with the platform's Nebi
+# integration on), the controller copies the CLI to /opt/javo-nebi and the
+# kubelet keeps the owner's current token in the file JAVO_NEBI_TOKEN_FILE;
+# NEBI_REMOTE_URL is Nebi's address. The token is read at every run, so a
+# renewed one is used at once, and it is handed only to this one process,
+# never kept in the app's environment.
+cli=${JAVO_NEBI_CLI:-/opt/javo-nebi/nebi}
+if [ ! -x "$cli" ]; then
+  echo "nebi: this app has no Nebi access (the platform's Nebi integration is off, or its template does not give apps one)." >&2
+  exit 127
+fi
+if [ -n "${JAVO_NEBI_TOKEN_FILE:-}" ]; then
+  if [ -r "$JAVO_NEBI_TOKEN_FILE" ]; then
+    NEBI_AUTH_TOKEN=$(cat "$JAVO_NEBI_TOKEN_FILE")
+    export NEBI_AUTH_TOKEN
+  else
+    echo "nebi: your Nebi sign-in has not reached this app. It comes from signing in to the platform with your organization account; restart the app to fetch it again." >&2
+  fi
+fi
+exec "$cli" "$@"

@@ -1,0 +1,75 @@
+# Values for the kind dev cluster (scripts/dev/up.sh) and its e2e tests. The UI
+# is http://javo.localhost:<JAVO_HTTP_PORT>, apps are on
+# http://apps.localhost:<JAVO_HTTP_PORT> and the dev Keycloak
+# (deploy/dev/keycloak) on http://keycloak.localhost:<JAVO_KEYCLOAK_PORT>; kind
+# maps those host ports (8080 and 8081 in the main checkout, see
+# scripts/dev/env.sh) to NodePorts 30080 and 30081. dev-up sets every value that
+# names a host port (publicHost, config.urls hosts, the OIDC issuer and dial).
+# Browsers resolve *.localhost to the loopback address themselves.
+image:
+  repository: javo
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# Smaller than the chart's sizes, so the e2e tests' apps fit on a laptop's
+# kind node (four CPUs) next to each other.
+sizes:
+  - {name: small, displayName: Small, cpu: 500m, memory: 1Gi}
+  - {name: medium, displayName: Medium, cpu: "1", memory: 2Gi}
+  # Bigger than any laptop's kind node: the e2e tests check it is refused.
+  - {name: huge, displayName: Huge, cpu: "64", memory: 512Gi}
+defaultSize: small
+# Platform admins (Keycloak alice) without a limit of their own; the
+# data-science group (Keycloak bob) up to 1 CPU and 1 GB.
+customSize:
+  enabled: true
+  rules:
+    - roles: [platform-admin]
+    - {groups: [/org/data-science], maxCPU: "1", maxMemory: 1Gi}
+
+# The stand-in JupyterHub namespace of the home import e2e test
+# (test/e2e/hubimport_test.go); scripts/dev/up.sh creates it.
+jupyterhubImport:
+  namespace: javo-e2e-jupyterhub
+
+gateway:
+  service:
+    type: NodePort
+    nodePort: 30080
+  # Created by scripts/dev/keycloak-up.sh from .dev/oidc-client.secret.
+  oidcClientSecret: javo-oidc
+
+config:
+  auth:
+    # Local sign-in stays on (alice, break-glass when Keycloak is down).
+    local:
+      enabled: true
+    oidc:
+      clientID: javo
+      displayName: Keycloak
+      # Short, so the e2e tests see a group removed in Keycloak within a minute.
+      revalidateInterval: 30s
+  roles:
+    platformAdmin: {groups: [/javo-admins]}
+  urls:
+    mode: path
+    scheme: http
+  sessions:
+    # Short, so the e2e tests see the janitor run.
+    sweepEvery: 10s
+  # New apps stop after an hour unused; the e2e tests pick 1 minute.
+  idleStop:
+    defaultMinutes: 60
+    minMinutes: 1
+    maxMinutes: 1440
+    allowOff: true
+  # The e2e tests check the API docs page.
+  api:
+    docs:
+      enabled: true
+
+# Nightly database backups, so Settings, Backups can back up now and preview
+# a restore (the e2e tests do).
+database:
+  backup:
+    schedule: "0 3 * * *"

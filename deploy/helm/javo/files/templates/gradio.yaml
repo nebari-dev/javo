@@ -1,0 +1,43 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: gradio
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Gradio
+  description: Python ML demos
+  category: dashboards
+  kind: gradio
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/gradio (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: gradio
+  port: 7860
+  # Gradio reads its address, port and URL prefix from the environment; env
+  # sets them without a shell.
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "env"]
+  args:
+    - "GRADIO_SERVER_NAME=0.0.0.0"
+    - "GRADIO_SERVER_PORT={{.Port}}"
+    - "GRADIO_ROOT_PATH={{trimSuffix \"/\" .BaseURL}}"
+    - "GRADIO_ANALYTICS_ENABLED=False"
+    - "python"
+    - "{{.File}}"
+  basePath: Prefix
+  appLogin: Disabled
+  fileExtensions: [".py"]
+  readinessPath: "{{.BaseURL}}"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  sample:
+    path: /opt/javo/samples/gradio
+    open: sample.py
+    title: Word counter

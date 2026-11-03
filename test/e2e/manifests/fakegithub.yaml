@@ -1,0 +1,41 @@
+# Test-only stand-in for the GitHub pull request list (test/e2e/fakegithub),
+# the address source.previews.github.apiURL points at on the dev cluster. The
+# image is built and loaded into kind by scripts/test/e2e-git-up.sh. Never shipped.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fakegithub
+  namespace: javo-e2e
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fakegithub}
+  template:
+    metadata:
+      labels: {app: fakegithub}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: fakegithub
+          image: javo-fakegithub:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            tcpSocket: {port: http}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fakegithub
+  namespace: javo-e2e
+spec:
+  selector: {app: fakegithub}
+  ports:
+    - {name: http, port: 8080, targetPort: http}

@@ -1,0 +1,39 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: custom
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Custom command
+  description: Your own command
+  category: web
+  kind: custom
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/custom (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: custom
+  port: 8080
+  # The command each app types replaces the image's default command. It runs
+  # in the folder of the app's chosen file (any file, optional), else in the
+  # home folder, and serves under {{.BaseURL}} on {{.Port}} (also $PORT).
+  # It runs through pod-user.sh, which gives the pod's uid a user name
+  # (pod/files).
+  command: ["/opt/javo/pod-user.sh"]
+  userCommand: Required
+  basePath: Prefix
+  appLogin: Disabled
+  readinessPath: "{{.BaseURL}}"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  sample:
+    path: /opt/javo/samples/custom
+    open: sample.py
+    title: Server time
+    command: "python sample.py --port={{.Port}} --base-url={{.BaseURL}}"

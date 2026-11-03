@@ -1,0 +1,7 @@
+{
+  "LabApp": {
+    "custom_css": true,
+    "news_url": null,
+    "check_for_updates_class": "jupyterlab.handlers.announcements.NeverCheckForUpdate"
+  }
+}

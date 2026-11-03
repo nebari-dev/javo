@@ -1,0 +1,10 @@
+[workspace]
+name = "backend-go"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+exclude-newer = "2026-10-26"
+
+[dependencies]
+# The nocgo build: the cgo one needs a C compiler for packages such as net.
+go = { version = "==1.27.3", build = "nocgo*" }
+git = "==2.56.0"

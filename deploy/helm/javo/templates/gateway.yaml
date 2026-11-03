@@ -1,0 +1,172 @@
+{{- include "javo.checkReplicas" . }}
+{{- if eq (include "javo.engine" .) "postgres" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: javo-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "javo.selector" (dict "root" . "component" "gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "javo.labels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+      annotations:
+        {{- include "javo.rollAnnotations" . | nindent 8 }}
+    spec:
+      serviceAccountName: javo-gateway
+      {{- with include "javo.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: {{ include "javo.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - gateway
+            {{- include "javo.commonArgs" . | nindent 12 }}
+            {{- include "javo.gatewayArgs" . | nindent 12 }}
+            {{- include "javo.databaseArgs" . | nindent 12 }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            {{- include "javo.aiEnv" . | nindent 12 }}
+          ports:
+            - {name: http, containerPort: {{ .Values.gateway.port }}}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sizes, mountPath: {{ include "javo.sizesDir" . }}, readOnly: true}
+            - {name: config, mountPath: /etc/javo, readOnly: true}
+            - {name: templates, mountPath: {{ include "javo.templatesDir" . }}, readOnly: true}
+            {{- include "javo.databaseMounts" . | nindent 12 }}
+            {{- with include "javo.brandingMount" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- with include "javo.bucketMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.gateway.oidcClientSecret }}
+            - {name: oidc, mountPath: {{ include "javo.oidcSecretDir" . }}, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: sizes
+          configMap: {name: javo-sizes}
+        - name: config
+          configMap: {name: javo-config}
+        - name: templates
+          configMap: {name: javo-builtin-templates}
+        {{- include "javo.databaseVolumes" . | nindent 8 }}
+        {{- with include "javo.brandingVolume" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "javo.bucketVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.gateway.oidcClientSecret }}
+        - name: oidc
+          secret:
+            secretName: {{ . }}
+            items: [{key: client-secret, path: client-secret}]
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: javo-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector:
+    {{- include "javo.selector" (dict "root" . "component" "gateway") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.gateway.service.port }}
+      targetPort: http
+      {{- if and (eq .Values.gateway.service.type "NodePort") .Values.gateway.service.nodePort }}
+      nodePort: {{ .Values.gateway.service.nodePort }}
+      {{- end }}
+{{- if .Values.ingress.enabled }}
+{{- /* Hosts: the UI host, then the apps host or the wildcard apps domain when apps are served apart from the UI. */ -}}
+{{- $urls := default (dict) .Values.config.urls -}}
+{{- $hosts := list .Values.ingress.host -}}
+{{- if and $urls.appsHost (ne $urls.appsHost $.Values.ingress.host) -}}
+{{- $hosts = append $hosts $urls.appsHost -}}
+{{- end -}}
+{{- if $urls.appsDomain -}}
+{{- $hosts = append $hosts (printf "*.%s" $urls.appsDomain) -}}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: javo-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range $hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    {{- range $hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: javo-gateway
+                port:
+                  name: http
+    {{- end }}
+{{- end }}

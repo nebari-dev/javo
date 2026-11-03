@@ -1,0 +1,368 @@
+# Dependencies
+
+Every third-party dependency of Javo and what was checked before it was added or bumped. The UI's npm packages are recorded next to them, in [ui/DEPS.md](ui/DEPS.md).
+
+## Images, binaries and environments
+
+Checked 2026-10-30. Policy: exact pin (images by index digest), prefer releases at least 14 days old, 0 OSV advisories, install scripts audited.
+
+Image checks: OSV does not cover images, so each one was checked for publisher, tag age and digest provenance. Digests are the multi-arch index digest, read from the registry with `docker buildx imagetools inspect`. Tag push dates come from the Docker Hub tags API. Official Docker Hub tags for patch versions are rebuilt on base-image updates, so a recent push date does not mean a new upstream release.
+
+### Container base images
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| node | `22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da` | Docker Official Image (nodejs) | 22 is an LTS line. Tag last pushed 2026-10-28 (rebuild; 22.23.4 itself is older). Build stage only, not shipped. |
+| golang | `1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb` | Docker Official Image (golang) | Tag last pushed 2026-10-28 (rebuild). Build stage only. Keep in step with `go` in go.mod. |
+| distroless static | `gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99` | GoogleContainerTools/distroless | Runtime image. The `debian12` tags are marked deprecated upstream, hence debian13. Index has epoch build timestamps (reproducible builds), so tag age is not readable. |
+| python | `3.13.15-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26` | Docker Official Image (python) | Tag pushed 2026-09-19 (41 days). Newer 3.13.16 to 3.13.18 are under 14 days old. Runs the end-to-end tests' helper pods (seed Jobs, probes, the fake model). |
+
+### restic (in the Javo image)
+
+Checked 2026-11-02. Backups to the S3-compatible bucket: the Javo image carries `/usr/local/bin/restic`, which the server, the gateway and the home backup and restore Jobs run.
+
+| Item | Pin | Checks |
+|---|---|---|
+| restic | 0.19.1, release binaries `restic_0.19.1_linux_amd64.bz2` sha256 `f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c` and `restic_0.19.1_linux_arm64.bz2` sha256 `a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465` (the image takes `restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510`, pushed 2026-07-05 with the release and not rebuilt since, /usr/bin/restic; scripts/build/fetch-restic.sh downloads the binary for tests) | Release published 2026-07-05 by fd0 (Alexander Neumann, restic's author); 0.19.0 came 2026-06-09, 0.18.1 2025-09-21, no burst. `SHA256SUMS` verified with `gpg --verify SHA256SUMS.asc`: good signature from the restic release key CF8F 18F2 8445 7597 3F79 D4E1 91A6 868B D3F7 A907. OSV `github.com/restic/restic@0.19.1`: none. The release binaries are built with Go 1.26.4 and carry govulncheck findings in the standard library and in x/net, x/crypto, x/text, grpc and otel; they are shipped as published (decided 2026-11-03: no source builds). No install scripts. |
+
+### Nebi in JupyterLab (nebi CLI and nb_nebi_kernels)
+
+Checked 2026-11-02. Apps with Nebi access (template `nebiToken`, with `config.nebi.enabled`) get the nebi CLI and list the owner's Nebi environments as kernels.
+
+| Item | Pin | Checks |
+|---|---|---|
+| nebi (CLI) | 0.15, release binaries `nebi_0.15_linux_x86_64.tar.gz` sha256 `d866977f03e50e1d56d01ae83adcd84120600996a0ff9133f2be0e981de8dd59` and `nebi_0.15_linux_arm64.tar.gz` sha256 `ff0b0aa61cf29db013efd71659167476f4401fcaa163beb89474b4aa2480facf` (Dockerfile stage nebi), in the Javo image at `/opt/javo-nebi-files/nebi` | github.com/nebari-dev/nebi: nebari-dev org, not archived; tag v0.15 is commit 5ca877af; GitHub release v0.15 published 2026-08-27 by the release workflow (github-actions); the sha256 values match the release's `checksums.txt`. Releases regular: 0.12 (2026-06-05), 0.13 (06-19), 0.14 (08-11), 0.15 (08-27), 0.16 (10-27, not taken). The binaries are built with Go 1.26.7; `govulncheck -mode=binary` lists 18 findings in the standard library, x/net and x/crypto; shipped as published (decided 2026-11-03: no source builds). OSV Go `github.com/nebari-dev/nebi`: `{}`. No install scripts. |
+| nb_nebi_kernels | 0.3 (PyPI wheel `nb_nebi_kernels-0.3-py3-none-any.whl`, sha256 `82b23f508b175b1112706f8d56e351c6fb79a590c8dbc49963ed7b8bc8fa99b7` in `pod/files/envs/jupyterlab/pixi.lock`) | github.com/nebari-dev/nb-nebi-kernels: nebari-dev org, not archived; contributors Adam-D-Lewis (23 commits), aktech (9), MUFFANUJ (7). Published 2026-07-29 (96 days) with PyPI trusted publishing: the provenance attestation names repository nebari-dev/nb-nebi-kernels, workflow `release.yaml`; GitHub release v0.3 (tag commit 3c2b8ed6) by aktech the same day. History: 0.1 (2026-03-03), 0.2 (2026-07-24), 0.3 (2026-07-29), no burst. OSV PyPI `nb-nebi-kernels` 0.3: `{}`. Pure-Python wheel: no install scripts, no build step. Its requirements (ipykernel, jupyter-client, jupyter-core, jupyter-server) were already in the lock at the pinned versions; relocking with the pinned pixi image (0.83.0) and `exclude-newer = "2026-10-26"` added only this package. It runs `nebi workspace list --json` and `pixi`, and calls Nebi's API with NEBI_AUTH_TOKEN; `pod/files/envs/jupyterlab/jupyter_server_config.py` turns it off in apps without Nebi access and hands it the token file's content only during discovery. |
+
+### Runtime images started by Javo
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| rclone/rclone | `1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5` | rclone project (Docker Hub `rclone/rclone`, pushed by `rclonebuild`) | File picker pods (`--files-image`, Helm `files.image`). Digest matches the Docker Hub tag API; tag pushed 2026-10-09 (21 days), same day as the GitHub release v1.75.2 published by ncw (rclone author). govulncheck finds advisories in the binary (x/net html, stdlib x509, x/crypto openpgp); accepted with mitigations: home mounted read-only, egress denied by NetworkPolicy, ingress from the gateway only. Upgrade when rclone ships a rebuilt release. |
+
+
+### Backup drill S3 server
+
+The restore drill (test/e2e/bucket_test.go, `JAVO_E2E_S3=1`) needs an S3-compatible bucket in the cluster. MinIO was asked for, but no MinIO image can be pinned cleanly: the `minio/minio` repository is gone from Docker Hub, `quay.io/minio/minio` asks for credentials, the upstream repository is archived (last release RELEASE.2025-10-15T17-29-55Z), and the only public build found, `cgr.dev/chainguard/minio:latest`, was rebuilt the day before this check (under 14 days, no older tag offered). The drill therefore runs `rclone serve s3` in the rclone image above, already pinned for the file picker, with nothing new pulled. `restic init`, `backup`, `forget --prune` and `check` were run against it before it was chosen. Test only, never shipped.
+
+### End-to-end test images
+
+Checked 2026-10-31. Pulled by the kind node only while `make e2e` runs (test/e2e/launch_test.go); not shipped. Digests are the multi-arch index digests from `docker buildx imagetools inspect`, equal to the Docker Hub tags API.
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| nginxinc/nginx-unprivileged | `1.31.6-alpine-slim@sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4` | NGINX (GitHub nginx/docker-nginx-unprivileged, nginx org, not archived; Docker Hub pushes by `csnginxbot`) | The image a Container image app runs in the e2e test: USER 101, serves at / on 8080, about 8 MB. Tag pushed 2026-10-12 (19 days), a rebuild of nginx 1.31.6 (upstream release 2026-09-15); 1.31.7 and later tags are under 14 days old. Weekly rebuilds by the bot, no burst. |
+| traefik/whoami | `v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44` | Traefik Labs (GitHub traefik/whoami, 1.4k stars, not archived; Docker Hub pushes by `traefiker`) | The root image in the e2e test: names no USER, so the kubelet refuses it under runAsNonRoot (ImageRunsAsRoot). Tag pushed 2026-07-29 (94 days), GitHub release v1.12.0 published 2026-07-30 by mmatur (Traefik maintainer); previous v1.11.0 (2025-03), no burst. About 4 MB; never starts, so its code never runs. |
+### Home mode-change copy
+
+Checked 2026-11-02. The Job that copies a home to another storage mode runs the Javo image (`javo storage copy`, internal/storage/homecopy): it copies what `rsync -rlptgDH --numeric-ids` copied (folders, files, symbolic links, modes with the setgid and sticky bits, modification times, groups by number, FIFOs and sockets, hard links; lost+found at the root left out; no sparse files, as without `-S`), then reads both trees again and compares type, mode, group, time, size, sha256 of the content, link targets and hard links. The rsync image it used before is gone: Debian's rsync needed an image of our own, and conda-forge's (3.4.4, or 3.5.1 from a feedstock change that added its author as maintainer and dropped the build's tests) did not pass the checks. No new dependency: `golang.org/x/sys` was already in the module graph (now a direct requirement, same version).
+
+### Dev and single-node identity provider
+
+Checked 2026-10-31.
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| quay.io/keycloak/keycloak | `26.8.1-0@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244` | Keycloak project (quay.io/keycloak, github.com/keycloak/keycloak: not archived, 37k stars; releases published by `keycloak-bot`) | `deploy/dev/keycloak` (the dev IdP on kind and on a single-node install), `start-dev`. Index digest from `docker buildx imagetools inspect`; `26.8.1-0` was pushed 2026-10-13 (18 days), the same day GitHub release 26.8.1 was published. The moving `26.8.1` tag now points at rebuild `26.8.1-1` (2026-10-23, 8 days, under 14), so the `-0` build is pinned. Last releases regular: 26.6.4, 26.7.0 to 26.7.5, 26.8.0, 26.8.1 (two to three weeks apart). OSV (Maven `org.keycloak:keycloak-core`, `keycloak-services` 26.8.1): clean. OSV `keycloak-quarkus-server` 26.8.1 reports GHSA-jgwc-jh89-rpgq (CVE-2024-9666) only through an open-ended range in the record; the GitHub advisory itself lists the affected ranges as `< 24.0.9` and `>= 25.0.0, < 26.0.6` (patched 26.0.6), so 26.8.1 is not affected. Image only, no install scripts. Typo-squat: `quay.io/keycloak/keycloak` is the registry named in the upstream README. |
+
+### Compose install
+
+Checked 2026-10-31. All three are Dockerfile stages (`k3s`, `docker-cli`, `helm`) used only by `deploy/compose/compose.yaml`; the default image target does not pull them.
+
+| Image or binary | Pin | Publisher | Notes |
+|---|---|---|---|
+| rancher/k3s | `v1.37.1-k3s1@sha256:ca7f37d993d82ef0dcdcfecb2e0e2618ea541dbaffc620c8cedebe01a82acd0d` | k3s project (github.com/k3s-io/k3s, CNCF, not archived, 34k stars; Docker Hub `rancher/k3s` pushed by `autorancher`) | The Compose install's cluster, and the installer's base (busybox sh, kubectl, ctr). Index digest from `docker buildx imagetools inspect`; tag pushed 2026-09-30 (31 days), the same minute as GitHub release `v1.37.1+k3s1` (github-actions). Newer v1.37.2 exists only as release candidates. OSV (Go `github.com/k3s-io/k3s` 1.37.1) lists GO-2025-3646 and GO-2026-5973 through open-ended ranges in the records; the GitHub advisories give the affected ranges as `>= 1.32.0-rc1, < 1.32.4-rc1` (GHSA-864f-7xjm-2jp2) and `< 1.33.10`, `>= 1.34.0-rc1, < 1.34.6`, `>= 1.35.0-rc1, < 1.35.3` (GHSA-jxr7-mqhw-9p98), so 1.37.1 is not affected. k3s pulls its own add-on images at start (coredns, local-path-provisioner, klipper-helm for the Gateway API CRDs); their versions are fixed by the k3s release. |
+| docker (CLI) | `29.9.0-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0d4a0942eecda00` | Docker Official Image (`docker`, pushed by `doijanky`) | Only `/usr/local/bin/docker` (a static binary) is copied into the installer, to `docker save` local images into k3s. Tag pushed 2026-10-09 (22 days); 29.9.1 and 29.9.2 are under 14 days old. OSV (Go `github.com/docker/cli` 29.9.0): clean. |
+| Helm | `v4.3.1`, sha256 `0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b` (linux/amd64), `8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88` (linux/arm64) | Helm project (github.com/helm/helm, CNCF); release by `scottrigby`, earlier ones by `mattfarina` and `gjenkins8` | Downloaded from get.helm.sh in the `helm` stage and checked against these sums, which match the `.sha256sum` files and the release notes. Released 2026-10-15 (16 days); releases are regular (4.2.2 to 4.3.1, two to five weeks apart, each with a v3 twin). OSV (Go `helm.sh/helm/v4` 4.3.1): clean. Same major as the Helm 4 the dev scripts need (`--force-conflicts`). |
+
+### Dev registry
+
+Checked 2026-11-01. The local registry every checkout shares in the dev loop (`scripts/dev/registry-up.sh`, container `javo-registry`, published on 127.0.0.1:5001 only); not part of any install.
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| registry | `3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3` | Docker Official Image (`library/registry`), built from distribution/distribution-library-image; upstream github.com/distribution/distribution (CNCF), releases published by github-actions | The CNCF Distribution registry, the image the kind and k3d local registry guides use. GitHub release v3.1.2 published 2026-09-24 (38 days); the tag was last pushed 2026-10-26 as an official-image rebuild on alpine 3.24 (revision 775973b6), not a new upstream release. Index digest from `docker buildx imagetools inspect` (linux/amd64, linux/arm64 and others). OSV (Go `github.com/distribution/distribution/v3` 3.1.2): clean; 3.1.1 has GHSA-685w-q87j-wqw3, hence 3.1.2. Releases regular: 3.0.0 (2025-04), 3.1.0 (2026-04), 3.1.1 (2026-05), 3.1.2. Image only, no install scripts. Typo-squat: `registry` is the official image name in the Distribution README. |
+
+### Build tools
+
+- pnpm 10.34.7 (npm, installed with `--ignore-scripts`): 0 OSV advisories, no install scripts, published 2026-10-12 (18 days), maintainers zkochan and pnpmuser (publish-bot@pnpm.io). 10.33.0 was rejected: it has OSV advisories (GHSA-3qhv-2rgh-x77r among them). 10.34.8 and later are under 14 days old.
+
+### Apps and jobs: upstream images and pixi environments
+
+Checked 2026-11-02. The project builds one image, `javo`. Every app and job template that ran an image built from `deploy/images` now runs the upstream pixi image, unmodified, in a pixi environment the template names (`pod/files/envs/<name>`: a `pixi.toml` with exact top-level pins and its committed `pixi.lock`, conda-forge, for linux-64 and linux-aarch64). An init container installs the lockfile (`pixi install --frozen`) into the owner's home under `~/.javo/envs/<sha256 of the environment's files>` on the first start (internal/pixienv); later starts reuse it. pixi does not run conda post-link scripts (`run-post-link-scripts` is off by default); the one package in these locks that ships one is julia (`bin/.julia-post-link.sh`, whose only line is commented out), and pixi reports it as skipped.
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| ghcr.io/prefix-dev/pixi | `0.83.0-trixie-slim@sha256:e68dfe75f1cc276c65163a4bea38d964b5bf59fd7966bf9a433ee0498b095a95` | prefix.dev (github.com/prefix-dev/pixi-docker; image pushed by its release workflow) | Runs the templates with an environment and installs every environment (Helm `config.environments.pixiImage`). Debian 13 slim with ca-certificates and the pixi release binary; has sh, bash, flock, sha256sum, base64, gunzip. Index and both platform images created 2026-10-23, the day of pixi-docker release 0.83.0 (commit f3c870ad, "Bump pixi version to v0.83.0", by the octo-sts bot as for every earlier bump); pixi v0.83.0 itself was released 2026-10-22 (11 days). `/usr/local/bin/pixi` in the image has the sha256 the GitHub release lists for `pixi-aarch64-unknown-linux-musl` (`5fbcbb3f...640b`) and `pixi-x86_64-unknown-linux-musl` (`50571451...d401`). prefix-dev org members include wolfv and ruben-arts, the pixi maintainers. No OSV ecosystem for images. |
+| rocker/rstudio | `4.6.0@sha256:414997459073d9b012076e782beb353fa113d794c0798de3fbcf49ee9eaf8b9b` | Rocker project | Unchanged pin (checks below under RStudio). Run unmodified: RStudio Server is not on conda-forge. |
+
+Top-level packages (the `==` pins of each `pixi.toml`; the lockfiles pin every package by build and sha256). All were resolved with `exclude-newer` (2026-10-26; 2026-10-29 for the two Julia environments, which only moves julia from 1.13.2 to 1.13.3, released upstream 2026-10-26 and built by the conda-forge autotick bot, feedstock commit b176ef96). OSV was queried for each in its upstream ecosystem where OSV has one; "none" means OSV has no ecosystem for it.
+
+| Package | Version | Environments | OSV |
+|---|---|---|---|
+| python | 3.13.18 | all Python ones | none |
+| streamlit, altair, numpy, pandas | 1.66.1, 6.3.0, 2.5.4, 3.1.0 | streamlit (numpy also bokeh, panel; pandas also dash) | PyPI `{}` |
+| panel, bokeh | 1.10.0, 3.10.0 | panel, bokeh | PyPI `{}` |
+| dash, plotly | 4.4.1, 7.1.0 | dash | PyPI `{}` |
+| gradio | 6.30.0 (PyPI) | gradio | PyPI `{}` |
+| voila, ipywidgets, ipykernel | 0.5.13, 8.1.9, 7.4.0 | voila, jupyterlab, jobs-python | PyPI `{}` |
+| fastapi, uvicorn, pydantic | 0.162.0, 0.54.0, 2.14.1 | fastapi | PyPI `{}` |
+| marimo, loro | 0.25.2, 1.17.1 (PyPI wheels, locked with their sha256) | marimo, jobs-python | PyPI `{}` |
+| marimo's other dependencies | click 8.5.0, jedi 0.19.2, markdown 3.11.2, pymdown-extensions 11.0.2, pygments 2.21.0, tomlkit 0.15.2, pyyaml 6.0.3, starlette 1.10.0, python-multipart 0.0.32, websockets 17.3, docutils 0.23, psutil 7.2.2, itsdangerous 2.2.0, narwhals 2.27.1, packaging 26.3, msgspec 0.22.0, pyzmq 27.2.0 | marimo, jobs-python | PyPI `{}` (pymdown-extensions 10.21.3, the solver's first pick, has GHSA-9xwg-3r6f-jcx2 and GHSA-gm37-52c6-37mw; 11.0.2 is fixed and within marimo's `<12`) |
+| jupyterlab | 4.6.4 | jupyterlab | PyPI `{}` |
+| papermill, nbconvert, jupyter_client | 2.7.0, 7.17.2, 8.10.0 | jobs-*, jupyterlab | PyPI `{}` |
+| quarto | 1.9.38 | jobs-python | none |
+| r-base, r-irkernel | 4.5.3, 1.3.2 | jobs-r | none; CRAN IRkernel `{}` |
+| julia | 1.13.3 | pluto, jobs-julia | none |
+| code-server | 4.143.1 | vscode | npm code-server `{}` |
+| nodejs | 22.23.4 | agents, backend-node | none |
+| go | 1.27.3 (the nocgo build: programs that need cgo need a C compiler the environment does not have) | backend-go | Go stdlib `{}` |
+| git | 2.56.0 | agents, backend-go, backend-node, jobs-command, jupyterlab, vscode | none |
+| ttyd, tmux, less | 1.7.7, 3.8, 704 | agents | none |
+| ripgrep, fd-find | 15.2.0, 10.5.0 | agents | crates.io `{}` |
+| herdr | 0.9.5 | agents | none (conda-forge builds it from the same upstream tarball as the release, sha256 `a2486b09...52de`; the recipe's github.com/ogulcancelik/herdr redirects to github.com/herdrdev/herdr) |
+| pi-coding-agent | 1.4.0 | agents | npm @earendil-works/pi-coding-agent `{}` |
+
+Packages from outside conda-forge, each pinned by a lockfile of its own and installed by the environment's `javo-post-install.sh` (run once per lockfile, in the activated environment):
+
+- Claude Code 2.1.302 (npm only): `pod/files/envs/agents/package-lock.json` (Claude Code and its platform packages, integrity hashes), `npm ci --ignore-scripts`, then Claude Code's `install.cjs` links the native binary. pi left this lockfile for conda-forge.
+- Pluto 1.1.0 and IJulia (Julia's General registry): the `Manifest.toml` files the julia image used, unchanged (versions and git-tree-sha1), instantiated into the environment's depot. conda-forge's julia unpacks with a 7z that cannot read the zstd registry tarball, so `JULIA_PKG_UNPACK_REGISTRY=true` keeps the registry as a folder.
+- marimo and loro (PyPI wheels in `pixi.lock`): marimo stopped publishing linux-aarch64 builds on conda-forge after 0.13.6, and loro has none there.
+
+Transitive check: every Python package of every lockfile (262, conda and PyPI) was queried against OSV's PyPI ecosystem in one batch: no advisories. Two choices made that so:
+
+- tornado 6.6 from PyPI (tag v6.6.0 by Ben Darnell, the maintainer, released 2026-10-21; wheels only, sha256 in the lock). 6.5.10, the newest on conda-forge, has GHSA-pcg2-g6cj-q92c, GHSA-r4j5-9xpp-3985 and GHSA-pw9p-v7r6-gx4p (fixed in 6.6; tornado-feedstock pull request 88 is open). A PyPI package cannot replace a conda one, so in the bokeh, panel, streamlit, voila, jupyterlab, jobs-python, jobs-r and jobs-julia environments the packages that need tornado (bokeh, panel, streamlit, voila, ipywidgets, ipykernel, jupyterlab, papermill, nbconvert, jupyter_client) come from PyPI too, at the same versions; numpy, pandas, pillow and the native libraries stay on conda-forge. Each lockfile has one tornado, 6.6. Move them back once conda-forge has 6.6.
+- gradio 6.30.0 from PyPI (wheel published 2026-10-08 with its GitHub release) with its `pillow<13` bound overridden (`[pypi-options.dependency-overrides]`) to conda-forge's pillow 13.0.0 (OSV `{}`; every 12.x has the advisories fixed in 13.0.0), the override the earlier image made with `pip --no-deps`. ffmpeg is conda-forge's 9.0.2 LGPL build (2026-09-19) instead of the 5.1.0 pydub pulled in; its codec libraries: aom 3.14.1, libvpx 1.17.0, openh264 2.6.0, svt-av1 4.2.0, lame 4.0, libopus 1.6.1, libvorbis 1.3.7, libass 0.17.5 (no gnutls, x264 or x265). No OSV ecosystem covers them.
+
+### RStudio
+
+Checked 2026-10-31. `rocker/rstudio:4.6.0@sha256:414997459073d9b012076e782beb353fa113d794c0798de3fbcf49ee9eaf8b9b` (index digest; image created and tag pushed 2026-06-24; Docker Hub publisher cboettig, the Rocker project's maintainer; RStudio Server 2026.05.1+225, R 4.6.0). Source github.com/rocker-org/rocker-versioned2. The template runs it unmodified as the pod's user: `pod/files/rstudio/start.sh` (a pod file) sets up the server settings under /tmp and starts rserver; the pod's passwd names the uid with the home folder as its home. Bump to 4.6.2 once it is 14 days old (2026-11-12).
+
+### Pod files and user names
+
+The files apps and jobs used to find in their images (`pod-user.sh`, `javo.bashrc`, the samples, Fira Code, the JupyterLab and RStudio settings, tmux and herdr settings, the terminal page, `javo-api`) are in `pod/files` and travel in the Javo image at `/opt/javo-files`. An init container running the Javo image copies them into an empty folder the app sees at `/opt/javo` (`javo pod-files`). A second init container, in the app's own image, writes a passwd file (the image's, with an entry for the pod's uid named after the owner, home `/home/user`, shell bash), a group file and a bash.bashrc that also sources `/opt/javo/javo.bashrc`; the app container sees them over `/etc/passwd`, `/etc/group` and `/etc/bash.bashrc`, read-only. No nss_wrapper (conda-forge has it for linux-64 only), nothing written to the image.
+
+The terminal page of the agent templates is built when the Javo image is built (Dockerfile stage `pod-files`), from ttyd 1.7.7's release binary (sha256 `8a217c96...4f55` x86_64, `b38acadd...4165` aarch64, the versions the agents environment installs) and `@xterm/addon-clipboard` 0.1.0 (sha256 `6cbc7814...39e4`), as the agents image did.
+
+### Pod Security Admission
+
+The workspace namespace is labelled `restricted` (enforce, warn, audit). Checked against source: the pod built by the controller (`BuildPod`) sets runAsNonRoot, runAsUser 1000, seccomp RuntimeDefault, allowPrivilegeEscalation false and drops ALL; the jupyterlab image user is the numeric uid 1000 (jovyan) and the streamlit image user is numeric 1000:100, so runAsNonRoot resolves. Volumes are PVC and emptyDir only. Not yet proven on a live cluster.
+
+### Deploy notes
+
+- The chart ships no CRDs; `javo db upgrade` (the init container) migrates the database schema.
+- Single-node builds (`scripts/install/deploy-single-node.sh`, checked 2026-11-01) run on the k3s host's own Docker Engine over SSH, natively for amd64: Docker CE 29.3.1 (Docker's apt repository, package `docker-ce`) with its BuildKit v0.28.1, already installed on the host. The script installs nothing; it stops when the host's Docker does not answer for `linux/amd64`.
+
+### Git sources and previews
+
+Checked 2026-11-01. `git-sync` is started by Javo in app pods (config key `source.cloneImage`, Helm value `source.cloneImage`); `gitea` runs only in the end-to-end tests. nginx-unprivileged and node are reused from the rows above, unchanged.
+
+| Image | Pin | Publisher | Notes |
+|---|---|---|---|
+| registry.k8s.io/git-sync/git-sync | `v4.7.1@sha256:c5e1976da735bf0b53979f079a07475d77174c51863cd084e928ff6074480717` | Kubernetes SIG (github.com/kubernetes/git-sync, kubernetes org, 2.7k stars, not archived; releases by thockin, the top contributor with 490 commits) | Clone init container of apps created from Git. Index digest from `docker buildx imagetools inspect` (amd64, arm64 and arm among its manifests); git 2.47.3 inside. GitHub release v4.7.1 published 2026-07-16 (108 days); tag commit d9d12f7e. v4.8.0 (2026-10-24) is 8 days old, so v4.7.1 is the newest at least 14 days old. Previous releases v4.4.2 (2025-06), 4.4.3, 4.5.0, 4.5.1, 4.6.0, 4.7.0 follow a normal cadence. OSV (Go module `k8s.io/git-sync` v4.7.1): `{}`; OSV does not scan the image. Behaviour recorded in `DEPENDENCIES.md`. |
+| gitea/gitea | `28.2.0-rootless@sha256:94807314454f6525994a3b76286ba12bc7e7f8cd14f61d9e67431767f8103306` | Gitea project (github.com/go-gitea/gitea, go-gitea org, 58.8k stars, not archived; releases and Docker Hub pushes by `GiteaBot`/`giteabot`) | End-to-end tests only: the in-cluster Git server for the Git e2e tests, never shipped. Index digest from `docker buildx imagetools inspect` (amd64 and arm64), equal to the Docker Hub tag API. Released and pushed 2026-10-18, 13.6 days old at the check: an exception to the 14-day rule because 28.1.0 (2026-10-06, the newest at least 14 days old) is affected by GHSA-vcp6-2qc6-gvq3 (high) and seven medium or low advisories published with 28.2.0 (every one lists 28.2.0 as the patched version); no published advisory affects 28.2.0. OSV does not carry the 28.x series (it lists only 1.x Go module versions), so the GitHub advisory list stands in for the OSV query. Release list: 1.27.3, 28.0.0, 28.1.0, 28.2.0, all by GiteaBot, a normal cadence (28.0.0 2026-09-29, 28.1.0 2026-10-06, 28.2.0 2026-10-18). |
+| node | `22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da` | Docker Official Image (nodejs) | Already pinned above (Container base images); reused for the front-end build and node back-end templates. Node v22.23.4 was released 2026-10-21 (11 days) as a security release (CVE-2026-105481 to CVE-2026-111497 among others, OpenSSL 3.5.9), an exception to the 14-day rule: v22.23.3 (2026-09-23) lacks those fixes. Digest unchanged from the base image row. |
+| nginxinc/nginx-unprivileged | `1.31.6-alpine-slim@sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4` | NGINX (nginx org) | Already pinned above (End-to-end test images); reused to serve static sites. 1.31.7 was pushed 2026-10-19 (13 days), so 1.31.6 (pushed 2026-10-12, 20 days) stays the newest at least 14 days old. Verified on the pinned digest: runs as an arbitrary uid (12345, gid 100) with a read-only root and only `/tmp` writable, serves 200 on 8080. |
+
+Checked 2026-11-01 (templates). The `static-site` template references the node and nginx-unprivileged digests above, unchanged. (The `backend-node` and `backend-go` templates run in pixi environments since 2026-11-02.)
+
+Checked 2026-11-02 (Go back-end). The `backend-go` template first ran the golang image pinned under Container base images; it now runs the pixi image with the `backend-go` environment (go 1.27.3 from conda-forge).
+
+### JupyterLab extensions
+
+Checked 2026-11-02. Added to `pod/files/envs/jupyterlab` (the environment's `exclude-newer` stays 2026-10-26, so nothing in the lock is newer than 7 days). The Python packages that need jupyter_server or tornado come from PyPI, for the tornado 6.6 reason above; dask-core and matplotlib-base (neither depends on tornado) come from conda-forge. The lock was made with the pixi image above (`pixi lock`, pixi 0.83.0).
+
+Why each: the Git panel (clone, diff, commit, push from the sidebar); the Dask panel (start a local cluster from the sidebar, its dashboards as tabs) with dask and distributed, which it drives; jupyter-server-proxy, which serves the Dask dashboard and any web app a notebook starts on a port at `<app>/proxy/<port>/`; a memory and CPU meter in the status bar, since a pod has a memory limit and the kernel is killed at it; `%matplotlib widget` (ipympl, with matplotlib). The Nebari data science pack ships all of them except the Dask packages. Left out from its list: the Hub-specific extensions (jhub-apps, jupyterlab-jhub-apps, nebari-mode, launchpad, gallery, nbgitpuller), jupyter-ai (needs a model provider), jupyterlab_nvdashboard (GPUs), Nebi kernels (separate change), and the smaller ones (code formatter, spellchecker, favorites, pioneer telemetry, sidecar, ipyleaflet).
+
+| Package | Version | Source | Published | Publisher checks |
+|---|---|---|---|---|
+| jupyterlab-git, jupyterlab-git-core | 0.55.0 | PyPI | 2026-10-07 | PyPI organization `jupyter`; GitHub release v0.55.0 (jupyterlab/jupyterlab-git, 1.6k stars, not archived) by the release workflow the same day; previous 0.54.1 (2026-08), 0.54.0 (2026-06). No PyPI attestation. |
+| dask-labextension | 7.0.0 | PyPI | 2023-08-04 | Maintainers irose, jacob.tomlinson, jrbourbeau, mrocklin; GitHub release 7.0.0 by jacobtomlinson. The newest release. |
+| distributed | 2026.8.0 | PyPI | 2026-08-24 | Maintainers fjetter, jacob.tomlinson, jakirkham, jrbourbeau, jsignell, mrocklin, quasiben, tomaugspurger; attested by dask/distributed release-publish.yml; GitHub release the same day. |
+| dask-core | 2026.8.0 | conda-forge | 2026-08-27 | Same release as distributed (which pins dask to it). |
+| jupyter-server-proxy | 4.6.0 | PyPI | 2026-09-21 | Maintainers betatim, consideRatio, irose, minrk, rylo, yuvipanda, jupyterhub-bot; attested by jupyterhub/jupyter-server-proxy publish.yaml; tag v4.6.0 "Bump to 4.6.0" by Min RK. Brings simpervisor 1.0.0 (same maintainers) and aiohttp 3.14.5 (attested by aio-libs/aiohttp). |
+| jupyter-resource-usage | 1.3.0 | PyPI | 2026-08-11 | Maintainers include jasongrout, kevin-bates, Sylvain.Corlay, davidbrochart, krassowski; GitHub release v1.3.0 by the release workflow the same day. |
+| ipympl | 0.10.0 | PyPI | 2026-01-21 | Maintainers blink1073, Sylvain.Corlay, ianhi, martinRenou; GitHub release v0.10.0 by ianhi. |
+| matplotlib-base | 3.11.2 | conda-forge | 2026-09-17 | PyPI 3.11.2 released 2026-09-11. |
+
+New packages the lock pulls in, besides those: nbdime 4.0.4 (maintainers include minrk, takowl, vidartf), GitPython 3.2.1 (GitHub release by Byron, 2026-10-14), gitdb, smmap, bokeh 3.10.1 (attested by bokeh/bokeh, tag 2026-10-13 by bryevdv; 3.10.0 in the other environments), msgpack 1.2.4 (2026-10-26, the newest: GitHub release by methane the same day, attested), multidict 7.2.1 (2026-10-24, GitHub release, attested), yarl, propcache, frozenlist, aiosignal, aiohappyeyeballs (attested by their aio-libs repositories), narwhals, xyzservices, tblib, zict, sortedcontainers, colorama, and from conda-forge numpy 2.5.4 and pillow 13.0.0 (as in the other environments) with the native libraries matplotlib needs (freetype, libpng, openblas and the like).
+
+Install scripts: wheels run none; `pixi install --frozen` of the new lock (linux-aarch64, in the pixi image) left no `.*-post-link.sh` in the environment. Transitive OSV: all 232 packages of the lock (conda and PyPI) queried in one batch against OSV's PyPI ecosystem: no advisories. `jupyter labextension list` in a running app lists dask-labextension 7.0.0, @jupyterlab/git 0.55.0, @jupyterhub/jupyter-server-proxy 4.6.0, @jupyter-server/resource-usage 1.3.0 and jupyter-matplotlib 0.12.0 enabled and OK.
+
+## Go modules, tools and the documentation site
+
+Checked 2026-10-30. All Go modules are fetched through proxy.golang.org; Go modules have no install scripts (no postinstall equivalent). Source orgs verified via `gh api` (non-archived, owned by the named GitHub org). Each version matches a GitHub tag/release.
+
+| Dependency | Version | Released | Maintainers / source | OSV | Install scripts | Notes |
+|---|---|---|---|---|---|---|
+| sigs.k8s.io/controller-runtime | v0.25.2 | 2026-10-01 | kubernetes-sigs org | clean | none | previous releases regular (v0.24.1, v0.25.0, v0.25.1) |
+| sigs.k8s.io/controller-tools (controller-gen) | v0.23.0 | 2026-10-15 | kubernetes-sigs org | clean | none | 15 days old; prior v0.22.0 2026-09-02 |
+| sigs.k8s.io/controller-runtime/tools/setup-envtest | v0.25.2 | 2026-10-01 | kubernetes-sigs org | clean | none | verifies sha512 of envtest archives |
+| envtest binaries (kube-apiserver, etcd) | 1.37.0 | 2026-08-27 | kubernetes-sigs/controller-tools release `envtest-v1.37.0` | n/a (binary assets) | none | |
+| k8s.io/api | v0.37.0 | 2026-08-26 | kubernetes org | clean | none | tag SHA matches |
+| k8s.io/apimachinery | v0.37.0 | 2026-08-26 | kubernetes org | clean | none | |
+| k8s.io/client-go | v0.37.0 | 2026-08-26 | kubernetes org | clean | none | imported directly since the files tests (client-go scheme); same version |
+| k8s.io/utils | v0.0.0-20260626114624-be93311217bd | 2026-06-26 | kubernetes org (kubernetes/utils, not archived); pseudo-version commit be93311217bd4e42d0aa42a5987d08e8f5581ec0 is the merge of PR #354, and the proxy origin hash matches it | clean | none | k8s.io/utils publishes no tags, so a pseudo-version is the only pin. Same version client-go v0.37.0 and controller-runtime v0.25.2 require; imported directly for `ptr` |
+| golang.org/x/net | v0.62.0 | 2026-10-27 | Go project (go.googlesource.com tag) | clean | none | bumped from v0.57.0 for advisories; 14-day preference overridden for Go-team security fixes |
+| golang.org/x/text | v0.43.0 | 2026-10-09 | Go project | clean | none | pulled by x/net v0.62.0; bumped from v0.40.0 (GO-2026-6629) |
+| golang.org/x/term | v0.47.0 | n/a | Go project | clean | none | pulled by x/net v0.62.0 |
+| Go toolchain | go1.26.10 | 2026-10-19 | Go project | n/a | none | `toolchain` line in go.mod, fetched project-locally via GOTOOLCHAIN=auto and verified by the Go checksum DB; fixes stdlib advisories in 1.26.2 |
+| github.com/spf13/cobra | v1.10.2 | 2025-12-03 | spf13/cobra (maintainers eparis, n10v, spf13, marckhouzam) | clean | none | proxy tag hash 88b30ab matches GitHub tag v1.10.2; last 10 versions regular; pflag v1.0.10 already in tree |
+| golang.org/x/crypto | v0.58.0 | 2026-10-09 | Go project (go.googlesource.com tag, hash 8fdf07b3 matches) | 1 advisory, GO-2026-5932 (openpgp package unmaintained, affects every version, no fix); we import only `argon2`; govulncheck: not called | none | used for `argon2` (id). Needs x/net 0.60.0, x/sys 0.49.0, x/term 0.47.0, x/text 0.43.0 (all already satisfied) |
+| github.com/inconshreveable/mousetrap | v1.1.0 | 2022-11-27 | inconshreveable (GitHub, not archived) | clean | none | transitive via cobra; Windows-only code |
+| github.com/danielgtaylor/huma/v2 | v2.39.1 | 2026-07-29 | danielgtaylor/huma (GitHub, 4.5k stars, not archived); author danielgtaylor (943 commits); releases since v2.34.2 (2026-01-16) published by robtme (2nd contributor, 53 commits, account since 2017), i.e. the change is over 9 months old; tag SHA 198225e matches the proxy origin | clean (no advisories for the module) | none | newest release v2.40.0 is 3 days old, so v2.39.1 is the newest at least 14 days old; v2.39.0..v2.39.1 is 9 bug-fix commits. Only the core and `adapters/humago` (stdlib `http.ServeMux`) are imported; the other router adapters in its go.mod are not compiled in |
+| github.com/fxamacker/cbor/v2 | v2.9.2 | 2026-05-04 | fxamacker (GitHub, 1.1k stars, not archived); tag SHA 45589ab matches | clean | none | indirect; bumped from v2.9.1 by huma's minimum requirement |
+| golang.org/x/time | v0.16.0 | 2026-08-19 | Go project (go.googlesource.com tag, hash fb013b3 matches proxy origin) | clean | none | was indirect v0.15.0 via client-go; now a direct import for `rate` (login rate limiting); v0.16.0 is the newest release, 72 days old; its go.mod has no requirements |
+| sigs.k8s.io/yaml | v1.6.0 | 2025-07-24 | kubernetes-sigs org (not archived); tag SHA 048d724 matches proxy origin | clean | none | promoted from indirect to direct, same version already in go.sum (no bump); parses the platform config file |
+| sigs.k8s.io/json | v0.0.0-20250730193827-2d320260d730 | 2025-07-30 | kubernetes-sigs org (not archived); commit 2d32026 matches proxy origin | clean | none | promoted from indirect to direct, same version already in go.sum (no bump); no tags published, pseudo-version is the only pin. `UnmarshalStrict` reports unknown fields with their full dotted path (`auth.oidc.issuerr`); `yaml.UnmarshalStrict` reports only the leaf name |
+| github.com/coreos/go-oidc/v3 | v3.21.0 | 2026-09-01 | coreos org (not archived, 2.5k stars); releases by ericchiang (MAINTAINERS file), regular cadence v3.18.0 (2026-04) to v3.21.0; tag SHA c914bd3 matches the proxy origin | clean | none | OIDC discovery, ID token verification (`IssuerMismatchError`, `TokenExpiredError`); 30 days old |
+| golang.org/x/oauth2 | v0.37.0 | 2026-08-25 | Go project (go.googlesource.com tag, hash c624b89 matches proxy origin) | clean | none | code flow, PKCE S256, refresh; was indirect v0.36.0, now direct; last 10 versions regular |
+| github.com/go-jose/go-jose/v4 | v4.1.6 | 2026-10-14 | go-jose org (not archived); tag SHA a0111f8 matches proxy origin | clean | none | transitive via go-oidc; also imported directly by tests to sign ID tokens. v4.1.7 was published the same day as this check, so v4.1.6 (16 days old) is the newest at least 14 days old |
+
+Typo-squat check: all module paths match the upstream repos named above.
+
+### Transitive audit (`govulncheck@v1.1.4 ./...`)
+
+With go1.26.10 and x/net v0.62.0: `No vulnerabilities found.` `make test` passes (3/3 envtest tests).
+
+Transitive additions from cobra and controller-runtime's manager/zap logger (OSV clean for each at the pinned version): fsnotify v1.9.0, go-logr/zapr v1.3.0, inconshreveable/mousetrap v1.1.0, go.uber.org/multierr v1.11.0, go.uber.org/zap v1.27.1, golang.org/x/sync v0.24.0, gomodules.xyz/jsonpatch/v2 v2.4.0. `govulncheck@v1.1.4 ./...`: no vulnerabilities.
+huma: `govulncheck@v1.1.4 ./...` reports 0 reachable vulnerabilities; the one module-level finding is GO-2026-5932 in golang.org/x/crypto (not reachable from Javo's code). Typo-squat: `github.com/danielgtaylor/huma/v2` matches the `module` line of github.com/danielgtaylor/huma at the v2.39.1 tag.
+
+`golang.org/x/time` v0.16.0: `govulncheck@v1.1.4 ./...` still reports 0 reachable vulnerabilities (only GO-2026-5932, unreachable).
+
+`sigs.k8s.io/yaml` v1.6.0 (released 2025-07-24, kubernetes-sigs org, tag commit 048d724a matches the proxy origin, OSV clean, no install scripts) is now a direct import of `hack/podargs`. It was already in the tree through controller-runtime and client-go at the same version, so go.sum is unchanged.
+
+OIDC: `govulncheck@v1.1.4 ./...` reports 0 reachable vulnerabilities (only GO-2026-5932 in x/crypto, unreachable). Typo-squat: `github.com/coreos/go-oidc/v3` matches the `module` line of coreos/go-oidc at v3.21.0; `golang.org/x/oauth2` and `github.com/go-jose/go-jose/v4` likewise. `go mod tidy` also marks `github.com/spf13/pflag` v1.0.10 (already pinned, already imported by cmd/javo) as direct.
+
+`golang.org/x/net` v0.62.0 (row above) is promoted from indirect to direct, same version, go.sum unchanged: the e2e tests (build tag `e2e`) import `golang.org/x/net/html` to read the Keycloak login form's action. The dev Keycloak image is recorded in `DEPENDENCIES.md`.
+
+`github.com/robfig/cron/v3` v3.0.1 (released 2020-01-04, exact pin). It is the cron parser Kubernetes pins in its own go.mod (kubernetes v1.37.0 requires v3.0.1), so schedule previews parse and step like the CronJob controller. Checks: OSV clean; module proxy lists v3.0.0-rc1, v3.0.0, v3.0.1 only, so there is no recent publish burst; GitHub robfig/cron (14.2k stars, not archived, owner robfig, contributors include robfig and soltysh, a Kubernetes maintainer); tag v3.0.1 is commit ccba498c, and the go.sum hashes match the Go checksum database; go.mod has no requirements, so no transitive modules; Go modules have no install scripts; typo-squat check: the path is the module line of github.com/robfig/cron at v3.0.1. Caveat: the last tagged release is from 2020 and the last push to the repo is 2024-07, so it is effectively frozen; that is the reason to keep it, because the preview must match what Kubernetes does, and a maintained fork could differ on daylight saving edge cases. Alternatives were not adopted for that reason.
+
+`github.com/argoproj/notifications-engine` v0.5.0 (released 2025-09-08, exact pin; the newest tag, 14+ days old). Checks: OSV clean for the module; GitHub argoproj/notifications-engine (argoproj org, not archived, 335 stars, contributors include Argo CD maintainers such as alexmt and pasha-codefresh, plus dependabot); tag v0.5.0 is commit da044004, matching the proxy origin hash; module proxy lists v0.1.0 to v0.5.0 only (no burst; the previous tag is from 2023-02, newer commits on main are untagged and not used); Go modules have no install scripts; typo-squat: the path is the `module` line of the repo at v0.5.0 and Argo CD imports the same path. It pulls the SDKs of every notification service (AWS, Google, Slack, PagerDuty, and so on); only the packages the controller and `api` import are compiled, but these SDKs enlarge the binary and the module graph. Its go.mod targets Go 1.23 and k8s 0.32; our higher versions win under minimal version selection and the tests pass with them.
+
+Transitive audit: `govulncheck@v1.1.4 ./...` first reported 3 reachable advisories from modules the engine pulls: GO-2025-3525 and GO-2025-4245 in `github.com/expr-lang/expr` v1.16.9 (the trigger expression evaluator), GO-2026-6348 in `google.golang.org/grpc` v1.82.1, and unreached ones in `github.com/golang-jwt/jwt/v4` v4.5.1 (GO-2025-3553) and `github.com/slack-go/slack` v0.16.0 (GO-2026-5410, GO-2026-6441, GO-2026-6443). Each was raised to the smallest release that fixes it and is at least 14 days old, with OSV clean at the new version: expr v1.17.8 (2026-02-14), jwt/v4 v4.5.2 (2025-03-21), slack v0.23.1 (2026-05-10), grpc v1.83.2 (2026-08-25); `go mod tidy` also moved google.golang.org/api to v0.264.0, cloud.google.com/go/auth to v0.18.2, gax-go/v2 to v2.17.0 and enterprise-certificate-proxy to v0.3.11 as those modules require. After the bumps govulncheck reports `No vulnerabilities found` for the code (only GO-2026-5932 in golang.org/x/crypto, unreachable and unfixed, as before). OSV batch query over all 63 modules added or changed in go.mod with the engine: no advisories. `github.com/robfig/cron/v3` v3.0.1 moved from indirect to direct in go.mod (schedule previews import it; no version change).
+
+Full review of the upgraded modules (checked 2026-10-31; all are indirect, exact pins in go.mod, all published 14+ days ago, OSV clean). For each: the module proxy `Origin` hash equals the GitHub tag commit; the repo is not archived; the release author is an identifiable maintainer or the project's release bot; the preceding versions follow a normal cadence (no burst, no unexplained gap-then-release); Go modules run no install scripts; names match the upstream repo they are imported from.
+- `github.com/expr-lang/expr` v1.17.8 (2026-02-14): repo expr-lang/expr, top contributor and release author antonmedv (the author of the library); tag 21f4f057; previous releases 1.17.2 to 1.17.7 spread over 2025-03 to 2025-12.
+- `google.golang.org/grpc` v1.83.2 (2026-08-25): repo grpc/grpc-go (grpc org); release author eshitachandwani (GitHub user, not individually verified), top contributors are the grpc-go team (menghanl, easwars, dfawley); tag 030ee8be; v1.83.2 is a patch on the 1.83 line (v1.82.2 was published the same day as a backport, which is the project's normal practice).
+- `github.com/golang-jwt/jwt/v4` v4.5.2 (2025-03-21): repo golang-jwt/jwt (org took over from dgrijalva); release author oxisto, an org maintainer; tag 2f0e9add; this is the release that fixes the v4 advisory (GO-2025-3553), previous 4.5.1 from 2024-11.
+- `github.com/slack-go/slack` v0.23.1 (2026-05-10): repo slack-go/slack, release author nlopes (original author and maintainer; the annotated tag was created by him and points at 34ad5c05, equal to the proxy hash); cadence of roughly one release per 2 weeks since 2026-03.
+- `google.golang.org/api` v0.264.0 (2026-01-29): repo googleapis/google-api-go-client (googleapis org, Google); released by release-please[bot]; tag 4ce41be1; releases roughly weekly.
+- `cloud.google.com/go/auth` v0.18.2 (2026-02-13): repo googleapis/google-cloud-go (subdir auth, tag auth/v0.18.2 = 75e6b63c); released by cloud-sdk-librarian-robot; maintainers jba, codyoss, jeanbza (Google).
+- `github.com/googleapis/gax-go/v2` v2.17.0 (2026-02-03): repo googleapis/gax-go; released by cloud-sdk-librarian-robot; tag f3fb23db; steady 1 to 2 month cadence.
+- `github.com/googleapis/enterprise-certificate-proxy` v0.3.11 (2026-01-13): repo googleapis/enterprise-certificate-proxy; release author agrawalradhika-cell, a listed contributor of the repo (with andyrzhao and nolanleastin); tag 84fe33f9; versions 0.3.7 to 0.3.13 published between 2025-11 and 2026-03, a short run of patch releases with GitHub releases for each (no unexplained burst).
+Result: no check failed; nothing to escalate. govulncheck was re-run against the final tree (see the fix report).
+
+Typed commands and container images (checked 2026-10-31):
+- `mvdan.cc/sh/v3` v3.14.1 (released 2026-09-06, 55 days old; exact pin). Splits a typed command into words with POSIX shell quoting (`syntax` and `expand`; the interpreter is not imported). Checks: OSV clean; GitHub mvdan/sh (9.2k stars, not archived), author and release author mvdan (Daniel Marti, 4.2k of the commits; next contributors have 23); annotated tag v3.14.1 (tagger Daniel Marti) points at a3f0c75d, equal to the proxy origin hash; the last releases v3.11.0 (2025-03), v3.12.0 (2025-07), v3.13.0 (2026-03), v3.13.1 (2026-04), v3.14.0 (2026-08-28), v3.14.1 (2026-09-06), each a GitHub release by mvdan, no burst; Go modules have no install scripts; typo-squat: the path is the `module` line of github.com/mvdan/sh at v3.14.1 and the import path its README gives. Packages compiled in: syntax, expand, pattern, fileutil, internal. `go.sum` also gains `github.com/go-quicktest/qt` v1.102.0 and `github.com/rogpeppe/go-internal` v1.15.0 for its module graph (tests only, not compiled; OSV clean for both).
+- `github.com/distribution/reference` v0.6.0 (released 2024-03-20; the newest tag; exact pin). Parses image references with the grammar registries and container runtimes use (`ParseNormalizedNamed`). Checks: OSV clean; GitHub distribution/reference (distribution org, not archived), contributors thaJeztah, dmcgowan, milosgajdos (Docker and distribution maintainers); annotated tag v0.6.0 (tagger Milos Gajdos) points at ff14fafe, equal to the proxy origin hash; module proxy lists v0.5.0 (2023-08) and v0.6.0 only, no burst; the same module containerd and the Docker CLI import; Go modules have no install scripts; typo-squat: path is the repo's `module` line.
+- `github.com/opencontainers/go-digest` v1.0.0 (released 2020-05-14; indirect, required by distribution/reference). Checks: OSV clean; GitHub opencontainers/go-digest (OCI org, not archived), contributors stevvooe, thaJeztah, dmcgowan, AkihiroSuda; annotated tag v1.0.0 (tagger Derek McGowan) points at ea51bea5; versions v1.0.0-rc0, v1.0.0-rc1, v1.0.0 only; no requirements of its own.
+- Transitive audit: `govulncheck@v1.1.4 ./...` reports 0 vulnerabilities in called code; the one module-level finding is GO-2026-5932 in golang.org/x/crypto, unreachable, as before.
+
+Store foundation (checked 2026-10-31). Go modules have no install scripts. Every version below was queried on OSV (`/v1/query`, ecosystem Go): clean. All are at least 20 days old, so the 14-day preference holds.
+
+| Dependency | Version | Released | Maintainers / source | Notes |
+|---|---|---|---|---|
+| github.com/pressly/goose/v3 | v3.29.0 | 2026-10-11 | pressly/goose (11.6k stars, not archived); contributors mfridman (265 commits), VojtechVitek, liamstask; releases are published by github-actions[bot] on a regular cadence (v3.27.0 2026-02 to v3.29.0); annotated tag resolves to commit 8b457ba, matching the proxy origin | Migrations from an embedded FS; `lock.NewPostgresSessionLocker` (advisory lock) for concurrent replicas. Pulls mfridman/interpolate v0.0.2, sethvargo/go-retry v0.5.0 (released 2026-10-05, repo owner sethvargo, tag SHA d1f41d0 matches proxy) |
+| github.com/jackc/pgx/v5 | v5.11.0 | 2026-09-07 | jackc/pgx (14k stars, not archived); jackc owns 3302 commits and published the release; tag SHA 5e583fa matches proxy. v5.12.0 is 0 days old, so v5.11.0 is the newest at least 14 days old | Postgres driver through `stdlib.OpenDB` (no global driver registration). Pulls jackc/pgpassfile v1.0.0, jackc/pgservicefile (2024-06-06), jackc/puddle/v2 v2.2.3 |
+| modernc.org/sqlite | v1.60.1 | 2026-09-29 | cznic/sqlite on GitLab (long-running maintained pure-Go SQLite, tags v1.59.0 to v1.61.1 in the last six weeks); tag commit b122d04 matches proxy origin. v1.61.0 (2026-10-21) and v1.61.1 (2026-10-31) are under 14 days old | Pure Go, no cgo. Pulls modernc.org/libc v1.78.0, mathutil v1.7.1, memory v1.12.1 (same maintainers), dustin/go-humanize v1.1.0, ncruces/go-strftime v1.1.0, remyoudompheng/bigfft, mattn/go-isatty v0.0.24 |
+| sqlc (release binary, code generator, no runtime dependency) | v1.31.1 | 2026-04-22 | sqlc-dev/sqlc (18k stars, not archived); release by kyleconroy | Fetched by `scripts/build/fetch-sqlc.sh` into `bin/sqlc`; the sha256 of each platform asset is pinned in the script and equals the digest GitHub publishes for the release asset (darwin arm64 and amd64, linux amd64 and arm64 checked). Generated code is committed |
+| postgres (container image) | 17-alpine, 17.11, digest sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73 | 2026-08-13 | Docker Official Image `library/postgres` | Used by `scripts/test/postgres-test.sh` for `make test-db`. The digest is the multi-arch index, resolvable in the registry (`imagetools inspect`). Newer index (2026-10-26) exists; this one is older and still serving 17.11 |
+
+Raising these requirements moved indirect modules to newer releases (MVS), all OSV clean and at least 20 days old: cloud.google.com/go/auth v0.20.0, httpsnoop v1.1.0, logr v1.4.4, enterprise-certificate-proxy v0.3.15, gax-go/v2 v2.22.0, prometheus/procfs v0.22.0, shopspring/decimal v1.5.0, otelhttp v0.72.0, otel, otel/metric, otel/trace v1.47.0, otel/log v1.47.0, go.yaml.in/yaml/v3 v3.0.5, google.golang.org/api v0.278.0, grpc v1.84.0, protobuf v1.36.12, genproto (rpc, api) 20261005, plus new indirect google/pprof and klauspost/compress.
+
+Transitive audit: `govulncheck@v1.9.0 ./...` (released 2026-10-11): 0 vulnerabilities in called code; the one module-level finding is GO-2026-5932 in golang.org/x/crypto, unreachable, as before. `go mod verify` passes.
+
+`github.com/google/uuid` v1.6.0 moved from indirect to direct (`internal/store` uses `NewV7` for row ids). Same version already in the tree; OSV query for it is empty; no new module.
+
+Backups: no new Go module or npm package. `github.com/robfig/cron/v3` v3.0.1 (already pinned, row above) parses `--backup-schedule`. The `postgres` image row above (digest sha256:18cfe3ef...) is now also the default of `database.backup.image` for the `pg_dump` CronJob, and `scripts/test/postgres-test.sh` runs `pg_dump` and `pg_restore` in it for the backup test. No new image, no digest change.
+
+### Git sources and previews (checked 2026-11-01)
+
+`github.com/google/go-github/v93` v93.0.0 (released 2026-10-15, 17 days; exact pin; the newest release). It lists pull requests, reports rate-limit errors and checks webhook signatures (`ValidatePayload`). Checks: OSV query for v93.0.0 is empty; GitHub google/go-github (google org, 11.3k stars, not archived), release author gmlewis (top contributor, 557 commits; releases v84.0.0 to v93.0.0 are by him, roughly monthly, no burst); tag v93.0.0 is commit 1e7e5ad6, equal to the module proxy origin hash; Go modules run no install scripts; typo-squat: the path is the `module` line of google/go-github at v93.0.0. It is a major-version path, so it sits beside the indirect `go-github/v69` that argoproj/notifications-engine pulls in; the two never share types. Its go.mod requires only go-cmp v0.7.0 (already in the tree) and `github.com/google/go-querystring` v1.2.0: go-querystring was raised from v1.1.0 (release 2025-12-30 by willnorris, a go-github maintainer; tag 59c17d91 equals the proxy origin hash; OSV empty; no requirements). go-github is a direct requirement since the GitHub code host imports it.
+
+Transitive audit: `govulncheck@v1.9.0 ./...` with v93 and go-querystring v1.2.0 in go.mod: `No vulnerabilities found` for called code (the module-level GO-2026-5932 in x/crypto, unreachable, as before); `go build ./...` and `go mod verify` pass.
+
+Images (digests and notes in `DEPENDENCIES.md`, section "Git sources and previews"): git-sync v4.7.1 (v4.8.0 is 8 days old), gitea 28.2.0-rootless (14-day exception for security fixes), nginx-unprivileged 1.31.6-alpine-slim and node 22.23.4-bookworm-slim (both already pinned; no new pin, the existing digests are reused).
+
+#### git-sync v4.7.1 behaviour (read from `--man` and observed by `scripts/test/record-gitsync-fixtures.sh` and `docker run` on the pinned digest; Docker 29.2.1)
+
+- **User and paths.** The image runs as 65533:65533 with `HOME=/tmp` and `GITSYNC_ROOT=/git`. Run as uid 1000, gid 100, `--cap-drop ALL`, `no-new-privileges`, with `HOME=/tmp` and a writable `--root` (a tmpfs or emptyDir), it clones and exits 0. It needs only `--root` and `/tmp` writable, so it works under Pod Security `restricted` with the pod's `RunAsUser`/`FSGroup` from `podspec.Base`. Files under `--root` are owned by the running uid and the directory's group, and `.git` and `.worktrees` live in `--root`.
+- **`--one-time` failure.** Default `--max-failures` is 0, so the first sync failure ends the process with exit 1 after logging `too many failures, aborting`; success exits 0. No retry loop, so a failed clone is a failed init container immediately (all five fixtures exit 1 in under a second).
+- **`--error-file=/dev/termination-log` does not work, so the clone argv must not use it.** git-sync writes the error file by creating a temp file in the same directory and renaming it. As a non-root uid, `/dev` is not writable: `can't create temporary error-file ... open /dev/tmp-err-...: permission denied`, and the file stays empty. Even as root the rename onto the bind-mounted `/dev/termination-log` fails (`rename ... file exists`). So the clone drops `--error-file` and relies on `terminationMessagePolicy: FallbackToLogsOnError`, which makes the kubelet put the last 80 lines or 2048 bytes of the container log, whichever is smaller, into the termination message. The failure reason is in the last log line (`msg":"too many failures, aborting"`, field `error`). The fixtures record exactly that tail. The kubelet side was not observed in these checks; the Git e2e tests on kind exercise it.
+- **Failure text, one fixture each** (`internal/source/testdata/gitsync/*.txt`; the Hello-World ref case on github.com):
+  - `ref-not-found`: `fatal: couldn't find remote ref javo-no-such-branch`.
+  - `repo-not-found` and `private-no-token` are identical text on GitHub: `remote: Repository not found.` then `fatal: Authentication failed for '<url>'`. GitHub answers a private repo and a missing repo the same way, so the classifier cannot tell them apart without a token; both map to `RepoNotFound`, whose copy says the repository may be private.
+  - `bad-token`: `remote: Invalid username or token. Password authentication is not supported for Git operations.` then `fatal: Authentication failed for '<url>'`. The only token used is the literal `javo-test-bad-token`; the recording script fails if that text appears anywhere in the log.
+  - `host-unreachable`: `fatal: unable to access 'https://unreachable.invalid/x/': Could not resolve host: unreachable.invalid`.
+  - `--password-file` pointing at a missing file ends with `credential refresh failed: can't read password file "<path>"`; the file is re-read before each attempt, and the path (not the token) is echoed in the startup flags line.
+  - Every failure ends with one JSON log line `"msg":"too many failures, aborting","error":"Run(git fetch <url> <ref> --verbose --no-progress --prune --no-auto-gc --depth 1): exit status 128: { stdout: \"\", stderr: \"<git text>\" }"`. The startup line echoes `--repo` and the flags; with `--password-file` it shows the path, never the token, and the URL carries no credentials.
+- **`--link`.** With `--link=current` under `--root`, success leaves a relative symlink `current -> .worktrees/<full 40-hex commit>`, so the basename of its target is the commit and `source-check` must resolve the link relative to `--root`. Verified on a volume.
+- **`--ref`.** Accepts a branch (`master`), a tag (`v1.1` and `refs/tags/v1.1`), a full commit SHA, and `refs/pull/<n>/head`; each succeeded with `--depth=1` and logged `updated successfully` with the commit it checked out.
+- **Fork PR head from the base repo on GitHub.** Fetching a fork pull request's head SHA directly from the base repo works: `--ref=<head sha of octocat/Hello-World PR 11673, a fork PR>` cloned and exited 0, and `--ref=refs/pull/11673/head` resolved to the same SHA. So previews use `ref: <head SHA>` (the pod runs exactly the commit the reconciler listed, with no moving ref between listing and cloning); `refs/pull/<n>/head` is the fallback if a host refuses SHA fetches. `source-check` still records the commit from the link either way.
+- **nginx-unprivileged.** `nginxinc/nginx-unprivileged:1.31.6-alpine-slim` run as uid 12345, gid 100, `--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges` serves 200 on port 8080 (default `USER 101`, entrypoint `/docker-entrypoint.sh`, `nginx -g "daemon off;"`). Only `/tmp` needs to be writable; the site directory is read.
+- **SQLite and Postgres `ALTER TABLE apps ADD COLUMN parent_id TEXT REFERENCES apps (id) ON DELETE CASCADE`.** Verified with a throwaway store test on both engines (modernc.org/sqlite v1.60.1 with the store's `foreign_keys(1)` pragma, and the pinned Postgres 17 image): the statement succeeds, deleting a parent row deletes its child, and a child pointing at a missing parent is refused. The migration adds the column with the `REFERENCES ... ON DELETE CASCADE` clause in one goose file; no store-side cascade is needed. The test was removed after the run.
+
+### Secrets (checked 2026-11-02)
+
+`github.com/tink-crypto/tink-go/v2` v2.9.0 (released 2026-10-15, 18 days old; exact pin; the newest release). Google Tink: the AES-256-GCM key-encryption AEAD, the HPKE data keyset (X25519, HKDF-SHA256, AES-256-GCM), keyset wrapping and rotation. Checks: OSV query for v2.9.0 is empty; GitHub tink-crypto/tink-go (the tink-crypto org that took over google/tink; not archived); the release commit 991d2dc2 ("Bump Tink Go version to 2.9.0") is authored by a Google engineer (google.com address, a top-10 contributor) and committed by Google's Copybara export, as every release is; tag v2.9.0 equals the module proxy origin hash; releases are every two to six months (v2.5.0 2025-10-10, v2.6.0 2025-12-10, v2.7.0 2026-06-10, v2.8.0 2026-08-11, v2.9.0 2026-10-15), no burst; Go modules run no install scripts; typo-squat: the path is the `module` line of tink-crypto/tink-go at v2.9.0. Its go.mod requires golang.org/x/crypto v0.53.0, google.golang.org/protobuf v1.36.11 and golang.org/x/sys v0.46.0 (the tree already has newer: v0.58.0, v1.36.12, v0.49.0; no bump) and, for its own tests only, github.com/google/go-cmp v0.7.0 (already in the tree) and github.com/c2sp/wycheproof v0.0.0-20260105152342-fca0d3ba9f12 (C2SP org, commit fca0d3ba matches the proxy origin, OSV empty; only in go.sum, not compiled into Javo).
+
+Transitive audit: `go mod verify` passes; `govulncheck@v1.9.0 ./...` with Tink in go.mod: `No vulnerabilities found` for called code (the module-level GO-2026-5932 in x/crypto, unreachable, as before).
+### AI, plans, MCP
+
+Checked 2026-11-01: exact pins, OSV queries empty, maintainers and tags compared with the Go proxy origin, newest release at least 14 days old. Go modules run no install scripts.
+
+| Dependency | Version | Released | Maintainers / source | OSV | Install scripts | Notes |
+|---|---|---|---|---|---|---|
+| github.com/anthropics/anthropic-sdk-go | v1.82.0 | 2026-10-15 | anthropics org (official SDK, Stainless generated, released by anthropic-sdks-releaser[bot]); tag commit 543d266 matches the proxy origin | clean | none | The v2 module line started 2026-10-21, under 14 days old, so v1.82.0 is the newest release at least 14 days old. Structured output through `output_config.format` (JSON schema); no forced tool use (current models refuse it). Raises the indirect aws-sdk-go-v2 modules below |
+| github.com/openai/openai-go/v3 | v3.81.0 | 2026-10-17 | openai org (official SDK, Stainless generated, released by openai-sdks[bot]); tag commit 2b8d4f0 matches proxy | clean | none | v3.82.0 is 13 days old. Covers OpenAI, Azure OpenAI and OpenAI-compatible servers (vLLM, Ollama, llama.cpp) |
+| github.com/sony/gobreaker/v2 | v2.4.0 | 2026-01-01 | sony org; YoshiyukiMineo (58 of 63 commits); tag commit 0ae9025 matches proxy | clean | none | circuit breaker in front of the model provider |
+| github.com/google/jsonschema-go | v0.4.3 | 2026-04-17 | google org; jba (main author, also of the MCP go-sdk), release by jba; tag commit 8c4ab4f matches proxy | clean | none | model output schemas from Go types (`jsonschema.For`) and validation of model answers |
+| aws-sdk-go-v2 family (indirect: notifications-engine and the anthropic SDK) | aws-sdk-go-v2 v1.47.1, config v1.33.6, credentials v1.20.6, feature/ec2/imds v1.20.1, internal/configsources v1.5.4, internal/endpoints/v2 v2.8.4, internal/v4a v1.5.4 (new), service/internal/accept-encoding v1.13.19, service/internal/presigned-url v1.14.4, service/signin v1.10.1 (new), service/sso v1.38.1, service/ssooidc v1.43.1, service/sts v1.51.1, smithy-go v1.28.1 | 2026-09-24 (smithy-go 2026-08-26) | aws org, one coordinated release | clean (each version queried) | none | minimum versions raised by the anthropic SDK; all at least 37 days old |
+| new indirect modules | bahlo/generic-list-go v0.2.0 (2022-02), buger/jsonparser v1.1.2 (2026-03), coder/websocket v1.8.15 (2026-06), invopop/jsonschema v0.14.0 (2026-04), pb33f/ordered-map/v2 v2.3.1 (2026-03), standard-webhooks/libraries v0.0.1 (2026-05), tidwall/gjson v1.19.0 (2026-05), tidwall/match v1.1.1, tidwall/pretty v1.2.1, tidwall/sjson v1.2.5 (2022-08), go.yaml.in/yaml/v4 v4.0.0-rc.2 (2025-08) | see versions | pulled by the two SDKs | clean (each version queried) | none | |
+
+Typo-squat check: each module path is the vendor's own (GitHub orgs anthropics, openai, sony, google), as named in their documentation.
+
+| github.com/modelcontextprotocol/go-sdk | v1.8.0 | 2026-09-04 (release page 2026-09-14) | modelcontextprotocol org (official Go SDK, maintained with Google: findleyr, jba); tag commit 3f3b699 matches proxy | clean | none | MCP server, Streamable HTTP, `auth.RequireBearerToken` and RFC 9728 metadata. Was already in the module graph at v1.3.1 (indirect); now direct. New indirect: segmentio/encoding v0.5.4 (2026-03), segmentio/asm v1.2.1 (2023-11), yosida95/uritemplate/v3 v3.0.2 (2022-04), each OSV clean |
+
+#### Secret scanner: gitleaks with patched archive codecs (checked 2026-11-02)
+
+`internal/ai/redact` uses gitleaks' `detect` package (default rules) as a library to hide secrets in log lines before a bundle is sent to a model.
+
+| Dependency | Version | Released | Maintainers / source | OSV | Install scripts | Notes |
+|---|---|---|---|---|---|---|
+| github.com/zricethezav/gitleaks/v8 | v8.30.0 | 2025-11-26 | gitleaks org; zricethezav (671 commits) cut the release; tag commit 6eaad03 matches the proxy origin | clean | none | Not v8.30.1: its GitHub tag was moved after publication (now 83d9cd6 "update goreleaser", 2026-03-12, while the proxy holds 8d1f98c) |
+| github.com/nwaples/rardecode/v2 | v2.4.5 | 2026-10-13 | nwaples, sole author (237 commits), personal repo since 2015; tag commit ad22ba9 matches the proxy | clean | none | Pinned in go.mod above gitleaks' v2.1.0, which has GHSA-rwvp-r38j-9rgg (fixed in v2.2.0). v2.4.2 to v2.4.5 came out in 11 days in October, all from the same author; the newest at least 14 days old |
+| github.com/ulikunitz/xz | v0.5.17 | 2026-09-19 | ulikunitz, sole author (680 commits), personal repo since 2014; tag commit 6ead826 matches the proxy | clean | none | Pinned above gitleaks' v0.5.12, which has GHSA-jc7w-c686-c4v9 (fixed in v0.5.15) |
+
+The pins are plain `require` lines (minimum version selection picks them over gitleaks' own); no `replace` is needed. Both codecs sit in the archive scanning of gitleaks (mholt/archives), which the library use never calls. The tree adds 49 modules in all (viper, wazero, go-re2, archive codecs, among them); each version was queried at OSV (all clean) and each was published at least 14 days ago (the newest, golang.org/x/exp 20261011, is 22 days old). No module already in the tree changed version.
+
+Transitive audit: `govulncheck@v1.9.0 ./...`: 0 vulnerabilities in called code or imported packages; the one module-level finding is GO-2026-5932 in golang.org/x/crypto, unreachable, as before. `go mod verify`: all modules verified.
+
+Transitive audit: `govulncheck@v1.9.0 ./...`: 0 vulnerabilities in called code; the one module-level finding is GO-2026-5932 in golang.org/x/crypto, unreachable, as before.
+
+### Documentation site (site/)
+
+Checked 2026-11-02. Build-time only (the static site in `site/`), never shipped in an image. Exact pins in `site/package.json`, installed from `site/pnpm-lock.yaml` with pnpm 10.33.0 and lifecycle scripts off (`site/.npmrc`). `site/.npmrc` also sets `minimum-release-age` to 7 days, so pnpm resolves no version (direct or transitive) published in the last week; `@nebari/starlight` is the one exception, checked by hand below.
+
+| Dependency | Version | Released | Maintainers / source | OSV | Install scripts | Notes |
+|---|---|---|---|---|---|---|
+| @nebari/starlight | 1.4.0 | 2026-10-28 | npm maintainers jbouder, dcmcand; published by GitHub Actions from nebari-dev/starlight (Apache-2.0) | clean | none | 5 days old: GitHub release v1.4.0 by jbouder (2026-10-28), tag v1.4.0 = commit cb1f06df70264a32b72a83f3bbd15abe2d7f1dda (main HEAD); npm `gitHead` and the SLSA provenance attestation (workflow `.github/workflows/release.yml` at `refs/tags/v1.4.0`) name the same commit, and the attested sha512 equals the tarball's `dist.integrity`. Releases regular (0.1.5 2026-07-01 to 1.3.0 2026-09-28). Depends on mermaid ^12.0.0 and mermaid-doodle 0.1.1 (both OSV clean) |
+| astro | 7.3.8 | 2026-10-08 | npm maintainers fredkschott, matthewp; published by GitHub Actions from withastro/astro; GitHub release astro@7.3.8 the same day | clean | none | newest 7.4.x releases are under 14 days old; satisfies the theme's peer `>=7.0.6` |
+| @astrojs/starlight | 0.42.6 | 2026-10-08 | npm maintainers fredkschott, matthewp; published by GitHub Actions from withastro/starlight; GitHub release the same day | clean | none | newest 0.42.7/0.42.8 under 14 days old; satisfies the theme's peer `>=0.33.0 <1.0.0` |
+
+Typo-squat check: each name matches the package named in its upstream README (withastro/astro, withastro/starlight, nebari-dev/starlight). Install-script audit: no package in the resolved tree (469 packages) declares `preinstall`, `install` or `postinstall`. Transitive audit: `pnpm audit --audit-level=low`: no known vulnerabilities. Publish-age audit: every package in the lockfile was published at least 7 days ago except `@nebari/starlight` 1.4.0 (above).
+
+### Release workflow (`.github/workflows/release.yaml`, checked 2026-11-02)
+
+Each action is pinned to the commit of its newest release (`gh api repos/<o>/<r>/releases/latest`, annotated tags dereferenced to the commit). All four docker actions are in the docker org (not archived); every release listed is published by crazy-max, a docker maintainer, on a regular cadence.
+
+| Action | Version | Released | Commit |
+| --- | --- | --- | --- |
+| actions/checkout | v7.0.1 | 2026-07-20 | 3d3c42e5aac5ba805825da76410c181273ba90b1 (same pin as the CI workflows) |
+| actions/cache | v6.1.0 | 2026-06-26 | 55cc8345863c7cc4c66a329aec7e433d2d1c52a9 (GitHub-owned; OSV: none) |
+| docker/setup-buildx-action | v4.4.1 | 2026-09-16 | f87e5991a6d7451dcb8d9637bfbc97413f497069 |
+| docker/login-action | v4.7.0 | 2026-10-23 | 81c6f93d4bc991e510b342a00b419b3bb4efc5c6 (10 days old; previous v4.6.0 2026-07-29) |
+| docker/build-push-action | v7.4.0 | 2026-09-15 | c3c9e263c25d99ce0380d002d59b67737d91b0dc |
+
+Helm is the 4.3.1 linux/amd64 release binary from get.helm.sh, checked against the sha256 published next to it (0403a88a...; the same release and checksum the Dockerfile's helm stage pins). The workflow was linted with actionlint v1.7.12 (release binary, sha256 equal to the release's checksums file and to GitHub's asset digest; OSV clean), run locally only.

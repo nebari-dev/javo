@@ -1,0 +1,20 @@
+/* The Helm values page renders the chart's values.yaml with Astro's own
+   <Code> (Shiki, two themes). Show the dark theme's colours in dark mode. */
+:root[data-theme='dark'] .astro-code,
+:root[data-theme='dark'] .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+.astro-code {
+  padding: 1rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.5rem;
+  font-size: var(--sl-text-sm);
+}
+
+/* The hero is one column, so the logo goes above the title and the buttons
+   (Starlight moves the image after the text on wide screens). */
+.hero > img {
+  order: 0;
+  margin-bottom: 1.5rem;
+}

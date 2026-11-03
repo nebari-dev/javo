@@ -1,0 +1,34 @@
+# Values for the Compose install (deploy/compose/compose.yaml): one k3s node
+# in a container, one host, local sign-in. The installer
+# (deploy/compose/install.sh) adds the image settings and publicHost.
+gateway:
+  # Plain HTTP on the published port. Put a TLS proxy in front and set this
+  # true (and the proxy's address in trustedProxies) to serve it over HTTPS.
+  secureCookies: false
+  service:
+    type: NodePort
+    # Published by the k3s container as JAVO_PORT on the Docker host.
+    nodePort: 30080
+
+# Laptop-sized, so several apps fit next to each other on one node.
+sizes:
+  - {name: small, displayName: Small, cpu: 500m, memory: 1Gi}
+  - {name: medium, displayName: Medium, cpu: "1", memory: 2Gi}
+  - {name: large, displayName: Large, cpu: "2", memory: 4Gi}
+defaultSize: small
+
+config:
+  auth:
+    local:
+      enabled: true
+  roles:
+    # The installer creates local user admin in this group.
+    platformAdmin: {groups: [javo-admins]}
+  urls:
+    # Apps are served under the UI host: <JAVO_PUBLIC_URL>/u/<owner>/<app>/.
+    mode: path
+  sharing:
+    # Sharing is allowed although apps are served on the UI's host: a shared
+    # app can act through its viewer's UI session (single host, risk
+    # accepted). Serve apps on their own host to remove that risk.
+    allowOneHost: true

@@ -1,0 +1,72 @@
+# Test-only S3-compatible server for the backup restore drill
+# (TestBucketBackupRestoreDrill), started by scripts/test/e2e-s3-up.sh when
+# JAVO_E2E_S3=1. It is `rclone serve s3` in the rclone image the file picker
+# already pins (DEPENDENCIES.md): MinIO publishes no image any more, so none
+# can be pinned cleanly. Its data is an emptyDir: the drill's bucket lives
+# as long as the pod. Never shipped.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+  namespace: javo-e2e
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: s3}
+  template:
+    metadata:
+      labels: {app: s3}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # rclone serves each top-level folder as a bucket.
+        - name: bucket
+          image: rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5
+          command: [mkdir, -p, /data/javo-e2e]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      containers:
+        - name: s3
+          image: rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5
+          args: [serve, s3, --addr, ":9000", --auth-key, "$(ACCESS_KEY),$(SECRET_KEY)", --config, /dev/null, /data]
+          env:
+            - name: ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: s3-admin, key: AWS_ACCESS_KEY_ID}}
+            - name: SECRET_KEY
+              valueFrom: {secretKeyRef: {name: s3-admin, key: AWS_SECRET_ACCESS_KEY}}
+          ports:
+            - {name: s3, containerPort: 9000}
+          readinessProbe:
+            tcpSocket: {port: s3}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+  namespace: javo-e2e
+spec:
+  selector: {app: s3}
+  ports:
+    - {name: s3, port: 9000, targetPort: s3}

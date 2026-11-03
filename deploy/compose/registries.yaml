@@ -1,0 +1,7 @@
+# k3s registry configuration for deploy/compose/dev.yaml: images named
+# localhost:5001/... are pulled over plain HTTP from the shared local
+# registry (scripts/dev/registry-up.sh) on the Docker network javo-registry.
+mirrors:
+  "localhost:5001":
+    endpoint:
+      - "http://javo-registry:5000"

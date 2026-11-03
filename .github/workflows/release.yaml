@@ -1,0 +1,119 @@
+name: Release
+
+# Pushing a tag vX.Y.Z publishes ghcr.io/nebari-dev/javo:X.Y.Z (linux/amd64 and
+# linux/arm64) and the chart oci://ghcr.io/nebari-dev/charts/javo X.Y.Z, whose
+# image defaults name that image by digest.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/nebari-dev/javo
+  CHARTS: oci://ghcr.io/nebari-dev/charts
+  # Helm 4.3.1 linux/amd64 release binary and the sha256 published with it
+  # (the same release the Dockerfile's helm stage pins).
+  HELM_VERSION: v4.3.1
+  HELM_SHA256: 0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
+
+jobs:
+  release:
+    name: Image and chart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version from tag
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "::error::tag $TAG is not vX.Y.Z"
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # Go's build cache as CI's Go build job last saved it on main (a tag run
+      # can read main's caches), so only what changed since compiles here.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod/cache/download
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-
+
+      # The image's javo binaries, both architectures at once (the image's
+      # javo-bin stage is replaced by this folder).
+      - name: Compile javo
+        run: scripts/build/cross-build-javo.sh "$RUNNER_TEMP/javo-bin"
+
+      # The image build needs the runner's disk; Go's caches are done with.
+      - name: Free the Go caches
+        run: go clean -cache -modcache
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Every stage that runs a command runs on this runner's platform; the
+      # two architectures differ only in the files copied in. The layer
+      # cache lives in the registry, so it carries from one release to the
+      # next (an Actions cache written by a tag is not readable by the next).
+      - name: Build and push the image
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          build-contexts: javo-bin=${{ runner.temp }}/javo-bin
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
+      - name: Install helm
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/helm.tgz" "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
+          echo "$HELM_SHA256  $RUNNER_TEMP/helm.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/linux-amd64" >> "$GITHUB_PATH"
+
+      - name: Set the chart's version and image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: scripts/release/set-chart-release.sh deploy/helm/javo "$VERSION" "$IMAGE" "$DIGEST"
+
+      - name: Package and push the chart
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm lint deploy/helm/javo
+          helm package deploy/helm/javo --destination "$RUNNER_TEMP/chart"
+          printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          helm push "$RUNNER_TEMP/chart/javo-$VERSION.tgz" "$CHARTS"

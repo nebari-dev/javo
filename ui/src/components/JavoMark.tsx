@@ -1,0 +1,11 @@
+/** The Javo mark from brand/javo-mark.svg, drawn in the text colour so it suits light and dark. */
+export function JavoMark() {
+  return (
+    <svg className="brand-mark" viewBox="0 0 100 100" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M22 0H78A22 22 0 0 1 100 22V78A22 22 0 0 1 78 100H22A22 22 0 0 1 0 78V22A22 22 0 0 1 22 0ZM28.8 80L49.2 20H63.2L42.8 80ZM54.8 80L68.4 40H82.4L68.8 80Z"
+      />
+    </svg>
+  )
+}

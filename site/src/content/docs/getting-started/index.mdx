@@ -1,0 +1,29 @@
+---
+title: Get started
+description: Install Javo with Docker Compose or Helm, sign in and run a first app.
+sidebar:
+  order: 0
+---
+
+import { LinkCard, CardGrid, Aside } from '@astrojs/starlight/components';
+
+Javo runs on Kubernetes. There are two ways to install it:
+
+<CardGrid>
+  <LinkCard
+    title="Docker Compose"
+    href="/getting-started/compose/"
+    description="One machine with Docker. Compose starts a single-node Kubernetes (k3s) in a container and installs Javo into it. The quickest way to try Javo."
+  />
+  <LinkCard
+    title="Helm"
+    href="/getting-started/helm/"
+    description="A Kubernetes cluster you already run. Install the chart in deploy/helm/javo with your own values."
+  />
+</CardGrid>
+
+Both paths install the same Helm chart, so everything in these docs applies to both. Once it runs, [sign in and create a first app](/getting-started/first-app/).
+
+<Aside type="caution" title="No published images yet">
+The project does not publish container images yet. Both install paths build the `javo` image from a checkout of the repository.
+</Aside>

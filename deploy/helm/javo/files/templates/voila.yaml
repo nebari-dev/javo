@@ -1,0 +1,40 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: voila
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Voila
+  description: Notebooks as apps
+  category: dashboards
+  kind: voila
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/voila (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: voila
+  port: 8866
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "voila"]
+  args:
+    - "{{.File}}"
+    - "--port={{.Port}}"
+    - "--Voila.ip=0.0.0.0"
+    - "--Voila.base_url={{.BaseURL}}"
+    - "--no-browser"
+  basePath: Prefix
+  appLogin: Disabled
+  fileExtensions: [".ipynb"]
+  readinessPath: "{{.BaseURL}}"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  sample:
+    path: /opt/javo/samples/voila
+    open: sample.ipynb
+    title: Times table

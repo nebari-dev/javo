@@ -1,0 +1,156 @@
+{{- /*
+SQLite install: the gateway and the controller in one pod (`javo server`), one
+replica, one database file on a volume. The file allows one writer on one host,
+so the pod is replaced (Recreate) rather than rolled, and the claim is kept on
+uninstall (helm.sh/resource-policy: keep). The pod carries the gateway's
+component label so the gateway Service and the apps' NetworkPolicy select it,
+and runs as the controller's service account (see javo.account). An init
+container migrates the database before either component starts.
+*/ -}}
+{{- include "javo.checkReplicas" . }}
+{{- if eq (include "javo.engine" .) "sqlite" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: javo-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.database.sqlite.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.database.sqlite.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: javo
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "javo.selector" (dict "root" . "component" "gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "javo.labels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+      annotations:
+        {{- include "javo.rollAnnotations" . | nindent 8 }}
+    spec:
+      serviceAccountName: javo-controller
+      {{- with include "javo.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: {{ .Values.securityContext.runAsGroup }}
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        {{- include "javo.upgradeContainer" . | nindent 8 }}
+      containers:
+        - name: javo
+          image: {{ include "javo.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - server
+            - --components=gateway,controller
+            {{- include "javo.commonArgs" . | nindent 12 }}
+            {{- include "javo.gatewayArgs" . | nindent 12 }}
+            {{- include "javo.controllerArgs" . | nindent 12 }}
+            {{- include "javo.databaseArgs" . | nindent 12 }}
+            {{- with include "javo.backupArgs" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            # The image the Jobs of `javo import jupyterhub-homes` run.
+            - name: JAVO_IMAGE
+              value: {{ include "javo.image" . | quote }}
+            {{- include "javo.aiEnv" . | nindent 12 }}
+          ports:
+            - {name: http, containerPort: {{ .Values.gateway.port }}}
+            - {name: metrics, containerPort: {{ .Values.controller.metricsPort }}}
+            - {name: probes, containerPort: {{ .Values.controller.probePort }}}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sizes, mountPath: {{ include "javo.sizesDir" . }}, readOnly: true}
+            - {name: config, mountPath: /etc/javo, readOnly: true}
+            - {name: templates, mountPath: {{ include "javo.templatesDir" . }}, readOnly: true}
+            {{- include "javo.databaseMounts" . | nindent 12 }}
+            {{- with include "javo.brandingMount" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- with include "javo.bucketMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- include "javo.secretsKeyMount" . | nindent 12 }}
+            {{- with include "javo.backupMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.gateway.oidcClientSecret }}
+            - {name: oidc, mountPath: {{ include "javo.oidcSecretDir" . }}, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: sizes
+          configMap: {name: javo-sizes}
+        - name: config
+          configMap: {name: javo-config}
+        - name: templates
+          configMap: {name: javo-builtin-templates}
+        {{- include "javo.databaseVolumes" . | nindent 8 }}
+        {{- with include "javo.brandingVolume" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "javo.bucketVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- include "javo.secretsKeyVolume" . | nindent 8 }}
+        {{- with include "javo.backupVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.gateway.oidcClientSecret }}
+        - name: oidc
+          secret:
+            secretName: {{ . }}
+            items: [{key: client-secret, path: client-secret}]
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

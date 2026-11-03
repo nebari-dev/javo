@@ -1,0 +1,89 @@
+version: "2"
+sql:
+  # The real schema: the goose migrations, read with the PostgreSQL parser.
+  # Every query must also run on SQLite (see dialect_test.go): no "::" casts,
+  # no ILIKE, no array or JSON operators, placeholders in ascending order.
+  - engine: postgresql
+    schema: migrations
+    queries: queries
+    gen:
+      go:
+        package: sqlcgen
+        out: sqlcgen
+        sql_package: database/sql
+        overrides: &overrides
+          - column: "*.created_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "*.updated_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "*.seen_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "people.last_login_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "sessions.expires_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "sessions.revalidate_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "audit_events.at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "usage_intervals.started_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "cluster_facts.observed_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "apps.restart_requested_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "apps.deleted_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "apps.last_active_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "apps.status_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "apps.restore_release_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "jobs.deleted_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "jobs.status_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "api_tokens.last_used_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "api_tokens.expires_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "api_tokens.revoked_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "job_runs.requested_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "job_runs.scheduled_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "job_runs.started_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "job_runs.finished_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "job_runs.notified_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "usage_intervals.stopped_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "plans.expires_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "plans.decided_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "app_previews.poked_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "app_previews.synced_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "app_git_tokens.set_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "app_thumbnails.set_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "app_nebi_tokens.set_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "app_nebi_tokens.expires_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+  - engine: postgresql
+    schema: dialect/schema.sql
+    queries: dialect/queries.sql
+    gen:
+      go:
+        package: dialect
+        out: dialect
+        sql_package: database/sql
+        overrides: *overrides

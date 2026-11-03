@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: javo-keycloak
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: keycloak}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: keycloak}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: keycloak
+          # Keycloak 26.8.1, pinned by index digest (DEPENDENCIES.md).
+          image: quay.io/keycloak/keycloak:26.8.1-0@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+          args: [start-dev, --import-realm]
+          env:
+            - {name: KC_HTTP_RELATIVE_PATH, value: /auth}
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin}
+          envFrom:
+            - configMapRef: {name: keycloak-env}
+            # KC_BOOTSTRAP_ADMIN_PASSWORD, ALICE_PASSWORD, BOB_PASSWORD,
+            # JAVO_CLIENT_SECRET; the realm file reads the last three.
+            - secretRef: {name: keycloak-secrets}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /auth/realms/javo/.well-known/openid-configuration, port: http}
+            periodSeconds: 5
+          startupProbe:
+            httpGet: {path: /auth/realms/javo/.well-known/openid-configuration, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import, readOnly: true}
+      volumes:
+        - name: realm
+          configMap: {name: keycloak-realm}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+spec:
+  # Browsers reach it on the node: kind maps host port 8081 to 30081; the
+  # proxy in front of a single-node install forwards the Keycloak host to 30081.
+  type: NodePort
+  selector: {app.kubernetes.io/name: keycloak}
+  ports:
+    - {name: http, port: 8080, targetPort: http, nodePort: 30081}

@@ -1,0 +1,25 @@
+---
+title: REST API
+description: Every endpoint of the Javo REST API, from the OpenAPI document the gateway serves.
+sidebar:
+  order: 3
+---
+
+import ApiEndpoints from '../../../components/ApiEndpoints.astro';
+
+The gateway serves its API under `/api/`. The full description, with request and response schemas, is an OpenAPI 3.1 document:
+
+- On a running install: `https://<javo address>/api/openapi.json`, without sign-in.
+- With `config.api.docs.enabled`, an interactive Swagger UI at `/api/docs/` (its files ship in the image; nothing loads from a CDN).
+- The same document as built from this version of the code: [openapi.json](/openapi.json). `javo openapi` prints it too, with no cluster needed.
+
+## Authentication
+
+| Scheme | How |
+|---|---|
+| Personal API token | `Authorization: Bearer <token>`. A read token may only read; tokens cannot manage tokens. See [API tokens](/using/api/). |
+| Browser session | The `javo_session` cookie set at sign-in, used by the web UI. |
+
+## Endpoints
+
+<ApiEndpoints />

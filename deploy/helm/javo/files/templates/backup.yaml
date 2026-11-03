@@ -1,0 +1,31 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: backup
+spec:
+  # Job-only: the backup and restore jobs of Settings, Backups. A run of the
+  # backup job (`javo backup run`) asks the platform for one full backup to
+  # the bucket (the database, every home folder, every shared folder) and
+  # follows it, printing each step's log; a run of the restore job (`javo
+  # backup restore-run`) brings back a backup the same way. The work itself
+  # is done by the platform: each home is read by a Job of its own that runs
+  # as its owner, so the job's pod never holds the bucket's key or reads a
+  # home. The chart renders it only with backupTarget.enabled, sets the image
+  # to javo's own and lets only platform admins use it (allowedGroups).
+  jobOnly: true
+  displayName: Backups
+  description: Full backups
+  category: jobs
+  kind: python
+  image: javo:dev
+  port: 8080
+  command: ["true"]
+  appLogin: Disabled
+  # The job's run talks to the javo API with its owner's token.
+  apiToken: true
+  maxApiAccess: ReadWrite
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  jobs:
+    engines: [command]

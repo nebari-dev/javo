@@ -1,0 +1,18 @@
+# Rendered by scripts/dev/up.sh: it names the cluster (JAVO_KIND_NAME) and
+# replaces JAVO_HTTP_PORT and JAVO_KEYCLOAK_PORT with the checkout's host
+# ports (scripts/dev/env.sh).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Gateway Service NodePort (chart value gateway.service.nodePort).
+      - containerPort: 30080
+        hostPort: JAVO_HTTP_PORT
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      # Dev Keycloak Service NodePort (deploy/dev/keycloak).
+      - containerPort: 30081
+        hostPort: JAVO_KEYCLOAK_PORT
+        listenAddress: "127.0.0.1"
+        protocol: TCP

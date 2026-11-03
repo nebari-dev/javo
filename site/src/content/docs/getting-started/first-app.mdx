@@ -1,0 +1,50 @@
+---
+title: Sign in and create a first app
+description: Sign in to Javo, start a Streamlit app from its sample, open it and stop it.
+sidebar:
+  order: 3
+  label: First app
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+## Sign in
+
+The sign-in page shows what the install allows:
+
+- **Username and password** for local accounts. The Compose install creates `admin`; on a Helm install you create accounts with [`javo user add`](/reference/cli/#javo-user-add).
+- **Sign in with single sign-on** when an [OpenID Connect provider](/admin/sign-in/) is set up.
+
+What you may do depends on your role. A platform admin sees everything; a member creates and runs apps and jobs. [Roles](/admin/sign-in/#roles) come from groups.
+
+## Create a Streamlit app
+
+<Steps>
+
+1. Press **New app** in the top bar.
+
+2. Pick **Streamlit** under Dashboards. The form fills in the template's sample, shown as `Sample: <file>`, so you do not need code of your own yet.
+
+3. Leave **Where is the code?** on **Home folder**. With the sample selected, the app runs the sample file that ships with Javo. Later you can choose a file from your own home folder instead.
+
+4. Leave the size on its default, give the app a name in the review panel, and press **Create app**. Nothing is created if a check fails; the form says what to fix.
+
+5. The app page shows the start-up steps as they happen: find a machine, attach your home folder, download the image, start the app, check it answers. The first start also installs the app's [environment](/using/environments/) into your home, which takes longer than later starts.
+
+6. Press **Open**. The app is served at `/u/<your name>/<app name>/` on the Javo address (or on the apps host your admin set up).
+
+</Steps>
+
+<Aside type="tip">
+The first start of a template downloads its packages. Later starts of any app with the same environment reuse them, so they start much faster.
+</Aside>
+
+## Stop, restart, delete
+
+The app page has **Stop**, **Start**, **Restart** and **Delete**. Stopping keeps your files and settings; the app starts again from its card. If your admin turned on [idle stop](/using/apps/#stop-when-idle), an app nobody uses stops by itself.
+
+## Where to go next
+
+- [Apps](/using/apps/): every template, running from a Git repository, logs.
+- [Sharing](/using/sharing/): who can open your app.
+- [Jobs](/using/jobs/): run a notebook every night.

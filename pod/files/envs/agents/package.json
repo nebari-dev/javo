@@ -1,0 +1,8 @@
+{
+  "name": "javo-agents",
+  "private": true,
+  "description": "Claude Code, which is not on conda-forge: javo-post-install.sh installs it from package-lock.json, which pins every package and its integrity hash; DEPENDENCIES.md records the checks.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.302"
+  }
+}

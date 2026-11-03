@@ -1,0 +1,431 @@
+/* Page layout, ported from the mockup. */
+.row{display:flex;align-items:center;gap:10px}
+.grow{flex:1;min-width:0}
+.block{display:block}
+.small{font-size:var(--fs-xs)}
+.center{text-align:center}
+.tight{margin:0}
+ul.plain{list-style:none;margin:6px 0 0;padding:0}
+.flush{margin:0}
+.stack{display:flex;flex-direction:column;gap:20px;min-width:0}
+.section{margin-top:36px}
+.section-sm{margin-top:20px}
+.section-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+.section-head .sub{font-size:var(--fs-sm)}
+.section-head .right{margin-left:auto}
+.section-head .right a{white-space:nowrap}
+@media (max-width:760px){.section-head{flex-wrap:wrap}.section-head .right{margin-left:0;width:100%;flex-wrap:wrap;row-gap:8px}}
+.section-head.page-head{align-items:center;margin-bottom:6px}
+.page-head h1{margin:0}
+.atable-wrap{position:relative;overflow-x:auto;container-type:inline-size}
+/* A run's log under its row stays in view and as wide as the card when the table scrolls sideways. */
+.atable .lv{position:sticky;left:16px;width:calc(100cqw - 32px)}
+.atable{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+.atable th,.atable td{padding:10px 14px;text-align:left;vertical-align:middle;border-bottom:1px solid var(--border)}
+.atable tbody tr:last-child>*{border-bottom:none}
+.atable thead th{font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);white-space:nowrap}
+.atable tbody th{font-weight:400}
+.atable-app{display:flex;align-items:center;gap:10px;min-width:180px}
+.atable-name{display:flex;flex-direction:column;min-width:0}
+.atable-name a{color:var(--text);font-weight:600;font-size:var(--fs-md)}
+.atable-name a:hover{text-decoration:underline}
+.atable-why{font-size:var(--fs-xs)}
+.atable-why.err{color:var(--err)}
+.atable-why.warn{color:var(--text-2)}
+.atable-status{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.atable .col-type,.atable .col-file{color:var(--text-2);white-space:nowrap}
+.atable thead th.col-type,.atable thead th.col-file{color:var(--text-3)}
+.run-when{white-space:nowrap}
+@media (max-width:640px){.run-when{white-space:normal}}
+.atable .col-act{text-align:right;white-space:nowrap}
+/* A run with its log open: the row and the log under it read as one panel. */
+.atable tr.open>*{background:var(--surface-2);border-bottom-color:transparent}
+.atable .run-log-row>td{padding:0 16px 16px;background:var(--surface-2)}
+.btn.log-toggle[aria-expanded="true"]{background:var(--surface-2);border-color:var(--border-strong);box-shadow:inset 0 1px 2px color-mix(in srgb,var(--key-edge) 60%,transparent)}
+@media (max-width:900px){.atable .col-file{display:none}}
+@media (max-width:640px){
+  .atable .col-type{display:none}
+  .atable th,.atable td{padding:8px 10px}
+  .atable-app{min-width:0}
+  .atable .col-act .btn{min-width:0;width:var(--btn-h-sm);padding:0}
+  .atable-act-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.grid.choices{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+/* App cards: every row as tall as the tallest card, so all cards are one size. */
+.grid:has(> .acard){grid-auto-rows:1fr}
+.two{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+.card-h{margin-bottom:14px}
+.label{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
+.btn.wide{width:100%;justify-content:center}
+.btn.wide+.btn.wide{margin-top:8px}
+/* A button straight under a line of text keeps 12px from it. */
+p+.btn,.hint+.btn{margin-top:12px}
+a.btn{text-decoration:none}
+
+/* Kind logo */
+.logo{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;flex:none;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
+.logo .mark{display:block;object-fit:contain;mask-position:center;mask-size:contain;mask-repeat:no-repeat}
+
+/* App card */
+.acard{position:relative;padding:18px;display:flex;flex-direction:column;gap:14px;color:var(--text);transition:transform .15s ease,box-shadow .15s ease}
+.acard:hover{transform:translateY(-2px);box-shadow:var(--shadow),0 10px 30px rgba(0,0,0,.08)}
+.acard h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acard-link{color:inherit;text-decoration:none}
+.acard-link::after{content:"";position:absolute;inset:0;border-radius:inherit}
+.acard-link:focus-visible{outline:none}
+.acard:has(.acard-link:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.acard-actions{position:relative;z-index:1;display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+/* Buttons side by side in a table cell: the same 8px as cards and the app page. */
+.btn-row{display:inline-flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:nowrap}
+.acard-actions:empty{display:none}
+.acard .meta{font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The picture band (config thumbnails.enabled): the same height on every card, picture or kind logo. */
+.acard-thumb{margin:-18px -18px 0;height:96px;overflow:hidden;display:grid;place-items:center;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0}
+.acard-thumb img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center}
+.thumb-preview{margin:0 0 10px;height:auto;aspect-ratio:16/9;border:1px solid var(--border);border-radius:10px}
+.why{font-size:var(--fs-sm);padding:10px 12px;border-radius:10px}
+/* On a card the reason stays one line (its page has the rest), so every card keeps one height. */
+.acard .why{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.why.err{background:var(--err-soft);color:var(--text)}
+.why.warn{background:var(--warn-soft);color:var(--text)}
+
+/* Needs your attention */
+.attn{padding:6px}
+.attn-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px;border-radius:12px;color:var(--text)}
+.attn-item+.attn-item{border-top:1px solid var(--border)}
+.attn-item:hover{background:var(--surface-2)}
+.attn-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center}
+.attn-name{font-weight:600;display:block}
+.attn-more{padding:2px 14px 10px}
+.attn-more .more-body .attn-item{padding:14px 0}
+
+/* App detail */
+.crumbs{font-size:var(--fs-sm);color:var(--text-2);margin-bottom:14px}
+.dhead{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.dhead .logo{width:56px;height:56px;border-radius:14px}
+.dhead .actions-col{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;position:relative}
+.dhead .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.confirm-overlay{align-items:center;padding:16px;z-index:70}
+.confirm{border:1px solid var(--border-strong);border-radius:14px;padding:20px;background:var(--surface);width:min(420px,100%);display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-lg);text-align:left;white-space:normal}
+.confirm b{font-size:var(--fs-md)}
+.confirm .row{margin-top:6px}
+.confirm .row{justify-content:flex-end;gap:8px}
+/* Each row on its own: the label floats left and the value fills the rest of the row,
+   so a value wraps only when it does not fit beside its own label. */
+.kv{display:flow-root;margin:0}
+.kv dt{float:left;clear:left;padding:8px 16px 8px 0;margin:0;color:var(--text-2)}
+.kv dd{margin:0;padding:8px 0;text-align:right;overflow-wrap:break-word;border-top:1px solid var(--border)}
+.kv > dd:first-of-type{border-top:0}
+.kv .size-change{clear:both;text-align:left;border-top:0;padding-top:0}
+/* A long value (command, path) goes under its label at full width. */
+.kv dt.wide{float:none;padding-bottom:6px;border-top:1px solid var(--border)}
+.kv > dt.wide:first-child{border-top:0}
+.kv dd.wide{clear:both;text-align:left;padding-top:0;border-top:0}
+.codeblock{display:flex;align-items:flex-start;gap:8px;padding:6px 6px 6px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--log-bg)}
+.codeblock code{flex:1;min-width:0;padding:6px 0;font-size:var(--fs-xs);line-height:1.6;color:var(--text);white-space:pre-wrap;overflow-wrap:normal;word-break:normal;overflow-x:auto}
+.kv .size-change .stack{gap:12px}
+.errmsg{font-size:var(--fs-xs);color:var(--err)}
+
+/* Forms */
+.choice{padding:16px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;border:1.5px solid var(--border)}
+.choice:hover{border-color:var(--border-strong)}
+/* The chosen card is filled, not only outlined: tinted ground, accent border, the icon tile outlined in accent (brand marks keep their colours). */
+.choice.sel{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
+.choice.sel h3{color:var(--accent-text)}
+.choice.sel .logo{background:var(--surface);border-color:var(--accent);color:var(--accent-text)}
+.choice:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+/* Template cards: all one size, a name and one line that never wraps (cut with an ellipsis as a guard). */
+.grid.choices:has(> .choice.tpl){grid-auto-rows:1fr}
+.source-choices{margin-bottom:20px}
+.choice.tpl{align-items:center}
+.choice.tpl > span:not(.logo):not(.btn){min-width:0;flex:1}
+.choice.tpl h3,.choice.tpl .one-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* New app: the chosen template as one row; pressing it opens the list again. */
+.choice.chosen{width:100%;text-align:left;font:inherit;color:var(--text);border-color:var(--border-strong)}
+.choice.chosen:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chosen-name{display:flex;align-items:center;gap:8px;min-width:0;font-size:var(--fs-md);font-weight:600;white-space:nowrap}
+.choice.chosen .btn{flex:none}
+.choice.chosen:hover .btn{background:var(--surface-2)}
+/* The list opening or closing: a short fade, none for reduced motion. */
+.tpl-in{animation:tpl-in .16s ease-out}
+@keyframes tpl-in{from{opacity:0;transform:translateY(-4px)}}
+@media (prefers-reduced-motion:reduce){.tpl-in{animation:none}}
+/* A size no machine can hold: shown, not pickable, with the reason at full strength. */
+.choice.off{cursor:not-allowed;background:var(--surface-2)}
+.choice.off:hover{border-color:var(--border)}
+.choice.off .logo,.choice.off h3,.choice.off .muted{opacity:.55}
+.choice-why{display:inline-flex;margin-top:6px;padding:1px 8px;border-radius:7px;font-size:var(--fs-2xs);font-weight:500;white-space:nowrap;color:var(--text-2);background:var(--surface);border:1px solid var(--border-strong)}
+/* A custom CPU and memory: two number fields with their unit inside, then the amount or what is wrong with it, then the limit. */
+/* The size cards: one row of four equal, compact cards where the picker is
+   wide, two where it is narrower (the app page's side card, tablets), one on
+   a phone. Measured on the picker itself, so the same rule fits every page. */
+.size-choices{gap:16px;container-type:inline-size}
+.size-choices .grid.choices{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@container (max-width:640px){.size-choices .grid.choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container (max-width:360px){.size-choices .grid.choices{grid-template-columns:minmax(0,1fr)}}
+.size-choices .choice{padding:12px;gap:10px}
+.size-choices .choice .logo{width:32px;height:32px;border-radius:9px}
+.size-choices .choice .logo svg{width:18px;height:18px}
+.size-choices .choice h3{white-space:nowrap}
+.size-gpu{display:flex;align-items:center;gap:4px;margin-top:2px}
+/* The open Custom amount carries the selected card's treatment: it is the choice. */
+.custom-amount{display:flex;flex-direction:column;gap:10px;padding:16px;border:1.5px solid var(--accent);border-radius:var(--radius-sm);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
+.custom-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.unit-input{position:relative;display:block}
+.unit-input .input{padding-right:56px;font-variant-numeric:tabular-nums}
+.unit-input .unit{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-2);font-size:var(--fs-sm);pointer-events:none}
+@media (max-width:520px){.custom-fields{grid-template-columns:minmax(0,1fr)}}
+.sample-card{border:1.5px solid var(--border)}
+.sample-card:hover{border-color:var(--border-strong)}
+.sample-card:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.sample-card button{display:flex;gap:12px;align-items:flex-start;width:100%;padding:16px;background:none;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.sample-card button:disabled{cursor:progress;opacity:.7}
+.sample-card a{display:flex;gap:12px;align-items:flex-start;padding:16px;color:inherit;text-decoration:none}
+/* Templates grouped by category: a small label over each group of cards; on
+   the Templates page the cards keep New app's rule, one size and one line. */
+.tpl-group+.tpl-group{margin-top:24px}
+.grid.choices:has(> .tpl-card){grid-auto-rows:1fr}
+.tpl-card a{align-items:center;height:100%}
+.tpl-card a > span{min-width:0;flex:1}
+.tpl-card h3{margin:0 0 2px}
+.tpl-card h3,.tpl-card .one-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sample-card .errmsg{display:block;padding:0 16px 14px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.field.fit{align-items:flex-start}
+.field.tight{margin-bottom:0}
+.field label,.field-label{font-weight:600;font-size:var(--fs-sm)}
+.input{padding:10px 12px;border-radius:10px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-family:inherit;font-size:var(--fs-md);width:100%}
+.input:focus{outline:2px solid color-mix(in srgb,var(--accent) 30%,transparent);border-color:var(--accent)}
+.input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.input.err{border-color:var(--err)}
+.input.mono{font-family:var(--font-mono)}
+.review{position:sticky;top:90px}
+.review h3{margin-bottom:12px}
+.review .hint{margin-top:8px}
+.todo-left{margin-bottom:12px}
+.filechip{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border-strong);border-radius:12px}
+.filechip.err{border-color:var(--err)}
+.textlink{align-self:flex-start;padding:0;border:0;background:none;color:var(--accent-text);font:inherit;cursor:pointer}
+.textlink.small{font-size:var(--fs-xs)}
+.textlink:hover{text-decoration:underline}
+.filechip + .textlink{margin-top:2px}
+.filechip .fi,.pickbtn .fi{color:var(--text-2);flex:none}
+.pickbtn{display:flex;align-items:center;gap:12px;width:100%;padding:16px;border:1.5px dashed var(--border-strong);border-radius:12px;background:transparent;color:var(--text);text-align:left}
+.pickbtn:hover{border-color:var(--accent);background:var(--accent-soft)}
+
+/* Overlay for the file picker */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);backdrop-filter:blur(4px);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:12vh 16px 16px}
+.pk-note{font-size:var(--fs-xs);padding:8px 10px}
+
+/* Sign in */
+.login{min-height:100vh;display:grid;place-items:center;padding:24px 16px;position:relative}
+.login-top{position:absolute;top:16px;right:16px}
+.login-card{width:400px;max-width:100%;display:flex;flex-direction:column;gap:18px}
+.login-card .brand{padding:0}
+.login-card h1{font-size:var(--fs-xl);margin:0}
+.login-form{display:flex;flex-direction:column}
+.login-form .btn{margin-top:4px}
+
+@media (max-width:1100px){.two{grid-template-columns:minmax(0,1fr)}.review{position:static}}
+@media (max-width:760px){
+  .top-actions{gap:8px}
+  h1{font-size:var(--fs-xl)}
+  .dhead .actions-col{margin-left:0;align-items:flex-start}
+  .dhead .actions{justify-content:flex-start}
+}
+.login-or{text-align:center;margin:2px 0}
+
+/* Sharing, tabs, picker */
+.idp-banner{padding:16px 32px 0}
+.tablist{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tablist button{border:none;background:transparent;padding:10px 14px;color:var(--text-2);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.tablist button.on{color:var(--text);border-bottom-color:var(--text)}
+.tablist button:hover{color:var(--text)}
+.combo{position:relative;margin:12px 0}
+.picker-menu{position:absolute;left:0;right:0;z-index:10;margin:4px 0 0;padding:4px;list-style:none;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow)}
+.picker-menu[hidden]{display:none}
+.picker-menu li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer}
+.picker-menu li.on{background:var(--surface-2)}
+.people{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.people li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}
+.people li:first-child{border-top:0}
+.err-text{color:var(--err)}
+.initials{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:var(--fs-xs);color:var(--on-ink);background:var(--ink);flex:none}
+.field .hint{font-size:var(--fs-xs);color:var(--text-2)}
+.seg button[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+
+/* Jobs and schedules */
+.run-strip{display:inline-flex;gap:3px;align-items:center}
+.run-cell{width:8px;height:20px;border-radius:3px;background:var(--idle-soft);border:1px solid var(--border-strong)}
+.run-cell.ok{background:var(--ok);border-color:var(--ok)}
+.run-cell.bad{background:var(--err);border-color:var(--err)}
+.run-cell.now{background:var(--info);border-color:var(--info)}
+.run-message{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.fail-actions{flex-wrap:wrap;margin-top:10px}
+.param-help{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.param-row,.param-head{display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1.5fr) 36px;gap:8px;align-items:center;margin-bottom:8px}
+.param-head{margin:12px 0 4px;font-size:var(--fs-sm);font-weight:600}
+.tight-gap{gap:10px}
+.schedule{margin-top:16px;max-width:560px}
+/* Schedule builder */
+.sched{display:flex;flex-direction:column}
+.sched-pair{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
+.sched-note{margin:-8px 0 16px}
+.timepick{display:flex;align-items:center;gap:8px}
+.timepick .select{width:96px}
+.timepick-sep{font-weight:600;color:var(--text-2)}
+.seg.days{display:flex;width:100%}
+.seg.days button{flex:1 1 0;min-width:0;padding:8px 0}
+.sched-sum{display:flex;flex-direction:column;gap:8px;margin:0 0 16px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
+.sched-desc{margin:0;font-weight:500}
+.sched-cron{display:flex;align-items:center;gap:12px}
+.sched-cron label{font-size:var(--fs-sm);font-weight:600}
+.sched-cron .input{flex:1;min-width:0;max-width:300px;padding:7px 12px;font-size:var(--fs-sm)}
+/* Daylight saving: one calm line in the preview, not a warning box. */
+.dst-note{display:flex;gap:10px;align-items:flex-start;margin:0;font-size:var(--fs-sm);color:var(--text-2)}
+.dst-icon{flex:none;margin-top:3px;color:var(--info)}
+.dst-note .textlink{white-space:nowrap}
+.preview{display:flex;flex-direction:column;gap:16px}
+.preview-runs{display:flex;flex-direction:column;gap:6px}
+.preview .k{font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
+.preview-list{margin:0;padding:0;list-style:none;font-size:var(--fs-sm);display:flex;flex-direction:column;gap:4px}
+/* Select: native control, our chevron */
+.select{position:relative;display:block}
+.select>select.input{appearance:none;-webkit-appearance:none;padding-right:40px;cursor:pointer;text-overflow:ellipsis}
+.select-chev{position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-2)}
+.select>input.input{padding-right:40px}
+.select-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:30px;height:30px;display:grid;place-items:center;border:0;background:transparent;color:var(--text-2);cursor:pointer;border-radius:7px}
+.picker-menu.scroll{max-height:280px;overflow-y:auto}
+.combo .picker-menu{top:100%}
+.stop-wrap{position:relative;display:inline-flex}
+/* In a card or row the question opens under the button, above the cards around it. */
+/* Settings: API tokens. */
+.tok-head{align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.tok-head .right{flex-wrap:wrap;justify-content:flex-end}
+.tok-intro code{white-space:nowrap}
+.tok-list{list-style:none;margin:0;padding:0}
+.tok-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px 28px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.tok-row:last-child{border-bottom:none}
+.tok-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tok-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tok-name{overflow-wrap:anywhere}
+.tok-scope{font-size:var(--fs-2xs);font-weight:600;line-height:1;padding:5px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);white-space:nowrap}
+.tok-prefix{color:var(--text-2);overflow-wrap:anywhere}
+.tok-facts{display:grid;grid-template-columns:repeat(3,minmax(92px,auto));gap:2px 24px;margin:0}
+.tok-facts dt{font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);white-space:nowrap}
+.tok-facts dd{margin:0;font-size:var(--fs-sm);white-space:nowrap}
+.tok-form{max-width:640px}
+.tok-form .seg{align-self:flex-start;max-width:100%;flex-wrap:wrap}
+.tok-form .seg button{white-space:nowrap}
+.tok-never{display:flex;flex-direction:column;gap:6px;padding-top:6px}
+.tok-form-act{justify-content:flex-end;gap:8px}
+.tok-secret{display:flex;flex-direction:column;gap:12px;max-width:640px;padding:18px;border-radius:var(--radius);border:1px solid var(--accent);background:var(--accent-soft)}
+.tok-secret-row{display:flex;align-items:center;gap:10px}
+.tok-secret-val{flex:1;min-width:0;padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface);border:1px solid var(--border-strong);color:var(--text);font-size:var(--fs-sm);overflow-wrap:anywhere;user-select:all}
+@media (max-width:760px){
+  .tok-head .right{margin-left:0;width:100%;justify-content:flex-start}
+  .tok-row{grid-template-columns:minmax(0,1fr) auto;padding:12px 14px}
+  .tok-facts{grid-column:1/-1;grid-row:2;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 12px}
+  .tok-facts dd{white-space:normal}
+  .tok-act{grid-column:2;grid-row:1;align-self:start}
+  .tok-act .btn{min-width:0;width:var(--btn-h-sm);padding:0}
+  .tok-act-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  .tok-secret-row{flex-direction:column;align-items:stretch}
+  .tok-form .seg button{padding:6px 10px}
+}
+
+/* Settings sections (platform admins) */
+.sec-name{font-size:var(--fs-sm);font-weight:600}
+.sec-facts{grid-template-columns:minmax(92px,auto) minmax(120px,auto)}
+.sec-facts dd{white-space:normal;max-width:240px;overflow-wrap:anywhere}
+.sec-act{gap:8px;flex-wrap:nowrap}
+.sec-row-full{grid-column:1/-1}
+.sec-edit{max-width:640px}
+.sec-edit .field{margin-bottom:0}
+.sec-value{resize:vertical;min-height:72px;font-size:var(--fs-sm)}
+.input.script{resize:vertical;min-height:110px;font-size:var(--fs-sm);line-height:1.5}
+.env{container-type:inline-size}
+.env>.hint{font-size:var(--fs-xs);color:var(--text-2)}
+.env-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.env-row{display:grid;grid-template-columns:minmax(0,1fr) 116px minmax(0,1.2fr) auto;align-items:end;gap:4px 8px}
+.env-row .field{margin-bottom:0}
+.env-remove{margin-bottom:6px}
+.env-err{grid-column:1/-1}
+.env-none{display:block;padding:10px 0}
+.env-shown+.env-shown{margin-top:2px}
+/* In a narrow place (a phone, a side card) each variable takes two lines,
+   the name on the first and where its value comes from on the second. */
+@container (max-width:520px){
+  .env-row{grid-template-columns:116px minmax(0,1fr) auto;row-gap:8px}
+  .env-name{grid-column:1/3;grid-row:1}
+  .env-remove{grid-column:3;grid-row:1}
+  .env-kind{grid-column:1;grid-row:2}
+  .env-value{grid-column:2/4;grid-row:2}
+  .env-list>li+li{padding-top:12px;border-top:1px solid var(--border)}
+}
+@media (max-width:640px){
+  .sec-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+/* On a narrow screen the sections scroll sideways; the line under them is a
+   shadow so the scrolling box does not clip the active underline. */
+.subnav{overflow-x:auto;scrollbar-width:none;border-bottom:none;box-shadow:inset 0 -1px var(--border)}
+.subnav::-webkit-scrollbar{display:none}
+.subnav a{flex:none;white-space:nowrap;padding:10px 14px;color:var(--text-2);font-weight:500;border-bottom:2px solid transparent;text-decoration:none}
+.subnav a.active{color:var(--text);border-bottom-color:var(--text)}
+.subnav a:hover{color:var(--text)}
+.atable-title{color:var(--text);font-weight:600;font-size:var(--fs-md)}
+.usage-controls{flex-wrap:wrap;gap:8px}
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+.stat{display:flex;flex-direction:column;gap:4px}
+.stat-label{font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
+.stat-value{font-size:var(--fs-xl);font-weight:600}
+.backup-list,.held-list,.outcome-list{list-style:none;margin:0;padding:0}
+.backup-row,.held-row{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--border)}
+.backup-row:last-child,.held-row:last-child{border-bottom:none}
+.backup-main,.held-main{display:flex;flex-direction:column;gap:2px;min-width:0;margin-right:auto}
+.held-row .row{gap:8px;flex-wrap:wrap}
+.outcomes{display:flex;flex-direction:column;gap:12px}
+.outcome{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.outcome:last-child{border-bottom:none}
+.outcome-ico{flex:none;margin-top:2px;color:var(--text-3)}
+.outcome.err .outcome-ico{color:var(--err)}
+.outcome-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.outcome-name{font-weight:600;overflow-wrap:anywhere}
+
+/* Source card: Redeploy sits 16px under the facts, its hint beside it. */
+.redeploy{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-top:16px}
+
+/* Previews card: one row per pull request, 10px of air above and below its text. */
+.plist{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:10px}
+.prow{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.prow .row{gap:8px}
+.prow:last-child{border-bottom:0}
+.ptitle{font-weight:500;min-width:0;overflow-wrap:anywhere}
+
+/* A part of a form (App, Code, Environment...): its icon and name over its card or row. */
+.part{display:flex;flex-direction:column;gap:10px}
+.part-h{margin:0;font-size:var(--fs-md);font-weight:600;color:var(--text)}
+/* A question inside a section (What should run?) sits under the section name, not above it. */
+.part .card-h{font-size:var(--fs-sm);color:var(--text-2)}
+/* A heading led by its icon: a plain line icon in the muted text colour, like the sidebar's, no tile. */
+.part-title{display:flex;align-items:center;gap:8px}
+.part-title>.part-icon{flex:none;color:var(--text-2)}
+/* A page section's name (Apps, Database) is larger, so is its icon. */
+h2.part-title{gap:10px}
+h2.part-title>.part-icon{width:20px;height:20px}
+/* A form section's name and a card title inside it are body-sized: the sidebar's 17px icon. */
+.part-title.part-h,.part .card-h.part-title{gap:8px}
+.part-title.part-h>.part-icon,.part .card-h.part-title>.part-icon{width:17px;height:17px}
+/* A tab or a settings section: the icon before the name, as in the sidebar. */
+.tablist button,.subnav a{display:inline-flex;align-items:center;gap:8px}
+.tablist .part-icon,.subnav .part-icon{flex:none}
+/* The same icon in front of a row of what was asked for, and of a small label. */
+.kv dt .part-icon,.stat-label .part-icon,.ai-answer .k .part-icon,.preview .k .part-icon{vertical-align:-2px;margin-right:6px;color:var(--text-3)}
+
+/* The card that says an app that just started is ready: its address wraps, and on a phone the buttons go below. */
+.ready-card .b-text{min-width:0;flex:1 1 0}
+/* The address stays on one line; Copy link copies it whole. */
+.ready-card .b-text .mono{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ready-card .b-actions{align-items:center}
+@media (max-width:760px){.ready-card{flex-wrap:wrap}.ready-card .b-actions{flex-basis:100%;flex-wrap:wrap}}

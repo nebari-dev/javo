@@ -1,0 +1,18 @@
+{
+  "@jupyterlab/apputils-extension:themes": {
+    "adaptive-theme": true,
+    "overrides": {
+      "code-font-family": "'Fira Code', ui-monospace, monospace"
+    }
+  },
+  "@jupyterlab/apputils-extension:notification": {
+    "fetchNews": "false",
+    "checkForUpdates": false
+  },
+  "@jupyterlab/terminal-extension:plugin": {
+    "fontFamily": "'Fira Code', ui-monospace, monospace",
+    "fontSize": 14,
+    "lineHeight": 1.15,
+    "theme": "inherit"
+  }
+}

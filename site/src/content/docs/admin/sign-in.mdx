@@ -1,0 +1,142 @@
+---
+title: Sign-in and roles
+description: Local accounts, OpenID Connect providers such as Keycloak, and how groups map to roles.
+sidebar:
+  order: 2
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Javo signs people in with **local accounts**, an **OpenID Connect** (OIDC) provider, or both. At least one must be on.
+
+```yaml
+config:
+  auth:
+    local:
+      enabled: true
+    oidc:
+      issuer: https://keycloak.example.com/realms/example
+      clientID: javo
+gateway:
+  oidcClientSecret: javo-oidc   # Secret with key client-secret; empty for a public client
+```
+
+## Local accounts
+
+Local accounts live in Javo's database. Create one with the [`javo user add`](/reference/cli/#javo-user-add) command inside the pod that holds the database. It generates a random password, stores only its hash and writes the password to a file (or standard output with `-`); it never prints it in a log.
+
+```sh
+kubectl -n javo-system exec deploy/javo -- \
+  /javo user add alice --group data-science --password-file - > alice.password
+```
+
+- `--group` puts the account in a group, the way an identity provider would.
+- **Reset a password**: run the same command with `--force`. Alice gets a new password and her current sessions end.
+- **Remove a person**: `javo user remove alice`, for a local account or for someone who signs in through single sign-on (by their username, email or identity name). Their sessions end and their API tokens and secrets are deleted. If more than one person signs in as `alice`, nothing is removed and the command lists their identity names; rerun with one. A person with apps or jobs is removed only with `--delete-apps-and-jobs`. Their home folder is forgotten (no longer listed or backed up) but its files are kept, unless you add `--delete-home`. Someone removed who signs in through the identity provider can sign in again until the provider stops them.
+
+With Postgres, run these in `deploy/javo-controller` (container `controller`) with `--database-engine=postgres --database-dsn-file=/etc/javo-db/dsn`.
+
+## OpenID Connect
+
+Javo uses the authorization code flow with PKCE and a nonce. Settings under `config.auth.oidc`:
+
+| Key | Default | What it does |
+|---|---|---|
+| `issuer` | required | The provider's issuer URL. |
+| `clientID` | required | The client registered for Javo. |
+| `clientSecretFile` | the Secret named by `gateway.oidcClientSecret` | The client secret. Empty: a public client. |
+| `displayName` | | The provider's name on the sign-in page. |
+| `scopes` | `profile`, `email` | Requested scopes; `openid` is always added. |
+| `usernameClaim` | `preferred_username` | The claim shown as the person's name. |
+| `groupsClaim` | `groups` | A dotted path to the claim that lists the person's groups. |
+| `rolesClaim` | | A dotted path to a claim that lists the person's roles at the provider, such as `resource_access.javo.roles` (a Keycloak client's roles) or `realm_access.roles`. Empty reads none. Templates and sizes can be limited to these roles; see [Limit templates and sizes by provider role](#limit-templates-and-sizes-by-provider-role). |
+| `revalidateInterval` | `5m` | How often Javo checks the person with the refresh token. |
+| `outageGrace` | `15m` | How long sessions keep working while the provider cannot be reached. |
+
+Register this callback address with the provider:
+
+```text
+https://<ui host>/auth/oidc/callback
+```
+
+`<ui host>` is `config.urls.uiHost`, which defaults to `ingress.host`. Sign-out sends the person to the provider's end-session endpoint; it returns them to Javo when `config.urls.uiHost` is set.
+
+### Keycloak
+
+<Steps>
+
+1. In your realm, create a client, for example `javo`, with **Client authentication** on and only the **Standard flow**.
+2. Set **Valid redirect URIs** to `https://javo.example.com/auth/oidc/callback` and **Valid post logout redirect URIs** to `https://javo.example.com/*`.
+3. Under the client's advanced settings, require PKCE with method `S256`.
+4. Add a **Group Membership** mapper with claim name `groups`, added to the ID token. With **Full group path** on, groups look like `/org/data-science`; use the same form in `config.roles`.
+5. Put the client secret in a Secret and name it in the values:
+
+   ```sh
+   kubectl -n javo-system create secret generic javo-oidc --from-file=client-secret=./client-secret
+   ```
+
+   ```yaml
+   gateway:
+     oidcClientSecret: javo-oidc
+   config:
+     auth:
+       oidc:
+         issuer: https://keycloak.example.com/realms/example
+         clientID: javo
+   ```
+
+</Steps>
+
+## Roles
+
+Roles come from groups, from the provider's groups claim or from a local account's `--group`:
+
+```yaml
+config:
+  roles:
+    platformAdmin: {groups: [/org/platform]}
+    templateAdmin: {groups: [/org/platform, /org/leads]}
+    member: {groups: []}   # empty: everyone signed in is a member
+```
+
+| Role | May |
+|---|---|
+| **Platform admin** | Everything: every app, the admin tabs, backups, storage, every size. |
+| **Template admin** | Manage templates on the Templates page. |
+| **Member** | Create and run apps and jobs. |
+
+People who are not members can only open apps shared with them. Group names must match exactly what the provider sends.
+
+## Limit templates and sizes by provider role
+
+Besides groups, a template or a size can be limited to people who hold a role at the identity provider, such as a Keycloak client role. Point `rolesClaim` at the claim that lists them, then name the roles:
+
+```yaml
+config:
+  auth:
+    oidc:
+      rolesClaim: resource_access.javo.roles   # the javo client's roles
+workspaceTemplates:
+  jupyterlab: {enabled: true, image: "", allowedProviderRoles: [gpu-users]}
+sizes:
+  - {name: gpu, displayName: GPU, cpu: "8", memory: 32Gi, gpu: 1, allowedProviderRoles: [gpu-users]}
+customSize:
+  enabled: true
+  rules:
+    - {providerRoles: [gpu-users], maxCPU: "8", maxMemory: 64Gi}
+```
+
+- A person may use the template or size when they are in one of its `allowedGroups` **or** hold one of its `allowedProviderRoles` (or, for a template, are in `allowedUsers`). With all of them empty, every member may. Platform admins may always; template admins may use every template.
+- Provider roles are not Javo's roles (`platform-admin`, `template-admin`, `member`). Those still come from groups through `config.roles`, and a custom size rule's `roles` still means them.
+- Values must match exactly what the provider sends. A group and a role with the same name are different things.
+- Javo reads the roles at sign-in and on each refresh, and keeps the last ones for scheduled runs and API tokens, as it does for groups.
+
+In Keycloak, the client's roles reach the ID token through a **User Client Role** mapper: in the `javo` client's dedicated scope, add a mapper by configuration of type **User Client Role**, choose the client `javo`, set **Token Claim Name** to `resource_access.${client_id}.roles`, turn on **Add to ID token** and **Multivalued**. Keycloak's built-in `roles` scope adds the same claim to the access token only, which Javo does not read.
+
+### Coming from the data science pack
+
+The data science pack can limit a profile with `access: keycloak`: a person sees it when they hold the `jupyterlab-profiles` client role whose `profiles` attribute lists the profile's slug. Javo does not read role attributes. Make one client role per profile instead (for example `gpu-users`), give it to the same people, and list it in `allowedProviderRoles` on the template or size that replaces the profile. Profiles gated by groups (`access: yaml` with groups) map to `allowedGroups`.
+
+<Aside type="tip">
+Personal API tokens act with the groups of their owner's last sign-in, for at most `config.api.tokens.groupsMaxAge` (30 days by default) after it.
+</Aside>

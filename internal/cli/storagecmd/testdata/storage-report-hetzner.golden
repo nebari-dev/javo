@@ -1,0 +1,25 @@
+Shared storage is available but not tested   [known, not verified]
+  With it, a person's apps could run on any machine instead of all on one.
+  To use it, test it, then switch home folders to it in the deployment settings.
+  StorageClass longhorn (driver.longhorn.io). Test it with javo storage verify longhorn, then set storage.home.mode to shared and run javo storage migrate.
+Every machine needs a file sharing client   [known]
+  The shared storage works only on machines that have it, and a machine without it cannot open home folders.
+  Install it on each machine, then run the storage test again.
+  StorageClass longhorn needs an NFSv4 client on every node. Then run javo storage verify longhorn.
+Each person's files are on one machine's disk   [auto]
+  A person's apps all run on the machine that holds their files.
+  To let apps run on any machine, add shared storage and switch home folders to it.
+  StorageClass hcloud-volumes, one ReadWriteOnce volume per person (storage.home.mode perUser).
+  Up to 16 user homes per node (CSINode allocatable count for csi.hetzner.cloud).
+Groups have shared folders   [known]
+  Each group has a folder its members can open from any app.
+  Nothing to do.
+  Folders at /shared/<group> on StorageClass longhorn.
+Backups copy files one by one   [known]
+  This storage cannot take instant copies, so backups of home folders are slower.
+  To change this, add snapshot support to the cluster.
+  No VolumeSnapshotClass was found. Install a snapshot controller and a VolumeSnapshotClass for the home StorageClass.
+Home folders can grow   [known]
+  A home folder can be made larger, never smaller.
+  To grow them, raise the home size in the deployment settings.
+  StorageClass hcloud-volumes has allowVolumeExpansion true.

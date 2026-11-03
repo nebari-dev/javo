@@ -1,0 +1,15 @@
+# Dev identity provider for javo: Keycloak in start-dev mode (in-memory
+# H2, data lost on restart), realm javo imported at start. Applied by
+# scripts/dev/keycloak-up.sh, which first creates the Secret keycloak-secrets
+# (admin, alice and bob passwords, javo client secret; generated into .dev/,
+# never printed) and the ConfigMap keycloak-env (KC_HOSTNAME, JAVO_UI_URL,
+# and KC_PROXY_HEADERS behind a proxy).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: javo-keycloak
+resources:
+  - keycloak.yaml
+configMapGenerator:
+  - name: keycloak-realm
+    files:
+      - realm-javo.json

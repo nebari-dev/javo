@@ -1,0 +1,66 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: claude-code
+spec:
+  # Runs without a password: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Claude Code
+  description: Claude coding agent
+  category: agents
+  kind: claude-code
+  # The terminal runs code as you, with your home folder: never shared.
+  maxSharing: Private
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/agents (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: agents
+  # The environment has ttyd, tmux, git, ripgrep, fd and Claude Code (from
+  # npm, by package-lock.json: pod/files/envs/agents). No API key is baked
+  # in: Claude Code signs in with its own flow in the terminal and keeps its
+  # credentials in the home folder (~/.claude).
+  port: 7681
+  # pod-user.sh gives the pod's uid a passwd entry, then runs the rest.
+  command: ["/opt/javo/pod-user.sh"]
+  args:
+    - "ttyd"
+    - "--port={{.Port}}"
+    # ttyd is read-only unless told otherwise.
+    - "--writable"
+    # Refuse a websocket whose Origin is not the host the page came from.
+    - "--check-origin"
+    # The terminal page: Fira Code, and OSC 52 copy to the browser clipboard.
+    - "--index=/opt/javo/agents/terminal.html"
+    # Every tab attaches to the one tmux session, so the agent keeps running
+    # when a tab closes. Quitting the agent leaves a shell in the folder.
+    - "tmux"
+    - "-f"
+    - "/opt/javo/agents/tmux.conf"
+    - "new-session"
+    - "-A"
+    - "-s"
+    - "agent"
+    - "-c"
+    - "{{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+    - "claude; exec bash"
+  # ttyd serves at /; its page finds the websocket relative to its own URL.
+  basePath: Strip
+  appLogin: Disabled
+  fileExtensions: []
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/"
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/claude-code
+    title: Starter project
+  # The app gets a read and write API token of its owner (JAVO_URL,
+  # JAVO_TOKEN) and a guide to the API, which Claude Code reads as its
+  # managed instructions file, so the agent can create and manage apps.
+  apiToken: true
+  apiGuidePaths: [/etc/claude-code/CLAUDE.md]

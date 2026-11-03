@@ -1,0 +1,94 @@
+{{- if eq (include "javo.engine" .) "postgres" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: javo-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "javo.selector" (dict "root" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "javo.labels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+      annotations:
+        {{- include "javo.rollAnnotations" . | nindent 8 }}
+    spec:
+      serviceAccountName: javo-controller
+      {{- with include "javo.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # Group read on the root-owned 0400 secrets key file.
+        fsGroup: {{ .Values.securityContext.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        {{- include "javo.upgradeContainer" . | nindent 8 }}
+      containers:
+        - name: controller
+          image: {{ include "javo.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - controller
+            {{- include "javo.commonArgs" . | nindent 12 }}
+            {{- include "javo.controllerArgs" . | nindent 12 }}
+            {{- include "javo.databaseArgs" . | nindent 12 }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            # The image the Jobs of `javo import jupyterhub-homes` run.
+            - name: JAVO_IMAGE
+              value: {{ include "javo.image" . | quote }}
+          ports:
+            - {name: metrics, containerPort: {{ .Values.controller.metricsPort }}}
+            - {name: probes, containerPort: {{ .Values.controller.probePort }}}
+          livenessProbe:
+            httpGet: {path: /healthz, port: probes}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: probes}
+            periodSeconds: 5
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: sizes, mountPath: {{ include "javo.sizesDir" . }}, readOnly: true}
+            - {name: config, mountPath: /etc/javo, readOnly: true}
+            {{- include "javo.databaseMounts" . | nindent 12 }}
+            {{- with include "javo.bucketMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- include "javo.secretsKeyMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: sizes
+          configMap: {name: javo-sizes}
+        - name: config
+          configMap: {name: javo-config}
+        {{- include "javo.databaseVolumes" . | nindent 8 }}
+        {{- with include "javo.bucketVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- include "javo.secretsKeyVolume" . | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

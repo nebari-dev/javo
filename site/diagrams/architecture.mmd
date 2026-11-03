@@ -1,0 +1,76 @@
+---
+config:
+  look: handDrawn
+  theme: base
+  themeVariables:
+    fontFamily: "Fira Sans, sans-serif"
+    fontSize: "17px"
+    background: "#F5F3FF"
+    primaryColor: "#E0E7FF"
+    primaryBorderColor: "#4338CA"
+    primaryTextColor: "#312E81"
+    lineColor: "#7C3AED"
+    clusterBkg: "#FAF9FF"
+    clusterBorder: "#C4B5FD"
+    edgeLabelBackground: "#F5F3FF"
+  flowchart:
+    curve: basis
+    padding: 18
+---
+flowchart TB
+  browser{{"`**Browser**
+web UI`"}}
+  agents{{"`**Coding agents**
+API tokens, MCP`"}}
+
+  subgraph javo["Javo"]
+    direction TB
+    gw["`**Gateway**
+API, UI, app proxy
+sign-in: OIDC or local`"]
+    db[("`**Database**
+SQLite or Postgres
+source of truth`")]
+    ctrl["`**Controller**
+apps, jobs, previews
+storage, backups
+idle stop`"]
+  end
+
+  idp{{"`**Sign-in provider**
+OIDC, such as Keycloak`"}}
+  k8s["`**Kubernetes**
+app pods, job runs
+home volumes`"]
+  s3[("`**S3 bucket**
+restic backups
+database copies`")]
+  git{{"`**Git hosts**
+repositories
+pull requests`"}}
+  llm{{"`**Model server**
+OpenAI-compatible
+or Anthropic`"}}
+
+  browser --> gw
+  agents --> gw
+  gw -.-> idp
+  gw --> db
+  db -- "change feed" --> ctrl
+  ctrl --> k8s
+  gw -- "proxies apps" --> k8s
+  ctrl --> s3
+  k8s -. "clone" .-> git
+  git -. "PR webhooks" .-> gw
+  gw -.-> llm
+
+  classDef box fill:#E0E7FF,stroke:#4338CA,color:#312E81
+  classDef ext fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-dasharray:6 4
+  classDef chan fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
+  classDef good fill:#ECFDF5,stroke:#059669,color:#064E3B
+  classDef store fill:#E0F2FE,stroke:#0369A1,color:#0C4A6E
+  class browser,agents,idp,git,llm ext
+  class gw,ctrl box
+  class db,s3 store
+  class k8s chan
+  class javo good

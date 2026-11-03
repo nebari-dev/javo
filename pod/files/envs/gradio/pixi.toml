@@ -1,0 +1,23 @@
+[workspace]
+name = "gradio"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+exclude-newer = "2026-10-26"
+
+[dependencies]
+python = "==3.13.18"
+# Gradio's audio and video components call ffmpeg; the newest conda-forge
+# build (LGPL: without the GPL x264 and x265 encoders), not the old one
+# conda-forge's pydub pulls in.
+ffmpeg = { version = "==9.0.2", build = "lgpl*" }
+pillow = "==13.0.0"
+
+# gradio 6.30.0 requires pillow<13, and every 12.x has the advisories fixed in
+# 13.0.0, so gradio comes from PyPI (wheels, locked with their sha256) with
+# that bound overridden: pillow 13.0.0 from conda-forge, as the earlier image
+# installed it over gradio's pin. Drop the override once gradio allows 13.
+[pypi-dependencies]
+gradio = "==6.30.0"
+
+[pypi-options.dependency-overrides]
+pillow = "==13.0.0"

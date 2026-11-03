@@ -1,0 +1,48 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: streamlit
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Streamlit
+  description: Python data apps
+  category: dashboards
+  kind: streamlit
+  fromRepo: Optional
+  maxSharing: Public
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/streamlit (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: streamlit
+  port: 8501
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "streamlit"]
+  args:
+    - "run"
+    - "{{.File}}"
+    - "--server.baseUrlPath={{.BaseURL}}"
+    - "--server.port={{.Port}}"
+    - "--server.address=0.0.0.0"
+    - "--server.headless=true"
+    # CORS off keeps Streamlit's same-origin check on the websocket.
+    - "--server.enableCORS=false"
+    # --server.enableXsrfProtection is left at its default (true): the gateway
+    # proxies same-origin, so the XSRF cookie round-trips and no relaxation is needed.
+    - "--browser.gatherUsageStats=false"
+    # Streamlit's default log format has no level; with it, the log viewer
+    # marks warnings and errors.
+    - "--logger.messageFormat=%(asctime)s %(levelname)s %(message)s"
+  fileExtensions: [".py"]
+  readinessPath: "{{.BaseURL}}_stcore/health"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  sample:
+    path: /opt/javo/samples/streamlit
+    open: app.py
+    title: Sales explorer

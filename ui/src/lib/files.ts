@@ -1,0 +1,54 @@
+import { listFiles, warmFiles, type FileEntry, type FileListing } from '../api'
+import { ApiError, type Problem } from './http'
+
+export type HomeEntry = FileEntry
+type HomeFolder = Omit<FileListing, 'entries'> & { entries: FileEntry[] }
+
+/** The place id of the user's home, as GET /api/files names it. */
+export const HOME_PLACE = 'home'
+
+/** The place id of a group folder, as GET /api/files names it. */
+export const groupPlace = (dir: string) => `group:${dir}`
+
+/**
+ * One read of a folder: its listing (possibly the gateway's last one, marked
+ * stale, while a fresh one is fetched), or the reason the home folder is
+ * still opening. Opening is an answer, not a failure, so a poll that gets it
+ * again changes nothing on screen.
+ */
+type HomeFolderRead = { kind: 'listed'; folder: HomeFolder } | { kind: 'opening'; reason: Problem }
+
+/**
+ * Lists one folder of a place: the signed-in user's home (the default) or a
+ * group folder ("" is the place itself).
+ */
+export async function readHomeFolder(path: string, place: string = HOME_PLACE): Promise<HomeFolderRead> {
+  try {
+    const query = place === HOME_PLACE ? { path } : { path, place }
+    const { data } = await listFiles({ query, throwOnError: true })
+    return { kind: 'listed', folder: { ...data, entries: data.entries ?? [] } }
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 503 && err.body.reason) return { kind: 'opening', reason: err.body }
+    throw err
+  }
+}
+
+/** Asks the gateway to get the home folder ready before the picker opens; a hint, so failures are ignored. */
+export function warmHomeFolder(): void {
+  warmFiles({ throwOnError: true }).catch(() => {})
+}
+
+/**
+ * How long to wait before asking again, by how long the folder has been
+ * opening or updating: half a second, then one, then every two.
+ */
+export function pollDelay(waitedMs: number): number {
+  if (waitedMs < 500) return 500
+  if (waitedMs < 1500) return 1000
+  return 2000
+}
+
+/** The URL that shows or downloads one file of the user's home through the gateway. */
+export function rawFileUrl(path: string): string {
+  return `/api/files/raw?path=${encodeURIComponent(path)}`
+}

@@ -1,0 +1,45 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: dash
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Dash
+  description: Plotly dashboards
+  category: dashboards
+  kind: dash
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/dash (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: dash
+  port: 8050
+  # Dash reads its address, port and URL prefix from the environment; env
+  # sets them without a shell. Dash ignores HOST while CONDA_PREFIX is set
+  # (plotly/dash#3069), so env drops it: the environment stays on PATH.
+  # pod-user.sh runs the command in the environment (pod/files).
+  command: ["/opt/javo/pod-user.sh", "env"]
+  args:
+    - "-u"
+    - "CONDA_PREFIX"
+    - "HOST=0.0.0.0"
+    - "PORT={{.Port}}"
+    - "DASH_URL_BASE_PATHNAME={{.BaseURL}}"
+    - "python"
+    - "{{.File}}"
+  basePath: Prefix
+  appLogin: Disabled
+  fileExtensions: [".py"]
+  readinessPath: "{{.BaseURL}}"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  sample:
+    path: /opt/javo/samples/dash
+    open: sample.py
+    title: Iris explorer

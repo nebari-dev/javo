@@ -1,0 +1,6 @@
+INFO: detected pid 1, running init handler
+{"logger":"","ts":"2026-11-01 08:25:09.100504","caller":{"file":"main.go","line":646},"level":0,"msg":"starting up","version":"v4.7.1","pid":13,"uid":1000,"gid":100,"home":"/tmp","flags":["--depth=1","--link=current","--one-time=true","--ref=HEAD","--repo=https://github.com/example-org/private-site","--root=/srv/src","--submodules=off"]}
+{"logger":"","ts":"2026-11-01 08:25:09.101475","caller":{"file":"main.go","line":752},"level":0,"msg":"git version","version":"git version 2.47.3"}
+{"logger":"","ts":"2026-11-01 08:25:09.104652","caller":{"file":"main.go","line":1277},"level":0,"msg":"repo directory was empty or failed checks","path":"/srv/src"}
+{"logger":"","ts":"2026-11-01 08:25:09.104672","caller":{"file":"main.go","line":1287},"level":0,"msg":"initializing repo directory","path":"/srv/src"}
+{"logger":"","ts":"2026-11-01 08:25:09.542148","caller":{"file":"main.go","line":955},"msg":"too many failures, aborting","error":"Run(git fetch https://github.com/example-org/private-site HEAD --verbose --no-progress --prune --no-auto-gc --depth 1): exit status 128: { stdout: \"\", stderr: \"remote: Repository not found.\\nfatal: Authentication failed for 'https://github.com/example-org/private-site/'\" }","failCount":1,"maxFailures":0}

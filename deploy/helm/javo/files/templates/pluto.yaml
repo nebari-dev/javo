@@ -1,0 +1,43 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: pluto
+spec:
+  # Runs without Pluto's secret: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Pluto.jl
+  description: Julia notebooks
+  kind: pluto
+  category: notebooks
+  fromRepo: Optional
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/pluto (conda-forge, every package pinned by
+  # pixi.lock), installed into the owner's home on the first start and reused
+  # after (internal/pixienv). An environment picked from Nebi, or a pixi.lock
+  # at the root of the app's repository, is installed instead and must bring
+  # the framework. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: pluto
+  port: 1234
+  # pod-user.sh runs the command in the environment (pod/files), whose
+  # default Julia project has Pluto. The registry stays a folder (the
+  # environment's 7z cannot read Pkg's zstd tarball; see its
+  # javo-post-install.sh). The launcher (pod/files/pluto/run.jl) takes the
+  # port, the URL prefix and, when one was chosen, the notebook to open.
+  command: ["/opt/javo/pod-user.sh", "env", "JULIA_PKG_UNPACK_REGISTRY=true", "julia"]
+  args:
+    - "/opt/javo/pluto/run.jl"
+    - "{{.Port}}"
+    - "{{.BaseURL}}"
+    - "{{if .File}}{{.File}}{{end}}"
+  basePath: Prefix
+  appLogin: Disabled
+  fileExtensions: [".jl"]
+  readinessPath: "{{.BaseURL}}ping"
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 4Gi}
+  sample:
+    path: /opt/javo/samples/pluto
+    open: sample.jl
+    title: Compound interest

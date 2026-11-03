@@ -1,0 +1,6 @@
+# herdr settings from javo, copied here on herdr's first start; change them as
+# you like (see `herdr --default-config`). herdr comes with the app's
+# environment, so it does not check herdr.dev for updates.
+[update]
+version_check = false
+manifest_check = false

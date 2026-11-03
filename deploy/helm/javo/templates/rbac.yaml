@@ -1,0 +1,286 @@
+# These Roles grant exactly the rules of the +kubebuilder:rbac markers
+# (make rbac renders them to config/rbac/); test/helm fails if they differ.
+#
+# Controller in the release namespace: the leader election Lease. Failure
+# notices read only the notifications ConfigMap and Secret, by name. No pod
+# rights here: a pod could mount the Secrets of this namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: javo-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, create, update]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [{{ .Values.notifications.configMapName | quote }}]
+    verbs: [get, list, watch]
+  {{- with .Values.imagePullSecrets }}
+  # The image's pull secrets, copied into each namespace apps run in.
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ range $i, $s := . }}{{ if $i }}, {{ end }}{{ $s.name | quote }}{{ end }}]
+    verbs: [get]
+  {{- end }}
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ .Values.notifications.secretName | quote }}]
+    verbs: [get, list, watch]
+  {{- if include "javo.backupClaimByController" . }}
+  # The Postgres backup claim javo-backups (--backup-claim). Create cannot be
+  # narrowed by name; nothing here reads, changes or deletes claims.
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: javo-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: javo-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list . "javo-controller") }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- /* Rules on apps and what they need. In shared mode they are a Role in the one
+workspace namespace. The other modes have apps in namespaces created later:
+reads are granted cluster-wide, and writes are a ClusterRole the controller
+binds with a RoleBinding in each namespace it manages (--app-role-binding),
+so neither component can create pods or services in other namespaces. */ -}}
+{{- $clusterWide := ne (include "javo.namespaceMode" .) "shared" }}
+{{- $readRules := dict
+  "javo-gateway" (list
+    (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "list")))
+  "javo-controller" (list
+    (dict "apiGroups" (list "") "resources" (list "pods" "services" "persistentvolumeclaims" "resourcequotas") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "list" "watch"))
+    (dict "apiGroups" (list "batch") "resources" (list "cronjobs" "jobs") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "networking.k8s.io") "resources" (list "networkpolicies") "verbs" (list "get" "list" "watch")))
+}}
+{{- $writeRules := dict
+  "javo-gateway" (list
+    (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "get" "create" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "pods/log") "verbs" (list "get"))
+    (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "list"))
+    (dict "apiGroups" (list "") "resources" (list "persistentvolumeclaims") "verbs" (list "get")))
+  "javo-controller" (list
+    (dict "apiGroups" (list "batch") "resources" (list "cronjobs") "verbs" (list "create" "update" "patch" "delete"))
+    (dict "apiGroups" (list "batch") "resources" (list "jobs") "verbs" (list "create" "patch" "delete"))
+    (dict "apiGroups" (list "batch") "resources" (list "jobs/finalizers") "verbs" (list "update"))
+    (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "create" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "services") "verbs" (list "create" "update" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "persistentvolumeclaims") "verbs" (list "create" "patch" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "resourcequotas") "verbs" (list "create" "update" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "secrets") "verbs" (list "get" "list" "create" "update" "patch" "delete"))
+    (dict "apiGroups" (list "networking.k8s.io") "resources" (list "networkpolicies") "verbs" (list "create" "update")))
+}}
+{{- range $sa := list "javo-gateway" "javo-controller" }}
+{{- if not $clusterWide }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $sa }}
+  namespace: {{ $.Values.workspaceNamespace }}
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+rules:
+  {{- concat (get $readRules $sa) (get $writeRules $sa) | toYaml | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $sa }}
+  namespace: {{ $.Values.workspaceNamespace }}
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $sa }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list $ $sa) }}
+    namespace: {{ $.Release.Namespace }}
+{{- else }}
+---
+# Bound in each managed namespace by the controller, never cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "javo.appRoleName" (list $ $sa) }}
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+rules:
+  {{- get $writeRules $sa | toYaml | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $sa }}-app-reads
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+rules:
+  {{- get $readRules $sa | toYaml | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $sa }}-app-reads
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $sa }}-app-reads
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list $ $sa) }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- if $clusterWide }}
+---
+# The controller makes those RoleBindings: it may bind only the two app
+# ClusterRoles above.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-javo-controller-bindings
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, create, update, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    verbs: [bind]
+    resourceNames:
+      - {{ include "javo.appRoleName" (list . "javo-gateway") }}
+      - {{ include "javo.appRoleName" (list . "javo-controller") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-javo-controller-bindings
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-javo-controller-bindings
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list . "javo-controller") }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+---
+# Namespaces are cluster scoped. The controller creates and labels the ones
+# apps live in; the gateway finds them by that label.
+{{- range $c := list (dict "sa" "javo-controller" "verbs" (list "get" "list" "watch" "create" "patch")) (dict "sa" "javo-gateway" "verbs" (list "get" "list")) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $c.sa }}-namespaces
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: {{ toJson $c.verbs }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $c.sa }}-namespaces
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $c.sa }}-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list $ $c.sa) }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+---
+# Nodes are cluster scoped. Both components read them (never change them):
+# each node's allocatable CPU and memory mark sizes no machine can hold.
+{{- range $sa := list "javo-controller" "javo-gateway" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $sa }}-nodes
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $sa }}-nodes
+  labels:
+    {{- include "javo.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $.Release.Name }}-{{ $.Release.Namespace }}-{{ $sa }}-nodes
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list $ $sa) }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+---
+# Storage: the controller reads what storage the cluster offers, all
+# read-only (the classes, their drivers, the attach limits per node, and the
+# drivers that can snapshot).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-javo-controller-storage
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses, csidrivers, csinodes]
+    verbs: [get, list, watch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshotclasses]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-javo-controller-storage
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-javo-controller-storage
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list . "javo-controller") }}
+    namespace: {{ .Release.Namespace }}

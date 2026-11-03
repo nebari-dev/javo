@@ -1,0 +1,56 @@
+---
+title: Javo
+description: Notebooks, apps and jobs for data teams, on Kubernetes.
+template: splash
+hero:
+  title: Notebooks, apps and jobs for data teams, on Kubernetes.
+  tagline: Javo runs notebooks, web apps and scheduled jobs for data teams on Kubernetes, from one place. Pick a template, point it at your home folder or a Git repository, and share the result.
+  image:
+    light: ../../../../brand/javo-logo.svg
+    dark: ../../../../brand/javo-logo-white.svg
+    alt: Javo
+  actions:
+    - text: Get started
+      link: /getting-started/
+      variant: primary
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/nebari-dev/javo
+      variant: minimal
+      icon: github
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What Javo does
+
+<CardGrid>
+  <Card title="Apps" icon="puzzle">
+    JupyterLab, VS Code, RStudio, marimo, Streamlit, Dash, Panel, Bokeh, Gradio, Voila, FastAPI, static sites, Node and Go back-ends, coding agents, or any container image.
+  </Card>
+  <Card title="Code from anywhere" icon="code-branch">
+    Run from your home folder or a Git repository, with a preview app for every pull request.
+  </Card>
+  <Card title="Jobs" icon="clock">
+    Run scripts and notebooks on demand or on a schedule, with logs and history.
+  </Card>
+  <Card title="Sharing" icon="link">
+    Keep an app private, or share it with people, groups, everyone signed in, or the public.
+  </Card>
+  <Card title="Secrets and environment variables" icon="seti:lock">
+    Encrypted at rest and handed to apps and jobs by reference.
+  </Card>
+  <Card title="Sizes" icon="server">
+    Admin-defined sizes, optionally with GPUs, or custom CPU and memory, controlled by role.
+  </Card>
+  <Card title="Operations" icon="approve-check-circle">
+    Stop apps when idle, back up to any S3-compatible bucket, admin views of every app and its usage.
+  </Card>
+  <Card title="Sign-in" icon="padlock">
+    Local accounts or any OpenID Connect provider, such as Keycloak.
+  </Card>
+</CardGrid>
+
+## Try it on one machine
+
+Docker Compose brings up a single-node Kubernetes cluster with Javo installed. See [Docker Compose](/getting-started/compose/), or [install the Helm chart](/getting-started/helm/) on a cluster you already run.

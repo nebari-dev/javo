@@ -1,0 +1,130 @@
+name: Go
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '**.go'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'test/**'
+      - 'pod/**'
+      - 'deploy/**'
+      - 'config/**'
+      - 'scripts/**'
+      - 'Makefile'
+      - 'ui/openapi.json'
+      - '.github/workflows/go.yml'
+  pull_request:
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '**.go'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'test/**'
+      - 'pod/**'
+      - 'deploy/**'
+      - 'config/**'
+      - 'scripts/**'
+      - 'Makefile'
+      - 'ui/openapi.json'
+      - '.github/workflows/go.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Kept under two minutes: Go's build cache is restored (and refreshed by
+# the build job on main), and the tests run in parallel shards.
+jobs:
+  # Compiles javo for both architectures the image ships and vets every
+  # package (which compiles the tests' dependencies too). On main it saves
+  # Go's build cache, which the test shards and the release read.
+  go:
+    name: Go build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push'
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod/cache/download
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name != 'push'
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod/cache/download
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-
+      - run: scripts/build/cross-build-javo.sh "$RUNNER_TEMP/javo-bin"
+      - run: go vet ./...
+
+  go-test:
+    name: Go tests (${{ matrix.db }} ${{ matrix.shard }}/${{ matrix.of }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+        shard: [1, 2, 3, 4, 5, 6]
+        of: [6]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod/cache/download
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-
+      # The envtest binaries (kube-apiserver, etcd) and restic.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            bin/k8s
+            bin/setup-envtest
+            bin/restic
+          key: test-bins-${{ runner.os }}-${{ hashFiles('Makefile', 'scripts/build/fetch-restic.sh') }}
+      - name: Test
+        env:
+          DB: ${{ matrix.db }}
+          SHARD: ${{ matrix.shard }}
+          OF: ${{ matrix.of }}
+        run: |
+          make "$PWD/bin/restic"
+          export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
+          export JAVO_TEST_RESTIC="$PWD/bin/restic"
+          if [ "$DB" = postgres ]; then
+            scripts/test/postgres-test.sh env JAVO_TEST_DB=postgres scripts/test/shard.sh "$SHARD" "$OF" $(make -s db-packages)
+          else
+            scripts/test/shard.sh "$SHARD" "$OF" ./...
+          fi
