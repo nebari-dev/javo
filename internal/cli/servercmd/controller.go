@@ -62,6 +62,8 @@ type controllerOptions struct {
 	networkPol   bool
 	egressDeny   []string
 	egressAllow  []string
+	egressAllowC []string
+	egressAllowN []string
 	appBindings  []string
 	metricsAddr  string
 	probeAddr    string
@@ -94,10 +96,14 @@ func (o *controllerOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.gatewayNS, "gateway-namespace", os.Getenv("POD_NAMESPACE"), "namespace of the gateway pods, the only ones allowed to reach apps")
 	f.StringToStringVar(&o.gatewayPods, "gateway-pod-labels", nil, "labels of the gateway pods (key=value,...)")
 	f.BoolVar(&o.networkPol, "network-policy", true, "keep the default-deny NetworkPolicies in every workspace namespace")
-	f.StringSliceVar(&o.egressDeny, "egress-deny-cidrs", []string{"169.254.169.254/32", "fd00:ec2::254/128"},
-		"address ranges app and job pods may not reach; empty denies none")
+	f.StringSliceVar(&o.egressDeny, "egress-deny-cidrs", []string{"169.254.169.254/32", "fd00:ec2::254/128", "100.100.100.200/32", "168.63.129.16/32"},
+		"address ranges app and job pods may not reach, besides the private ranges; empty denies only those")
 	f.StringSliceVar(&o.egressAllow, "egress-allow-cidrs", nil,
-		"if set, the only address ranges app and job pods may reach, besides DNS, the gateway and their own namespace")
+		"if set, the only address ranges app and job pods may reach instead of the public internet, besides DNS, the gateway, their own namespace and the allowed cluster ranges and namespaces")
+	f.StringSliceVar(&o.egressAllowC, "egress-allow-cluster-cidrs", nil,
+		"private address ranges app and job pods may reach anyway (less --egress-deny-cidrs)")
+	f.StringSliceVar(&o.egressAllowN, "egress-allow-namespaces", nil,
+		"namespaces whose pods app and job pods may reach")
 	f.StringSliceVar(&o.appBindings, "app-role-binding", nil,
 		"bind a ClusterRole to a service account in every workspace namespace (clusterrole=namespace/serviceaccount, repeatable)")
 	f.StringVar(&o.metricsAddr, "metrics-bind-address", ":8081", "metrics endpoint address")
@@ -165,8 +171,13 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if err != nil {
 		return err
 	}
-	egress, err := namespace.ParseEgress(o.egressDeny, o.egressAllow)
+	egress, err := namespace.ParseEgress(o.egressDeny, o.egressAllow, o.egressAllowC)
 	if err != nil {
+		return err
+	}
+	egress.AllowNamespaces = o.egressAllowN
+	// Pods get the name servers this pod has (kubelet's --cluster-dns).
+	if egress.NameServers, err = namespace.ReadNameServers("/etc/resolv.conf"); err != nil {
 		return err
 	}
 	backupClaimSize, err := resource.ParseQuantity(o.backupClaim.size)

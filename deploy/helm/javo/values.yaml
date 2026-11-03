@@ -157,18 +157,33 @@ networkPolicy:
   probeInterval: 6h
   # Where app and job pods may connect to (file picker pods have no egress
   # at all). The controller keeps this as the limit-egress NetworkPolicy in
-  # every workspace namespace.
+  # every workspace namespace. By default pods reach the public internet,
+  # the cluster's DNS (port 53 of the kube-dns pods and of the name servers
+  # pods are given), the gateway pods and the pods of their own namespace,
+  # and nothing else in the cluster: no pod in another namespace, and no
+  # private, carrier-grade NAT, link-local or loopback address (10.0.0.0/8,
+  # 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16,
+  # 127.0.0.0/8, fc00::/7, fe80::/10), where nodes, the API server and
+  # storage servers are.
   egress:
-    # Address ranges no pod may reach. The default are the cloud metadata
-    # addresses (AWS, GCP, Azure and others), which hand out the node's cloud
-    # credentials. [] denies nothing. Pod addresses are not affected.
-    denyCIDRs: [169.254.169.254/32, "fd00:ec2::254/128"]
+    # Address ranges no pod may reach, on top of the private ranges above.
+    # The default are the cloud metadata addresses (AWS, GCP, Azure, Alibaba
+    # and others) and Azure's WireServer, which hand out the node's cloud
+    # credentials or configuration. [] denies only the private ranges.
+    denyCIDRs: [169.254.169.254/32, "fd00:ec2::254/128", 100.100.100.200/32, 168.63.129.16/32]
     # When set, the only address ranges pods may reach (less denyCIDRs),
-    # besides DNS (port 53), the gateway and their own namespace. Other pods
-    # in the cluster, the internet and the ingress address (apps call the API
-    # at config.urls.uiHost) must be listed to stay reachable. Empty: anything
-    # but denyCIDRs.
+    # instead of the public internet; DNS, the gateway, their own namespace
+    # and the two lists below stay reachable. The ingress address (apps call
+    # the API at config.urls.uiHost) must be listed unless it leads straight
+    # to the gateway pods. Empty: the public internet.
     allowCIDRs: []
+    # In-cluster services pods may reach anyway: private address ranges
+    # (less denyCIDRs), such as a database on the private network, and
+    # namespaces whose pods they may reach, such as a package mirror or an
+    # ingress controller apps reach the API through. Name pods by namespace:
+    # some network plugins (Cilium) never match pods by address.
+    allowClusterCIDRs: []
+    allowNamespaces: []
 
 # Host (and port, if not the default) browsers reach the gateway at, e.g.
 # javo.example.com. Panel and Bokeh accept websockets only from this origin

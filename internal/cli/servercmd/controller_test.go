@@ -56,7 +56,7 @@ func TestEgressDenyDefaultsToCloudMetadataAndCanBeEmptied(t *testing.T) {
 		}
 		return o.egressDeny
 	}
-	if got := parse(); !slices.Equal(got, []string{"169.254.169.254/32", "fd00:ec2::254/128"}) {
+	if got := parse(); !slices.Equal(got, []string{"169.254.169.254/32", "fd00:ec2::254/128", "100.100.100.200/32", "168.63.129.16/32"}) {
 		t.Errorf("default = %v", got)
 	}
 	if got := parse("--egress-deny-cidrs="); len(got) != 0 {

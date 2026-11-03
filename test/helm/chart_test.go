@@ -690,17 +690,20 @@ func TestControllerCannotListSecretsInReleaseNamespace(t *testing.T) {
 }
 
 // The controller keeps the egress policy from these values: by default it
-// denies the cloud metadata addresses, and an allow list is passed on.
+// denies the cloud metadata addresses, and the allow lists are passed on.
 func TestEgressValuesReachTheController(t *testing.T) {
 	t.Parallel()
+	const metadata = "169.254.169.254/32,fd00:ec2::254/128,100.100.100.200/32,168.63.129.16/32"
 	for _, c := range []struct {
 		args []string
 		want []string
 	}{
-		{nil, []string{"--egress-deny-cidrs=169.254.169.254/32,fd00:ec2::254/128"}},
+		{nil, []string{"--egress-deny-cidrs=" + metadata}},
 		{[]string{"--set-json", "networkPolicy.egress.denyCIDRs=[]"}, []string{"--egress-deny-cidrs="}},
 		{[]string{"--set-json", `networkPolicy.egress.allowCIDRs=["10.0.0.0/8","192.0.2.0/24"]`},
-			[]string{"--egress-deny-cidrs=169.254.169.254/32,fd00:ec2::254/128", "--egress-allow-cidrs=10.0.0.0/8,192.0.2.0/24"}},
+			[]string{"--egress-deny-cidrs=" + metadata, "--egress-allow-cidrs=10.0.0.0/8,192.0.2.0/24"}},
+		{[]string{"--set-json", `networkPolicy.egress.allowClusterCIDRs=["172.20.0.0/16"]`, "--set-json", `networkPolicy.egress.allowNamespaces=["monitoring","nebi"]`},
+			[]string{"--egress-deny-cidrs=" + metadata, "--egress-allow-cluster-cidrs=172.20.0.0/16", "--egress-allow-namespaces=monitoring,nebi"}},
 	} {
 		out, err := render(t, c.args...)
 		if err != nil {

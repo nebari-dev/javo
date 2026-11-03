@@ -274,6 +274,12 @@ true
 {{- with .allowCIDRs }}
 - --egress-allow-cidrs={{ join "," . }}
 {{- end }}
+{{- with .allowClusterCIDRs }}
+- --egress-allow-cluster-cidrs={{ join "," . }}
+{{- end }}
+{{- with .allowNamespaces }}
+- --egress-allow-namespaces={{ join "," . }}
+{{- end }}
 {{- end }}
 - --gateway-pod-labels={{ include "javo.gatewayPodLabels" . }}
 {{- if ne (include "javo.namespaceMode" .) "shared" }}
