@@ -142,7 +142,8 @@ describe('Reaching Running', () => {
     await screen.findByRole('list', { name: 'Startup steps' })
     // The page polls while the app starts; the next answer is Running.
     const ready = (await screen.findByText('Your app is ready', {}, { timeout: 4000 })).closest('.banner') as HTMLElement
-    expect(within(ready).getByText(address())).toBeTruthy()
+    // The address is not printed; Copy link and Open app carry it.
+    expect(within(ready).queryByText(address())).toBeNull()
     const openApp = within(ready).getByRole('link', { name: /Open app/ })
     expect(openApp.getAttribute('href')).toBe('/u/alice/sales-app/')
     expect(openApp.getAttribute('target')).toBe('_blank')

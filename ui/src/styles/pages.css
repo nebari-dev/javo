@@ -423,9 +423,6 @@ h2.part-title>.part-icon{width:20px;height:20px}
 /* The same icon in front of a row of what was asked for, and of a small label. */
 .kv dt .part-icon,.stat-label .part-icon,.ai-answer .k .part-icon,.preview .k .part-icon{vertical-align:-2px;margin-right:6px;color:var(--text-3)}
 
-/* The card that says an app that just started is ready: its address wraps, and on a phone the buttons go below. */
-.ready-card .b-text{min-width:0;flex:1 1 0}
-/* The address stays on one line; Copy link copies it whole. */
-.ready-card .b-text .mono{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The card that says an app that just started is ready: on a phone its buttons go below. */
 .ready-card .b-actions{align-items:center}
 @media (max-width:760px){.ready-card{flex-wrap:wrap}.ready-card .b-actions{flex-basis:100%;flex-wrap:wrap}}

@@ -252,9 +252,7 @@ function ReadyCard({ link, onDismiss }: { link: string; onDismiss: () => void })
           <IconButton icon={X} label="Dismiss" onClick={onDismiss} />
         </>
       }
-    >
-      <span className="mono">{address}</span>
-    </Banner>
+    />
   )
 }
 
