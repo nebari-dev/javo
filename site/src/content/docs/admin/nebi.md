@@ -47,6 +47,7 @@ With the integration on, a JupyterLab app (and any template with `nebiToken: tru
 
 - The **`nebi` CLI** is on `PATH` in terminals and notebooks, signed in as the app's owner: `nebi workspace list`, `nebi pull <workspace>`, `nebi push` and so on.
 - The **kernel picker** lists the owner's Nebi environments ([nb_nebi_kernels](https://github.com/nebari-dev/nb-nebi-kernels)). Environments pulled into the home (`nebi pull`) start as kernels; ones only on the server show as not pulled until they are.
+- The **launcher** has a **Nebi** tile with the Nebi logo. It opens Nebi's own UI in a new browser tab (a JupyterLab tab would be an iframe, which the gateway refuses while apps share an origin): a local Nebi (`nebi serve` in local mode, data in `~/.local/share/nebi`) connected to `nebi.url` as the owner, as the data science pack does. It takes the owner's token when it starts, so after the token expires (24 hours) restart the app to reconnect it.
 
 ### How the app signs in, and who it acts as
 
