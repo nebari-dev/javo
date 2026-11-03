@@ -42,19 +42,19 @@ The CLI reference is generated: run `site/scripts/cli-reference.sh` after changi
 
 ## Cutting a release
 
-A release is the image `ghcr.io/nebari-dev/javo:X.Y.Z` (linux/amd64 and linux/arm64) and the chart `oci://ghcr.io/nebari-dev/charts/javo` version X.Y.Z. Pushing a tag `vX.Y.Z` builds and publishes both (`.github/workflows/release.yaml`):
+A release is the image `quay.io/nebari/javo:X.Y.Z` (linux/amd64 and linux/arm64) and the chart `oci://quay.io/nebari/charts/javo` version X.Y.Z. Pushing a tag `vX.Y.Z` builds and publishes both (`.github/workflows/release.yaml`):
 
 ```sh
 git tag -a v0.1.3 -m "v0.1.3"
 git push origin v0.1.3
 ```
 
-The workflow builds the default target of the `Dockerfile`, pushes the image, then sets the chart's `version` and `appVersion` to X.Y.Z and its image defaults to `ghcr.io/nebari-dev/javo`, tag X.Y.Z and the pushed digest (`scripts/release/set-chart-release.sh`), so the published chart pulls exactly the image built from the tag. The chart in the repository keeps its development defaults; only the published copy names the release image. The workflow uses only the repository's `GITHUB_TOKEN`. A package (the image or the chart) that was first pushed by hand and is not linked to this repository needs this repository added under the package's settings, Manage Actions access, with the Write role; otherwise the push is refused.
+The workflow builds the default target of the `Dockerfile`, pushes the image, then sets the chart's `version` and `appVersion` to X.Y.Z and its image defaults to `quay.io/nebari/javo`, tag X.Y.Z and the pushed digest (`scripts/release/set-chart-release.sh`), so the published chart pulls exactly the image built from the tag. The chart in the repository keeps its development defaults; only the published copy names the release image. The workflow uses only the repository's `GITHUB_TOKEN`. A package (the image or the chart) that was first pushed by hand and is not linked to this repository needs this repository added under the package's settings, Manage Actions access, with the Write role; otherwise the push is refused.
 
 Install a release with:
 
 ```sh
-helm install javo oci://ghcr.io/nebari-dev/charts/javo --version 0.1.3 -n javo --create-namespace
+helm install javo oci://quay.io/nebari/charts/javo --version 0.1.3 -n javo --create-namespace
 ```
 
 ## Conventions

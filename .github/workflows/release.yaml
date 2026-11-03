@@ -1,7 +1,7 @@
 name: Release
 
-# Pushing a tag vX.Y.Z publishes ghcr.io/nebari-dev/javo:X.Y.Z (linux/amd64 and
-# linux/arm64) and the chart oci://ghcr.io/nebari-dev/charts/javo X.Y.Z, whose
+# Pushing a tag vX.Y.Z publishes quay.io/nebari/javo:X.Y.Z (linux/amd64 and
+# linux/arm64) and the chart oci://quay.io/nebari/charts/javo X.Y.Z, whose
 # image defaults name that image by digest.
 on:
   push:
@@ -16,8 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/nebari-dev/javo
-  CHARTS: oci://ghcr.io/nebari-dev/charts
+  IMAGE: quay.io/nebari/javo
+  CHARTS: oci://quay.io/nebari/charts
+  # The image build's layer cache, on this repository's own registry.
+  CACHE: ghcr.io/nebari-dev/javo-buildcache
   # Helm 4.3.1 linux/amd64 release binary and the sha256 published with it
   # (the same release the Dockerfile's helm stage pins).
   HELM_VERSION: v4.3.1
@@ -71,6 +73,13 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # Quay with the organisation's robot account (QUAY_USERNAME, QUAY_TOKEN);
+      # ghcr.io for the build cache.
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
@@ -91,8 +100,8 @@ jobs:
           push: true
           provenance: false
           tags: ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.CACHE }}
+          cache-to: type=registry,ref=${{ env.CACHE }},mode=max
 
       - name: Install helm
         run: |
@@ -110,10 +119,10 @@ jobs:
       - name: Package and push the chart
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          ACTOR: ${{ github.actor }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
         run: |
           helm lint deploy/helm/javo
           helm package deploy/helm/javo --destination "$RUNNER_TEMP/chart"
-          printf '%s' "$TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          printf '%s' "$QUAY_TOKEN" | helm registry login quay.io --username "$QUAY_USERNAME" --password-stdin
           helm push "$RUNNER_TEMP/chart/javo-$VERSION.tgz" "$CHARTS"
