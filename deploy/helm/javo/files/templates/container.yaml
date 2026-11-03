@@ -20,6 +20,10 @@ spec:
   # under a path and on its own subdomain.
   basePath: Strip
   appLogin: Disabled
+  # What an app or a job runs at when no size is picked (as a custom amount,
+  # or the smallest size that holds it); measured 2026-11-03: the nginx sample
+  # peaks at 20Mi.
+  defaultResources: {cpu: 100m, memory: 256Mi}
   # nginx-unprivileged runs as its own non-root user, serves its welcome page
   # at / on 8080 and is pinned by digest (DEPENDENCIES.md); the same image
   # serves the static-site template.

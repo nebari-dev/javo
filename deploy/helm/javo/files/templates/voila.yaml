@@ -31,6 +31,10 @@ spec:
   appLogin: Disabled
   fileExtensions: [".ipynb"]
   readinessPath: "{{.BaseURL}}"
+  # What an app or a job runs at when no size is picked (as a custom amount,
+  # or the smallest size that holds it); not measured yet, a conservative
+  # amount no bigger than the chart's small size.
+  defaultResources: {cpu: 500m, memory: 1Gi}
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}

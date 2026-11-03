@@ -30,6 +30,10 @@ spec:
   appLogin: Disabled
   # The kubelet reaches the pod directly, so no prefix here.
   readinessPath: "/"
+  # What an app or a job runs at when no size is picked (as a custom amount,
+  # or the smallest size that holds it); measured 2026-11-03: 39Mi peak, 22Mi
+  # idle.
+  defaultResources: {cpu: 100m, memory: 256Mi}
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 1Gi}

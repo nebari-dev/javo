@@ -53,6 +53,10 @@ spec:
   fileExtensions: []
   # The kubelet reaches the pod directly, so no prefix here.
   readinessPath: "/"
+  # What an app or a job runs at when no size is picked (as a custom amount,
+  # or the smallest size that holds it); not measured yet, a conservative
+  # amount no bigger than the chart's small size.
+  defaultResources: {cpu: 500m, memory: 1Gi}
   resources:
     requests: {cpu: 250m, memory: 512Mi}
     limits: {memory: 2Gi}

@@ -39,6 +39,10 @@ spec:
     - "--logger.messageFormat=%(asctime)s %(levelname)s %(message)s"
   fileExtensions: [".py"]
   readinessPath: "{{.BaseURL}}_stcore/health"
+  # What an app or a job runs at when no size is picked (as a custom amount,
+  # or the smallest size that holds it); measured 2026-11-03: 75Mi peak with
+  # no browser session, 55Mi idle; the rest is headroom for one.
+  defaultResources: {cpu: 250m, memory: 512Mi}
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}

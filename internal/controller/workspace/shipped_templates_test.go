@@ -484,6 +484,10 @@ func TestEveryShippedTemplateHasARunnableSample(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			tpl := shippedTemplate(t, name)
+			// What the sample needs, so a create without a size runs it.
+			if tpl.Spec.DefaultResources == nil {
+				t.Error("no defaultResources")
+			}
 			if tpl.Spec.JobOnly {
 				sm := tpl.Spec.Jobs.Sample
 				if sm == nil {
