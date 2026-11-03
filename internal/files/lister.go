@@ -10,6 +10,8 @@ package files
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,7 +45,12 @@ import (
 const (
 	roleFiles = model.RoleFiles
 
-	rcPort      = 5572
+	rcPort = 5572
+	// rcUser and the env vars rclone reads its remote control user and
+	// password from.
+	rcUser      = "javo"
+	envRCUser   = "RCLONE_RC_USER"
+	envRCPass   = "RCLONE_RC_PASS"
 	dataDir     = podstorage.HomeDir
 	scratchDir  = podstorage.ScratchDir
 	runAsUser   = 1000
@@ -109,7 +116,8 @@ func CleanPath(raw string) (string, error) {
 	return c, nil
 }
 
-// Remote reads the home and group folders mounted in the file pod at addr.
+// Remote reads the home and group folders mounted in the file pod at addr
+// (host:port, with user:password@ in front when rclone asks for a login).
 // fs is the directory a call is about: the home mount or a group folder's.
 type Remote interface {
 	// List lists remote, a path inside fs.
@@ -283,7 +291,11 @@ func (r Rclone) Open(ctx context.Context, addr, remote string) (io.ReadCloser, e
 		// header wait is bounded by the request context.
 		hc = &http.Client{}
 	}
-	u := url.URL{Scheme: "http", Host: addr, Path: "/[" + dataDir + "]/" + remote}
+	u, err := url.Parse("http://" + addr)
+	if err != nil {
+		return nil, fmt.Errorf("rclone serve: %w", err)
+	}
+	u.Path = "/[" + dataDir + "]/" + remote
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
@@ -594,7 +606,8 @@ func (p *Pods) ns(ctx context.Context) string {
 
 func podName(userSlug string) string { return model.FilesPodPrefix + userSlug }
 
-// Ensure returns "<podIP>:5572" when the user's file pod is ready. Otherwise it
+// Ensure returns "<user>:<password>@<podIP>:5572", the pod's rclone login
+// and address, when the user's file pod is ready. Otherwise it
 // creates the pod if needed and returns ErrHomeStarting, ErrHomeBusy,
 // ErrNoHome or ErrHomeConflict. The home claim (the one the user's home
 // records, after a mode change the new one) must record userID as its owner,
@@ -648,7 +661,10 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	if pod.DeletionTimestamp != nil {
 		return "", ErrHomeStarting
 	}
-	if dir != "" && !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == podstorage.GroupVolume(dir) }) {
+	login := rcloneLogin(&pod)
+	// A pod without a password (made by an earlier version) is replaced
+	// too: its rclone answers anyone who reaches it.
+	if login == nil || dir != "" && !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == podstorage.GroupVolume(dir) }) {
 		if err := deleteExact(ctx, c, &pod); err != nil {
 			return "", err
 		}
@@ -675,7 +691,7 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	// what counts as a busy home.
 	phase, conds, _ := status.Derive(&model.App{}, status.Observed{Pod: &pod, Events: mine, Now: p.cfg.Now()})
 	if phase == "Running" && pod.Status.PodIP != "" {
-		return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(rcPort)), nil
+		return login.String() + "@" + net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(rcPort)), nil
 	}
 	for _, cd := range conds {
 		if cd.Status == metav1.ConditionFalse && cd.Reason == string(reasons.HomeBusy) {
@@ -806,13 +822,15 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 			Containers: []corev1.Container{{
 				Name:  "rclone",
 				Image: image,
-				// --rc-no-auth is safe only because the workspace namespace's
-				// NetworkPolicy (deploy/helm/javo/templates/namespace.yaml)
-				// admits ingress from the gateway alone. Without that policy
-				// any pod could read every user's home, and with --rc-serve every
-				// file in it, through this port.
-				Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-no-auth", "--rc-serve"},
+				// rclone asks every call for the pod's own password, so the
+				// home stays closed where the network plugin does not enforce
+				// the gateway-only NetworkPolicy. The password is in the pod
+				// spec: only the gateway and controller read pods there (app
+				// pods get no API token), and both can read homes anyway.
+				Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-serve"},
 				Env: []corev1.EnvVar{
+					{Name: envRCUser, Value: rcUser},
+					{Name: envRCPass, Value: newPassword()},
 					{Name: "HOME", Value: scratchDir},
 					{Name: "RCLONE_CONFIG", Value: scratchDir + "/rclone.conf"},
 					{Name: "RCLONE_CACHE_DIR", Value: scratchDir + "/cache"},
@@ -838,6 +856,33 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 	}
 	podstorage.Build(userSlug, in).Apply(pod, &pod.Spec.Containers[0])
 	return pod
+}
+
+// rcloneLogin is the user and password the file pod's rclone asks for, or
+// nil if it has no password.
+func rcloneLogin(pod *corev1.Pod) *url.Userinfo {
+	var user, pass string
+	for _, ctr := range pod.Spec.Containers {
+		for _, e := range ctr.Env {
+			switch e.Name {
+			case envRCUser:
+				user = e.Value
+			case envRCPass:
+				pass = e.Value
+			}
+		}
+	}
+	if pass == "" {
+		return nil
+	}
+	return url.UserPassword(user, pass)
+}
+
+// newPassword is 256 random bits, URL-safe.
+func newPassword() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b) // never fails
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // Release deletes the user's file pod, if any, so the home claim is free

@@ -194,6 +194,9 @@ func filePod(phase corev1.PodPhase, ready bool, ip string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: model.FilesPodPrefix + owner, Namespace: ns, UID: "uid-1",
 			Labels: map[string]string{model.LabelRole: "files", model.LabelOwner: owner}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "rclone", Env: []corev1.EnvVar{
+			{Name: "RCLONE_RC_USER", Value: "javo"}, {Name: "RCLONE_RC_PASS", Value: "pw-1"},
+		}}}},
 		Status: corev1.PodStatus{Phase: phase, PodIP: ip,
 			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
 	}
@@ -254,8 +257,14 @@ func TestEnsureCreatesHardenedReadOnlyPod(t *testing.T) {
 	if ctr.Image != image {
 		t.Errorf("image = %q", ctr.Image)
 	}
-	if strings.Join(ctr.Args, " ") != "rcd --rc-addr=:5572 --rc-no-auth --rc-serve" {
+	if strings.Join(ctr.Args, " ") != "rcd --rc-addr=:5572 --rc-serve" {
 		t.Errorf("args = %q", ctr.Args)
+	}
+	// rclone asks for a password of its own (read from RCLONE_RC_USER and
+	// RCLONE_RC_PASS), so the home stays closed to a pod that reaches the
+	// port where the network plugin does not enforce NetworkPolicy.
+	if user, pass := envOf(ctr, "RCLONE_RC_USER"), envOf(ctr, "RCLONE_RC_PASS"); user == "" || len(pass) < 32 {
+		t.Errorf("rclone user %q, password %q; want a user and a long password", user, pass)
 	}
 	sc := ctr.SecurityContext
 	if sc == nil || sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem ||
@@ -300,11 +309,56 @@ func TestEnsureCreatesHardenedReadOnlyPod(t *testing.T) {
 	}
 }
 
+// envOf is the value of the container's env var name ("" if unset).
+func envOf(ctr corev1.Container, name string) string {
+	for _, e := range ctr.Env {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
+}
+
+// Each file pod gets its own random password: knowing one opens no other.
+func TestEachFilePodHasItsOwnPassword(t *testing.T) {
+	ctx := context.Background()
+	var passwords []string
+	for range 2 {
+		c := newClient(t, homeClaim())
+		if _, err := newPods(t, c, &clock{time.Now()}).Ensure(ctx, owner); !errors.Is(err, files.ErrHomeStarting) {
+			t.Fatalf("err = %v, want ErrHomeStarting", err)
+		}
+		var p corev1.Pod
+		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: model.FilesPodPrefix + owner}, &p); err != nil {
+			t.Fatal(err)
+		}
+		passwords = append(passwords, envOf(p.Spec.Containers[0], "RCLONE_RC_PASS"))
+	}
+	if passwords[0] == "" || passwords[0] == passwords[1] {
+		t.Errorf("passwords = %q, want two different ones", passwords)
+	}
+}
+
 func TestEnsureReadyPodReturnsAddress(t *testing.T) {
 	c := newClient(t, homeClaim(), filePod(corev1.PodRunning, true, "10.0.0.5"))
 	addr, err := newPods(t, c, &clock{time.Now()}).Ensure(context.Background(), owner)
-	if err != nil || addr != "10.0.0.5:5572" {
-		t.Fatalf("Ensure = %q, %v", addr, err)
+	if err != nil || addr != "javo:pw-1@10.0.0.5:5572" {
+		t.Fatalf("Ensure = %q, %v; want the pod's address with its rclone user and password", addr, err)
+	}
+}
+
+// A file pod an earlier version made without a password serves the home to
+// anyone who reaches it; it is replaced rather than used.
+func TestEnsureReplacesAFilePodWithoutAPassword(t *testing.T) {
+	old := filePod(corev1.PodRunning, true, "10.0.0.5")
+	old.Spec.Containers[0].Env = nil
+	c := newClient(t, homeClaim(), old)
+	if _, err := newPods(t, c, &clock{time.Now()}).Ensure(context.Background(), owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatalf("err = %v, want ErrHomeStarting", err)
+	}
+	var p corev1.Pod
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: model.FilesPodPrefix + owner}, &p); !apierrors.IsNotFound(err) {
+		t.Fatalf("pod without a password still there: %v", err)
 	}
 }
 
@@ -316,7 +370,7 @@ func withGroupVolume(p *corev1.Pod, dir string) *corev1.Pod {
 func TestEnsureGroupReusesAPodThatMountsTheFolder(t *testing.T) {
 	c := newClient(t, homeClaim(), withGroupVolume(filePod(corev1.PodRunning, true, "10.0.0.5"), "ml"))
 	addr, err := newPods(t, c, &clock{time.Now()}).EnsureGroup(context.Background(), owner, "ml")
-	if err != nil || addr != "10.0.0.5:5572" {
+	if err != nil || addr != "javo:pw-1@10.0.0.5:5572" {
 		t.Fatalf("EnsureGroup = %q, %v", addr, err)
 	}
 }
@@ -910,6 +964,41 @@ func TestReapAcrossAllNamespacesIsOneCall(t *testing.T) {
 }
 
 // --- object reads ---
+
+// The client logs in to rclone with the user and password the address
+// carries, for remote control calls and object reads alike.
+func TestRcloneSendsTheAddressCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, p, ok := r.BasicAuth(); !ok || u != "javo" || p != "pw-1" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method == http.MethodPost {
+			_, _ = w.Write([]byte(`{"list":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer srv.Close()
+	r := files.Rclone{HTTP: srv.Client()}
+	addr := "javo:pw-1@" + strings.TrimPrefix(srv.URL, "http://")
+	if _, err := r.List(context.Background(), addr, "/home/user", ""); err != nil {
+		t.Errorf("list: %v", err)
+	}
+	rc, err := r.Open(context.Background(), addr, "a.txt")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer rc.Close()
+	if body, _ := io.ReadAll(rc); string(body) != "hello" {
+		t.Errorf("open read %q", body)
+	}
+	// The password never shows in an error.
+	_, err = r.List(context.Background(), "javo:pw-1@127.0.0.1:1", "/home/user", "")
+	if err == nil || strings.Contains(err.Error(), "pw-1") {
+		t.Errorf("unreachable rclone: %v, want an error without the password", err)
+	}
+}
 
 func TestRcloneOpenStreamsTheObject(t *testing.T) {
 	var gotPath, gotMethod string
