@@ -14,6 +14,7 @@ import (
 // person row: the groups the provider reported at their last login and their
 // name, by the same rule as the UI (authz UseTemplate).
 func TestPeopleAccessDecidesFromTheGroupSnapshot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(store.IDRange{})
 	person := func(subject string, groups ...string) string {
@@ -57,6 +58,7 @@ func TestPeopleAccessDecidesFromTheGroupSnapshot(t *testing.T) {
 // Scheduled runs read the snapshot, not a live lookup: a later login that
 // drops a group takes access away from the next evaluation.
 func TestScheduledRunUsesGroupSnapshot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(store.IDRange{})
 	claims := store.Claims{Issuer: "https://idp.example.com", Subject: "alice", Username: "alice", Groups: []string{"data-team"}}

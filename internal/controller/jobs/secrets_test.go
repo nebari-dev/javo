@@ -134,6 +134,7 @@ func ownedBy(sec *corev1.Secret, kind, name string, uid string) bool {
 // so Kubernetes deletes it with the CronJob. The values are never in the
 // CronJob, its Jobs or the job's status.
 func TestScheduledRunsGetSecretsFromASecretTheCronJobOwns(t *testing.T) {
+	t.Parallel()
 	h := newSecretsHarness(t)
 	h.template(nil)
 	h.putSecret("WAREHOUSE_PASSWORD", testValue)
@@ -182,6 +183,7 @@ func TestScheduledRunsGetSecretsFromASecretTheCronJobOwns(t *testing.T) {
 // A run started by hand gets a Secret of its own, holding the values at its
 // start and owned by its Job: Kubernetes deletes it with the run.
 func TestManualRunGetsASecretOfItsOwn(t *testing.T) {
+	t.Parallel()
 	h := newSecretsHarness(t)
 	h.template(nil)
 	h.putSecret("API_KEY", testValue)
@@ -225,6 +227,7 @@ func TestManualRunGetsASecretOfItsOwn(t *testing.T) {
 // job is blocked, its schedule suspended and a run asked for fails, each with
 // SecretsUnreadable; no Secret is made.
 func TestUnreadableSecretsBlockTheJob(t *testing.T) {
+	t.Parallel()
 	kek := newKEK(t)
 	h := newHarnessWith(t, func(r *Reconciler) {
 		keys := &secrets.Keys{Store: r.Store, KEK: kek}
@@ -262,6 +265,7 @@ func TestUnreadableSecretsBlockTheJob(t *testing.T) {
 // Deleting the job removes its Secrets at once, without waiting for
 // Kubernetes to collect them after their owners.
 func TestDeletingAJobRemovesItsSecrets(t *testing.T) {
+	t.Parallel()
 	h := newSecretsHarness(t)
 	h.template(nil)
 	h.putSecret("API_KEY", testValue)
@@ -282,6 +286,7 @@ func TestDeletingAJobRemovesItsSecrets(t *testing.T) {
 // Every variable the platform sets in a run's container is one a secret may
 // not become, so a secret never replaces one.
 func TestRunVariablesAreReserved(t *testing.T) {
+	t.Parallel()
 	j := &model.Job{Namespace: "ns", Name: "nightly", Owner: owner, Spec: model.JobSpec{
 		Template: "lab", Engine: "command", Command: []string{"python", "etl.py"},
 		Parameters: []model.JobParameter{{Name: "region", Type: "string", Default: "emea"}},

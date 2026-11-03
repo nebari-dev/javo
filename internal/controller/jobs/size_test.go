@@ -26,6 +26,7 @@ func jobSizes(t *testing.T) sizes.Catalog {
 // The CronJob's runs and a run started by hand both get the job's size; a
 // job that names none gets the default.
 func TestRunsGetTheJobsSizeFromTheCatalog(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.Sizes = jobSizes(t) })
 	h.template(nil)
 	limits := func(p corev1.PodSpec) (cpu, mem string) {
@@ -52,6 +53,7 @@ func TestRunsGetTheJobsSizeFromTheCatalog(t *testing.T) {
 // A job set to a size the admin has since removed is Invalid, for the owner
 // to pick another.
 func TestJobAtAnUnknownSizeIsInvalid(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.Sizes = jobSizes(t) })
 	h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Size = "gone" })
