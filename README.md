@@ -17,6 +17,9 @@
 
 Javo runs notebooks, web apps and scheduled jobs for data teams on Kubernetes, from one place.
 
+> [!WARNING]
+> **Javo is experimental.** It is under active development: the API, the Helm values and the Kubernetes resources it creates may change between releases without a migration path, and it has not been run in production yet. Try it on a test cluster, and expect to reinstall when you upgrade.
+
 ## Features
 
 - **Apps**: JupyterLab, VS Code, RStudio, marimo, Streamlit, Dash, Panel, Bokeh, Gradio, Voila, FastAPI, static sites, Node and Go back-ends, coding agents, or any container image.
