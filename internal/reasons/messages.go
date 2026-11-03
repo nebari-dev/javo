@@ -11,26 +11,29 @@ import (
 type MessageCode string
 
 const (
-	MsgSignInRequired        MessageCode = "SignInRequired"
-	MsgSessionEnded          MessageCode = "SessionEnded"
-	MsgWrongCredentials      MessageCode = "WrongCredentials"
-	MsgCredentialsMissing    MessageCode = "CredentialsMissing"
-	MsgTooManyAttempts       MessageCode = "TooManyAttempts"
-	MsgNotAllowedFromApp     MessageCode = "NotAllowedFromApp"
-	MsgAppNotFound           MessageCode = "AppNotFound"
-	MsgAppChanged            MessageCode = "AppChanged"
-	MsgTemplateChanged       MessageCode = "TemplateChanged"
-	MsgTemplateManagedByHelm MessageCode = "TemplateManagedByHelm"
-	MsgTemplateNameInvalid   MessageCode = "TemplateNameInvalid"
-	MsgNameNeedsLetter       MessageCode = "NameNeedsLetter"
-	MsgNameInvalid           MessageCode = "NameInvalid"
-	MsgNameTaken             MessageCode = "NameTaken"
-	MsgNameTakenByYou        MessageCode = "NameTakenByYou" // arg: existing display name
-	MsgTemplateUnavailable   MessageCode = "TemplateUnavailable"
-	MsgSizeUnavailable       MessageCode = "SizeUnavailable"
-	MsgSizeTooBig            MessageCode = "SizeTooBig" // args: the largest machine's CPU and memory in words
-	MsgSizeTooBigShort       MessageCode = "SizeTooBigShort"
-	MsgSizeNoMachine         MessageCode = "SizeNoMachine" // arg: what the size needs in words, with its GPUs and labels
+	MsgSignInRequired     MessageCode = "SignInRequired"
+	MsgSessionEnded       MessageCode = "SessionEnded"
+	MsgWrongCredentials   MessageCode = "WrongCredentials"
+	MsgCredentialsMissing MessageCode = "CredentialsMissing"
+	MsgTooManyAttempts    MessageCode = "TooManyAttempts"
+	MsgNotAllowedFromApp  MessageCode = "NotAllowedFromApp"
+	// The proxy on one host, where an app's page shares the UI's origin.
+	MsgAdminOpenNeedsAppsHost   MessageCode = "AdminOpenNeedsAppsHost"
+	MsgForkPreviewNeedsAppsHost MessageCode = "ForkPreviewNeedsAppsHost"
+	MsgAppNotFound              MessageCode = "AppNotFound"
+	MsgAppChanged               MessageCode = "AppChanged"
+	MsgTemplateChanged          MessageCode = "TemplateChanged"
+	MsgTemplateManagedByHelm    MessageCode = "TemplateManagedByHelm"
+	MsgTemplateNameInvalid      MessageCode = "TemplateNameInvalid"
+	MsgNameNeedsLetter          MessageCode = "NameNeedsLetter"
+	MsgNameInvalid              MessageCode = "NameInvalid"
+	MsgNameTaken                MessageCode = "NameTaken"
+	MsgNameTakenByYou           MessageCode = "NameTakenByYou" // arg: existing display name
+	MsgTemplateUnavailable      MessageCode = "TemplateUnavailable"
+	MsgSizeUnavailable          MessageCode = "SizeUnavailable"
+	MsgSizeTooBig               MessageCode = "SizeTooBig" // args: the largest machine's CPU and memory in words
+	MsgSizeTooBigShort          MessageCode = "SizeTooBigShort"
+	MsgSizeNoMachine            MessageCode = "SizeNoMachine" // arg: what the size needs in words, with its GPUs and labels
 	// Custom CPU and memory (authz.ActCustomSize and the request checks).
 	MsgCustomSizeNotAllowed MessageCode = "CustomSizeNotAllowed"
 	MsgCustomSizeOverLimit  MessageCode = "CustomSizeOverLimit" // arg: the limit in words, "4 CPU and 16 GB"
@@ -251,12 +254,16 @@ const (
 )
 
 var messages = map[MessageCode]string{
-	MsgSignInRequired:        "Sign in required",
-	MsgSessionEnded:          "Your session ended. Sign in again.",
-	MsgWrongCredentials:      "Wrong username or password",
-	MsgCredentialsMissing:    "Enter your username and password.",
-	MsgTooManyAttempts:       "Too many sign-in attempts. Wait a minute, then try again.",
-	MsgNotAllowedFromApp:     "Changes cannot be made from inside an app.",
+	MsgSignInRequired:     "Sign in required",
+	MsgSessionEnded:       "Your session ended. Sign in again.",
+	MsgWrongCredentials:   "Wrong username or password",
+	MsgCredentialsMissing: "Enter your username and password.",
+	MsgTooManyAttempts:    "Too many sign-in attempts. Wait a minute, then try again.",
+	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
+	MsgAdminOpenNeedsAppsHost: "Platform admins cannot open other people's apps while apps share the platform's address, because the app's page could act as you. " +
+		"Ask the owner to show you, or set an apps host (urls.appsHost or urls.appsDomain).",
+	MsgForkPreviewNeedsAppsHost: "Previews of pull requests from forks do not open while apps share the platform's address, because a stranger's code could act as you. " +
+		"Ask your platform admin to set an apps host (urls.appsHost or urls.appsDomain).",
 	MsgAppNotFound:           "No app with that name.",
 	MsgAppChanged:            "The app changed while you were working on it. Reload and try again.",
 	MsgTemplateChanged:       "The template changed while you were working on it. Reload and try again.",

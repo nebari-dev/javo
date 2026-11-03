@@ -26,6 +26,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
+	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/netprobe"
@@ -583,6 +584,7 @@ func TestLoginEndsThePreviousSession(t *testing.T) {
 	old := f.Session("alice-aaaaaaaa")
 	r := httptest.NewRequest("POST", "/api/auth/local/login", strings.NewReader(`{"username":"alice","password":"alice-password"}`))
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set(authn.RequestHeader, "1")
 	r.AddCookie(old)
 	w := httptest.NewRecorder()
 	f.Srv.ServeHTTP(w, r)

@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"bufio"
 	"context"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -429,10 +430,10 @@ func TestAnAppAddressWithoutItsTrailingSlashOpens(t *testing.T) {
 
 func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
 	t.Parallel()
-	f := newOneHost(t, salesApp(nil))
+	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
-	w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(admin)))
-	if w.Code != 200 {
+	adminApp := f.open(f.ui(admin), salesURL)
+	if w := f.serve(f.srv, "GET", salesURL, adminApp); w.Code != 200 {
 		t.Fatalf("got %d", w.Code)
 	}
 	got := f.adminOpens()
@@ -442,14 +443,43 @@ func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
 	}
 	// A page load is many requests: the same admin opening the same app again
 	// does not add a row each time.
-	f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/lab", uiCookie(f.ui(admin)))
+	f.serve(f.srv, "GET", salesURL+"lab", adminApp)
 	if n := len(f.adminOpens()); n != 1 {
 		t.Fatalf("%d rows after a second request", n)
 	}
 	// The owner's own visit records nothing.
-	f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(alice())))
+	f.serve(f.srv, "GET", salesURL, f.open(f.ui(alice()), salesURL))
 	if n := len(f.adminOpens()); n != 1 {
 		t.Fatalf("%d rows after the owner's visit", n)
+	}
+}
+
+// On one host an app's page runs in the UI's origin and can call the API as
+// whoever views it, so the proxy does not show a platform admin someone
+// else's app, nor anyone a preview of a pull request from a fork.
+func TestOneHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
+	t.Parallel()
+	fork := gatewaytest.App(apitest.AliceID, "sales-app-pr-7")
+	fork.Template, fork.PullNumber = "streamlit", 7
+	fork.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "abc123", Fork: true}
+	f := newOneHost(t, salesApp(nil))
+	fork.ParentID = f.getWorkspaceIn(apitest.AliceID, "sales-app").ID
+	gatewaytest.Seed(t, f.db, []any{fork})
+	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
+	refused := func(who authz.Principal, path string, code reasons.MessageCode) {
+		t.Helper()
+		w := f.serve(f.proxy, "GET", path, uiCookie(f.ui(who)))
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), html.EscapeString(reasons.Msg(code))) {
+			t.Fatalf("%s %s: %d %s", who.Username, path, w.Code, w.Body)
+		}
+	}
+	refused(admin, "/u/"+apitest.AliceID+"/sales-app/", reasons.MsgAdminOpenNeedsAppsHost)
+	if n := len(f.adminOpens()); n != 0 {
+		t.Fatalf("%d admin opens recorded", n)
+	}
+	refused(alice(), "/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgForkPreviewNeedsAppsHost)
+	if w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(alice()))); w.Code != 200 {
+		t.Fatalf("owner: %d", w.Code)
 	}
 }
 

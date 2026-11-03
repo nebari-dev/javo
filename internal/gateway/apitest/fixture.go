@@ -41,6 +41,7 @@ import (
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
 	"github.com/nebari-dev/javo/internal/gateway"
 	adminapi "github.com/nebari-dev/javo/internal/gateway/admin"
+	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/branding"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
@@ -276,6 +277,7 @@ func (f *Fixture) Do(method, path, body string, c *http.Cookie) *httptest.Respon
 	if body != "" {
 		r.Header.Set("Content-Type", "application/json")
 	}
+	r.Header.Set(authn.RequestHeader, "1")
 	if c != nil {
 		r.AddCookie(c)
 	}
@@ -327,6 +329,7 @@ type WorkspaceJSON struct {
 func (f *Fixture) LoginFrom(ip, user, pw string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", "/api/auth/local/login", strings.NewReader(`{"username":"`+user+`","password":"`+pw+`"}`))
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set(authn.RequestHeader, "1")
 	r.RemoteAddr = ip + ":40000"
 	w := httptest.NewRecorder()
 	f.Srv.ServeHTTP(w, r)
@@ -336,6 +339,7 @@ func (f *Fixture) LoginFrom(ip, user, pw string) *httptest.ResponseRecorder {
 func (f *Fixture) LoginVia(proxy, client, user, pw string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", "/api/auth/local/login", strings.NewReader(`{"username":"`+user+`","password":"`+pw+`"}`))
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set(authn.RequestHeader, "1")
 	r.Header.Set("X-Forwarded-For", client)
 	r.RemoteAddr = proxy + ":40000"
 	w := httptest.NewRecorder()

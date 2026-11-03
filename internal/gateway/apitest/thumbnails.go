@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/nebari-dev/javo/internal/gateway/authn"
 )
 
 const ThumbPath = "/api/workspaces/report/thumbnail"
@@ -30,6 +32,7 @@ func (f *Fixture) PutThumb(path, contentType string, body []byte, c *http.Cookie
 	f.T.Helper()
 	r := httptest.NewRequest("PUT", path, bytes.NewReader(body))
 	r.Header.Set("Content-Type", contentType)
+	r.Header.Set(authn.RequestHeader, "1")
 	r.AddCookie(c)
 	w := httptest.NewRecorder()
 	f.Srv.ServeHTTP(w, r)
