@@ -329,9 +329,10 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 	if a.app == nil {
 		return a
 	}
-	a.decision = authz.Decide(a.who, authz.RolesOf(a.who, p.cfg.Roles), authz.ActOpenApp, authz.Object{App: a.app, Template: a.tpl})
+	roles := authz.RolesOf(a.who, p.cfg.Roles)
+	a.decision = authz.Decide(a.who, roles, authz.ActOpenApp, authz.Object{App: a.app, Template: a.tpl})
 	if a.decision.Allowed {
-		a.refusal, a.refused = p.sharedOriginRefusal(a.app, a.decision)
+		a.refusal, a.refused = p.sharedOriginRefusal(a.app, a.decision, roles)
 	}
 	return a
 }
@@ -340,15 +341,16 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 // origin with the UI (one host) or with the other apps (path mode with an apps
 // host). There a page of one app can act as whoever views it: on one host it
 // calls the API with their session, on an apps host it scripts their other
-// apps. So a platform admin does not open other people's apps, and nobody
-// opens a preview of a pull request, which runs code the owner has not
-// necessarily read (a stranger's, for a fork).
-func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision) (reasons.MessageCode, bool) {
+// apps. So a viewer holding any admin role (roles) opens only their own apps,
+// since someone else's page would act with that role, and nobody opens a
+// preview of a pull request, which runs code the owner has not necessarily
+// read (a stranger's, for a fork).
+func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision, roles []authz.Role) (reasons.MessageCode, bool) {
 	if !p.appsShareOrigin() {
 		return "", false
 	}
 	switch {
-	case d.Via == "platform-admin":
+	case d.Via != "owner" && authz.Elevated(roles):
 		return reasons.MsgAdminOpenNeedsAppsHost, true
 	case app.ParentID != "":
 		return reasons.MsgPreviewNeedsAppsHost, true

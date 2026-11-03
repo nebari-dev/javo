@@ -263,7 +263,7 @@ var messages = map[MessageCode]string{
 	MsgCredentialsMissing: "Enter your username and password.",
 	MsgTooManyAttempts:    "Too many sign-in attempts. Wait a minute, then try again.",
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
-	MsgAdminOpenNeedsAppsHost: "Platform admins cannot open other people's apps while apps share one address, because the app's page could act as you. " +
+	MsgAdminOpenNeedsAppsHost: "Admins cannot open other people's apps while apps share one address, because the app's page could act as you, with your admin rights. " +
 		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgPreviewNeedsAppsHost: "Previews of pull requests do not open while apps share one address, because the pull request's code could act as you. " +
 		"Ask your platform admin to give each app its own address (urls.mode subdomain with urls.appsDomain).",

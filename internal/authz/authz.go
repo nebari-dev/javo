@@ -62,6 +62,12 @@ func RolesOf(p Principal, cfg config.Roles) []Role {
 	return roles
 }
 
+// Elevated is true when roles hold more than membership: an admin role of
+// any kind.
+func Elevated(roles []Role) bool {
+	return slices.ContainsFunc(roles, func(r Role) bool { return r != RoleMember })
+}
+
 // signedIn is true only for an identified person. A Principal with no ID
 // (including the zero value) is nobody, so a handler that forgets to fill it
 // in is denied rather than treated as signed in.

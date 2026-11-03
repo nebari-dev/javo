@@ -525,6 +525,26 @@ func TestPathModeWithAppsHostRefusesAdminOpensAndPreviews(t *testing.T) {
 	}
 }
 
+// Any admin role, not only platform admin, is power an app's page could use
+// as its viewer: a template admin does not open someone else's app shared
+// with them while apps share an origin, and still opens their own.
+func TestOneHostRefusesTemplateAdminOpeningAnotherPersonsApp(t *testing.T) {
+	t.Parallel()
+	f := newOneHost(t, salesApp(sharedWithDS()))
+	tplAdmin := func(p authz.Principal) authz.Principal {
+		p.Groups = append(p.Groups, "javo-template-admins")
+		return p
+	}
+	path := "/u/" + apitest.AliceID + "/sales-app/"
+	w := f.serve(f.proxy, "GET", path, uiCookie(f.ui(tplAdmin(bob()))))
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), html.EscapeString(reasons.Msg(reasons.MsgAdminOpenNeedsAppsHost))) {
+		t.Fatalf("template admin: %d %s", w.Code, w.Body)
+	}
+	if w := f.serve(f.proxy, "GET", path, uiCookie(f.ui(tplAdmin(alice())))); w.Code != 200 {
+		t.Fatalf("template admin owner: %d", w.Code)
+	}
+}
+
 func TestOneHostViewerWithTheUISessionOpensASharedApp(t *testing.T) {
 	t.Parallel()
 	f := newOneHost(t, salesApp(sharedWithDS()))
@@ -597,8 +617,7 @@ func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.A
 	}))
 	t.Cleanup(f.backend.Close)
 	target, _ := url.Parse(f.backend.URL)
-	var roles config.Roles
-	roles.PlatformAdmin.Groups = []string{"javo-admins"}
+	roles := appsRoles()
 	f.idp = &idpDouble{now: func() time.Time { return f.now }}
 	providers := registry.New[authprovider.Provider]()
 	providers.Register(f.idp)
@@ -801,11 +820,19 @@ type oneHostFixture struct {
 	proxy http.Handler
 }
 
+// appsRoles makes javo-admins platform admins, javo-template-admins
+// template admins and everyone a member.
+func appsRoles() config.Roles {
+	var roles config.Roles
+	roles.PlatformAdmin.Groups = []string{"javo-admins"}
+	roles.TemplateAdmin.Groups = []string{"javo-template-admins"}
+	return roles
+}
+
 func newOneHost(t *testing.T, app *model.App) *oneHostFixture {
 	f := newApps(t, config.URLs{Mode: "path"}, model.AccessRestricted, app)
 	target, _ := url.Parse(f.backend.URL)
-	var roles config.Roles
-	roles.PlatformAdmin.Groups = []string{"javo-admins"}
+	roles := appsRoles()
 	return &oneHostFixture{appsFixture: f, proxy: proxy.New(proxy.Config{Store: f.db, Sessions: f.store,
 		Exposure: exposurepath.New(config.URLs{}), Roles: roles, Activity: f.activity,
 		Resolve: func(context.Context, *model.App, *model.Template) (proxy.Backend, error) {
