@@ -1,6 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="brand/javo-logo-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="brand/javo-logo.svg">
     <img src="brand/javo-logo.svg" alt="Javo" width="320">
   </picture>
 </p>
