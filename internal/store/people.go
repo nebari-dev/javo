@@ -154,6 +154,34 @@ func (p *People) ensureOnce(ctx context.Context, c Claims) (model.Person, error)
 	return person, nil
 }
 
+// Reconfirm records what a revalidated session's provider says of the
+// person called name now: their groups and provider roles, confirmed at this
+// moment as a sign-in would. Their API tokens act with these, so a group the
+// provider dropped leaves the tokens at the next revalidation. A name with no
+// person is ErrNotFound.
+func (p *People) Reconfirm(ctx context.Context, name string, groups, providerRoles []string) error {
+	var l lists
+	var err error
+	if l.groups, err = snapshot(groups); err != nil {
+		return err
+	}
+	if l.providerRoles, err = snapshot(providerRoles); err != nil {
+		return err
+	}
+	return p.s.inTxAnnounce(ctx, func(q *sqlcgen.Queries) ([]Change, error) {
+		row, err := q.GetPersonByName(ctx, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		c := Claims{Username: row.Username, Email: row.Email, DisplayName: row.DisplayName}
+		_, err = refreshLogin(ctx, q, row, c, l)
+		return nil, err
+	})
+}
+
 func personBySubject(ctx context.Context, q *sqlcgen.Queries, issuer, subject string) (sqlcgen.Person, error) {
 	row, err := q.GetPersonBySubject(ctx, sqlcgen.GetPersonBySubjectParams{Issuer: issuer, Subject: subject})
 	if errors.Is(err, sql.ErrNoRows) {

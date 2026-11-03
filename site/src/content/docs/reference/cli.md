@@ -1054,7 +1054,7 @@ Usage:
   javo user add <name> [flags]
 
 Flags:
-      --force                  replace an existing user and password file
+      --force                  replace an existing user and password file; ends their sessions and revokes their API tokens
       --group stringArray      group the account belongs to, as an identity provider would emit it (repeatable)
   -h, --help                   help for add
       --password-file string   file to write the generated password to (mode 0600); - for standard output

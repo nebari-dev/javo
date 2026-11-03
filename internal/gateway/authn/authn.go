@@ -480,6 +480,7 @@ type People interface {
 	Ensure(ctx context.Context, c store.Claims) (model.Person, error)
 	ByName(ctx context.Context, name string) (model.Person, error)
 	Search(ctx context.Context, prefix string, limit int) ([]model.Person, error)
+	Reconfirmer
 }
 
 // Actor is who a change is made by, for the audit row: the person, and the

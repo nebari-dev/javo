@@ -560,7 +560,7 @@ func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.A
 	f.idp = &idpDouble{now: func() time.Time { return f.now }}
 	providers := registry.New[authprovider.Provider]()
 	providers.Register(f.idp)
-	rv := authn.NewRevalidator(providers, f.store, 0, func() time.Time { return f.now })
+	rv := authn.NewRevalidator(providers, f.store, f.db.People(store.IDRange{}), 0, func() time.Time { return f.now })
 	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp,
 		Providers: providers, Revalidator: rv, Now: func() time.Time { return f.now },
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},

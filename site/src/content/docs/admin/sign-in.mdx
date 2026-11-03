@@ -31,7 +31,7 @@ kubectl -n javo-system exec deploy/javo -- \
 ```
 
 - `--group` puts the account in a group, the way an identity provider would.
-- **Reset a password**: run the same command with `--force`. Alice gets a new password and her current sessions end.
+- **Reset a password or change groups**: run the same command with `--force`. Alice gets a new password, her current sessions end and her API tokens are revoked.
 - **Remove a person**: `javo user remove alice`, for a local account or for someone who signs in through single sign-on (by their username, email or identity name). Their sessions end and their API tokens and secrets are deleted. If more than one person signs in as `alice`, nothing is removed and the command lists their identity names; rerun with one. A person with apps or jobs is removed only with `--delete-apps-and-jobs`. Their home folder is forgotten (no longer listed or backed up) but its files are kept, unless you add `--delete-home`. Someone removed who signs in through the identity provider can sign in again until the provider stops them.
 
 With Postgres, run these in `deploy/javo-controller` (container `controller`) with `--database-engine=postgres --database-dsn-file=/etc/javo-db/dsn`.
@@ -138,5 +138,5 @@ In Keycloak, the client's roles reach the ID token through a **User Client Role*
 The data science pack can limit a profile with `access: keycloak`: a person sees it when they hold the `jupyterlab-profiles` client role whose `profiles` attribute lists the profile's slug. Javo does not read role attributes. Make one client role per profile instead (for example `gpu-users`), give it to the same people, and list it in `allowedProviderRoles` on the template or size that replaces the profile. Profiles gated by groups (`access: yaml` with groups) map to `allowedGroups`.
 
 <Aside type="tip">
-Personal API tokens act with the groups of their owner's last sign-in, for at most `config.api.tokens.groupsMaxAge` (30 days by default) after it.
+Personal API tokens act with the groups and provider roles the identity provider last confirmed for their owner: at sign-in, and again each time the owner's browser session is revalidated (every `revalidateInterval`), so a group removed at the provider leaves the tokens once the owner next uses the web UI. A token stops (until the owner signs in again) `config.api.tokens.groupsMaxAge` (30 days by default) after the last confirmation. Someone disabled at the provider can no longer sign in, but keeps working tokens until then: remove them with `javo user remove`, or lower `groupsMaxAge`, to end that sooner.
 </Aside>

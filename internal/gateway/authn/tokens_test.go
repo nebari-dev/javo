@@ -413,3 +413,43 @@ func TestCreatingAndRevokingATokenIsAudited(t *testing.T) {
 		t.Fatalf("audit rows for the token: %v", seen)
 	}
 }
+
+// A token acts with the groups the provider last confirmed: when a browser
+// session revalidates and the provider no longer lists a group, the person's
+// tokens lose it too, without waiting for a new sign-in.
+func TestTokenLosesTheGroupsARevalidationDrops(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{})
+	c := f.LoginAlice()
+	tok := f.NewToken(c, `{"name":"ci","scope":"read"}`).Token
+	groups := func() []string {
+		t.Helper()
+		w := f.Bearer("GET", "/api/me", "", tok, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("token: %d %s", w.Code, w.Body)
+		}
+		return apitest.Decode[struct{ Groups []string }](t, w).Groups
+	}
+	if got := groups(); len(got) != 1 || got[0] != "javo-admins" {
+		t.Fatalf("before: %v", got)
+	}
+	ctx := context.Background()
+	acct, err := f.Db.LocalAccounts().Get(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acct.Groups = nil
+	if err := f.Db.LocalAccounts().Put(ctx, model.Actor{System: model.SystemCLI}, acct); err != nil {
+		t.Fatal(err)
+	}
+	f.ExpireRevalidation(c)
+	if w := f.Do("GET", "/api/me", "", c); w.Code != http.StatusOK {
+		t.Fatalf("revalidate: %d %s", w.Code, w.Body)
+	}
+	if got := groups(); len(got) != 0 {
+		t.Fatalf("after the provider dropped the group: %v", got)
+	}
+	if w := f.Bearer("GET", "/api/admin/report", "", tok, nil); w.Code != http.StatusForbidden {
+		t.Fatalf("admin route with the token: %d", w.Code)
+	}
+}

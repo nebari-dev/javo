@@ -194,7 +194,8 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go proposals.RunJanitor(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
 	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()})
-	revalidator := authn.NewRevalidator(providers, sessions, outageGrace, nil)
+	people := db.People(uidRange(platform.Identity))
+	revalidator := authn.NewRevalidator(providers, sessions, people, outageGrace, nil)
 	lister := files.NewLister(pods, files.Rclone{})
 	// One keeper for the API (create, start) and the app proxy, so they
 	// share its throttle.
@@ -207,7 +208,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Exposure:          exp,
 		Providers:         providers,
 		Revalidator:       revalidator,
-		People:            db.People(uidRange(platform.Identity)),
+		People:            people,
 		Roles:             platform.Roles,
 		URLs:              platform.URLs,
 		Sharing:           platform.Sharing,

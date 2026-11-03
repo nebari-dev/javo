@@ -216,7 +216,7 @@ func NewServer(cfg Config) *Server {
 		cfg.Providers = registry.New[authprovider.Provider]()
 	}
 	if cfg.Revalidator == nil {
-		cfg.Revalidator = authn.NewRevalidator(cfg.Providers, cfg.Sessions, cfg.OutageGrace, cfg.Now)
+		cfg.Revalidator = authn.NewRevalidator(cfg.Providers, cfg.Sessions, cfg.People, cfg.OutageGrace, cfg.Now)
 	}
 	a := &authn.Authenticator{
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
