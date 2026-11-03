@@ -143,7 +143,8 @@ networkPolicy:
 # Host (and port, if not the default) browsers reach the gateway at, e.g.
 # javo.example.com. Panel and Bokeh accept websockets only from this origin
 # when apps share the UI host (apps on an apps host or subdomain are told that
-# host instead); leave empty and their pages load but stay static.
+# host instead). Empty: config.urls.uiHost (or ingress.host); with neither,
+# their pages load but stay static.
 publicHost: ""
 
 # Sizes users pick for an app. The app container gets the size's cpu and
@@ -153,11 +154,12 @@ publicHost: ""
 # A size bigger than every node's allocatable CPU or memory is shown
 # disabled and refused, and an app already at it fails as SizeTooBig. Set
 # allowUnschedulable: true on a size an autoscaler can add a node for, so it
-# is offered and waits for that node instead.
+# is offered and waits for that node instead. The defaults fit common worker
+# nodes: medium a 4 vCPU / 8 GiB node, large an 8 vCPU / 32 GiB node.
 sizes:
   - {name: small, displayName: Small, cpu: "1", memory: 2Gi}
-  - {name: medium, displayName: Medium, cpu: "4", memory: 8Gi}
-  - {name: large, displayName: Large, cpu: "8", memory: 32Gi}
+  - {name: medium, displayName: Medium, cpu: "2", memory: 4Gi}
+  - {name: large, displayName: Large, cpu: "4", memory: 16Gi}
 # The size new apps get when the user does not pick one; one of the names
 # above (empty when sizes is empty).
 defaultSize: small
@@ -373,6 +375,10 @@ branding:
 # Platform config, rendered into ConfigMap javo-config and read by both the
 # controller and the gateway (see internal/config for every key).
 # namespaces.shared is taken from workspaceNamespace above.
+# urls.uiHost, urls.appsHost, auth.oidc.issuer and auth.oidc.clientID are
+# Helm templates, so a parent chart can derive them from one value, e.g.
+#   uiHost: "javo.{{ .Values.global.domain }}"
+#   clientID: "{{ .Release.Namespace }}-javo"
 config:
   auth:
     local:
@@ -490,7 +496,8 @@ config:
   # change in the browser. Needs no model.
   mcp:
     enabled: true
-    # Where agents reach the gateway, for approve links; empty gives relative links.
+    # Where agents reach the gateway, for approve links. Empty: https://<urls.uiHost>
+    # (with urls.scheme), or relative links when uiHost is not set either.
     publicURL: ""
   # Proposed changes wait this long for approval.
   plans:

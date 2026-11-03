@@ -4,18 +4,26 @@ containerImages from the top-level containerImages values, branding from
 the top-level branding values,
 source.cloneImage and source.previews from the top-level source values,
 auth.oidc.clientSecretFile defaults to the file mounted from
-gateway.oidcClientSecret, and urls.uiHost defaults to the ingress host. */ -}}
+gateway.oidcClientSecret, and urls.uiHost defaults to the ingress host.
+urls.uiHost, urls.appsHost, auth.oidc.issuer and auth.oidc.clientID are
+rendered as templates. */ -}}
 {{- $cfg := deepCopy .Values.config -}}
 {{- $_ := set $cfg "containerImages" (dict "enabled" .Values.containerImages.enabled "allowedRegistries" .Values.containerImages.allowedRegistries) -}}
 {{- $_ := set $cfg "source" (dict "cloneImage" .Values.source.cloneImage "gitConfig" .Values.source.gitConfig "previews" .Values.source.previews) -}}
 {{- $_ := set $cfg "branding" (include "javo.brandingConfig" . | fromJson) -}}
 {{- $_ := set $cfg "namespaces" (merge (dict "shared" .Values.workspaceNamespace) (default (dict) $cfg.namespaces)) -}}
 {{- $oidc := (default (dict) $cfg.auth).oidc -}}
+{{- if $oidc -}}
+{{- range $k := list "issuer" "clientID" -}}
+{{- with include "javo.tpl" (list $ (index $oidc $k)) }}{{ $_ := set $oidc $k . }}{{ end -}}
+{{- end -}}
+{{- end -}}
 {{- if and .Values.gateway.oidcClientSecret $oidc (not $oidc.clientSecretFile) -}}
 {{- $_ := set $oidc "clientSecretFile" (printf "%s/client-secret" (include "javo.oidcSecretDir" .)) -}}
 {{- end -}}
-{{- if and .Values.ingress.host (not (default (dict) $cfg.urls).uiHost) -}}
-{{- $_ := set $cfg "urls" (merge (dict "uiHost" .Values.ingress.host) (default (dict) $cfg.urls)) -}}
+{{- $urls := include "javo.urls" . | fromJson -}}
+{{- if $urls -}}
+{{- $_ := set $cfg "urls" $urls -}}
 {{- end -}}
 {{- if include "javo.bucketEnabled" . -}}
 {{- $t := .Values.backupTarget -}}

@@ -124,9 +124,10 @@ spec:
       {{- end }}
 {{- if .Values.ingress.enabled }}
 {{- /* Hosts: the UI host, then the apps host or the wildcard apps domain when apps are served apart from the UI. */ -}}
-{{- $urls := default (dict) .Values.config.urls -}}
-{{- $hosts := list .Values.ingress.host -}}
-{{- if and $urls.appsHost (ne $urls.appsHost $.Values.ingress.host) -}}
+{{- $urls := include "javo.urls" . | fromJson -}}
+{{- $host := .Values.ingress.host | default $urls.uiHost -}}
+{{- $hosts := list $host -}}
+{{- if and $urls.appsHost (ne $urls.appsHost $host) -}}
 {{- $hosts = append $hosts $urls.appsHost -}}
 {{- end -}}
 {{- if $urls.appsDomain -}}

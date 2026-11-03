@@ -366,3 +366,22 @@ func TestS3BackupTargetReadsItsSecretsFromFiles(t *testing.T) {
 		t.Fatal("a missing password file is an error")
 	}
 }
+
+// Agents get absolute approve links once the UI host is known; an explicit
+// mcp.publicURL wins, and with no host the links stay relative.
+func TestMCPPublicURLDefaultsToTheUIHost(t *testing.T) {
+	for _, tc := range []struct{ name, yaml, want string }{
+		{"from the UI host", "urls:\n  uiHost: javo.example.com\n", "https://javo.example.com"},
+		{"with the URL scheme", "urls:\n  uiHost: localhost:8080\n  scheme: http\n", "http://localhost:8080"},
+		{"explicit", "urls:\n  uiHost: javo.example.com\nmcp:\n  publicURL: https://agents.example.com\n", "https://agents.example.com"},
+		{"no UI host", "", ""},
+	} {
+		p, err := load(t, "auth:\n  local:\n    enabled: true\n"+tc.yaml)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.MCP.PublicURL != tc.want {
+			t.Errorf("%s: mcp.publicURL = %q, want %q", tc.name, p.MCP.PublicURL, tc.want)
+		}
+	}
+}
