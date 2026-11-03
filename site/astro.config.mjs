@@ -8,6 +8,8 @@ const section = (label, directory) => ({
 });
 
 export default defineConfig({
+  // Published by .github/workflows/docs.yml to GitHub Pages at this address.
+  site: 'https://javo.nebari.dev',
   // The only images are SVGs, which need no processing (and no sharp).
   image: { service: passthroughImageService() },
   // Pages read files from the repository (the chart's values.yaml, the

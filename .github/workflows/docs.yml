@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
 
+# One publish at a time; a newer push replaces a waiting one.
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -40,3 +41,23 @@ jobs:
       # Lifecycle scripts stay off: no dependency runs code at install.
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec astro build
+      # On main, the built site is what javo.nebari.dev serves.
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: github.event_name == 'push'
+        with:
+          path: site/dist
+
+  deploy:
+    name: Publish to javo.nebari.dev
+    if: github.event_name == 'push'
+    needs: docs
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

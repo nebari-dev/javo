@@ -360,6 +360,8 @@ Each action is pinned to the commit of its newest release (`gh api repos/<o>/<r>
 | Action | Version | Released | Commit |
 | --- | --- | --- | --- |
 | actions/checkout | v7.0.1 | 2026-07-20 | 3d3c42e5aac5ba805825da76410c181273ba90b1 (same pin as the CI workflows) |
+| actions/upload-pages-artifact | v5.0.0 | 2026-04-10 | fc324d3547104276b827a68afc52ff2a11cc49c9 (GitHub-owned; OSV: none) |
+| actions/deploy-pages | v5.0.1 | 2026-09-01 | 368f82528645a54fb793d4d04e342629a3f51346 (GitHub-owned; OSV: none) |
 | actions/cache | v6.1.0 | 2026-06-26 | 55cc8345863c7cc4c66a329aec7e433d2d1c52a9 (GitHub-owned; OSV: none) |
 | docker/setup-buildx-action | v4.4.1 | 2026-09-16 | f87e5991a6d7451dcb8d9637bfbc97413f497069 |
 | docker/login-action | v4.7.0 | 2026-10-23 | 81c6f93d4bc991e510b342a00b419b3bb4efc5c6 (10 days old; previous v4.6.0 2026-07-29) |
