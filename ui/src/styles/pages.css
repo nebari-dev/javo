@@ -352,7 +352,7 @@ a.btn{text-decoration:none}
 .env-row .field{margin-bottom:0}
 .env-remove{margin-bottom:6px}
 .env-err{grid-column:1/-1}
-.env-none{display:block;padding:10px 0}
+.env-none{display:block;padding:11px 13px}
 .env-shown+.env-shown{margin-top:2px}
 /* In a narrow place (a phone, a side card) each variable takes two lines,
    the name on the first and where its value comes from on the second. */
