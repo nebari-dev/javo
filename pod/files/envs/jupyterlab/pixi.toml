@@ -38,4 +38,4 @@ nb_nebi_kernels = "==0.3"
 # The launcher of the Nebari data science pack (jupyterlab-launchpad): it
 # shows the Nebi tile of jupyter_server_config.py, and the Nebi columns and
 # actions (pull, install dependencies) for Nebi kernels.
-jupyterlab-launchpad = "==1.1.1"
+jupyterlab-launchpad = "==1.2.1"
