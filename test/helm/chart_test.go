@@ -45,6 +45,16 @@ func render(t *testing.T, args ...string) (string, error) {
 	return r.out, r.err
 }
 
+// modeArgs select a namespace mode; per-user and per-team need the
+// ValidatingAdmissionPolicy API, so the cluster is said to serve it.
+func modeArgs(mode string) []string {
+	args := []string{"--set", "config.namespaces.mode=" + mode}
+	if mode != "shared" {
+		args = append(args, vapAPI...)
+	}
+	return args
+}
+
 // renders holds each render by its args joined with NUL.
 var renders sync.Map // string -> *rendered
 
@@ -90,7 +100,7 @@ func TestUpgradeKeepsSharedPoliciesUntilTheControllerOwnsThem(t *testing.T) {
 			t.Errorf("%s is not marked keep:\n%s", name, doc)
 		}
 	}
-	out, err = render(t, "--set", "config.namespaces.mode=per-user")
+	out, err = render(t, modeArgs("per-user")...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
@@ -292,7 +302,7 @@ func markerGrants(t *testing.T, component, mode string) grants {
 }
 
 func checkRBACMatchesMarkers(t *testing.T, engine, mode string) {
-	args := append([]string{"--set", "config.namespaces.mode=" + mode}, engineArgs(engine)...)
+	args := append(modeArgs(mode), engineArgs(engine)...)
 	if mode == "per-team" {
 		args = append(args, "--set", "config.namespaces.teams[0].group=/org/ds", "--set", "config.namespaces.teams[0].slug=ds")
 	}
@@ -498,7 +508,7 @@ func TestTemplateCanBeGatedByGroupsAndProviderRoles(t *testing.T) {
 func TestWorkspaceRulesAreNamespacedOnlyInSharedMode(t *testing.T) {
 	t.Parallel()
 	kinds := func(mode string) (roles, clusterRoles []string, namespaces int) {
-		out, err := render(t, "--set", "config.namespaces.mode="+mode, "--set", "config.namespaces.teams[0].group=/g", "--set", "config.namespaces.teams[0].slug=ds")
+		out, err := render(t, append(modeArgs(mode), "--set", "config.namespaces.teams[0].group=/g", "--set", "config.namespaces.teams[0].slug=ds")...)
 		if err != nil {
 			t.Fatalf("render %s: %v\n%s", mode, err, out)
 		}
@@ -541,7 +551,7 @@ func TestAppWritesAreBoundPerNamespace(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ engine, mode string }{{"sqlite", "per-user"}, {"postgres", "per-user"}, {"sqlite", "per-team"}, {"postgres", "per-team"}} {
 		engine, mode := c.engine, c.mode
-		args := append([]string{"--set", "config.namespaces.mode=" + mode, "--set", "config.namespaces.teams[0].group=/g", "--set", "config.namespaces.teams[0].slug=ds"}, engineArgs(engine)...)
+		args := append(append(modeArgs(mode), "--set", "config.namespaces.teams[0].group=/g", "--set", "config.namespaces.teams[0].slug=ds"), engineArgs(engine)...)
 		out, err := render(t, args...)
 		if err != nil {
 			t.Fatalf("render %s %s: %v\n%s", engine, mode, err, out)
@@ -605,7 +615,7 @@ func TestGatewayRBACHasNoWrites(t *testing.T) {
 	writes := []string{"create", "update", "patch", "delete", "deletecollection", "*"}
 	allowed := map[string][]string{"/pods": writes, "/secrets": {"create"}}
 	for _, mode := range []string{"shared", "per-user", "per-team"} {
-		args := append([]string{"--set", "config.namespaces.mode=" + mode}, postgresArgs...)
+		args := append(modeArgs(mode), postgresArgs...)
 		if mode == "per-team" {
 			args = append(args, "--set", "config.namespaces.teams[0].group=/org/ds", "--set", "config.namespaces.teams[0].slug=ds")
 		}

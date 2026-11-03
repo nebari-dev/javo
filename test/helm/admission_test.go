@@ -34,17 +34,26 @@ func kindNames(t *testing.T, out, kind string) []string {
 	return names
 }
 
-// The policies need admissionregistration.k8s.io/v1 (Kubernetes 1.30+). Older
-// clusters still install the chart, without them. Shared mode makes no
+// The policies need admissionregistration.k8s.io/v1 (Kubernetes 1.30+). In
+// shared mode older clusters still install the chart, without them. Per-user
+// and per-team modes give the controller cluster-wide RoleBinding create and
+// bind, which only the policies keep to Javo's namespaces, so the chart
+// refuses to render those modes without the API. Shared mode makes no
 // RoleBindings, so only the namespace policy is rendered there.
 func TestControllerAdmissionPoliciesNeedTheAPI(t *testing.T) {
 	t.Parallel()
-	out, err := render(t, "--set", "config.namespaces.mode=per-user")
+	out, err := render(t)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
 	if n := kindNames(t, out, "ValidatingAdmissionPolicy"); len(n) != 0 {
 		t.Fatalf("rendered %v without the API", n)
+	}
+	for _, mode := range []string{"per-user", "per-team"} {
+		out, err := render(t, "--set", "config.namespaces.mode="+mode)
+		if err == nil || !strings.Contains(out, "ValidatingAdmissionPolicy") {
+			t.Errorf("%s without the API: err %v, want a failure naming ValidatingAdmissionPolicy\n%s", mode, err, out)
+		}
 	}
 	for _, c := range []struct {
 		mode string
@@ -268,6 +277,10 @@ func TestControllerPatchesOnlyJavoKeysOnItsNamespaces(t *testing.T) {
 				{"foreign label on a managed namespace", patchLabels(ctl, "javo-alice", map[string]string{"team": "red"}), false},
 				{"foreign annotation on a managed namespace", patchAnnotation(ctl, "javo-alice", "example.com/x", "y"), false},
 				{"adopt a namespace not named for Javo", patchLabels(ctl, "other", restricted), false},
+				// javo-system is named like a Javo namespace but is the
+				// release's own: adopting it would let the controller bind
+				// app roles next to the components' Secrets.
+				{"adopt the release namespace", patchLabels(ctl, "javo-system", restricted), false},
 				{"Javo label on kube-system", patchLabels(ctl, "kube-system", map[string]string{"javo.nebari.dev/x": "y"}), false},
 				{"admin is not limited", patchLabels(admin, "kube-system", map[string]string{"team": "red"}), true},
 			} {
