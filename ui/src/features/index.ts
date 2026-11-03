@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import type { RouteObject } from 'react-router'
 import { filesFeature } from './files'
 import { jobsFeature } from './jobs'
+import { terminalFeature } from './terminal'
 
 interface NavEntry {
   to: string
@@ -31,7 +32,7 @@ export interface FeatureModule {
 }
 
 /** Static: a feature exists in the UI when it is listed here. */
-export const features: FeatureModule[] = [jobsFeature, filesFeature]
+export const features: FeatureModule[] = [jobsFeature, filesFeature, terminalFeature]
 
 export function useFeatureAttention(): AttentionEntry[] {
   return features.flatMap((f) => f.useAttention?.() ?? [])
