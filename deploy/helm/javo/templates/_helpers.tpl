@@ -48,6 +48,31 @@ checksum/sizes: {{ include (print .Template.BasePath "/sizes.yaml") . | sha256su
 checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
 {{- end -}}
 
+{{/* Renders a value that may be a template ({{ .Values.global.domain }},
+{{ .Release.Namespace }}), so a parent chart can derive it: (list $ value). */}}
+{{- define "javo.tpl" -}}
+{{- $v := index . 1 -}}
+{{- if $v }}{{ tpl (toString $v) (index . 0) }}{{ end -}}
+{{- end -}}
+
+{{/* config.urls as JSON, its hosts rendered as templates; uiHost defaults to
+ingress.host. */}}
+{{- define "javo.urls" -}}
+{{- $urls := deepCopy (default (dict) .Values.config.urls) -}}
+{{- range $k := list "uiHost" "appsHost" -}}
+{{- with include "javo.tpl" (list $ (index $urls $k)) }}{{ $_ := set $urls $k . }}{{ end -}}
+{{- end -}}
+{{- if and .Values.ingress.host (not $urls.uiHost) -}}
+{{- $_ := set $urls "uiHost" .Values.ingress.host -}}
+{{- end -}}
+{{- toJson $urls -}}
+{{- end -}}
+
+{{/* The host browsers reach the gateway at: publicHost, else the UI host. */}}
+{{- define "javo.publicHost" -}}
+{{- .Values.publicHost | default ((include "javo.urls" . | fromJson).uiHost | default "") -}}
+{{- end -}}
+
 {{/* The namespace mode: shared, per-user or per-team. */}}
 {{- define "javo.namespaceMode" -}}
 {{ (default (dict) .Values.config.namespaces).mode | default "shared" }}
@@ -251,7 +276,7 @@ true
 - --notifications-config-map={{ .Values.notifications.configMapName }}
 - --notifications-secret={{ .Values.notifications.secretName }}
 {{- end }}
-{{- with .Values.publicHost }}
+{{- with include "javo.publicHost" . }}
 - --public-host={{ . }}
 {{- end }}
 {{- if include "javo.backupClaimByController" . }}

@@ -143,7 +143,8 @@ networkPolicy:
 # Host (and port, if not the default) browsers reach the gateway at, e.g.
 # javo.example.com. Panel and Bokeh accept websockets only from this origin
 # when apps share the UI host (apps on an apps host or subdomain are told that
-# host instead); leave empty and their pages load but stay static.
+# host instead). Empty: config.urls.uiHost (or ingress.host); with neither,
+# their pages load but stay static.
 publicHost: ""
 
 # Sizes users pick for an app. The app container gets the size's cpu and
@@ -373,6 +374,10 @@ branding:
 # Platform config, rendered into ConfigMap javo-config and read by both the
 # controller and the gateway (see internal/config for every key).
 # namespaces.shared is taken from workspaceNamespace above.
+# urls.uiHost, urls.appsHost, auth.oidc.issuer and auth.oidc.clientID are
+# Helm templates, so a parent chart can derive them from one value, e.g.
+#   uiHost: "javo.{{ .Values.global.domain }}"
+#   clientID: "{{ .Release.Namespace }}-javo"
 config:
   auth:
     local:

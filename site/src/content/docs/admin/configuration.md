@@ -19,13 +19,13 @@ Values fall in two groups:
 | `image.repository`, `image.tag` (or `image.digest`) | The `javo` image you built and pushed. |
 | `database.engine` | `sqlite` (default; one pod) or `postgres` (separate gateway and controller, more than one replica each). |
 | `database.postgres.dsnSecret` | With Postgres: a Secret whose key `dsn` holds the connection string. |
-| `publicHost` | The host (and port) browsers use. Panel and Bokeh check websocket origins against it. |
+| `publicHost` | The host (and port) browsers use. Panel and Bokeh check websocket origins against it. Defaults to `config.urls.uiHost`. |
 | `ingress.*` | An Ingress for the web UI (and the apps host, when set). `config.urls.uiHost` defaults to `ingress.host`. |
 | `gateway.secureCookies` | `true` when served over TLS. |
 | `gateway.trustedProxies` | CIDRs of reverse proxies in front of the gateway, so sign-in rate limits see the real client address. |
 | `config.auth` | [Sign-in](/admin/sign-in/): local accounts and OpenID Connect. |
 | `config.roles` | Which groups are platform admins, template admins and members. |
-| `config.urls` | [App addresses](/admin/app-addresses/). |
+| `config.urls` | [App addresses](/admin/app-addresses/). `uiHost` and `appsHost`, like `config.auth.oidc.issuer` and `clientID`, may be Helm templates such as `javo.{{ .Values.global.domain }}`. |
 | `sizes`, `defaultSize`, `customSize` | [Sizes](/admin/sizes/). |
 | `config.idleStop` | [Idle stop](/admin/idle-stop/). |
 | `database.backup`, `backupTarget` | [Backups](/admin/backups/). |

@@ -147,6 +147,12 @@ func ingressHosts(t *testing.T, args ...string) []string {
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
+	return hostsOfIngress(t, out)
+}
+
+// hostsOfIngress returns the hosts of the Ingress rules in a render.
+func hostsOfIngress(t *testing.T, out string) []string {
+	t.Helper()
 	for _, u := range manifests(t, out) {
 		if u.GetKind() != "Ingress" {
 			continue
