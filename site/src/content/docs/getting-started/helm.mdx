@@ -36,8 +36,6 @@ The chart lives in `deploy/helm/javo` in the repository. It installs one image, 
      repository: registry.example.com/javo/javo
      tag: "0.1.0"
 
-   publicHost: javo.example.com
-
    ingress:
      enabled: true
      className: nginx
@@ -54,7 +52,7 @@ The chart lives in `deploy/helm/javo` in the repository. It installs one image, 
        platformAdmin: {groups: [javo-admins]}
    ```
 
-   Every value is described in the [Helm values reference](/reference/helm-values/). The [configuration guide](/admin/configuration/) walks through the ones most installs change.
+   The host is set once: `ingress.host` is also the UI host (`config.urls.uiHost`), the host Panel and Bokeh check websocket origins against (`publicHost`) and the address in agents' approve links (`config.mcp.publicURL`). Every value is described in the [Helm values reference](/reference/helm-values/). The [configuration guide](/admin/configuration/) walks through the ones most installs change.
 
 3. Install the release.
 
@@ -84,6 +82,15 @@ The chart lives in `deploy/helm/javo` in the repository. It installs one image, 
 5. Open `https://javo.example.com` and sign in as `admin`. Next: [create a first app](/getting-started/first-app/).
 
 </Steps>
+
+<Aside title="On Nebari">
+Install the [Javo pack](https://github.com/nebari-dev/javo-pack) instead: the nebari-operator routes both hosts, issues their certificates and creates the Keycloak client. Its values are the cluster's domain:
+
+```yaml
+global:
+  domain: example.com
+```
+</Aside>
 
 <Aside type="tip" title="No Ingress yet?">
 Leave `ingress` off and reach the gateway's Service directly:
