@@ -339,11 +339,19 @@ describe('App status page', () => {
     expect(within(items[4]).getByText('checking TCP :8080, no answer yet')).toBeTruthy()
   })
 
-  it('has a live log section that follows the app log', async () => {
+  it("keeps the running app's log folded until asked, then follows it live", async () => {
     detail(ws('sales-app', 'Sales app', 'Running', allReady()))
     renderApp('/apps/sales-app')
-    expect(await screen.findByRole('heading', { name: 'Logs' })).toBeTruthy()
+    const show = await screen.findByRole('button', { name: "Show the running app's log" })
+    expect(show.getAttribute('aria-expanded')).toBe('false')
+    // Folded: no stream is opened.
+    expect(FakeEventSource.instances).toHaveLength(0)
+    await userEvent.click(show)
+    expect(screen.getByRole('heading', { name: "Running app's log" })).toBeTruthy()
     expect(FakeEventSource.latest().url).toBe('/api/workspaces/sales-app/logs/stream')
+    await userEvent.click(screen.getByRole('button', { name: "Hide the running app's log" }))
+    expect(screen.queryByRole('heading', { name: "Running app's log" })).toBeNull()
+    expect(FakeEventSource.latest().closed).toBe(true)
   })
 
   it('shows the API message for an app that does not exist', async () => {

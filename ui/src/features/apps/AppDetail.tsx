@@ -1,4 +1,4 @@
-import { ChevronRight, CircleCheck, Clock3, FileText, Play, RotateCcw, Trash2, X } from 'lucide-react'
+import { ChevronRight, ChevronUp, CircleCheck, Clock3, FileText, Play, RotateCcw, ScrollText, Trash2, X } from 'lucide-react'
 import { PartIcon } from '../../components/Section'
 import { OpenAppLink } from './OpenAppLink'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -306,12 +306,31 @@ function StartedSteps({ started, hold, children }: { started: string; hold: bool
   )
 }
 
-// The Logs card reads the app's restart count from its latest lines.
+// The log card reads the app's restart count from its latest lines.
 const LOGS_CARD_TAIL = 20
 
+/** The running app's own log: folded until asked for, then followed live. */
 function LogsCard({ name }: { name: string }) {
-  const logs = useWorkspaceLogs(name, { tail: LOGS_CARD_TAIL })
-  return <LiveLogs name={name} restarts={logs.data?.restarts ?? 0} />
+  const [open, setOpen] = useState(false)
+  const logs = useWorkspaceLogs(name, { tail: LOGS_CARD_TAIL, enabled: open })
+  if (!open)
+    return (
+      <Card className="pad">
+        <button type="button" className="more-toggle" aria-expanded="false" onClick={() => setOpen(true)}>
+          <ChevronRight size={15} aria-hidden="true" className="more-chevron" />
+          <ScrollText size={15} aria-hidden="true" />
+          Show the running app's log
+        </button>
+      </Card>
+    )
+  return (
+    <LiveLogs
+      name={name}
+      title="Running app's log"
+      restarts={logs.data?.restarts ?? 0}
+      hide={<IconButton icon={ChevronUp} label="Hide the running app's log" onClick={() => setOpen(false)} />}
+    />
+  )
 }
 
 // Failures whose fix is another size: their card offers Change size.

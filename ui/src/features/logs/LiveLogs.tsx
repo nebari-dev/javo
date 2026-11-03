@@ -1,5 +1,5 @@
 import { History } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { LogLine as ApiLogLine } from '../../api'
 import { problemText } from '../../lib/http'
 import { useWorkspaceLogs } from '../../lib/queries'
@@ -19,7 +19,7 @@ function streamURL(name: string): string {
  * (re)connect, so each open starts from an empty list. The view follows the
  * newest line until the user scrolls up, and "Jump to latest" resumes it.
  */
-export function LiveLogs({ name, restarts }: { name: string; restarts: number }) {
+export function LiveLogs({ name, restarts, title = 'Logs', hide }: { name: string; restarts: number; title?: string; hide?: ReactNode }) {
   const [lines, setLines] = useState<LogLine[]>([])
   const [previous, setPrevious] = useState(false)
   const prev = useWorkspaceLogs(name, { tail: 500, previous: true, enabled: previous })
@@ -42,7 +42,7 @@ export function LiveLogs({ name, restarts }: { name: string; restarts: number })
   return (
     <LogView
       card
-      title="Logs"
+      title={title}
       label={previous ? 'Previous run log' : 'App log'}
       status={previous ? 'previous' : 'live'}
       follow={!previous}
@@ -54,7 +54,12 @@ export function LiveLogs({ name, restarts }: { name: string; restarts: number })
           ? { title: 'No log lines', body: 'The run before the last restart wrote nothing.' }
           : { title: 'No log lines yet', body: 'Lines the app writes show up here as they happen.' }
       }
-      actions={restarts > 0 && <IconButton icon={History} label="Show previous run" pressed={previous} onClick={() => setPrevious(!previous)} />}
+      actions={
+        <>
+          {restarts > 0 && <IconButton icon={History} label="Show previous run" pressed={previous} onClick={() => setPrevious(!previous)} />}
+          {hide}
+        </>
+      }
     />
   )
 }
