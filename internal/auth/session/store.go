@@ -11,7 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+
+	"github.com/tink-crypto/tink-go/v2/tink"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/model"
@@ -87,11 +90,17 @@ type Store interface {
 const SystemSessions = "system:sessions"
 
 // DBStore keeps each session in the sessions table under the SHA-256 of the
-// token, so the raw token is never written down.
+// token, so the raw token is never written down. With a Key, the identity
+// provider's refresh and id tokens are sealed with it (AES-256-GCM, bound to
+// the row and the column), so a copy of the database, such as a backup,
+// holds no live credential.
 type DBStore struct {
 	Sessions *store.Sessions
-	TTL      time.Duration    // zero means DefaultTTL
-	Now      func() time.Time // nil means time.Now
+	// Key seals the provider's tokens. nil stores them in clear: for tests
+	// and for commands that only end sessions; the gateway always sets it.
+	Key tink.AEAD
+	TTL time.Duration    // zero means DefaultTTL
+	Now func() time.Time // nil means time.Now
 }
 
 var _ Store = (*DBStore)(nil)
@@ -119,23 +128,88 @@ func ID(token string) string {
 
 func validKind(k string) bool { return k == KindUI || k == KindApp || k == KindTicket }
 
+// Columns of the sealed tokens, part of what each is bound to.
+const (
+	colRefresh = "refresh"
+	colIDToken = "id_token"
+)
+
+// sealedPrefix marks a sealed token: the version of the scheme, then the
+// ciphertext in base64.
+const sealedPrefix = "v1."
+
+// errUnsealed is a stored token that does not open with the key: another
+// key, another row's, or written in clear.
+var errUnsealed = errors.New("the session's provider tokens do not open")
+
+// tokenAD binds a sealed token to its row and column, so one copied onto
+// another row or column does not open.
+func tokenAD(id, column string) []byte {
+	b, _ := json.Marshal([]string{"javo session token v1", id, column})
+	return b
+}
+
+func (s *DBStore) seal(id, column, v string) (string, error) {
+	if s.Key == nil || v == "" {
+		return v, nil
+	}
+	ct, err := s.Key.Encrypt([]byte(v), tokenAD(id, column))
+	if err != nil {
+		return "", fmt.Errorf("seal the session's %s: %w", column, err)
+	}
+	return sealedPrefix + base64.RawStdEncoding.EncodeToString(ct), nil
+}
+
+func (s *DBStore) open(id, column, v string) (string, error) {
+	if s.Key == nil || v == "" {
+		return v, nil
+	}
+	b64, ok := strings.CutPrefix(v, sealedPrefix)
+	if !ok {
+		return "", errUnsealed
+	}
+	ct, err := base64.RawStdEncoding.DecodeString(b64)
+	if err != nil {
+		return "", errUnsealed
+	}
+	pt, err := s.Key.Decrypt(ct, tokenAD(id, column))
+	if err != nil {
+		return "", errUnsealed
+	}
+	return string(pt), nil
+}
+
 func (s *DBStore) rowOf(id string, sess Session) (store.Session, error) {
 	principal, err := json.Marshal(sess.Principal)
 	if err != nil {
 		return store.Session{}, err
 	}
+	refresh, err := s.seal(id, colRefresh, sess.Refresh)
+	if err != nil {
+		return store.Session{}, err
+	}
+	idToken, err := s.seal(id, colIDToken, sess.IDToken)
+	if err != nil {
+		return store.Session{}, err
+	}
 	return store.Session{
 		ID: id, Kind: sess.Kind, ParentID: sess.Parent, Person: sess.Principal.ID, Principal: string(principal),
-		Provider: sess.Provider, Workspace: sess.Workspace, Refresh: sess.Refresh, IDToken: sess.IDToken,
+		Provider: sess.Provider, Workspace: sess.Workspace, Refresh: refresh, IDToken: idToken,
 		ExpiresAt: sess.Expires, RevalidateAt: sess.RevalidateAt, Version: sess.version,
 	}, nil
 }
 
-func sessionOf(row store.Session) (Session, error) {
+func (s *DBStore) sessionOf(row store.Session) (Session, error) {
 	sess := Session{
 		Provider: row.Provider, Kind: row.Kind, Parent: row.ParentID, Workspace: row.Workspace,
-		Refresh: row.Refresh, IDToken: row.IDToken, Expires: row.ExpiresAt, RevalidateAt: row.RevalidateAt,
-		version: row.Version,
+		Expires: row.ExpiresAt, RevalidateAt: row.RevalidateAt, version: row.Version,
+	}
+	var err error
+	if sess.Refresh, err = s.open(row.ID, colRefresh, row.Refresh); err != nil {
+		return Session{}, err
+	}
+	if sess.IDToken, err = s.open(row.ID, colIDToken, row.IDToken); err != nil {
+		return Session{}, err
 	}
 	return sess, json.Unmarshal([]byte(row.Principal), &sess.Principal)
 }
@@ -195,7 +269,13 @@ func (s *DBStore) get(ctx context.Context, id string) (Session, error) {
 	if err != nil {
 		return Session{}, fmt.Errorf("read session: %w", err)
 	}
-	sess, err := sessionOf(row)
+	sess, err := s.sessionOf(row)
+	if errors.Is(err, errUnsealed) {
+		// Nobody can use it any more: it ends, and the person signs in again.
+		slog.Warn("ending a session whose provider tokens do not open with the sessions key", "kind", row.Kind)
+		_, _ = s.Sessions.Redeem(ctx, row.ID)
+		return Session{}, ErrSessionNotFound
+	}
 	if err != nil {
 		return Session{}, fmt.Errorf("read session: %w", err)
 	}
@@ -219,7 +299,7 @@ func (s *DBStore) get(ctx context.Context, id string) (Session, error) {
 		}
 		// Who the person is comes from the ui session, which the provider
 		// keeps current, so a group lost there is lost here at once.
-		ps, err := sessionOf(parent)
+		ps, err := s.sessionOf(parent)
 		if err != nil {
 			return Session{}, ErrSessionNotFound
 		}

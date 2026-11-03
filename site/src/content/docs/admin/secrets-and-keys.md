@@ -71,6 +71,12 @@ kubectl -n javo-system exec deploy/javo-controller -- /javo secrets rotate --key
 
 It adds a new data key, makes new values use it, and encrypts every stored value again under it. No value changes and no app restarts. Values encrypted before keep working while it runs; running it again is safe.
 
+## Sessions
+
+A session signed in with OpenID Connect keeps the provider's refresh token and id token in the database, to stay signed in and to sign out at the provider. The gateway seals both with AES-256-GCM (Google Tink) under its own key, bound to the session's row, so a copy of the database, such as a backup, holds no token that works. The key is 32 random bytes in the Secret `javo-sessions-key`, mounted only in the gateway (`--sessions-key-file`) and made and kept like the KEK. For `helm template` or Argo CD, make it yourself and set `secrets.existingSessionsKeySecret` (key `key`, `head -c 32 /dev/urandom`). Losing or replacing it signs everyone out; nothing else is lost. A gateway started without the flag makes a key in memory, so its restarts sign everyone out.
+
+Upgrading to the release that seals them ends every OpenID Connect session once (its tokens were stored in clear and the database has no key to seal them); people sign in again. Local account sessions carry no tokens and stay.
+
 ## Removing a person
 
 `javo user remove` also deletes the person's secrets.

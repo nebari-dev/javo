@@ -159,6 +159,19 @@ secrets.existingKeySecret names one made elsewhere.
 */}}
 {{- define "javo.secretsKeySecret" -}}{{ .Values.secrets.existingKeySecret | default "javo-secrets-key" }}{{- end -}}
 
+{{/* The key that seals the sessions' provider tokens: the gateway's only. */}}
+{{- define "javo.sessionsKeyDir" -}}/etc/javo-sessions-key{{- end -}}
+{{- define "javo.sessionsKeyMount" -}}
+- {name: sessions-key, mountPath: {{ include "javo.sessionsKeyDir" . }}, readOnly: true}
+{{- end -}}
+{{- define "javo.sessionsKeyVolume" -}}
+- name: sessions-key
+  secret:
+    secretName: {{ .Values.secrets.existingSessionsKeySecret | default "javo-sessions-key" }}
+    defaultMode: 0400
+    items: [{key: key, path: key}]
+{{- end -}}
+
 {{- define "javo.databaseMounts" -}}
 {{- if eq (include "javo.engine" .) "sqlite" -}}
 - {name: data, mountPath: {{ include "javo.dataDir" . }}}
@@ -243,6 +256,7 @@ true
 - --files-image={{ .Values.files.image }}
 - --files-idle-after={{ .Values.files.idleAfter }}
 - --templates-dir={{ include "javo.templatesDir" . }}
+- --sessions-key-file={{ include "javo.sessionsKeyDir" . }}/key
 {{- with .Values.gateway.trustedProxies }}
 - --trusted-proxies={{ join "," . }}
 {{- end }}

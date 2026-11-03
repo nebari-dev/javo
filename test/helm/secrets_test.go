@@ -149,3 +149,43 @@ func TestControllerCanReadTheSecretsKey(t *testing.T) {
 		}
 	}
 }
+
+// The gateway seals the identity provider's tokens of each session with a
+// key of its own, made once and kept like the secrets key, so a copy of the
+// database holds no live session. The controller never needs it.
+func TestSessionsKeyIsGeneratedAndOnlyTheGatewayHasIt(t *testing.T) {
+	t.Parallel()
+	for _, engine := range engines {
+		out, err := render(t, engineArgs(engine)...)
+		if err != nil {
+			t.Fatalf("%s render: %v\n%s", engine, err, out)
+		}
+		var sec corev1.Secret
+		if !object(t, out, "Secret", "javo-sessions-key", &sec) {
+			t.Fatalf("%s: no Secret javo-sessions-key", engine)
+		}
+		if len(sec.Data["key"]) != 32 || sec.Annotations["helm.sh/resource-policy"] != "keep" {
+			t.Fatalf("%s: key is %d bytes, annotations %v", engine, len(sec.Data["key"]), sec.Annotations)
+		}
+		gw := deploymentOf(t, out, engine, "gateway")
+		path := controllerArg(gw, "sessions-key-file")
+		if path == "" || !hasVolumeFromSecret(gw, "javo-sessions-key") || !mounts(gw, strings.TrimSuffix(path, "/key")) {
+			t.Fatalf("%s: gateway args %v, volumes %+v", engine, gw.Spec.Template.Spec.Containers[0].Args, gw.Spec.Template.Spec.Volumes)
+		}
+		if engine == "postgres" {
+			if ctl := deploymentOf(t, out, engine, "controller"); hasVolumeFromSecret(ctl, "javo-sessions-key") {
+				t.Fatal("the controller gets the sessions key")
+			}
+		}
+	}
+	out, err := render(t, "--set", "secrets.existingSessionsKeySecret=my-sessions-key")
+	if err != nil {
+		t.Fatalf("render: %v\n%s", err, out)
+	}
+	if kinds := kindsOf(t, out); slices.Contains(kinds["Secret"], "javo-sessions-key") {
+		t.Fatal("the chart made its own sessions key as well")
+	}
+	if d := deploymentOf(t, out, "sqlite", "gateway"); !hasVolumeFromSecret(d, "my-sessions-key") {
+		t.Fatalf("volumes %+v", d.Spec.Template.Spec.Volumes)
+	}
+}

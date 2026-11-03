@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/tink-crypto/tink-go/v2/tink"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -38,6 +40,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/plans"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/store"
@@ -68,9 +71,11 @@ import (
 // controller are in commonFlags.
 type gatewayOptions struct {
 	listen, uiDir, filesImage, templatesDir string
-	filesIdleAfter                          time.Duration
-	trustedProxies                          []string
-	secure                                  bool
+	// sessionsKey is the key file the sessions' provider tokens are sealed with.
+	sessionsKey    string
+	filesIdleAfter time.Duration
+	trustedProxies []string
+	secure         bool
 	// backups are the server's own SQLite backups, set by javo server; the
 	// gateway alone (Postgres) has none of its own.
 	backups store.BackupPlan
@@ -86,6 +91,7 @@ func (o *gatewayOptions) register(f *pflag.FlagSet) {
 	f.StringSliceVar(&o.trustedProxies, "trusted-proxies", nil,
 		"CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)")
 	f.BoolVar(&o.secure, "secure-cookies", false, "mark the session cookie Secure even when urls.scheme is http (it always is with https)")
+	f.StringVar(&o.sessionsKey, "sessions-key-file", "", "file holding the 32-byte key that seals each session's identity provider tokens in the database (a mounted Secret); empty: a key made at start, so a restart signs everyone out")
 }
 
 func NewGateway() *cobra.Command {
@@ -165,7 +171,11 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if err != nil {
 		return err
 	}
-	sessions := &session.DBStore{Sessions: db.Sessions()}
+	sessionsKey, err := o.sessionsKeyOf()
+	if err != nil {
+		return err
+	}
+	sessions := &session.DBStore{Sessions: db.Sessions(), Key: sessionsKey}
 	tokens := &token.DBStore{Tokens: db.Tokens()}
 	pl := wiring.Placement(platform)
 	// c reads straight from the API server (no cache), as files.Pods needs.
@@ -304,4 +314,19 @@ func uidRange(c config.IdentityCfg) store.IDRange {
 		return store.IDRange{}
 	}
 	return store.IDRange{First: c.UIDRange.First, Last: c.UIDRange.Last}
+}
+
+// sessionsKeyOf reads --sessions-key-file, or makes a key that lives as long
+// as the process when there is none: the provider's tokens are never written
+// in clear either way.
+func (o *gatewayOptions) sessionsKeyOf() (tink.AEAD, error) {
+	if o.sessionsKey == "" {
+		slog.Warn("no --sessions-key-file: sessions are sealed with a key made now, so a restart signs everyone out")
+		return secrets.NewKey()
+	}
+	k, err := secrets.KEKFromFile(o.sessionsKey)
+	if err != nil {
+		return nil, fmt.Errorf("--sessions-key-file: %w", err)
+	}
+	return k, nil
 }

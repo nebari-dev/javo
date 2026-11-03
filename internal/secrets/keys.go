@@ -80,6 +80,16 @@ func KEKFromBytes(b []byte) (KEK, error) {
 	return aesgcm.NewAEAD(key)
 }
 
+// NewKey makes a random AES-256-GCM key of the kind KEKFromBytes makes,
+// kept only in memory.
+func NewKey() (tink.AEAD, error) {
+	b, err := secretdata.NewBytesFromRand(KEKSize)
+	if err != nil {
+		return nil, err
+	}
+	return KEKFromBytes(b.Data(insecuresecretdataaccess.Token{}))
+}
+
 // Keyset is the data keyset as stored: Wrapped is the private half encrypted
 // by the KEK, Public the public half in clear.
 type Keyset struct {

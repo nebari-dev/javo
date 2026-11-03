@@ -68,6 +68,7 @@ spec:
             {{- with include "javo.bucketMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
+            {{- include "javo.sessionsKeyMount" . | nindent 12 }}
             {{- if .Values.gateway.oidcClientSecret }}
             - {name: oidc, mountPath: {{ include "javo.oidcSecretDir" . }}, readOnly: true}
             {{- end }}
@@ -87,6 +88,7 @@ spec:
         {{- with include "javo.bucketVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}
+        {{- include "javo.sessionsKeyVolume" . | nindent 8 }}
         {{- with .Values.gateway.oidcClientSecret }}
         - name: oidc
           secret:

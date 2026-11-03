@@ -412,6 +412,7 @@ Flags:
       --listen string                address to listen on (default ":8080")
       --namespace string             the release namespace, where API token records are kept (default $POD_NAMESPACE)
       --secure-cookies               mark the session cookie Secure even when urls.scheme is http (it always is with https)
+      --sessions-key-file string     file holding the 32-byte key that seals each session's identity provider tokens in the database (a mounted Secret); empty: a key made at start, so a restart signs everyone out
       --sizes-file string            YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
       --templates-dir string         directory of built-in template files (*.yaml) to install into the database at start
       --trusted-proxies strings      CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
@@ -694,6 +695,7 @@ Flags:
       --secrets-key-file string             file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
       --secrets-key-secret string           Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
       --secure-cookies                      mark the session cookie Secure even when urls.scheme is http (it always is with https)
+      --sessions-key-file string            file holding the 32-byte key that seals each session's identity provider tokens in the database (a mounted Secret); empty: a key made at start, so a restart signs everyone out
       --sizes-file string                   YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
       --templates-dir string                directory of built-in template files (*.yaml) to install into the database at start
       --trusted-proxies strings             CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)

@@ -105,6 +105,12 @@ secrets:
   # --from-file=kek), such as a key restored from a backup. The controller
   # then only reads it and never makes one.
   existingKeySecret: ""
+  # The gateway seals each session's identity provider tokens with a key of
+  # its own (32 random bytes, the Secret javo-sessions-key, made once and
+  # kept like the key above), so a copy of the database holds no live
+  # session. Losing it only signs everyone out. Name a Secret whose key "key"
+  # holds 32 random bytes for the same reason as existingKeySecret.
+  existingSessionsKeySecret: ""
 
 # Namespace holding Workspaces and their pods, services and PVCs when
 # config.namespaces.mode is shared. The other modes (per-user, per-team) use
