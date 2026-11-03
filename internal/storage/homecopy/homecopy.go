@@ -5,8 +5,6 @@
 // folders, files, symbolic links (as links), modes (setgid and sticky bits
 // too), modification times, groups by number, FIFOs and sockets, and hard
 // links within the tree. Owners are not set: the process is the owner.
-// RunAs instead gives every entry one owner and group (a home brought from
-// another system, whose files belong to another uid); it needs root.
 // lost+found at the root (ext4 makes it, owned by root) is left out. Files
 // are not made sparse, as rsync without -S did not.
 //
@@ -39,12 +37,8 @@ const maxDetail = 20
 
 type inode struct{ dev, ino uint64 }
 
-// Owner is the uid and gid RunAs gives every copied entry.
-type Owner struct{ UID, GID int }
-
 type copier struct {
 	old, new string
-	owner    *Owner // nil: the process owns, groups are kept
 	log      io.Writer
 	links    map[inode]string // first copy of each hard-linked file
 	failed   []string
@@ -54,8 +48,8 @@ type copier struct {
 	dirs     []string // folders whose times are set once they are filled
 }
 
-func copyTree(old, new string, owner *Owner, log io.Writer) error {
-	c := &copier{old: old, new: new, owner: owner, log: log, links: map[inode]string{}, last: time.Now()}
+func copyTree(old, new string, log io.Writer) error {
+	c := &copier{old: old, new: new, log: log, links: map[inode]string{}, last: time.Now()}
 	err := filepath.WalkDir(old, c.visit)
 	// Folder times last, deepest first, since filling a folder changes them.
 	for i := len(c.dirs) - 1; i >= 0; i-- {
@@ -149,7 +143,7 @@ func (c *copier) entry(rel string, fi fs.FileInfo) error {
 		if err := os.Symlink(target, dst); err != nil {
 			return err
 		}
-		if err := c.chown(dst, int(st.Gid)); err != nil {
+		if err := os.Lchown(dst, -1, int(st.Gid)); err != nil {
 			return err
 		}
 		mt := unix.NsecToTimespec(fi.ModTime().UnixNano())
@@ -216,18 +210,10 @@ func replace(dst string) error {
 	return os.Remove(dst)
 }
 
-// chown gives dst the group gid, or with an owner, the owner's uid and gid.
-func (c *copier) chown(dst string, gid int) error {
-	if c.owner != nil {
-		return os.Lchown(dst, c.owner.UID, c.owner.GID)
-	}
-	return os.Lchown(dst, -1, gid)
-}
-
-// attrs sets the owner, the mode (after the owner: chown clears setgid) and,
+// attrs sets the group, the mode (after the group: chown clears setgid) and,
 // unless zero, the modification time.
 func (c *copier) attrs(dst string, mode fs.FileMode, gid int, mtime time.Time, times bool) error {
-	if err := c.chown(dst, gid); err != nil {
+	if err := os.Lchown(dst, -1, gid); err != nil {
 		return err
 	}
 	if err := os.Chmod(dst, mode&(fs.ModePerm|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky)); err != nil {
@@ -256,7 +242,7 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func verifyTree(old, new string, owner *Owner) ([]string, error) {
+func verifyTree(old, new string) ([]string, error) {
 	var diffs []string
 	firsts := map[inode]string{} // hard-linked files of old, by inode, to their first path
 	err := filepath.WalkDir(old, func(p string, d fs.DirEntry, err error) error {
@@ -290,9 +276,7 @@ func verifyTree(old, new string, owner *Owner) ([]string, error) {
 			return nil
 		case a.Mode()&perm != b.Mode()&perm && a.Mode()&fs.ModeSymlink == 0:
 			diffs = append(diffs, "mode "+rel)
-		case owner != nil && (int(bs.Uid) != owner.UID || int(bs.Gid) != owner.GID):
-			diffs = append(diffs, "owner "+rel)
-		case owner == nil && as.Gid != bs.Gid:
+		case as.Gid != bs.Gid:
 			diffs = append(diffs, "group "+rel)
 		case !a.ModTime().Equal(b.ModTime()):
 			diffs = append(diffs, "time "+rel)
@@ -350,19 +334,9 @@ func hash(p string) ([]byte, error) {
 // Run copies old to new, then checks the copy, logging to log. It writes
 // the outcome to termLog (the container's termination message): nothing
 // when the copy verified, else a headline and at most 20 lines of detail.
-func Run(old, new, termLog string, log io.Writer) error { return run(old, new, termLog, nil, log) }
-
-// RunAs is Run giving every entry to owner, and checking that it did.
-func RunAs(old, new, termLog string, owner Owner, log io.Writer) error {
-	return run(old, new, termLog, &owner, log)
-}
-
-func run(old, new, termLog string, owner *Owner, log io.Writer) error {
+func Run(old, new, termLog string, log io.Writer) error {
 	fmt.Fprintf(log, "copying %s to %s\n", old, new)
-	if owner != nil {
-		fmt.Fprintf(log, "every entry goes to uid %d, gid %d\n", owner.UID, owner.GID)
-	}
-	if err := copyTree(old, new, owner, log); err != nil {
+	if err := copyTree(old, new, log); err != nil {
 		var pe *PartialError
 		if errors.As(err, &pe) {
 			return report(termLog, "copy failed: partial transfer", pe.Paths)
@@ -370,7 +344,7 @@ func run(old, new, termLog string, owner *Owner, log io.Writer) error {
 		return report(termLog, "copy failed", []string{err.Error()})
 	}
 	fmt.Fprintln(log, "checking the copy")
-	diffs, err := verifyTree(old, new, owner)
+	diffs, err := verifyTree(old, new)
 	if err != nil {
 		return report(termLog, "copy failed while checking it", []string{err.Error()})
 	}

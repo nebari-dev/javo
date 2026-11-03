@@ -255,11 +255,6 @@ if [ "$db" = postgres ]; then
   db_args+=(--set database.postgres.dsnSecret=javo-db --set gateway.replicas=2 --set controller.replicas=2)
 fi
 
-# The stand-in JupyterHub namespace the home import e2e test copies from
-# (jupyterhubImport.namespace in deploy/dev/values.yaml): the chart's Role
-# there needs it to exist.
-kc create namespace javo-e2e-jupyterhub --dry-run=client -o yaml | kc apply -f -
-
 step "helm upgrade --install"
 scripts/install/install-chart.sh deploy/helm/javo "$ns" ${restart[@]+"${restart[@]}"} -f deploy/dev/values.yaml "${image_args[@]}" \
   "${url_args[@]}" "${db_args[@]}" --force-conflicts --wait --timeout 3m

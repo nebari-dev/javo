@@ -9,7 +9,6 @@ import (
 	"github.com/nebari-dev/javo/internal/cli/dbcmd"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/homecmd"
-	"github.com/nebari-dev/javo/internal/cli/importcmd"
 	"github.com/nebari-dev/javo/internal/cli/kubeclient"
 	"github.com/nebari-dev/javo/internal/cli/openapicmd"
 	"github.com/nebari-dev/javo/internal/cli/podcmd"
@@ -30,7 +29,6 @@ func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 	root.AddCommand(secretscmd.New(openStore))
 	root.AddCommand(dbcmd.New(openStore))
 	root.AddCommand(storagecmd.New(openStore))
-	root.AddCommand(importcmd.New(newClient, openStore))
 	root.AddCommand(backupcmd.New(openStore))
 	root.AddCommand(servercmd.NewServer())
 	root.AddCommand(servercmd.NewController())

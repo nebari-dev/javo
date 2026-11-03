@@ -58,7 +58,7 @@ func TestATreeCopiesWithLinksModesAndTimes(t *testing.T) {
 	must(t, os.Chtimes(filepath.Join(old, "src", "private.bin"), when, when))
 	must(t, os.Chtimes(filepath.Join(old, "src"), when, when))
 
-	if err := copyTree(old, new, nil, io.Discard); err != nil {
+	if err := copyTree(old, new, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if a, b := stat(t, filepath.Join(new, "src", "a.txt")), stat(t, filepath.Join(new, "src", "a-link.txt")); a.Ino != b.Ino {
@@ -83,7 +83,7 @@ func TestATreeCopiesWithLinksModesAndTimes(t *testing.T) {
 			t.Errorf("%s: mtime %v, %v; want %v", p, fi.ModTime(), err, when)
 		}
 	}
-	if diffs, err := verifyTree(old, new, nil); err != nil || len(diffs) != 0 {
+	if diffs, err := verifyTree(old, new); err != nil || len(diffs) != 0 {
 		t.Fatalf("verify: %v, %v", diffs, err)
 	}
 }
@@ -105,11 +105,11 @@ func TestAFileKeepsAGroupOfTheProcess(t *testing.T) {
 	old, new := dirs(t)
 	write(t, filepath.Join(old, "team.txt"), "team\n", 0o640)
 	must(t, os.Lchown(filepath.Join(old, "team.txt"), -1, other))
-	must(t, copyTree(old, new, nil, io.Discard))
+	must(t, copyTree(old, new, io.Discard))
 	if g := stat(t, filepath.Join(new, "team.txt")).Gid; int(g) != other {
 		t.Fatalf("gid %d, want %d", g, other)
 	}
-	if diffs, err := verifyTree(old, new, nil); err != nil || len(diffs) != 0 {
+	if diffs, err := verifyTree(old, new); err != nil || len(diffs) != 0 {
 		t.Fatalf("verify: %v, %v", diffs, err)
 	}
 }
@@ -122,11 +122,11 @@ func TestLostAndFoundIsLeftAlone(t *testing.T) {
 	must(t, os.Chmod(filepath.Join(old, "lost+found"), 0))
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(old, "lost+found"), 0o700) })
 	write(t, filepath.Join(old, "data", "f"), "x\n", 0o644)
-	must(t, copyTree(old, new, nil, io.Discard))
+	must(t, copyTree(old, new, io.Discard))
 	if _, err := os.Lstat(filepath.Join(new, "lost+found")); !os.IsNotExist(err) {
 		t.Errorf("lost+found was copied: %v", err)
 	}
-	if diffs, err := verifyTree(old, new, nil); err != nil || len(diffs) != 0 {
+	if diffs, err := verifyTree(old, new); err != nil || len(diffs) != 0 {
 		t.Fatalf("verify: %v, %v", diffs, err)
 	}
 }
@@ -141,7 +141,7 @@ func TestAnUnreadableFileFailsTheCopyAndIsNamed(t *testing.T) {
 	write(t, filepath.Join(old, "readable"), "ok\n", 0o644)
 	write(t, filepath.Join(old, "unreadable"), "no\n", 0)
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(old, "unreadable"), 0o600) })
-	err := copyTree(old, new, nil, io.Discard)
+	err := copyTree(old, new, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("err = %v, want one naming the unreadable file", err)
 	}
@@ -161,7 +161,7 @@ func TestVerifyFindsDifferences(t *testing.T) {
 	write(t, filepath.Join(old, "h1"), "h\n", 0o644)
 	must(t, os.Link(filepath.Join(old, "h1"), filepath.Join(old, "h2")))
 	must(t, os.Symlink("content", filepath.Join(old, "sym")))
-	must(t, copyTree(old, new, nil, io.Discard))
+	must(t, copyTree(old, new, io.Discard))
 
 	// Same size and time, other bytes: only a content check sees it.
 	fi, _ := os.Stat(filepath.Join(old, "content"))
@@ -177,7 +177,7 @@ func TestVerifyFindsDifferences(t *testing.T) {
 	must(t, os.Remove(filepath.Join(new, "sym")))
 	must(t, os.Symlink("elsewhere", filepath.Join(new, "sym")))
 
-	diffs, err := verifyTree(old, new, nil)
+	diffs, err := verifyTree(old, new)
 	must(t, err)
 	got := strings.Join(diffs, "\n")
 	for _, want := range []string{"content", "mode", "time", "gone", "h2", "sym"} {
@@ -211,7 +211,7 @@ func TestRunReportsInTheTerminationMessage(t *testing.T) {
 		write(t, filepath.Join(new, "f", filepath.Base(p)), "y\n", 0o644)
 		must(t, os.Chtimes(filepath.Join(new, "f", filepath.Base(p)), fi.ModTime(), fi.ModTime()))
 	}
-	diffs, err := verifyTree(old, new, nil)
+	diffs, err := verifyTree(old, new)
 	must(t, err)
 	if len(diffs) != 40 {
 		t.Fatalf("diffs = %d", len(diffs))

@@ -46,7 +46,6 @@ func New(openStore dbflag.Opener) *cobra.Command {
 	storage.AddCommand(newProbeStepCmd())
 	storage.AddCommand(newPrepareCmd())
 	storage.AddCommand(newCopyCmd())
-	storage.AddCommand(newImportCopyCmd())
 	storage.AddCommand(newVerifyCmd(openStore))
 	storage.AddCommand(newMigrateCmd(openStore))
 	storage.AddCommand(newReportCmd(openStore))

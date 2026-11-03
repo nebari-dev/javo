@@ -45,9 +45,6 @@ spec:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef: {fieldPath: metadata.namespace}
-            # The image the Jobs of `javo import jupyterhub-homes` run.
-            - name: JAVO_IMAGE
-              value: {{ include "javo.image" . | quote }}
           ports:
             - {name: metrics, containerPort: {{ .Values.controller.metricsPort }}}
             - {name: probes, containerPort: {{ .Values.controller.probePort }}}

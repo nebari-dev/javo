@@ -29,7 +29,6 @@ Available Commands:
   gateway         Serve the API, the UI and the app proxy
   help            Help about any command
   home            Home folders whose owners are gone
-  import          Bring data in from other systems
   netprobe        Entrypoints of the NetworkPolicy enforcement probe pods
   openapi         Print the gateway's OpenAPI 3.1 document
   pod-files       Copy the platform's pod files to --to (the init container step; the image has no cp)
@@ -464,49 +463,6 @@ Global Flags:
       --database-dsn-file string   file holding the Postgres connection string
       --database-engine string     database engine: sqlite or postgres (default "sqlite")
       --database-path string       SQLite database file (default "/var/lib/javo/javo.db")
-```
-
-## javo import
-
-```text
-Bring data in from other systems
-
-Usage:
-  javo import [command]
-
-Available Commands:
-  jupyterhub-homes Copy the home folders of a JupyterHub install (the data science pack) into people's Javo homes
-
-Flags:
-  -h, --help   help for import
-
-Use "javo import [command] --help" for more information about a command.
-```
-
-## javo import jupyterhub-homes
-
-```text
-Each claim-<user> claim in --from-namespace is matched to the Javo person whose username or email is the JupyterHub username, and its files are copied into a folder of that person's home (--into), owned by the person. The JupyterHub claims are only read. People without a match are skipped, or created with --create-people from a --subjects file. A home whose JupyterHub server or Javo apps run is left for later. Run it again to carry on after a stop or a failure; homes already imported are skipped.
-
-Usage:
-  javo import jupyterhub-homes --from-namespace <namespace> [flags]
-
-Flags:
-      --config string              platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
-      --create-people              create the people who have no Javo account yet, from --subjects
-      --database-dsn-file string   file holding the Postgres connection string
-      --database-engine string     database engine: sqlite or postgres (default "sqlite")
-      --database-path string       SQLite database file (default "/var/lib/javo/javo.db")
-      --dry-run                    say what would be done and change nothing
-      --from-namespace string      the namespace JupyterHub keeps its home claims in
-  -h, --help                       help for jupyterhub-homes
-      --image string               the javo image the copy Jobs run (default $JAVO_IMAGE)
-      --into string                the folder of each home the files go to; . is the home itself, where files with the same name are replaced (default "jupyterhub")
-      --no-wait                    take one step for each home and return; run again to carry on
-      --parallel int               how many homes are copied at a time (default 4)
-      --stuck-after duration       give up on a home that waits this long for anything but a running copy (default 6m0s)
-      --subjects string            CSV file of username,subject[,email] lines (each user's subject at the identity provider); - for standard input
-      --user stringArray           import only this JupyterHub user (repeatable)
 ```
 
 ## javo netprobe

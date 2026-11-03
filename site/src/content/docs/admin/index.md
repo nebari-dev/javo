@@ -21,6 +21,5 @@ Javo is configured through the values of its Helm chart (the Docker Compose inst
 - [App thumbnails](/admin/thumbnails/) (optional).
 - [Branding](/admin/branding/): your own name, logo, favicon and accent colour.
 - [Upgrades](/admin/upgrades/).
-- [Migrating from the data science pack](/admin/migrating-from-data-science-pack/): bring JupyterHub home folders over.
 
 Platform admins also get these tabs under **Settings**: **All apps** (every person's apps, with a Stop button that tells the owner an admin stopped it), **Usage** (app-hours by person or group over 7 or 30 days), **Backups** and **Storage**.

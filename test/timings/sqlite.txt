@@ -21,7 +21,6 @@ github.com/nebari-dev/javo/internal/cli/backupcmd 6.558
 github.com/nebari-dev/javo/internal/cli/dbcmd 0.102
 github.com/nebari-dev/javo/internal/cli/dbflag 0.011
 github.com/nebari-dev/javo/internal/cli/homecmd 0.192
-github.com/nebari-dev/javo/internal/cli/importcmd 0.29
 github.com/nebari-dev/javo/internal/cli/openapicmd 0.165
 github.com/nebari-dev/javo/internal/cli/podcmd 0.067
 github.com/nebari-dev/javo/internal/cli/secretscmd 0.088
@@ -98,7 +97,6 @@ github.com/nebari-dev/javo/internal/status 0.043
 github.com/nebari-dev/javo/internal/storage/capability 0.006
 github.com/nebari-dev/javo/internal/storage/choose 0.013
 github.com/nebari-dev/javo/internal/storage/homecopy 0.02
-github.com/nebari-dev/javo/internal/storage/hubimport 6.015
 github.com/nebari-dev/javo/internal/storage/ids 0.03
 github.com/nebari-dev/javo/internal/storage/inventory 0.128
 github.com/nebari-dev/javo/internal/storage/migrate 0.011

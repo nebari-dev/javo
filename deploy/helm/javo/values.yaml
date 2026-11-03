@@ -125,13 +125,6 @@ secrets:
 # config.namespaces.mode is shared. The other modes (per-user, per-team) use
 # namespaces the controller creates, named from config.namespaces.prefix.
 workspaceNamespace: javo-apps
-# Lets `javo import jupyterhub-homes` copy the home folders of a JupyterHub
-# install (the Nebari data science pack) into Javo homes: the server may then
-# make and delete claims and Jobs in this namespace, and move a volume it
-# made between namespaces (get, list and patch PersistentVolumes). Empty
-# grants nothing. Set it for the import, then empty it again.
-jupyterhubImport:
-  namespace: ""
 # Create the shared workspace namespace (shared mode only). It is labelled for
 # Pod Security Admission "restricted" (workspace pods run non-root uid 1000,
 # drop ALL, seccomp RuntimeDefault) and is kept on uninstall

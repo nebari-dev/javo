@@ -157,9 +157,6 @@ const (
 	// RoleHomeOwnerProbe is the LabelRole value of the Job that reads who
 	// owns the files of a home volume without an account.
 	RoleHomeOwnerProbe = "home-owner-probe"
-	// RoleHomeImport is the LabelRole value of what a JupyterHub home import
-	// makes: its Jobs, its staging claims and their volume.
-	RoleHomeImport = "home-import"
 	// RoleFolderBackup is the LabelRole value of a shared folder's backup Job.
 	RoleFolderBackup = "folder-backup"
 	// RoleFiles is the LabelRole value of a person's file picker pod, which

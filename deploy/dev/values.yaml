@@ -27,11 +27,6 @@ customSize:
     - roles: [platform-admin]
     - {groups: [/org/data-science], maxCPU: "1", maxMemory: 1Gi}
 
-# The stand-in JupyterHub namespace of the home import e2e test
-# (test/e2e/hubimport_test.go); scripts/dev/up.sh creates it.
-jupyterhubImport:
-  namespace: javo-e2e-jupyterhub
-
 gateway:
   service:
     type: NodePort
