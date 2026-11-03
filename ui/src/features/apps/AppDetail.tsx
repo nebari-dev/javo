@@ -1,4 +1,4 @@
-import { ChevronRight, Clock3, FileText, Play, RotateCcw, Trash2, X } from 'lucide-react'
+import { ChevronRight, CircleCheck, Clock3, FileText, Play, RotateCcw, Trash2, X } from 'lucide-react'
 import { PartIcon } from '../../components/Section'
 import { OpenAppLink } from './OpenAppLink'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -296,6 +296,7 @@ function StartedSteps({ started, hold, children }: { started: string; hold: bool
     <div className="more">
       <button type="button" className="more-toggle" aria-expanded={open} aria-controls={regionId} onClick={() => setOpen(!open)}>
         <ChevronRight size={15} aria-hidden="true" className={`more-chevron${open ? ' open' : ''}`} />
+        <CircleCheck size={15} aria-hidden="true" className="started-ok" />
         {open ? `${started}: hide the startup steps` : `${started}: show the startup steps`}
       </button>
       <div id={regionId} className="fold" data-open={open ? 'true' : 'false'}>

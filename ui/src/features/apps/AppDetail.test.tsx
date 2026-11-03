@@ -101,6 +101,8 @@ describe('App status page', () => {
     detail(ws('sales-app', 'Sales app', 'Running', steps))
     renderApp('/apps/sales-app')
     const more = await screen.findByRole('button', { name: 'Started in 42 s: show the startup steps' })
+    // A green tick marks the successful start.
+    expect(more.querySelector('svg.started-ok')).not.toBeNull()
     expect(screen.queryByRole('list', { name: 'Startup steps' })).toBeNull()
     await userEvent.click(more)
     const items = within(screen.getByRole('list', { name: 'Startup steps' })).getAllByRole('listitem')

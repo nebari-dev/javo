@@ -441,6 +441,7 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .describe p{margin:12px 0 0}
 
 /* The steps of an app that just started fold away smoothly. */
+.started-ok{flex:none;color:var(--ok)}
 .fold{display:grid;grid-template-rows:0fr;transition:grid-template-rows .4s ease}
 .fold[data-open="true"]{grid-template-rows:1fr}
 .fold-inner{overflow:hidden;min-height:0}
