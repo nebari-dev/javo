@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/controller/jobs"
-	"github.com/nebari-dev/javo/internal/model"
 )
 
 // runToEnd starts a run of the job and waits until it ends, returning its id
