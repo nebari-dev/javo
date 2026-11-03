@@ -335,7 +335,9 @@ func TestScheduledBackupsAreHandedOn(t *testing.T) {
 	dir := t.TempDir()
 	var mu sync.Mutex
 	var got []string
-	runCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+	// Stops once two backups were handed on; the timeout only bounds a
+	// broken run, so a slow machine cannot fail the test.
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err := s.RunBackups(runCtx, store.BackupPlan{Schedule: "@every 1s", Dir: dir, Keep: 5, After: func(_ context.Context, file string) {
 		if _, err := os.Stat(file); err != nil {
@@ -343,6 +345,9 @@ func TestScheduledBackupsAreHandedOn(t *testing.T) {
 		}
 		mu.Lock()
 		got = append(got, file)
+		if len(got) == 2 {
+			cancel()
+		}
 		mu.Unlock()
 	}})
 	if err != nil {
