@@ -31,9 +31,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      # The tagged commit's files from GitHub's tarball endpoint: under a
+      # second, where actions/checkout's git fetch takes 8 to 16 s on these
+      # runners. Nothing here needs the git history.
+      - name: Fetch the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" |
+            tar -xz --strip-components=1
 
       - name: Version from tag
         id: version
@@ -46,32 +53,36 @@ jobs:
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      # Go's build cache as CI's Go build job last saved it on main (a tag run
-      # can read main's caches), so only what changed since compiles here.
+      # The go-cross cache CI's Go build job saves on main (javo for both
+      # architectures; a tag run can read main's caches), so only what
+      # changed since compiles here.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
+      - name: Cache week
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod/cache/download
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-cross-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ steps.week.outputs.week }}
           restore-keys: |
-            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-${{ runner.os }}-
+            go-cross-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
+            go-cross-${{ runner.os }}-
 
       # The image's javo binaries, both architectures at once (the image's
       # javo-bin stage is replaced by this folder).
       - name: Compile javo
         run: scripts/build/cross-build-javo.sh "$RUNNER_TEMP/javo-bin"
 
-      # The image build needs the runner's disk; Go's caches are done with.
-      - name: Free the Go caches
-        run: go clean -cache -modcache
-
+      # The runner is thrown away after the job, so the builder is not
+      # removed at the end (about 6 s).
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
 
       # Quay with the organisation's robot account (QUAY_USERNAME, QUAY_TOKEN);
       # ghcr.io for the build cache.

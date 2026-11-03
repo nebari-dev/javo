@@ -40,45 +40,97 @@ concurrency:
   group: go-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Kept under two minutes: Go's build cache is restored (and refreshed by
-# the build job on main), and the tests run in parallel shards.
+# Each job reads one of two Go caches (Go's build cache and the module
+# downloads it used), each holding only what its jobs compile:
+#   go-test   the linux/amd64 packages the tests and go vet compile
+#   go-cross  javo for linux/amd64 and linux/arm64 (also read by the release)
+# One job saves each, on main only, at most once a week per go.mod and
+# go.sum (the key's last part is the ISO week), trimmed to what that run
+# used; every branch, pull request and tag reads main's. A weekly key
+# keeps one entry per cache in the repository's 10 GB, not one per commit.
 jobs:
-  # Compiles javo for both architectures the image ships and vets every
-  # package (which compiles the tests' dependencies too). On main it saves
-  # Go's build cache, which the test shards and the release read.
+  # Compiles javo for both architectures the image ships; saves go-cross.
   go:
     name: Go build
     runs-on: ubuntu-24.04
+    env:
+      GO_CACHE: go-cross
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # The commit's files from GitHub's tarball endpoint: under a second,
+      # where actions/checkout's git fetch takes 8 to 16 s on these runners.
+      # Nothing here needs the git history.
+      - &source
+        name: Fetch the commit
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" |
+            tar -xz --strip-components=1
+      - &setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name == 'push'
+      - &week
+        name: Cache week
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - &restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod/cache/download
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: ${{ env.GO_CACHE }}-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ steps.week.outputs.week }}
           restore-keys: |
-            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-${{ runner.os }}-
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name != 'push'
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod/cache/download
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-${{ runner.os }}-
+            ${{ env.GO_CACHE }}-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
+            ${{ env.GO_CACHE }}-${{ runner.os }}-
+      - &trim-start
+        name: Mark the cache to keep only what this run uses
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          # Modules of another go.mod/go.sum: download only what this one needs.
+          case "$MATCHED_KEY" in
+            "$KEY_PREFIX"*) ;;
+            *) go clean -modcache ;;
+          esac
+          scripts/build/go-cache-trim.sh start "$RUNNER_TEMP/go-cache.marker"
+        env:
+          MATCHED_KEY: ${{ steps.cache.outputs.cache-matched-key }}
+          KEY_PREFIX: ${{ env.GO_CACHE }}-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
       - run: scripts/build/cross-build-javo.sh "$RUNNER_TEMP/javo-bin"
+      - &trim-finish
+        name: Trim the cache to what this run used
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build/go-cache-trim.sh finish "$RUNNER_TEMP/go-cache.marker"
+      - &save
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod/cache/download
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  # go vet on every package (test files included); saves go-test, since vet
+  # compiles every package the tests import.
+  vet:
+    name: Go vet
+    runs-on: ubuntu-24.04
+    env:
+      GO_CACHE: go-test
+    steps:
+      - *source
+      - *setup-go
+      - *week
+      - *restore
+      - *trim-start
       - run: go vet ./...
+      - *trim-finish
+      - *save
 
   go-test:
     name: Go tests (${{ matrix.db }} ${{ matrix.shard }}/${{ matrix.of }})
@@ -95,23 +147,13 @@ jobs:
           - db: postgres
             shard: 1
             of: 1
+    env:
+      GO_CACHE: go-test
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod/cache/download
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-          restore-keys: |
-            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-${{ runner.os }}-
+      - *source
+      - *setup-go
+      - *week
+      - *restore
       # The envtest binaries (kube-apiserver, etcd) and restic.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -120,17 +162,20 @@ jobs:
             bin/setup-envtest
             bin/restic
           key: test-bins-${{ runner.os }}-${{ hashFiles('Makefile', 'scripts/build/fetch-restic.sh') }}
+      # go vet runs in its own job (all of its checks), so go test skips
+      # its subset here.
       - name: Test
         env:
           DB: ${{ matrix.db }}
           SHARD: ${{ matrix.shard }}
           OF: ${{ matrix.of }}
         run: |
-          make "$PWD/bin/restic"
+          # The key names fetch-restic.sh's hash, so a cached restic is current.
+          [ -x "$PWD/bin/restic" ] || make "$PWD/bin/restic"
           export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
           export JAVO_TEST_RESTIC="$PWD/bin/restic"
           if [ "$DB" = postgres ]; then
-            scripts/test/postgres-test.sh env JAVO_TEST_DB=postgres scripts/test/shard.sh "$SHARD" "$OF" $(make -s db-packages)
+            scripts/test/postgres-test.sh env JAVO_TEST_DB=postgres scripts/test/shard.sh "$SHARD" "$OF" $(make -s db-packages) -- -vet=off
           else
-            scripts/test/shard.sh "$SHARD" "$OF" ./...
+            scripts/test/shard.sh "$SHARD" "$OF" ./... -- -vet=off
           fi

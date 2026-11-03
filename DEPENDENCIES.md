@@ -86,7 +86,7 @@ Checked 2026-11-01. The local registry every checkout shares in the dev loop (`s
 
 ### Build tools
 
-- pnpm 10.34.7 (npm, installed with `--ignore-scripts`): 0 OSV advisories, no install scripts, published 2026-10-12 (18 days), maintainers zkochan and pnpmuser (publish-bot@pnpm.io). 10.33.0 was rejected: it has OSV advisories (GHSA-3qhv-2rgh-x77r among them). 10.34.8 and later are under 14 days old.
+- pnpm 10.34.7: 0 OSV advisories, no install scripts, published 2026-10-12 (18 days), maintainers zkochan and pnpmuser (publish-bot@pnpm.io); published by GitHub Actions through npm trusted publishing (approved by zkochan), with the GitHub release v10.34.7 the same day. Pinned with its sha512 (`dist.integrity` of the npm tarball, checked against the downloaded tarball) in the `packageManager` field of `ui/package.json` and `site/package.json`; Node's corepack fetches it and refuses a tarball with another hash (CI workflows and the Dockerfile's ui stage, re-checked 2026-11-03). 10.33.0 was rejected: it has 18 OSV advisories (GHSA-3qhv-2rgh-x77r among them). 10.34.8 and later are under 14 days old.
 
 ### Apps and jobs: upstream images and pixi environments
 
@@ -344,7 +344,7 @@ Transitive audit: `govulncheck@v1.9.0 ./...`: 0 vulnerabilities in called code; 
 
 ### Documentation site (site/)
 
-Checked 2026-11-02. Build-time only (the static site in `site/`), never shipped in an image. Exact pins in `site/package.json`, installed from `site/pnpm-lock.yaml` with pnpm 10.33.0 and lifecycle scripts off (`site/.npmrc`). `site/.npmrc` also sets `minimum-release-age` to 7 days, so pnpm resolves no version (direct or transitive) published in the last week; `@nebari/starlight` is the one exception, checked by hand below.
+Checked 2026-11-02. Build-time only (the static site in `site/`), never shipped in an image. Exact pins in `site/package.json`, installed from `site/pnpm-lock.yaml` with pnpm 10.34.7 (Build tools above) and lifecycle scripts off (`site/.npmrc`). `site/.npmrc` also sets `minimum-release-age` to 7 days, so pnpm resolves no version (direct or transitive) published in the last week; `@nebari/starlight` is the one exception, checked by hand below.
 
 | Dependency | Version | Released | Maintainers / source | OSV | Install scripts | Notes |
 |---|---|---|---|---|---|---|

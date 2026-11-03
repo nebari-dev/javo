@@ -7,10 +7,13 @@
 ARG BUILDARCH
 
 FROM --platform=$BUILDPLATFORM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS ui
-# pnpm 10.34.7: 0 OSV advisories, no install scripts (DEPENDENCIES.md).
-RUN npm install -g --ignore-scripts pnpm@10.34.7
 WORKDIR /src/ui
 COPY ui/package.json ui/pnpm-lock.yaml ./
+# pnpm through Node's corepack, at the version and sha512 that
+# ui/package.json's packageManager names (10.34.7: 0 OSV advisories, no
+# install scripts; DEPENDENCIES.md).
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable pnpm
 # Cache mounts (pnpm store, Go module and build caches) persist across builds
 # and checkouts on one builder, so a rebuild compiles only what changed.
 RUN --mount=type=cache,id=javo-pnpm-store,target=/pnpm-store \

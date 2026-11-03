@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # corepack fetches pnpm without asking.
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
 concurrency:
   group: ui-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,19 +37,33 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 10.33.0
+      # The commit's files from GitHub's tarball endpoint: under a second,
+      # where actions/checkout's git fetch takes 8 to 16 s on these runners.
+      # Nothing here needs the git history.
+      - &source
+        name: Fetch the commit
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" |
+            tar -xz --strip-components=1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
+      # pnpm through Node's corepack, at the version and sha512 that
+      # ui/package.json's packageManager names.
+      - run: corepack enable pnpm
+      # pnpm's store (downloaded packages): saved from main, read by every ref.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pnpm-store
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-ui-${{ hashFiles('ui/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-ui-
       # Lifecycle scripts stay off: no dependency runs code at install.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm install --frozen-lockfile --ignore-scripts --store-dir ~/.pnpm-store
       - run: pnpm exec vitest run --shard=${{ matrix.shard }}/${{ matrix.of }}
 
   ui:
@@ -55,17 +73,25 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 10.33.0
+      - *source
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
+      # pnpm through Node's corepack, at the version and sha512 that
+      # ui/package.json's packageManager names.
+      - run: corepack enable pnpm
+      # pnpm's store (downloaded packages): saved from main, read by every ref.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pnpm-store
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-ui-${{ hashFiles('ui/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-ui-
       # Lifecycle scripts stay off: no dependency runs code at install.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm install --frozen-lockfile --ignore-scripts --store-dir ~/.pnpm-store
       - run: pnpm build
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.pnpm-store.outputs.cache-hit != 'true'
+        with:
+          path: ~/.pnpm-store
+          key: ${{ steps.pnpm-store.outputs.cache-primary-key }}
