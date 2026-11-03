@@ -35,9 +35,10 @@ import (
 )
 
 // KEK is the key-encryption key: it wraps the private half of the data
-// keyset. KEKFromFile reads one from a file (a Kubernetes Secret mounted into
-// the controller); a cloud KMS AEAD (Tink's KMS clients) satisfies the same
-// interface, which is the place to add one.
+// keyset. KEKFromFile reads one from a file and KEKFromBytes takes one read
+// elsewhere (the controller reads it from a Kubernetes Secret); a cloud KMS
+// AEAD (Tink's KMS clients) satisfies the same interface, which is the place
+// to add one.
 type KEK = tink.AEAD
 
 // KEKSize is the length of a KEK file: an AES-256 key.
@@ -53,8 +54,18 @@ func KEKFromFile(path string) (KEK, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the secrets key: %w", err)
 	}
+	kek, err := KEKFromBytes(b)
+	if err != nil {
+		return nil, fmt.Errorf("the secrets key in %s: %w", path, err)
+	}
+	return kek, nil
+}
+
+// KEKFromBytes makes a key-encryption key of b, which must be 32 random
+// bytes. Its errors never contain key material.
+func KEKFromBytes(b []byte) (KEK, error) {
 	if len(b) != KEKSize {
-		return nil, fmt.Errorf("the secrets key in %s is %d bytes; it must be %d random bytes", path, len(b), KEKSize)
+		return nil, fmt.Errorf("it is %d bytes; it must be %d random bytes", len(b), KEKSize)
 	}
 	params, err := aesgcm.NewParameters(aesgcm.ParametersOpts{
 		KeySizeInBytes: KEKSize, IVSizeInBytes: 12, TagSizeInBytes: 16, Variant: aesgcm.VariantNoPrefix,
