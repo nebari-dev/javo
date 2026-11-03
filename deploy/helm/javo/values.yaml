@@ -96,9 +96,10 @@ backupTarget:
 # key (32 random bytes) that never goes into the database. By default the
 # controller makes that key on its first start, in the Secret
 # javo-secrets-key, and never changes it; the chart does not render it, so
-# Helm and Argo CD never touch it. Only the controller reads it. Losing it
-# makes every stored secret unreadable: back it up, apart from the database
-# backups.
+# Helm and Argo CD never touch it. Only the controller reads it: with
+# Postgres the controller's pods only; with SQLite the one javo pod, whose
+# single process is also the web-facing gateway. Losing it makes every stored
+# secret unreadable: back it up, apart from the database backups.
 secrets:
   # Name of a Secret in the release namespace whose key "kek" holds 32 random
   # bytes (head -c 32 /dev/urandom > kek; kubectl create secret generic NAME

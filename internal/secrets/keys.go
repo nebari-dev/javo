@@ -12,7 +12,9 @@
 //     half is stored in clear: it can seal but never open.
 //   - So the gateway, which takes values from people, seals with the public
 //     half and holds no key that opens anything; only the controller, which
-//     has the KEK, opens values, to hand them to an app's pod.
+//     has the KEK, opens values, to hand them to an app's pod. With Postgres
+//     they are separate pods. With SQLite both run in one process (`javo
+//     server`), which then holds the KEK too.
 //   - Each ciphertext is bound to its row (the secret's id, owner and name, as
 //     HPKE context info), so a ciphertext copied onto another row does not open.
 //   - Rotation adds a new primary key: new values use it and older ones still

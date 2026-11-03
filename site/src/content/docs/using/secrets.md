@@ -33,4 +33,4 @@ Only you choose which of your secrets an app or job gets. While an app or job ho
 
 ## How values are protected
 
-Values are encrypted with envelope encryption (HPKE under a data key, itself encrypted by a key kept outside the database). The web-facing gateway can only seal values; only the controller can open them, and it hands them to a pod through a Kubernetes Secret that the pod reads by reference. Admins: see [Secrets and keys](/admin/secrets-and-keys/) for the key, its backup and rotation.
+Values are encrypted with envelope encryption (HPKE under a data key, itself encrypted by a key kept outside the database). The code that takes values from people can only seal them; only the controller opens them, and it hands them to a pod through a Kubernetes Secret that the pod reads by reference. On installs with Postgres the controller runs apart from the web-facing gateway, which holds no key that opens a value; on the default SQLite install both run in one process, which holds the key. Admins: see [Secrets and keys](/admin/secrets-and-keys/) for the key, its backup and rotation.
