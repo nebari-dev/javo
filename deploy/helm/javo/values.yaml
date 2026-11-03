@@ -107,16 +107,18 @@ secrets:
   # then only reads it and never makes one.
   existingKeySecret: ""
   # The gateway seals each session's identity provider tokens with a key of
-  # its own (32 random bytes, the Secret javo-sessions-key, made once and
-  # kept like the key above), so a copy of the database holds no live
-  # session. Losing it only signs everyone out. Name a Secret whose key "key"
-  # holds 32 random bytes for the same reason as existingKeySecret.
+  # its own, so a copy of the database holds no live session. By default the
+  # gateway makes it on its first start, in the Secret javo-sessions-key
+  # (32 random bytes, never changed; the chart does not render it). Losing it
+  # only signs everyone out. Name a Secret whose key "key" holds 32 random
+  # bytes to use that instead; the gateway then only reads it.
   existingSessionsKeySecret: ""
   # The controller fingerprints each secret value (its length and an
-  # HMAC-SHA256) under a key kept outside the database, the Secret
-  # javo-secret-fingerprint-key, and the gateway looks for them in an app's
-  # logs before they go to a model. Both mount it. Name a Secret whose key
-  # "key" holds 32 random bytes for the same reason as existingKeySecret.
+  # HMAC-SHA256) under a key kept outside the database, and the gateway looks
+  # for them in an app's logs before they go to a model. By default
+  # whichever starts first makes it, in the Secret javo-secret-fingerprint-key
+  # (the chart does not render it); both read it. Name a Secret whose key
+  # "key" holds 32 random bytes to use that instead.
   existingFingerprintKeySecret: ""
 
 # Namespace holding Workspaces and their pods, services and PVCs when

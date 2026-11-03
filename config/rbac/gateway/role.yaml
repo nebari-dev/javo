@@ -41,3 +41,18 @@ rules:
   - delete
   - get
   - list
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resourceNames:
+  - javo-secret-fingerprint-key
+  - javo-sessions-key
+  resources:
+  - secrets
+  verbs:
+  - get

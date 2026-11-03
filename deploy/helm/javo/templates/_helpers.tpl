@@ -159,31 +159,15 @@ secrets.existingKeySecret names one made elsewhere.
 */}}
 {{- define "javo.secretsKeySecret" -}}{{ .Values.secrets.existingKeySecret | default "javo-secrets-key" }}{{- end -}}
 
-{{/* The key that seals the sessions' provider tokens: the gateway's only. */}}
-{{- define "javo.sessionsKeyDir" -}}/etc/javo-sessions-key{{- end -}}
-{{- define "javo.sessionsKeyMount" -}}
-- {name: sessions-key, mountPath: {{ include "javo.sessionsKeyDir" . }}, readOnly: true}
-{{- end -}}
-{{- define "javo.sessionsKeyVolume" -}}
-- name: sessions-key
-  secret:
-    secretName: {{ .Values.secrets.existingSessionsKeySecret | default "javo-sessions-key" }}
-    defaultMode: 0400
-    items: [{key: key, path: key}]
-{{- end -}}
-
-{{/* The key of the secrets' fingerprints: the gateway's and the controller's. */}}
-{{- define "javo.fingerprintKeyDir" -}}/etc/javo-secret-fingerprint-key{{- end -}}
-{{- define "javo.fingerprintKeyMount" -}}
-- {name: secret-fingerprint-key, mountPath: {{ include "javo.fingerprintKeyDir" . }}, readOnly: true}
-{{- end -}}
-{{- define "javo.fingerprintKeyVolume" -}}
-- name: secret-fingerprint-key
-  secret:
-    secretName: {{ .Values.secrets.existingFingerprintKeySecret | default "javo-secret-fingerprint-key" }}
-    defaultMode: 0400
-    items: [{key: key, path: key}]
-{{- end -}}
+{{/*
+The Secrets of the gateway's sessions key (the gateway's only) and of the
+secrets' fingerprint key (both components'), read through the API at start.
+The chart renders neither: the components make them on their first start
+(the --...-create flags) unless secrets.existingSessionsKeySecret or
+secrets.existingFingerprintKeySecret names one made elsewhere.
+*/}}
+{{- define "javo.sessionsKeySecret" -}}{{ .Values.secrets.existingSessionsKeySecret | default "javo-sessions-key" }}{{- end -}}
+{{- define "javo.fingerprintKeySecret" -}}{{ .Values.secrets.existingFingerprintKeySecret | default "javo-secret-fingerprint-key" }}{{- end -}}
 
 {{- define "javo.databaseMounts" -}}
 {{- if eq (include "javo.engine" .) "sqlite" -}}
@@ -259,7 +243,10 @@ true
 {{- define "javo.commonArgs" -}}
 - --workspace-namespace={{ .Values.workspaceNamespace }}
 - {{ include "javo.sizesArg" . }}
-- --secret-fingerprint-key-file={{ include "javo.fingerprintKeyDir" . }}/key
+- --secret-fingerprint-key-secret={{ include "javo.fingerprintKeySecret" . }}
+{{- if not .Values.secrets.existingFingerprintKeySecret }}
+- --secret-fingerprint-key-create=true
+{{- end }}
 {{- end -}}
 
 {{/* The gateway's own flags. */}}
@@ -270,7 +257,10 @@ true
 - --files-image={{ .Values.files.image }}
 - --files-idle-after={{ .Values.files.idleAfter }}
 - --templates-dir={{ include "javo.templatesDir" . }}
-- --sessions-key-file={{ include "javo.sessionsKeyDir" . }}/key
+- --sessions-key-secret={{ include "javo.sessionsKeySecret" . }}
+{{- if not .Values.secrets.existingSessionsKeySecret }}
+- --sessions-key-create=true
+{{- end }}
 {{- with .Values.gateway.trustedProxies }}
 - --trusted-proxies={{ join "," . }}
 {{- end }}

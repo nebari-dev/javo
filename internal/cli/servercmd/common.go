@@ -3,13 +3,16 @@
 package servercmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/spf13/pflag"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
+	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
 )
@@ -20,10 +23,12 @@ type commonFlags struct {
 	workspaceNamespace string
 	namespace          string
 	sizesFile          string
-	// fingerprintKey is the key file of the secrets' fingerprints.
-	fingerprintKey string
-	loadConfig     wiring.ConfigLoader
-	database       dbflag.Flags
+	// fingerprintKeySecret names the Secret in the release namespace with
+	// the key of the secrets' fingerprints; fingerprintKeyCreate makes it.
+	fingerprintKeySecret string
+	fingerprintKeyCreate bool
+	loadConfig           wiring.ConfigLoader
+	database             dbflag.Flags
 }
 
 func (c *commonFlags) register(f *pflag.FlagSet) {
@@ -32,17 +37,29 @@ func (c *commonFlags) register(f *pflag.FlagSet) {
 	f.StringVar(&c.workspaceNamespace, "workspace-namespace", model.DefaultWorkspaceNamespace, "namespace holding apps and their pods")
 	f.StringVar(&c.namespace, "namespace", os.Getenv("POD_NAMESPACE"), "the release namespace, where API token records are kept (default $POD_NAMESPACE)")
 	f.StringVar(&c.sizesFile, "sizes-file", "", sizesFileUsage)
-	f.StringVar(&c.fingerprintKey, "secret-fingerprint-key-file", "", "file holding the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model (a mounted Secret); empty: those log lines are not sent")
+	f.StringVar(&c.fingerprintKeySecret, "secret-fingerprint-key-secret", "", "Secret in the release namespace whose key \"key\" holds the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model, read at start; empty: those log lines are not sent")
+	f.BoolVar(&c.fingerprintKeyCreate, "secret-fingerprint-key-create", false, "make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards")
 }
 
-// fingerprinter reads --secret-fingerprint-key-file; nil without one.
-func (c *commonFlags) fingerprinter() (*secrets.Fingerprinter, error) {
-	if c.fingerprintKey == "" {
+// keySecretKey is the data key of the sessions and fingerprint key Secrets.
+const keySecretKey = "key"
+
+// fingerprinter reads the --secret-fingerprint-key-secret Secret through c,
+// making it first with --secret-fingerprint-key-create; nil without one.
+func (c *commonFlags) fingerprinter(ctx context.Context, k client.Client) (*secrets.Fingerprinter, error) {
+	if c.fingerprintKeySecret == "" {
 		return nil, nil
 	}
-	f, err := secrets.FingerprinterFromFile(c.fingerprintKey)
+	b, err := secretskey.Secret{
+		Client: k, Namespace: c.namespace, Name: c.fingerprintKeySecret, Key: keySecretKey,
+		Component: "secret-fingerprint-key", Create: c.fingerprintKeyCreate,
+	}.Bytes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("--secret-fingerprint-key-file: %w", err)
+		return nil, err
+	}
+	f, err := secrets.FingerprinterFromBytes(b)
+	if err != nil {
+		return nil, fmt.Errorf("Secret %s/%s: %w", c.namespace, c.fingerprintKeySecret, err)
 	}
 	return f, nil
 }

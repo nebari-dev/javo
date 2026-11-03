@@ -595,14 +595,15 @@ func TestAppWritesAreBoundPerNamespace(t *testing.T) {
 }
 
 // Apps, templates, sharing and jobs are database rows, so the gateway writes
-// none of them to Kubernetes: its only write right is on the file picker
-// pods (pods). A new write right has to be added to this list on purpose.
+// none of them to Kubernetes: its only write rights are on the file picker
+// pods (pods) and making its own key Secrets on the first start (secrets,
+// create only). A new write right has to be added to this list on purpose.
 func TestGatewayRBACHasNoWrites(t *testing.T) {
 	t.Parallel()
 	// With SQLite the one pod is also the controller, so only the Postgres
 	// install has a gateway account of its own to check.
-	allowed := map[string]bool{"/pods": true}
 	writes := []string{"create", "update", "patch", "delete", "deletecollection", "*"}
+	allowed := map[string][]string{"/pods": writes, "/secrets": {"create"}}
 	for _, mode := range []string{"shared", "per-user", "per-team"} {
 		args := append([]string{"--set", "config.namespaces.mode=" + mode}, postgresArgs...)
 		if mode == "per-team" {
@@ -614,7 +615,7 @@ func TestGatewayRBACHasNoWrites(t *testing.T) {
 		}
 		for resource, verbs := range chartGrants(t, out)["javo-gateway"] {
 			for _, verb := range verbs {
-				if slices.Contains(writes, verb) && !allowed[resource] {
+				if slices.Contains(writes, verb) && !slices.Contains(allowed[resource], verb) {
 					t.Errorf("%s: the gateway may %s %s", mode, verb, resource)
 				}
 			}

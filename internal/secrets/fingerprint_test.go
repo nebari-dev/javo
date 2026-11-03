@@ -1,8 +1,6 @@
 package secrets_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,11 +9,7 @@ import (
 
 func fingerprinter(t *testing.T, key string) *secrets.Fingerprinter {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte(key), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	f, err := secrets.FingerprinterFromFile(path)
+	f, err := secrets.FingerprinterFromBytes([]byte(key))
 	if err != nil {
 		t.Fatal(err)
 	}

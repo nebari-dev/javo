@@ -88,6 +88,7 @@ rules:
 - apiGroups:
   - ""
   resourceNames:
+  - javo-secret-fingerprint-key
   - javo-secrets-key
   resources:
   - secrets

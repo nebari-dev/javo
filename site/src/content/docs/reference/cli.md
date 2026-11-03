@@ -269,39 +269,40 @@ Usage:
   javo controller [flags]
 
 Flags:
-      --app-role-binding strings             bind a ClusterRole to a service account in every workspace namespace (clusterrole=namespace/serviceaccount, repeatable)
-      --backup-claim string                  make this claim in the release namespace, if missing, for the Postgres backup CronJob's dumps; never changed or deleted after; empty makes none
-      --backup-claim-size string             size of the --backup-claim claim (default "5Gi")
-      --backup-claim-storage-class string    storage class of the --backup-claim claim; empty uses the cluster default
-      --config string                        platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
-      --database-dsn-file string             file holding the Postgres connection string
-      --database-engine string               database engine: sqlite or postgres (default "sqlite")
-      --database-path string                 SQLite database file (default "/var/lib/javo/javo.db")
-      --egress-allow-cidrs strings           if set, the only address ranges app and job pods may reach, besides DNS, the gateway and their own namespace
-      --egress-deny-cidrs strings            address ranges app and job pods may not reach; empty denies none (default [169.254.169.254/32,fd00:ec2::254/128])
-      --gateway-namespace string             namespace of the gateway pods, the only ones allowed to reach apps
-      --gateway-pod-labels stringToString    labels of the gateway pods (key=value,...) (default [])
-      --health-probe-bind-address string     health probe address (default ":8082")
-  -h, --help                                 help for controller
-      --image-pull-secret strings            Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
-      --metrics-bind-address string          metrics endpoint address (default ":8081")
-      --namespace string                     the release namespace, where API token records are kept (default $POD_NAMESPACE)
-      --netprobe-control-url string          URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller
-      --netprobe-interval duration           how often the NetworkPolicy enforcement probe runs (it also runs at start) (default 6h0m0s)
-      --netprobe-timeout duration            how long one probe may take before its result is Unknown (default 2m0s)
-      --network-policy                       keep the default-deny NetworkPolicies in every workspace namespace (default true)
-      --notifications-config-map string      ConfigMap with notifications-engine services, templates, triggers and subscriptions (default "javo-notifications")
-      --notifications-namespace string       namespace holding the failure-notice ConfigMap and Secret; empty turns failure notices off
-      --notifications-secret string          Secret with the service credentials the ConfigMap refers to as $key (default "javo-notifications")
-      --public-host string                   host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
-      --ready-timeout duration               how long a running app may stay unready before it is reported as not answering (default 3m0s)
-      --runner-image string                  image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller
-      --secret-fingerprint-key-file string   file holding the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model (a mounted Secret); empty: those log lines are not sent
-      --secrets-key-create                   make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
-      --secrets-key-file string              file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
-      --secrets-key-secret string            Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
-      --sizes-file string                    YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
-      --workspace-namespace string           namespace holding apps and their pods (default "javo-apps")
+      --app-role-binding strings               bind a ClusterRole to a service account in every workspace namespace (clusterrole=namespace/serviceaccount, repeatable)
+      --backup-claim string                    make this claim in the release namespace, if missing, for the Postgres backup CronJob's dumps; never changed or deleted after; empty makes none
+      --backup-claim-size string               size of the --backup-claim claim (default "5Gi")
+      --backup-claim-storage-class string      storage class of the --backup-claim claim; empty uses the cluster default
+      --config string                          platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
+      --database-dsn-file string               file holding the Postgres connection string
+      --database-engine string                 database engine: sqlite or postgres (default "sqlite")
+      --database-path string                   SQLite database file (default "/var/lib/javo/javo.db")
+      --egress-allow-cidrs strings             if set, the only address ranges app and job pods may reach, besides DNS, the gateway and their own namespace
+      --egress-deny-cidrs strings              address ranges app and job pods may not reach; empty denies none (default [169.254.169.254/32,fd00:ec2::254/128])
+      --gateway-namespace string               namespace of the gateway pods, the only ones allowed to reach apps
+      --gateway-pod-labels stringToString      labels of the gateway pods (key=value,...) (default [])
+      --health-probe-bind-address string       health probe address (default ":8082")
+  -h, --help                                   help for controller
+      --image-pull-secret strings              Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
+      --metrics-bind-address string            metrics endpoint address (default ":8081")
+      --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
+      --netprobe-control-url string            URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller
+      --netprobe-interval duration             how often the NetworkPolicy enforcement probe runs (it also runs at start) (default 6h0m0s)
+      --netprobe-timeout duration              how long one probe may take before its result is Unknown (default 2m0s)
+      --network-policy                         keep the default-deny NetworkPolicies in every workspace namespace (default true)
+      --notifications-config-map string        ConfigMap with notifications-engine services, templates, triggers and subscriptions (default "javo-notifications")
+      --notifications-namespace string         namespace holding the failure-notice ConfigMap and Secret; empty turns failure notices off
+      --notifications-secret string            Secret with the service credentials the ConfigMap refers to as $key (default "javo-notifications")
+      --public-host string                     host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
+      --ready-timeout duration                 how long a running app may stay unready before it is reported as not answering (default 3m0s)
+      --runner-image string                    image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller
+      --secret-fingerprint-key-create          make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secret-fingerprint-key-secret string   Secret in the release namespace whose key "key" holds the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model, read at start; empty: those log lines are not sent
+      --secrets-key-create                     make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secrets-key-file string                file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
+      --secrets-key-secret string              Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
+      --sizes-file string                      YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
+      --workspace-namespace string             namespace holding apps and their pods (default "javo-apps")
 ```
 
 ## javo db
@@ -403,23 +404,25 @@ Usage:
   javo gateway [flags]
 
 Flags:
-      --config string                        platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
-      --database-dsn-file string             file holding the Postgres connection string
-      --database-engine string               database engine: sqlite or postgres (default "sqlite")
-      --database-path string                 SQLite database file (default "/var/lib/javo/javo.db")
-      --files-idle-after duration            how long a user's file picker pod is kept after their last request from the UI (default 10m0s)
-      --files-image string                   rclone image for file picker pods, pinned by digest (default "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5")
-  -h, --help                                 help for gateway
-      --listen string                        address to listen on (default ":8080")
-      --namespace string                     the release namespace, where API token records are kept (default $POD_NAMESPACE)
-      --secret-fingerprint-key-file string   file holding the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model (a mounted Secret); empty: those log lines are not sent
-      --secure-cookies                       mark the session cookie Secure even when urls.scheme is http (it always is with https)
-      --sessions-key-file string             file holding the 32-byte key that seals each session's identity provider tokens in the database (a mounted Secret); empty: a key made at start, so a restart signs everyone out
-      --sizes-file string                    YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
-      --templates-dir string                 directory of built-in template files (*.yaml) to install into the database at start
-      --trusted-proxies strings              CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
-      --ui-dir string                        directory with the built UI (default "/ui")
-      --workspace-namespace string           namespace holding apps and their pods (default "javo-apps")
+      --config string                          platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
+      --database-dsn-file string               file holding the Postgres connection string
+      --database-engine string                 database engine: sqlite or postgres (default "sqlite")
+      --database-path string                   SQLite database file (default "/var/lib/javo/javo.db")
+      --files-idle-after duration              how long a user's file picker pod is kept after their last request from the UI (default 10m0s)
+      --files-image string                     rclone image for file picker pods, pinned by digest (default "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5")
+  -h, --help                                   help for gateway
+      --listen string                          address to listen on (default ":8080")
+      --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
+      --secret-fingerprint-key-create          make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secret-fingerprint-key-secret string   Secret in the release namespace whose key "key" holds the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model, read at start; empty: those log lines are not sent
+      --secure-cookies                         mark the session cookie Secure even when urls.scheme is http (it always is with https)
+      --sessions-key-create                    make the --sessions-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --sessions-key-secret string             Secret in the release namespace whose key "key" holds the 32-byte key that seals each session's identity provider tokens in the database, read at start; empty: a key made at start, so a restart signs everyone out
+      --sizes-file string                      YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
+      --templates-dir string                   directory of built-in template files (*.yaml) to install into the database at start
+      --trusted-proxies strings                CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
+      --ui-dir string                          directory with the built UI (default "/ui")
+      --workspace-namespace string             namespace holding apps and their pods (default "javo-apps")
 ```
 
 ## javo home
@@ -659,51 +662,53 @@ Usage:
   javo server [flags]
 
 Flags:
-      --app-role-binding strings             bind a ClusterRole to a service account in every workspace namespace (clusterrole=namespace/serviceaccount, repeatable)
-      --backup-claim string                  make this claim in the release namespace, if missing, for the Postgres backup CronJob's dumps; never changed or deleted after; empty makes none
-      --backup-claim-size string             size of the --backup-claim claim (default "5Gi")
-      --backup-claim-storage-class string    storage class of the --backup-claim claim; empty uses the cluster default
-      --backup-dir string                    directory the scheduled backups are written to
-      --backup-keep int                      how many scheduled backups to keep (default 7)
-      --backup-schedule string               cron schedule of SQLite backups taken by this process (empty: none)
-      --components strings                   what to run: gateway, controller or both (default [gateway,controller])
-      --config string                        platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
-      --database-dsn-file string             file holding the Postgres connection string
-      --database-engine string               database engine: sqlite or postgres (default "sqlite")
-      --database-path string                 SQLite database file (default "/var/lib/javo/javo.db")
-      --egress-allow-cidrs strings           if set, the only address ranges app and job pods may reach, besides DNS, the gateway and their own namespace
-      --egress-deny-cidrs strings            address ranges app and job pods may not reach; empty denies none (default [169.254.169.254/32,fd00:ec2::254/128])
-      --files-idle-after duration            how long a user's file picker pod is kept after their last request from the UI (default 10m0s)
-      --files-image string                   rclone image for file picker pods, pinned by digest (default "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5")
-      --gateway-namespace string             namespace of the gateway pods, the only ones allowed to reach apps
-      --gateway-pod-labels stringToString    labels of the gateway pods (key=value,...) (default [])
-      --health-probe-bind-address string     health probe address (default ":8082")
-  -h, --help                                 help for server
-      --image-pull-secret strings            Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
-      --listen string                        address to listen on (default ":8080")
-      --metrics-bind-address string          metrics endpoint address (default ":8081")
-      --namespace string                     the release namespace, where API token records are kept (default $POD_NAMESPACE)
-      --netprobe-control-url string          URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller
-      --netprobe-interval duration           how often the NetworkPolicy enforcement probe runs (it also runs at start) (default 6h0m0s)
-      --netprobe-timeout duration            how long one probe may take before its result is Unknown (default 2m0s)
-      --network-policy                       keep the default-deny NetworkPolicies in every workspace namespace (default true)
-      --notifications-config-map string      ConfigMap with notifications-engine services, templates, triggers and subscriptions (default "javo-notifications")
-      --notifications-namespace string       namespace holding the failure-notice ConfigMap and Secret; empty turns failure notices off
-      --notifications-secret string          Secret with the service credentials the ConfigMap refers to as $key (default "javo-notifications")
-      --public-host string                   host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
-      --ready-timeout duration               how long a running app may stay unready before it is reported as not answering (default 3m0s)
-      --runner-image string                  image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller
-      --secret-fingerprint-key-file string   file holding the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model (a mounted Secret); empty: those log lines are not sent
-      --secrets-key-create                   make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
-      --secrets-key-file string              file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
-      --secrets-key-secret string            Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
-      --secure-cookies                       mark the session cookie Secure even when urls.scheme is http (it always is with https)
-      --sessions-key-file string             file holding the 32-byte key that seals each session's identity provider tokens in the database (a mounted Secret); empty: a key made at start, so a restart signs everyone out
-      --sizes-file string                    YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
-      --templates-dir string                 directory of built-in template files (*.yaml) to install into the database at start
-      --trusted-proxies strings              CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
-      --ui-dir string                        directory with the built UI (default "/ui")
-      --workspace-namespace string           namespace holding apps and their pods (default "javo-apps")
+      --app-role-binding strings               bind a ClusterRole to a service account in every workspace namespace (clusterrole=namespace/serviceaccount, repeatable)
+      --backup-claim string                    make this claim in the release namespace, if missing, for the Postgres backup CronJob's dumps; never changed or deleted after; empty makes none
+      --backup-claim-size string               size of the --backup-claim claim (default "5Gi")
+      --backup-claim-storage-class string      storage class of the --backup-claim claim; empty uses the cluster default
+      --backup-dir string                      directory the scheduled backups are written to
+      --backup-keep int                        how many scheduled backups to keep (default 7)
+      --backup-schedule string                 cron schedule of SQLite backups taken by this process (empty: none)
+      --components strings                     what to run: gateway, controller or both (default [gateway,controller])
+      --config string                          platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
+      --database-dsn-file string               file holding the Postgres connection string
+      --database-engine string                 database engine: sqlite or postgres (default "sqlite")
+      --database-path string                   SQLite database file (default "/var/lib/javo/javo.db")
+      --egress-allow-cidrs strings             if set, the only address ranges app and job pods may reach, besides DNS, the gateway and their own namespace
+      --egress-deny-cidrs strings              address ranges app and job pods may not reach; empty denies none (default [169.254.169.254/32,fd00:ec2::254/128])
+      --files-idle-after duration              how long a user's file picker pod is kept after their last request from the UI (default 10m0s)
+      --files-image string                     rclone image for file picker pods, pinned by digest (default "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5")
+      --gateway-namespace string               namespace of the gateway pods, the only ones allowed to reach apps
+      --gateway-pod-labels stringToString      labels of the gateway pods (key=value,...) (default [])
+      --health-probe-bind-address string       health probe address (default ":8082")
+  -h, --help                                   help for server
+      --image-pull-secret strings              Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
+      --listen string                          address to listen on (default ":8080")
+      --metrics-bind-address string            metrics endpoint address (default ":8081")
+      --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
+      --netprobe-control-url string            URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller
+      --netprobe-interval duration             how often the NetworkPolicy enforcement probe runs (it also runs at start) (default 6h0m0s)
+      --netprobe-timeout duration              how long one probe may take before its result is Unknown (default 2m0s)
+      --network-policy                         keep the default-deny NetworkPolicies in every workspace namespace (default true)
+      --notifications-config-map string        ConfigMap with notifications-engine services, templates, triggers and subscriptions (default "javo-notifications")
+      --notifications-namespace string         namespace holding the failure-notice ConfigMap and Secret; empty turns failure notices off
+      --notifications-secret string            Secret with the service credentials the ConfigMap refers to as $key (default "javo-notifications")
+      --public-host string                     host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
+      --ready-timeout duration                 how long a running app may stay unready before it is reported as not answering (default 3m0s)
+      --runner-image string                    image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller
+      --secret-fingerprint-key-create          make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secret-fingerprint-key-secret string   Secret in the release namespace whose key "key" holds the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model, read at start; empty: those log lines are not sent
+      --secrets-key-create                     make the --secrets-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --secrets-key-file string                file holding the 32-byte key-encryption key of people's secrets; empty (and no --secrets-key-secret): apps that get secrets do not start
+      --secrets-key-secret string              Secret in the release namespace whose key kek holds the 32-byte key-encryption key of people's secrets, read at start
+      --secure-cookies                         mark the session cookie Secure even when urls.scheme is http (it always is with https)
+      --sessions-key-create                    make the --sessions-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
+      --sessions-key-secret string             Secret in the release namespace whose key "key" holds the 32-byte key that seals each session's identity provider tokens in the database, read at start; empty: a key made at start, so a restart signs everyone out
+      --sizes-file string                      YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
+      --templates-dir string                   directory of built-in template files (*.yaml) to install into the database at start
+      --trusted-proxies strings                CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
+      --ui-dir string                          directory with the built UI (default "/ui")
+      --workspace-namespace string             namespace holding apps and their pods (default "javo-apps")
 ```
 
 ## javo source-check

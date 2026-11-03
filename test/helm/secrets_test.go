@@ -109,7 +109,8 @@ func TestTwoRendersAreIdentical(t *testing.T) {
 // names it; the controller then only reads that Secret and never makes one.
 func TestSecretsKeyFromAnExistingSecret(t *testing.T) {
 	t.Parallel()
-	out, err := render(t, "--set", "secrets.existingKeySecret=my-kek")
+	// The fingerprint key is given too, so the controller makes no Secret.
+	out, err := render(t, "--set", "secrets.existingKeySecret=my-kek", "--set", "secrets.existingFingerprintKeySecret=my-fingerprint-key")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
@@ -150,79 +151,115 @@ func TestControllerCanReadTheSecretsKey(t *testing.T) {
 	}
 }
 
+// gatewaySecretGrants is what the gateway's Role in the release namespace
+// grants on secrets: verbs by resource name ("" for any name).
+func gatewaySecretGrants(t *testing.T, out string) map[string][]string {
+	t.Helper()
+	got := map[string][]string{}
+	for _, o := range docs(t, out) {
+		r, ok := o.(*rbacv1.Role)
+		if !ok || r.Namespace != "javo-system" || r.Name != "javo-gateway-keys" {
+			continue
+		}
+		for _, rule := range r.Rules {
+			if !slices.Contains(rule.Resources, "secrets") {
+				continue
+			}
+			names := rule.ResourceNames
+			if len(names) == 0 {
+				names = []string{""}
+			}
+			for _, n := range names {
+				got[n] = append(got[n], rule.Verbs...)
+			}
+		}
+	}
+	return got
+}
+
 // The gateway seals the identity provider's tokens of each session with a
-// key of its own, made once and kept like the secrets key, so a copy of the
-// database holds no live session. The controller never needs it.
-func TestSessionsKeyIsGeneratedAndOnlyTheGatewayHasIt(t *testing.T) {
+// key of its own, so a copy of the database holds no live session. Like the
+// secrets key, the chart renders no such key: the gateway makes
+// javo-sessions-key on its first start and reads it through the API, which
+// its Role allows for that Secret by name.
+func TestSessionsKeyIsMadeByTheGatewayNotTheChart(t *testing.T) {
 	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
 			t.Fatalf("%s render: %v\n%s", engine, err, out)
 		}
-		var sec corev1.Secret
-		if !object(t, out, "Secret", "javo-sessions-key", &sec) {
-			t.Fatalf("%s: no Secret javo-sessions-key", engine)
-		}
-		if len(sec.Data["key"]) != 32 || sec.Annotations["helm.sh/resource-policy"] != "keep" {
-			t.Fatalf("%s: key is %d bytes, annotations %v", engine, len(sec.Data["key"]), sec.Annotations)
+		if kinds := kindsOf(t, out); slices.Contains(kinds["Secret"], "javo-sessions-key") {
+			t.Fatalf("%s: the chart renders the Secret javo-sessions-key", engine)
 		}
 		gw := deploymentOf(t, out, engine, "gateway")
-		path := controllerArg(gw, "sessions-key-file")
-		if path == "" || !hasVolumeFromSecret(gw, "javo-sessions-key") || !mounts(gw, strings.TrimSuffix(path, "/key")) {
-			t.Fatalf("%s: gateway args %v, volumes %+v", engine, gw.Spec.Template.Spec.Containers[0].Args, gw.Spec.Template.Spec.Volumes)
+		if controllerArg(gw, "sessions-key-secret") != "javo-sessions-key" || controllerArg(gw, "sessions-key-create") != "true" {
+			t.Fatalf("%s: gateway args %v", engine, gw.Spec.Template.Spec.Containers[0].Args)
+		}
+		if hasVolumeFromSecret(gw, "javo-sessions-key") {
+			t.Fatalf("%s: the gateway mounts the key", engine)
+		}
+		g := gatewaySecretGrants(t, out)
+		if !slices.Contains(g["javo-sessions-key"], "get") || !slices.Contains(g[""], "create") {
+			t.Fatalf("%s: gateway secrets grants %v", engine, g)
 		}
 		if engine == "postgres" {
-			if ctl := deploymentOf(t, out, engine, "controller"); hasVolumeFromSecret(ctl, "javo-sessions-key") {
+			if ctl := deploymentOf(t, out, engine, "controller"); controllerArg(ctl, "sessions-key-secret") != "" {
 				t.Fatal("the controller gets the sessions key")
 			}
 		}
 	}
-	out, err := render(t, "--set", "secrets.existingSessionsKeySecret=my-sessions-key")
+	out, err := render(t, "--set", "secrets.existingSessionsKeySecret=my-sessions-key", "--set", "secrets.existingFingerprintKeySecret=my-fingerprint-key")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
-	if kinds := kindsOf(t, out); slices.Contains(kinds["Secret"], "javo-sessions-key") {
-		t.Fatal("the chart made its own sessions key as well")
+	gw := deploymentOf(t, out, "sqlite", "gateway")
+	if controllerArg(gw, "sessions-key-secret") != "my-sessions-key" || controllerArg(gw, "sessions-key-create") != "" {
+		t.Fatalf("gateway args %v", gw.Spec.Template.Spec.Containers[0].Args)
 	}
-	if d := deploymentOf(t, out, "sqlite", "gateway"); !hasVolumeFromSecret(d, "my-sessions-key") {
-		t.Fatalf("volumes %+v", d.Spec.Template.Spec.Volumes)
+	if g := gatewaySecretGrants(t, out); !slices.Contains(g["my-sessions-key"], "get") || g[""] != nil || g["javo-sessions-key"] != nil {
+		t.Fatalf("gateway secrets grants with both keys given %v", g)
 	}
 }
 
 // The controller fingerprints people's secret values and the gateway looks
-// for them in app logs before they go to a model: both mount the one key,
-// made once and kept.
-func TestFingerprintKeyIsGeneratedAndBothComponentsHaveIt(t *testing.T) {
+// for them in app logs before they go to a model: both read the one key from
+// javo-secret-fingerprint-key, which either may make on its first start.
+func TestFingerprintKeyIsMadeByTheComponentsNotTheChart(t *testing.T) {
 	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
 			t.Fatalf("%s render: %v\n%s", engine, err, out)
 		}
-		var sec corev1.Secret
-		if !object(t, out, "Secret", "javo-secret-fingerprint-key", &sec) {
-			t.Fatalf("%s: no Secret javo-secret-fingerprint-key", engine)
-		}
-		if len(sec.Data["key"]) != 32 || sec.Annotations["helm.sh/resource-policy"] != "keep" {
-			t.Fatalf("%s: key is %d bytes, annotations %v", engine, len(sec.Data["key"]), sec.Annotations)
+		if kinds := kindsOf(t, out); slices.Contains(kinds["Secret"], "javo-secret-fingerprint-key") {
+			t.Fatalf("%s: the chart renders the Secret javo-secret-fingerprint-key", engine)
 		}
 		for _, component := range []string{"gateway", "controller"} {
 			d := deploymentOf(t, out, engine, component)
-			path := controllerArg(d, "secret-fingerprint-key-file")
-			if path == "" || !hasVolumeFromSecret(d, "javo-secret-fingerprint-key") || !mounts(d, strings.TrimSuffix(path, "/key")) {
-				t.Fatalf("%s %s: args %v, volumes %+v", engine, component, d.Spec.Template.Spec.Containers[0].Args, d.Spec.Template.Spec.Volumes)
+			if controllerArg(d, "secret-fingerprint-key-secret") != "javo-secret-fingerprint-key" || controllerArg(d, "secret-fingerprint-key-create") != "true" {
+				t.Fatalf("%s %s: args %v", engine, component, d.Spec.Template.Spec.Containers[0].Args)
 			}
+			if hasVolumeFromSecret(d, "javo-secret-fingerprint-key") {
+				t.Fatalf("%s %s mounts the key", engine, component)
+			}
+		}
+		if g := gatewaySecretGrants(t, out); !slices.Contains(g["javo-secret-fingerprint-key"], "get") {
+			t.Fatalf("%s: gateway secrets grants %v", engine, g)
+		}
+		if g := releaseSecretGrants(t, out); !slices.Contains(g["javo-secret-fingerprint-key"], "get") {
+			t.Fatalf("%s: controller secrets grants %v", engine, g)
 		}
 	}
 	out, err := render(t, "--set", "secrets.existingFingerprintKeySecret=my-fingerprint-key")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
-	if kinds := kindsOf(t, out); slices.Contains(kinds["Secret"], "javo-secret-fingerprint-key") {
-		t.Fatal("the chart made its own fingerprint key as well")
+	d := deploymentOf(t, out, "sqlite", "gateway")
+	if controllerArg(d, "secret-fingerprint-key-secret") != "my-fingerprint-key" || controllerArg(d, "secret-fingerprint-key-create") != "" {
+		t.Fatalf("args %v", d.Spec.Template.Spec.Containers[0].Args)
 	}
-	if d := deploymentOf(t, out, "sqlite", "gateway"); !hasVolumeFromSecret(d, "my-fingerprint-key") {
-		t.Fatalf("volumes %+v", d.Spec.Template.Spec.Volumes)
+	if g := releaseSecretGrants(t, out); !slices.Contains(g["my-fingerprint-key"], "get") {
+		t.Fatalf("controller secrets grants %v", g)
 	}
 }

@@ -58,7 +58,6 @@ spec:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
-            {{- include "javo.fingerprintKeyMount" . | nindent 12 }}
             - {name: sizes, mountPath: {{ include "javo.sizesDir" . }}, readOnly: true}
             - {name: config, mountPath: /etc/javo, readOnly: true}
             - {name: templates, mountPath: {{ include "javo.templatesDir" . }}, readOnly: true}
@@ -69,14 +68,12 @@ spec:
             {{- with include "javo.bucketMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
-            {{- include "javo.sessionsKeyMount" . | nindent 12 }}
             {{- if .Values.gateway.oidcClientSecret }}
             - {name: oidc, mountPath: {{ include "javo.oidcSecretDir" . }}, readOnly: true}
             {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- include "javo.fingerprintKeyVolume" . | nindent 8 }}
         - name: sizes
           configMap: {name: javo-sizes}
         - name: config
@@ -90,7 +87,6 @@ spec:
         {{- with include "javo.bucketVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}
-        {{- include "javo.sessionsKeyVolume" . | nindent 8 }}
         {{- with .Values.gateway.oidcClientSecret }}
         - name: oidc
           secret:

@@ -1,13 +1,13 @@
 package secrets
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"hash"
-	"os"
 
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -21,7 +21,7 @@ const MinFingerprintLength = 4
 // being able to open it, and a copy of the database alone cannot test
 // guesses against them: the key lives outside the database, in a file both
 // the controller (which writes fingerprints) and the gateway (which looks
-// for them) mount.
+// for them) read from one Kubernetes Secret.
 type Fingerprinter struct {
 	key []byte
 	id  string
@@ -43,18 +43,14 @@ type Match struct {
 	Name       string
 }
 
-// FingerprinterFromFile reads a 32-byte key. Its errors never contain key
-// material.
-func FingerprinterFromFile(path string) (*Fingerprinter, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
+// FingerprinterFromBytes makes a Fingerprinter of b, which must be 32
+// random bytes. Its errors never contain key material.
+func FingerprinterFromBytes(b []byte) (*Fingerprinter, error) {
 	if len(b) != KEKSize {
-		return nil, fmt.Errorf("%s is %d bytes; it must be %d random bytes", path, len(b), KEKSize)
+		return nil, fmt.Errorf("the fingerprint key is %d bytes; it must be %d random bytes", len(b), KEKSize)
 	}
-	f := &Fingerprinter{key: b}
-	m := hmac.New(sha256.New, b)
+	f := &Fingerprinter{key: bytes.Clone(b)}
+	m := hmac.New(sha256.New, f.key)
 	m.Write([]byte("javo fingerprint key id v1"))
 	f.id = hex.EncodeToString(m.Sum(nil))[:16]
 	return f, nil

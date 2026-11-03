@@ -29,6 +29,7 @@ import (
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/admin"
@@ -51,7 +52,12 @@ import (
 // chart's Roles must grant the same rules, test/helm checks it). Apps,
 // templates, sharing and jobs are rows of the database: the gateway writes
 // nothing about them to Kubernetes.
-// No Secret rights: accounts, sessions and API tokens are rows of the database.
+// Accounts, sessions and API tokens are rows of the database. The only
+// Secrets are the gateway's sessions key and the secrets' fingerprint key in
+// the release namespace, read by name and made on the first start (create
+// cannot be narrowed by name; nothing changes or deletes a Secret).
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,resourceNames=javo-sessions-key;javo-secret-fingerprint-key
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create
 // File picker pods: created, read, reaped and released; their events and
 // the owner's home claim are read, and so are the pods of runs and apps.
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;create;delete
@@ -71,11 +77,14 @@ import (
 // controller are in commonFlags.
 type gatewayOptions struct {
 	listen, uiDir, filesImage, templatesDir string
-	// sessionsKey is the key file the sessions' provider tokens are sealed with.
-	sessionsKey    string
-	filesIdleAfter time.Duration
-	trustedProxies []string
-	secure         bool
+	// sessionsKeySecret names the Secret in the release namespace with the
+	// key the sessions' provider tokens are sealed with; sessionsKeyCreate
+	// makes it.
+	sessionsKeySecret string
+	sessionsKeyCreate bool
+	filesIdleAfter    time.Duration
+	trustedProxies    []string
+	secure            bool
 	// backups are the server's own SQLite backups, set by javo server; the
 	// gateway alone (Postgres) has none of its own.
 	backups store.BackupPlan
@@ -91,7 +100,8 @@ func (o *gatewayOptions) register(f *pflag.FlagSet) {
 	f.StringSliceVar(&o.trustedProxies, "trusted-proxies", nil,
 		"CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)")
 	f.BoolVar(&o.secure, "secure-cookies", false, "mark the session cookie Secure even when urls.scheme is http (it always is with https)")
-	f.StringVar(&o.sessionsKey, "sessions-key-file", "", "file holding the 32-byte key that seals each session's identity provider tokens in the database (a mounted Secret); empty: a key made at start, so a restart signs everyone out")
+	f.StringVar(&o.sessionsKeySecret, "sessions-key-secret", "", "Secret in the release namespace whose key \"key\" holds the 32-byte key that seals each session's identity provider tokens in the database, read at start; empty: a key made at start, so a restart signs everyone out")
+	f.BoolVar(&o.sessionsKeyCreate, "sessions-key-create", false, "make the --sessions-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards")
 }
 
 func NewGateway() *cobra.Command {
@@ -171,7 +181,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if err != nil {
 		return err
 	}
-	sessionsKey, err := o.sessionsKeyOf()
+	sessionsKey, err := o.sessionsKeyOf(ctx, c, namespace)
 	if err != nil {
 		return err
 	}
@@ -196,7 +206,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if oidc := platform.Auth.OIDC; oidc != nil {
 		outageGrace = oidc.OutageGrace.Duration
 	}
-	fp, err := common.fingerprinter()
+	fp, err := common.fingerprinter(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -320,17 +330,25 @@ func uidRange(c config.IdentityCfg) store.IDRange {
 	return store.IDRange{First: c.UIDRange.First, Last: c.UIDRange.Last}
 }
 
-// sessionsKeyOf reads --sessions-key-file, or makes a key that lives as long
-// as the process when there is none: the provider's tokens are never written
+// sessionsKeyOf reads the --sessions-key-secret Secret through c (making it
+// first with --sessions-key-create), or makes a key that lives as long as
+// the process when there is none: the provider's tokens are never written
 // in clear either way.
-func (o *gatewayOptions) sessionsKeyOf() (tink.AEAD, error) {
-	if o.sessionsKey == "" {
-		slog.Warn("no --sessions-key-file: sessions are sealed with a key made now, so a restart signs everyone out")
+func (o *gatewayOptions) sessionsKeyOf(ctx context.Context, c client.Client, namespace string) (tink.AEAD, error) {
+	if o.sessionsKeySecret == "" {
+		slog.Warn("no --sessions-key-secret: sessions are sealed with a key made now, so a restart signs everyone out")
 		return secrets.NewKey()
 	}
-	k, err := secrets.KEKFromFile(o.sessionsKey)
+	b, err := secretskey.Secret{
+		Client: c, Namespace: namespace, Name: o.sessionsKeySecret, Key: keySecretKey,
+		Component: "sessions-key", Create: o.sessionsKeyCreate,
+	}.Bytes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("--sessions-key-file: %w", err)
+		return nil, err
+	}
+	k, err := secrets.KEKFromBytes(b)
+	if err != nil {
+		return nil, fmt.Errorf("the sessions key in Secret %s/%s: %w", namespace, o.sessionsKeySecret, err)
 	}
 	return k, nil
 }

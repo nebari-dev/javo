@@ -178,9 +178,15 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if err != nil {
 		return err
 	}
-	fp, err := common.fingerprinter()
-	if err != nil {
-		return err
+	var fp *secrets.Fingerprinter
+	if common.fingerprintKeySecret != "" {
+		c, err := startClient()
+		if err != nil {
+			return err
+		}
+		if fp, err = common.fingerprinter(ctx, c); err != nil {
+			return err
+		}
 	}
 	if keys != nil && fp != nil {
 		go keys.RunFingerprints(ctx, fp, fingerprintEvery)
@@ -386,6 +392,12 @@ func (o *controllerOptions) secretKeys(ctx context.Context, db *store.Store, rel
 	return keys, nil
 }
 
+// startClient reads straight from the API server, for the keys read once at
+// start, before the manager's cache exists.
+func startClient() (client.Client, error) {
+	return client.New(ctrl.GetConfigOrDie(), client.Options{})
+}
+
 // loadKEK reads the key-encryption key from --secrets-key-file or the
 // --secrets-key-secret Secret (made first with --secrets-key-create); nil
 // when neither is set.
@@ -396,8 +408,7 @@ func (o *controllerOptions) loadKEK(ctx context.Context, releaseNS string) (secr
 	case o.secretsKey != "":
 		return secrets.KEKFromFile(o.secretsKey)
 	case o.secretsKeySecret != "":
-		// Read once at start, before the manager's cache exists.
-		c, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
+		c, err := startClient()
 		if err != nil {
 			return nil, err
 		}

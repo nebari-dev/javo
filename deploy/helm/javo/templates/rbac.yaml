@@ -33,14 +33,16 @@ rules:
     resources: [secrets]
     resourceNames: [{{ .Values.notifications.secretName | quote }}]
     verbs: [get, list, watch]
-  # The key of people's secrets, read at start (--secrets-key-secret).
+  # The key of people's secrets and the key of their fingerprints, read at
+  # start (--secrets-key-secret, --secret-fingerprint-key-secret).
   - apiGroups: [""]
     resources: [secrets]
-    resourceNames: [{{ include "javo.secretsKeySecret" . | quote }}]
+    resourceNames: [{{ include "javo.secretsKeySecret" . | quote }}, {{ include "javo.fingerprintKeySecret" . | quote }}]
     verbs: [get]
-  {{- if not .Values.secrets.existingKeySecret }}
-  # Making it on the first start (--secrets-key-create). Create cannot be
-  # narrowed by name; nothing here changes or deletes Secrets.
+  {{- if or (not .Values.secrets.existingKeySecret) (not .Values.secrets.existingFingerprintKeySecret) }}
+  # Making them on the first start (--secrets-key-create,
+  # --secret-fingerprint-key-create). Create cannot be narrowed by name;
+  # nothing here changes or deletes Secrets.
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create]
@@ -67,6 +69,44 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "javo.account" (list . "javo-controller") }}
+    namespace: {{ .Release.Namespace }}
+---
+# Gateway in the release namespace: its sessions key and the secrets'
+# fingerprint key, read at start (--sessions-key-secret,
+# --secret-fingerprint-key-secret) and made on the first start unless given.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: javo-gateway-keys
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ include "javo.sessionsKeySecret" . | quote }}, {{ include "javo.fingerprintKeySecret" . | quote }}]
+    verbs: [get]
+  {{- if or (not .Values.secrets.existingSessionsKeySecret) (not .Values.secrets.existingFingerprintKeySecret) }}
+  # Create cannot be narrowed by name; nothing here changes or deletes Secrets.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: javo-gateway-keys
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: javo-gateway-keys
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "javo.account" (list . "javo-gateway") }}
     namespace: {{ .Release.Namespace }}
 ---
 {{- /* Rules on apps and what they need. In shared mode they are a Role in the one

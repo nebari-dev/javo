@@ -164,3 +164,33 @@ func TestLoadRefusesABadKey(t *testing.T) {
 		t.Fatal("the bad Secret was replaced")
 	}
 }
+
+// Other keys (the gateway's sessions key, the secrets' fingerprint key) are
+// made and kept the same way, under their own data key and component.
+func TestBytesMakesAndKeepsAnyNamedKey(t *testing.T) {
+	c := fake.NewClientBuilder().Build()
+	src := Secret{Client: c, Namespace: ns, Name: "javo-sessions-key", Key: "key", Component: "sessions-key", Create: true}
+	first, err := src.Bytes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s corev1.Secret
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "javo-sessions-key"}, &s); err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != secrets.KEKSize || !bytes.Equal(s.Data["key"], first) || s.Labels["app.kubernetes.io/component"] != "sessions-key" {
+		t.Fatalf("secret %v labels %v", len(s.Data["key"]), s.Labels)
+	}
+	if s.Immutable == nil || !*s.Immutable || s.Annotations["helm.sh/resource-policy"] != "keep" {
+		t.Fatalf("immutable %v annotations %v", s.Immutable, s.Annotations)
+	}
+	again, err := src.Bytes(context.Background())
+	if err != nil || !bytes.Equal(again, first) {
+		t.Fatalf("second start: %v", err)
+	}
+	src.Create = false
+	src.Name = "javo-missing"
+	if _, err := src.Bytes(context.Background()); !apierrors.IsNotFound(err) {
+		t.Fatalf("missing Secret without create: %v", err)
+	}
+}
