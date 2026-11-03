@@ -1,9 +1,12 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store/dbtime"
@@ -40,6 +43,7 @@ func (t *Templates) Put(ctx context.Context, actor model.Actor, tpl model.Templa
 		return model.Template{}, err
 	}
 	var row sqlcgen.Template
+	var changed []string
 	err = t.s.mutate(ctx, actor, func(q *sqlcgen.Queries) (effect, error) {
 		var err error
 		at := dbtime.From(now())
@@ -49,6 +53,9 @@ func (t *Templates) Put(ctx context.Context, actor model.Actor, tpl model.Templa
 				err = ErrExists
 			}
 		} else {
+			if old, getErr := q.GetTemplate(ctx, tpl.Name); getErr == nil {
+				changed = changedFields(old.Spec, spec)
+			}
 			row, err = q.UpdateTemplate(ctx, sqlcgen.UpdateTemplateParams{
 				Spec: spec, UpdatedAt: at, Name: tpl.Name, Version: expectedVersion, Source: tpl.Source,
 			})
@@ -59,12 +66,39 @@ func (t *Templates) Put(ctx context.Context, actor model.Actor, tpl model.Templa
 				}
 			}
 		}
-		return effect{audit: &auditRow{action: "template.put", kind: "template", name: tpl.Name}, changes: []Change{{"templates", tpl.Name}}}, err
+		audit := &auditRow{action: "template.put", kind: "template", name: tpl.Name}
+		if changed != nil {
+			// What runs in every app on the template may have changed.
+			audit.detail = map[string]any{"changed": changed}
+		}
+		return effect{audit: audit, changes: []Change{{"templates", tpl.Name}}}, err
 	})
 	if err != nil {
 		return model.Template{}, err
 	}
 	return templateOf(row)
+}
+
+// changedFields lists the top-level spec fields (JSON names, sorted) that
+// differ between two stored specs; never nil.
+func changedFields(old, next string) []string {
+	var a, b map[string]json.RawMessage
+	if json.Unmarshal([]byte(old), &a) != nil || json.Unmarshal([]byte(next), &b) != nil {
+		return []string{}
+	}
+	out := []string{}
+	for k, v := range b {
+		if w, ok := a[k]; !ok || !bytes.Equal(v, w) {
+			out = append(out, k)
+		}
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Get returns the template or ErrNotFound.
