@@ -5,14 +5,19 @@ package apitest
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/argon2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -160,7 +165,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	c := b.Build()
 	db := storetest.New(t)
 	users := &local.DBUsers{Accounts: db.LocalAccounts()}
-	hash, err := local.HashPassword("alice-password")
+	hash, err := aliceHash()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +235,21 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	})
 	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv}
 }
+
+// aliceHash is alice's password as an argon2id hash with the smallest cost
+// argon2 allows, made once. The real cost is deliberately slow and almost
+// every test signs alice in; local.VerifyPassword reads the cost from the
+// hash, so sign-in still runs the real check.
+var aliceHash = sync.OnceValues(func() (string, error) {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	const memory, time, threads = 8, 1, 1
+	key := argon2.IDKey([]byte("alice-password"), salt, time, memory, threads, 32)
+	b64 := base64.RawStdEncoding
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, memory, time, threads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
+})
 
 // Homes keeps a nil stub a nil interface, so the files route stays out.
 func Homes(s *StubFilesLister) storage.Homes {
