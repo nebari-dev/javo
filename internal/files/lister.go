@@ -1,9 +1,10 @@
-// Package files lists the folders of a user's home for the file picker and
-// opens files from it.
+// Package files lists the folders of a user's home for the file picker,
+// opens files from it and saves the files edited in the UI.
 //
 // The gateway cannot mount home claims itself, so each user gets a small file
-// pod that mounts their home read-only and runs `rclone rcd`. The gateway asks
-// it for folder listings over the pod network. A file pod is created on the
+// pod that runs `rclone rcd` as that user, with their home mounted writable
+// and their group folders read-only. The gateway asks it for folder listings
+// and files over the pod network. A file pod is created on the
 // first request and deleted after it has been idle for a while.
 package files
 
@@ -15,8 +16,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,6 +43,7 @@ import (
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/status"
+	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
@@ -53,8 +58,6 @@ const (
 	envRCPass   = "RCLONE_RC_PASS"
 	dataDir     = podstorage.HomeDir
 	scratchDir  = podstorage.ScratchDir
-	runAsUser   = 1000
-	runAsGroup  = 100
 	defaultIdle = 10 * time.Minute
 	reapEvery   = time.Minute
 	// MaxEntries is the most entries one folder listing returns.
@@ -64,6 +67,11 @@ const (
 	maxListing = 8 << 20
 	// MaxOpenBytes is the largest file Open serves (50 MiB).
 	MaxOpenBytes = 50 << 20
+	// MaxEditBytes is the largest file Save writes (2 MiB). The gateway holds
+	// the whole text in memory to check it before writing a byte, and a
+	// browser editor slows down well before text this long; bigger files are
+	// data, edited in an app.
+	MaxEditBytes = 2 << 20
 )
 
 // Error values are internal; user-facing copy lives in internal/reasons.
@@ -76,6 +84,13 @@ var (
 	ErrNoHome = errors.New("home claim does not exist")
 	// ErrTooLarge means the file is bigger than MaxOpenBytes.
 	ErrTooLarge = errors.New("files: file is too large to open")
+	// ErrChanged means the file is not the version the caller read: it
+	// was written since.
+	ErrChanged = errors.New("files: file changed since it was read")
+	// ErrExists means a new file was asked for where something already is.
+	ErrExists = errors.New("files: a file or folder of that name exists")
+	// ErrNotText means the content to save is not UTF-8 text.
+	ErrNotText = errors.New("files: content is not text")
 	// ErrHomeStarting means the file pod is not ready yet; retry shortly.
 	ErrHomeStarting = errors.New("file pod is starting")
 	// ErrHomeBusy means the home is attached to another node (ReadWriteOnce).
@@ -130,6 +145,8 @@ type Remote interface {
 	// FindFile returns the real file called name in folder dir of the home,
 	// however many entries the folder holds; ErrNotFound if there is none.
 	FindFile(ctx context.Context, addr, dir, name string) (Entry, error)
+	// Upload writes data as the file name in folder dir of the home.
+	Upload(ctx context.Context, addr, dir, name string, data []byte) error
 	// About reports the space used on the volume the home is on.
 	About(ctx context.Context, addr string) (Usage, error)
 }
@@ -154,6 +171,15 @@ type FileInfo struct {
 	ModTime time.Time
 }
 
+// Version names this content of the file: its size and modification time
+// to the nanosecond. Any write changes the modification time, so a save
+// that names the version it read fails if the file was written since.
+func (f FileInfo) Version() string {
+	return strconv.FormatInt(f.Size, 10) + "-" + strconv.FormatInt(f.ModTime.UnixNano(), 10)
+}
+
+func infoOf(e Entry) FileInfo { return FileInfo{Name: e.Name, Size: e.Size, ModTime: e.ModTime} }
+
 // Rclone calls the rclone remote control API.
 type Rclone struct {
 	// HTTP is the client to use; nil means one with a 10 second timeout.
@@ -176,22 +202,60 @@ func (r Rclone) post(ctx context.Context, addr, op string, args map[string]any) 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return do(hc, req, op)
+}
+
+// do sends one rclone remote control request: a 404 is ErrNotFound, any
+// other answer but 200 an error carrying the start of rclone's message.
+func do(hc *http.Client, req *http.Request, op string) (*http.Response, error) {
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("rclone %s: %w", op, err)
 	}
-	switch {
-	case resp.StatusCode == http.StatusOK:
+	switch resp.StatusCode {
+	case http.StatusOK:
 		return resp, nil
-	case resp.StatusCode == http.StatusNotFound:
+	case http.StatusNotFound:
 		resp.Body.Close()
 		return nil, ErrNotFound
-	case resp.StatusCode != http.StatusOK:
-		defer resp.Body.Close()
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
-		return nil, fmt.Errorf("rclone %s: status %d: %s", op, resp.StatusCode, data)
 	}
-	return resp, nil
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+	return nil, fmt.Errorf("rclone %s: status %d: %s", op, resp.StatusCode, data)
+}
+
+// Upload writes data as the file name in folder dir of the home mount, with
+// operations/uploadfile. rclone writes over an existing file in place (its
+// mode and owner stay) and follows a symlink it meets, so callers check the
+// path first (see Lister.Save).
+func (r Rclone) Upload(ctx context.Context, addr, dir, name string, data []byte) error {
+	hc := r.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", name)
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(data); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	q := url.Values{"fs": {dataDir}, "remote": {dir}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/operations/uploadfile?"+q.Encode(), &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := do(hc, req, "operations/uploadfile")
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
 }
 
 // list calls operations/list on remote inside fs, with extra request fields
@@ -394,6 +458,9 @@ type HomePods interface {
 type Lister struct {
 	pods   HomePods
 	remote Remote
+	// saving serializes saves of one file, so two saves of the same version
+	// cannot both pass the version check: one lock per hash of user and path.
+	saving [64]sync.Mutex
 }
 
 // NewLister returns a Lister that reaches homes through pods and remote.
@@ -496,7 +563,79 @@ func (l *Lister) Open(ctx context.Context, userID, rel string) (io.ReadCloser, F
 		io.Reader
 		io.Closer
 	}{io.LimitReader(body, MaxOpenBytes), body}
-	return capped, FileInfo{Name: e.Name, Size: e.Size, ModTime: e.ModTime}, nil
+	return capped, infoOf(e), nil
+}
+
+// Save writes data as the file at rel, a non-empty path from CleanPath, and
+// returns what the file is now. With version (from FileInfo.Version) it
+// replaces that file and fails with ErrChanged if the file is no longer
+// that version; with version "" it creates the file and fails with
+// ErrExists if anything has that name. data must be UTF-8 text without NUL
+// bytes (ErrNotText) of at most MaxEditBytes (ErrTooLarge).
+//
+// Saves of one file through this Lister run one at a time. A write that
+// lands between the version check and the upload (an app, or a save
+// through another gateway replica) is still overwritten: the window is the
+// one call to rclone.
+//
+// rclone writes through a symlink, so the path is checked as Open checks
+// it: the folders on the way must be real folders, the file a real file
+// (FindFile) or, for a new file, no entry at all (Stat, which sees
+// symlinks). A symlink swapped in between the check and the write is not
+// prevented; through it the write reaches only what the file pod can write,
+// the home and its own empty scratch folders.
+func (l *Lister) Save(ctx context.Context, userID, rel string, data []byte, version string) (FileInfo, error) {
+	if len(data) > MaxEditBytes {
+		return FileInfo{}, ErrTooLarge
+	}
+	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+		return FileInfo{}, ErrNotText
+	}
+	dir, name := path.Split(rel)
+	if name == "" {
+		return FileInfo{}, ErrNotFound
+	}
+	addr, err := l.pods.Ensure(ctx, userID)
+	if errors.Is(err, ErrNoHome) {
+		return FileInfo{}, ErrNotFound
+	}
+	if err != nil {
+		return FileInfo{}, err
+	}
+	dir = strings.TrimSuffix(dir, "/")
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(userID + "\x00" + rel))
+	mu := &l.saving[h.Sum32()%uint32(len(l.saving))]
+	mu.Lock()
+	defer mu.Unlock()
+	if err := l.checkFolders(ctx, addr, dataDir, dir); err != nil {
+		return FileInfo{}, err
+	}
+	if version == "" {
+		_, err := l.remote.Stat(ctx, addr, dataDir, rel)
+		if err == nil {
+			return FileInfo{}, ErrExists
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return FileInfo{}, err
+		}
+	} else {
+		e, err := l.remote.FindFile(ctx, addr, dir, name)
+		if err != nil {
+			return FileInfo{}, err
+		}
+		if infoOf(e).Version() != version {
+			return FileInfo{}, ErrChanged
+		}
+	}
+	if err := l.remote.Upload(ctx, addr, dir, name, data); err != nil {
+		return FileInfo{}, err
+	}
+	e, err := l.remote.FindFile(ctx, addr, dir, name)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return infoOf(e), nil
 }
 
 // Touch keeps the user's file pod, if any, for another idle period.
@@ -558,6 +697,10 @@ type PodsConfig struct {
 	ReapAcrossNamespaces bool
 	// Image is the rclone image, pinned by digest.
 	Image string
+	// UIDs gives the uid and gid the owner's apps run as; the file pod runs
+	// as them too, so a file it writes belongs to the owner. Required;
+	// ids.People is the implementation.
+	UIDs UserIDs
 	// Storage resolves what a file pod mounts: the owner's home (its current
 	// claim), group folders and co-location, as for the owner's apps.
 	// Required.
@@ -569,8 +712,14 @@ type PodsConfig struct {
 	Now func() time.Time
 }
 
+// UserIDs gives the uid and gid of an owner's pods; ids.ErrNoUID means none
+// is allocated yet.
+type UserIDs interface {
+	UID(ctx context.Context, ownerID string) (uid, gid int64, err error)
+}
+
 // Storage resolves the storage input of an owner's pods; podstorage.Resolver
-// is the implementation. The file pod applies it read-only.
+// is the implementation. The file pod mounts all of it read-only but the home.
 type Storage interface {
 	Input(ctx context.Context, namespace, owner string) (podstorage.Input, error)
 }
@@ -584,8 +733,8 @@ type Pods struct {
 
 // NewPods returns a file pod manager. Call Run to delete idle pods.
 func NewPods(cfg PodsConfig) (*Pods, error) {
-	if cfg.Client == nil || cfg.Namespace == "" || cfg.Image == "" || cfg.Storage == nil {
-		return nil, errors.New("files: client, namespace, image and storage are required")
+	if cfg.Client == nil || cfg.Namespace == "" || cfg.Image == "" || cfg.Storage == nil || cfg.UIDs == nil {
+		return nil, errors.New("files: client, namespace, image, storage and uids are required")
 	}
 	if cfg.IdleAfter == 0 {
 		cfg.IdleAfter = defaultIdle
@@ -644,6 +793,15 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 		return "", ErrHomeConflict
 	}
 
+	uid, gid, err := p.cfg.UIDs.UID(ctx, userID)
+	if errors.Is(err, ids.ErrNoUID) {
+		return "", ErrHomeStarting
+	}
+	if err != nil {
+		return "", err
+	}
+	in.UID, in.GID = uid, gid
+
 	var pod corev1.Pod
 	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: podName(userID)}, &pod)
 	if apierrors.IsNotFound(err) {
@@ -664,7 +822,7 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	login := rcloneLogin(&pod)
 	// A pod without a password (made by an earlier version) is replaced
 	// too: its rclone answers anyone who reaches it.
-	if login == nil || dir != "" && !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == podstorage.GroupVolume(dir) }) {
+	if login == nil || !writesAs(&pod, uid) || dir != "" && !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == podstorage.GroupVolume(dir) }) {
 		if err := deleteExact(ctx, c, &pod); err != nil {
 			return "", err
 		}
@@ -801,10 +959,24 @@ func (p *Pods) Run(ctx context.Context) {
 	}
 }
 
-// buildPod returns the file pod: rclone with the owner's storage (the layout
-// podstorage builds for in) mounted read-only.
+// writesAs reports whether pod runs as uid with the home mounted writable,
+// as buildPod makes it; a pod made by an older gateway or before the
+// owner's uid changed does not.
+func writesAs(pod *corev1.Pod, uid int64) bool {
+	sc := pod.Spec.SecurityContext
+	if sc == nil || sc.RunAsUser == nil || *sc.RunAsUser != uid || len(pod.Spec.Containers) == 0 {
+		return false
+	}
+	return slices.ContainsFunc(pod.Spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool {
+		return m.MountPath == dataDir && !m.ReadOnly
+	})
+}
+
+// buildPod returns the file pod: rclone running as the owner (in.UID and
+// in.GID) with the owner's storage (the layout podstorage builds for in)
+// mounted read-only, except the home, which Lister.Save writes to.
 func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Pod {
-	in.ReadOnly, in.UID, in.GID = true, runAsUser, runAsGroup
+	in.ReadOnly = true
 	in.ScratchMax = resource.MustParse("64Mi")
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -854,7 +1026,18 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 			}},
 		},
 	}
-	podstorage.Build(userSlug, in).Apply(pod, &pod.Spec.Containers[0])
+	layout := podstorage.Build(userSlug, in)
+	for i := range layout.Volumes {
+		if v := &layout.Volumes[i]; v.Name == podstorage.HomeVolume {
+			v.PersistentVolumeClaim.ReadOnly = false
+		}
+	}
+	for i := range layout.Mounts {
+		if m := &layout.Mounts[i]; m.Name == podstorage.HomeVolume {
+			m.ReadOnly = false
+		}
+	}
+	layout.Apply(pod, &pod.Spec.Containers[0])
 	return pod
 }
 

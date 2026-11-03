@@ -284,9 +284,10 @@ gateway:
     port: 80
     nodePort: null # used when type=NodePort (kind dev loop uses 30080)
 
-# File picker: the gateway starts one short-lived pod per user that mounts
-# the home folder read-only and runs rclone to list it and to serve single
-# files (run outputs), reachable from the gateway only.
+# File picker and editor: the gateway starts one short-lived pod per user
+# that runs rclone as that user, with the home folder mounted writable (for
+# saves from the file editor) and group folders read-only, to list folders,
+# serve single files and save edited ones, reachable from the gateway only.
 files:
   # rclone 1.75.2, pinned by digest.
   image: rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5

@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -159,7 +160,7 @@ func TestEnsureUsesTheHomesCurrentClaim(t *testing.T) {
 	moved.Name = naming.HomeClaimNameGen(owner, 2)
 	c := newClient(t, moved)
 	in := podstorage.Input{Home: &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: moved.Name}}}
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, Storage: stubStorage{in}})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{in}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +180,7 @@ func TestEnsureUsesTheHomesCurrentClaim(t *testing.T) {
 
 func newPods(t *testing.T, c client.Client, clk *clock) *files.Pods {
 	t.Helper()
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, Storage: stubStorage{}, Now: clk.Now})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{}, Now: clk.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,9 +195,12 @@ func filePod(phase corev1.PodPhase, ready bool, ip string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: model.FilesPodPrefix + owner, Namespace: ns, UID: "uid-1",
 			Labels: map[string]string{model.LabelRole: "files", model.LabelOwner: owner}},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "rclone", Env: []corev1.EnvVar{
-			{Name: "RCLONE_RC_USER", Value: "javo"}, {Name: "RCLONE_RC_PASS", Value: "pw-1"},
-		}}}},
+		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{RunAsUser: ptr.To[int64](ownerUID)},
+			Containers: []corev1.Container{{Name: "rclone",
+				Env:          []corev1.EnvVar{{Name: "RCLONE_RC_USER", Value: "javo"}, {Name: "RCLONE_RC_PASS", Value: "pw-1"}},
+				VolumeMounts: []corev1.VolumeMount{{Name: "home", MountPath: "/home/user"}}}},
+		},
 		Status: corev1.PodStatus{Phase: phase, PodIP: ip,
 			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
 	}
@@ -229,7 +233,7 @@ func TestEnsureWithoutHomeClaim(t *testing.T) {
 	}
 }
 
-func TestEnsureCreatesHardenedReadOnlyPod(t *testing.T) {
+func TestEnsureCreatesHardenedPod(t *testing.T) {
 	c := newClient(t, homeClaim())
 	_, err := newPods(t, c, &clock{time.Now()}).Ensure(context.Background(), owner)
 	if !errors.Is(err, files.ErrHomeStarting) {
@@ -246,7 +250,7 @@ func TestEnsureCreatesHardenedReadOnlyPod(t *testing.T) {
 		t.Error("service account token is mounted")
 	}
 	psc := p.Spec.SecurityContext
-	if psc == nil || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot || psc.RunAsUser == nil || *psc.RunAsUser != 1000 ||
+	if psc == nil || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot || psc.RunAsUser == nil || *psc.RunAsUser != ownerUID ||
 		psc.SeccompProfile == nil || psc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Errorf("pod security context = %+v", psc)
 	}
@@ -284,12 +288,12 @@ func TestEnsureCreatesHardenedReadOnlyPod(t *testing.T) {
 	if len(p.Spec.InitContainers) != 0 {
 		t.Errorf("init containers = %d", len(p.Spec.InitContainers))
 	}
-	// The home claim is mounted read-only at /data, both on the volume and the mount.
-	// The home claim is mounted read-only at /home/user, both on the volume and the mount.
+	// The home claim is mounted writable at /home/user, for saves from the
+	// file editor; the pod runs as the owner, so what it writes is theirs.
 	var claimVol string
 	for _, v := range p.Spec.Volumes {
 		if v.PersistentVolumeClaim != nil {
-			if v.PersistentVolumeClaim.ClaimName != "home-"+owner || !v.PersistentVolumeClaim.ReadOnly {
+			if v.PersistentVolumeClaim.ClaimName != "home-"+owner || v.PersistentVolumeClaim.ReadOnly {
 				t.Errorf("claim volume = %+v", v.PersistentVolumeClaim)
 			}
 			claimVol = v.Name
@@ -299,7 +303,7 @@ func TestEnsureCreatesHardenedReadOnlyPod(t *testing.T) {
 	for _, m := range ctr.VolumeMounts {
 		if m.Name == claimVol {
 			found = true
-			if m.MountPath != "/home/user" || !m.ReadOnly {
+			if m.MountPath != "/home/user" || m.ReadOnly {
 				t.Errorf("home mount = %+v", m)
 			}
 		}
@@ -772,7 +776,7 @@ func (s stubStorage) Input(context.Context, string, string) (podstorage.Input, e
 func filePodWith(t *testing.T, in podstorage.Input) corev1.Pod {
 	t.Helper()
 	c := newClient(t, homeClaim())
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, Storage: stubStorage{in}})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{in}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -874,7 +878,7 @@ func TestReapSweepsEveryNamespaceItIsGiven(t *testing.T) {
 	old.Namespace = other
 	old.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
 	c := newClient(t, old)
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, Storage: stubStorage{},
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{},
 		ReapIn: func(context.Context) ([]string, error) { return []string{ns, other}, nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -917,7 +921,7 @@ func TestReapGoesOnPastANamespaceThatFails(t *testing.T) {
 			}
 			return c.List(ctx, l, opts...)
 		}}).Build()
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, Storage: stubStorage{},
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{},
 		ReapIn: func(context.Context) ([]string, error) { return []string{broken, fine}, nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -944,7 +948,7 @@ func TestReapAcrossAllNamespacesIsOneCall(t *testing.T) {
 			lists++
 			return c.List(ctx, l, opts...)
 		}}).Build()
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, Storage: stubStorage{}, ReapAcrossNamespaces: true,
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{}, ReapAcrossNamespaces: true,
 		ReapIn: func(context.Context) ([]string, error) { return []string{"javo-a", "javo-b"}, nil }})
 	if err != nil {
 		t.Fatal(err)

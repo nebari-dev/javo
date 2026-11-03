@@ -192,6 +192,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	pods, err := files.NewPods(files.PodsConfig{
 		Client: c, Namespace: wsNamespace, Image: o.filesImage, IdleAfter: o.filesIdleAfter,
 		Storage: wiring.StorageResolver(db, platform),
+		UIDs:    ids.People{People: db.People(store.IDRange{}), Mode: platform.Identity.UIDMode},
 		ReapIn:  namespaces.New(pl, c).All,
 		// One namespace per person: sweep with one cluster-wide call.
 		ReapAcrossNamespaces: len(pl.Desired()) == 0,
