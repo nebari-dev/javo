@@ -20,6 +20,7 @@ import (
 )
 
 func TestMeShowsGroupsAndRolesFromConfig(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	me := apitest.Decode[struct {
@@ -39,6 +40,7 @@ func TestMeShowsGroupsAndRolesFromConfig(t *testing.T) {
 }
 
 func TestLoginCreatesThePersonTheSessionNames(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	f.LoginAlice()
 	p, err := f.People.ByName(context.Background(), local.UserID("alice"))
@@ -54,6 +56,7 @@ func TestLoginCreatesThePersonTheSessionNames(t *testing.T) {
 }
 
 func TestOptionsListLocalOnlyWhenEnabled(t *testing.T) {
+	t.Parallel()
 	on := apitest.New(t, apitest.Options{})
 	w := on.Do("GET", "/api/auth/options", "", nil) // public: no cookie
 	if w.Code != http.StatusOK {
@@ -74,6 +77,7 @@ func TestOptionsListLocalOnlyWhenEnabled(t *testing.T) {
 }
 
 func TestDeletedLocalAccountEndsSessionAtNextRevalidation(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	if w := f.Do("GET", "/api/me", "", c); w.Code != http.StatusOK {
@@ -101,6 +105,7 @@ func TestDeletedLocalAccountEndsSessionAtNextRevalidation(t *testing.T) {
 }
 
 func TestRevalidationPicksUpChangedGroups(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	users := &local.DBUsers{Accounts: f.Db.LocalAccounts()}
@@ -116,6 +121,7 @@ func TestRevalidationPicksUpChangedGroups(t *testing.T) {
 }
 
 func TestUnreachableProviderKeepsSessionUntilGraceEnds(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	clock := now
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{apitest.StubProvider{Err: authprovider.ErrUnavailable}}, Now: func() time.Time { return clock }})
@@ -148,6 +154,7 @@ func TestUnreachableProviderKeepsSessionUntilGraceEnds(t *testing.T) {
 }
 
 func TestSessionOfASwitchedOffProviderEnds(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	tok, err := f.Store.Create(context.Background(), session.Session{
 		Principal: apitest.PrincipalFor("bob-1"), Provider: "gone", Kind: session.KindUI,
@@ -162,6 +169,7 @@ func TestSessionOfASwitchedOffProviderEnds(t *testing.T) {
 }
 
 func TestSessionWithoutRevalidateAtIsCheckedAndEndsForDeletedAccount(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	ctx := context.Background()
@@ -203,6 +211,7 @@ func TestLoginAndRevalidationLogsHoldNoSecrets(t *testing.T) {
 }
 
 func TestReasonCopyIsPublicAndComesFromTheCatalog(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	w := f.Do("GET", "/api/reasons?code=SignInLinkExpired", "", nil) // no cookie
 	if w.Code != http.StatusOK {

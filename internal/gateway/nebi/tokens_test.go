@@ -69,6 +69,7 @@ func idAlice(context.Context) (string, error) { return "id-alice", nil }
 // controller opens it; it is renewed once less than half its life is left,
 // not on every request.
 func TestTheOwnersUseKeepsTheAppsNebiTokenFresh(t *testing.T) {
+	t.Parallel()
 	f := newNebiFixture(t)
 	ctx := context.Background()
 	f.keeper.Keep(ctx, &f.app, f.tpl, "alice", idAlice)
@@ -91,6 +92,7 @@ func TestTheOwnersUseKeepsTheAppsNebiTokenFresh(t *testing.T) {
 // shared with never makes Javo ask Nebi as them, nor as the owner. Nothing
 // happens for a template that does not ask, or a preview.
 func TestOnlyTheOwnerOfAnAppThatAsksGetsANebiToken(t *testing.T) {
+	t.Parallel()
 	f := newNebiFixture(t)
 	ctx := context.Background()
 	f.keeper.Keep(ctx, &f.app, f.tpl, "bob", idAlice)

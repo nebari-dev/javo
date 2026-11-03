@@ -14,6 +14,7 @@ import (
 )
 
 func TestPlanThenApproveRestartsTheAppAndIsAudited(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "restart")
 	if p.State != "pending" || p.Planned.Summary != reasons.Msg(reasons.MsgActionRestart, "Sales") ||
@@ -52,6 +53,7 @@ func TestPlanThenApproveRestartsTheAppAndIsAudited(t *testing.T) {
 }
 
 func TestTwoApprovalsApplyOnce(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "stop")
 	c := f.Session(apitest.PlanOwner)
@@ -82,6 +84,7 @@ func TestTwoApprovalsApplyOnce(t *testing.T) {
 }
 
 func TestExpiredPlanAppliesNothing(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "stop")
@@ -99,6 +102,7 @@ func TestExpiredPlanAppliesNothing(t *testing.T) {
 }
 
 func TestAnotherPersonsPlanIsNotFound(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "stop")
 	bob := f.Session("bob-bbbbbbbb")
@@ -119,6 +123,7 @@ func TestAnotherPersonsPlanIsNotFound(t *testing.T) {
 }
 
 func TestApproveFromAnAppPageIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "stop")
 	c := f.Session(apitest.PlanOwner)
@@ -134,6 +139,7 @@ func TestApproveFromAnAppPageIsRefused(t *testing.T) {
 }
 
 func TestApproveChecksTheChangeAgain(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "stop")
 	c := f.Session(apitest.PlanOwner)
@@ -154,6 +160,7 @@ func TestApproveChecksTheChangeAgain(t *testing.T) {
 }
 
 func TestRejectChangesNothing(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	p := apitest.NewPlan(t, f, apitest.PlanOwner, "delete")
 	if !apitest.Decode[struct{ Planned struct{ Destructive bool } }](t, f.Do("GET", "/api/plans/"+p.ID, "", f.Session(apitest.PlanOwner))).Planned.Destructive {
@@ -169,6 +176,7 @@ func TestRejectChangesNothing(t *testing.T) {
 }
 
 func TestUnknownActionIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/plans", `{"source":"rules","proposal":{"action":"share","target":"sales"}}`, f.Session(apitest.PlanOwner))
 	if w.Code != http.StatusUnprocessableEntity || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgActionNotAllowed) {
@@ -177,6 +185,7 @@ func TestUnknownActionIsRefused(t *testing.T) {
 }
 
 func TestATokenCannotApprove(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), apitest.RunningSalesOf(apitest.LocalAlice()))
 	c := f.LoginAlice()
 	tok := f.NewToken(c, `{"name":"agent","scope":"read-write"}`).Token

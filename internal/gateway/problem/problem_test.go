@@ -10,6 +10,7 @@ import (
 // A rejection from model validation reaches the form on the request field it
 // is about, with the catalog's words and never the validator's.
 func TestModelValidationErrorsReachTheFormByField(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		field string
 		form  string

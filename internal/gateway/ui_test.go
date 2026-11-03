@@ -18,6 +18,7 @@ import (
 )
 
 func TestUIServesFilesWithSPAFallbackAndCSP(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>index</html>"), 0o644)
 	_ = os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
@@ -55,6 +56,7 @@ func TestUIServesFilesWithSPAFallbackAndCSP(t *testing.T) {
 }
 
 func TestMountedHandlerTakesPrecedenceOverUI(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{UiDir: t.TempDir()})
 	f.Srv.Handle("/u/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
 	if w := f.Do("GET", "/u/alice-1a2b3c4d/x/", "", nil); w.Code != http.StatusTeapot {
@@ -65,6 +67,7 @@ func TestMountedHandlerTakesPrecedenceOverUI(t *testing.T) {
 // The shipped icons (ui/public, copied into the build as-is) must be served
 // as images; a missing file would fall back to index.html as text/html.
 func TestUIServesShippedFaviconsAsImages(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>index</html>"), 0o644)
 	for _, name := range []string{"favicon.svg", "favicon.ico", "favicon.png"} {
@@ -89,6 +92,7 @@ func TestUIServesShippedFaviconsAsImages(t *testing.T) {
 // database is not ready (for example the one-time import has not finished),
 // and /healthz stays up so the pod is not restarted meanwhile.
 func TestReadyzFollowsTheDatabase(t *testing.T) {
+	t.Parallel()
 	var notReady atomic.Bool
 	notReady.Store(true)
 	f := apitest.New(t, apitest.Options{Ready: func(context.Context) error {
@@ -111,6 +115,7 @@ func TestReadyzFollowsTheDatabase(t *testing.T) {
 }
 
 func TestUICSPAllowsOnlyTheBrandingImageHosts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>index</html>"), 0o644)
 	var c config.BrandingCfg

@@ -20,6 +20,7 @@ import (
 // owner's token at once, from the session doing it, so the pod finds the
 // file when it first starts rather than after the kubelet's next refresh.
 func TestCreatingOrStartingAnAppStoresTheOwnersNebiToken(t *testing.T) {
+	t.Parallel()
 	tpl := gatewaytest.Template("lab", "jupyterlab")
 	tpl.Spec.NebiToken = true
 	src := &gatewaytest.NebiSource{Now: time.Now}

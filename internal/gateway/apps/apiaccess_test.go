@@ -13,6 +13,7 @@ import (
 )
 
 func TestCreateWithAPIAccess(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("lab", "jupyterlab"), apitest.AgentTemplate())
 	alice := f.Session("alice-aaaaaaaa")
 	cases := []struct{ name, body, want string }{
@@ -36,6 +37,7 @@ func TestCreateWithAPIAccess(t *testing.T) {
 }
 
 func TestCreateRefusesAPIAccessAboveTheTemplateCap(t *testing.T) {
+	t.Parallel()
 	capped := gatewaytest.Template("lab", "jupyterlab")
 	capped.Spec.MaxAPIAccess = model.APIAccessRead
 	f := apitest.New(t, apitest.Options{}, capped)
@@ -55,6 +57,7 @@ func TestCreateRefusesAPIAccessAboveTheTemplateCap(t *testing.T) {
 }
 
 func TestChangingAPIAccess(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", "alice-aaaaaaaa", "Agent")
 	ws.Template = "agent"
 	capped := apitest.AgentTemplate()
@@ -84,6 +87,7 @@ func TestChangingAPIAccess(t *testing.T) {
 // A token of the scope the app no longer has stops working at once and is
 // gone from Settings; a token of the new scope keeps working.
 func TestChangingAPIAccessEndsTheOldToken(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	f := apitest.New(t, apitest.Options{}, apitest.AgentTemplate(), ws)
@@ -118,6 +122,7 @@ func TestChangingAPIAccessEndsTheOldToken(t *testing.T) {
 // An app token is refused when its scope is not the app's access, however
 // the app was changed (for example with kubectl).
 func TestAppTokenOfAnotherScopeIsRefused(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("lab", apitest.LocalAlice(), "Lab")
 	ws.Template = "lab"
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("lab", "jupyterlab"), ws)
@@ -133,6 +138,7 @@ func TestAppTokenOfAnotherScopeIsRefused(t *testing.T) {
 }
 
 func TestTemplatesSayTheirAPIAccess(t *testing.T) {
+	t.Parallel()
 	capped := gatewaytest.Template("lab", "jupyterlab")
 	capped.Spec.MaxAPIAccess = model.APIAccessRead
 	f := apitest.New(t, apitest.Options{}, capped, apitest.AgentTemplate())
@@ -153,6 +159,7 @@ func TestTemplatesSayTheirAPIAccess(t *testing.T) {
 
 // The Sharing tab says that an app with API access acts as its owner.
 func TestSharingSaysTheAppActsAsItsOwner(t *testing.T) {
+	t.Parallel()
 	agent := gatewaytest.Workspace("agent", "alice-aaaaaaaa", "Agent")
 	agent.Template = "agent"
 	plain := gatewaytest.Workspace("lab", "alice-aaaaaaaa", "Lab")

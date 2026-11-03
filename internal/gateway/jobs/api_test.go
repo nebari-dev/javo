@@ -37,6 +37,7 @@ import (
 )
 
 func TestOtherUsersJobIsNotFound(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.AliceID, "nightly-sales"))
 	for _, p := range []struct{ method, path string }{
 		{"GET", "/api/jobs/nightly-sales"},
@@ -59,6 +60,7 @@ func TestOtherUsersJobIsNotFound(t *testing.T) {
 
 // A schedule the model rejects is shown on the schedule field it is about.
 func TestCreateMapsScheduleErrorsToScheduleFields(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, cron, zone, field string
 		want                    func(string) bool
@@ -89,6 +91,7 @@ func TestCreateMapsScheduleErrorsToScheduleFields(t *testing.T) {
 }
 
 func TestCreateChecksFileEngineAndKernelAgainstTemplate(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, extra, body, loc, msg string }{
 		{"file for the wrong engine", "", `{"displayName":"A","template":"lab","engine":"marimo","source":"reports/sales.ipynb"}`,
 			"body.source", reasons.Msg(reasons.MsgFileWrongEngine, ".py")},
@@ -120,6 +123,7 @@ func TestCreateChecksFileEngineAndKernelAgainstTemplate(t *testing.T) {
 }
 
 func TestCreateStoresTheDefinitionAndShowsItBack(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
 	body := `{"displayName":"Nightly sales","template":"lab","engine":"papermill","source":"reports/sales.ipynb","kernel":"python3",` +
 		`"parameters":[{"name":"region","type":"string","default":"emea"}],"run":{"timeout":"2h","retries":2},` +
@@ -173,6 +177,7 @@ func TestCreateStoresTheDefinitionAndShowsItBack(t *testing.T) {
 // Running a job now is a request the controller acts on: the gateway adds a
 // run with the parameter values and writes nothing to Kubernetes.
 func TestRunNowCreatesRequest(t *testing.T) {
+	t.Parallel()
 	def := apitest.JobObj(apitest.AliceID, "nightly-sales")
 	def.Spec.Parameters = []model.JobParameter{{Name: "region", Type: "string", Default: "emea"}}
 	f := apitest.JobFixture(t, apitest.Options{}, def)
@@ -214,6 +219,7 @@ func TestRunNowCreatesRequest(t *testing.T) {
 }
 
 func TestPausedJobDetailWarnsWhenAScheduledRunWasMissed(t *testing.T) {
+	t.Parallel()
 	def := apitest.JobObj(apitest.AliceID, "nightly-sales")
 	def.Spec.Schedule = &model.JobSchedule{Cron: "* * * * *", TimeZone: "UTC", Paused: true}
 	last := time.Now().Add(-3 * time.Hour)
@@ -247,6 +253,7 @@ func TestPausedJobDetailWarnsWhenAScheduledRunWasMissed(t *testing.T) {
 }
 
 func TestJobDetailRunsCarryTheirParameters(t *testing.T) {
+	t.Parallel()
 	def := gatewaytest.WithRuns{Job: apitest.JobObj(apitest.AliceID, "nightly-sales"), Runs: []model.Run{
 		{Trigger: "manual", Outcome: "Failed", Parameters: map[string]string{"region": "apac"}}}}
 	f := apitest.JobFixture(t, apitest.Options{}, def)
@@ -259,6 +266,7 @@ func TestJobDetailRunsCarryTheirParameters(t *testing.T) {
 }
 
 func TestPauseSetsThePausedFlag(t *testing.T) {
+	t.Parallel()
 	def := apitest.JobObj(apitest.AliceID, "nightly-sales")
 	def.Spec.Schedule = &model.JobSchedule{Cron: "0 6 * * *", TimeZone: "UTC"}
 	f := apitest.JobFixture(t, apitest.Options{}, def)
@@ -268,6 +276,7 @@ func TestPauseSetsThePausedFlag(t *testing.T) {
 }
 
 func TestLogOfARunWhosePodIsGoneIsTheSavedLogFromTheRunFolder(t *testing.T) {
+	t.Parallel()
 	home := &apitest.StubFilesLister{Content: "Sat 31 Oct 10:00:00 UTC 2026\n"}
 	f := apitest.JobFixture(t, apitest.Options{Files: home}, apitest.Sales29())
 	run := f.RunsOf(apitest.AliceID, "nightly-sales")[0]
@@ -288,6 +297,7 @@ func TestLogOfARunWhosePodIsGoneIsTheSavedLogFromTheRunFolder(t *testing.T) {
 }
 
 func TestLogOfARunWithNeitherPodNorSavedLogIs410InPlainWords(t *testing.T) {
+	t.Parallel()
 	for name, o := range map[string]apitest.Options{
 		"file missing": {Files: &apitest.StubFilesLister{Err: files.ErrNotFound}},
 		"no homes":     {},
@@ -312,6 +322,7 @@ func TestLogOfARunWithNeitherPodNorSavedLogIs410InPlainWords(t *testing.T) {
 }
 
 func TestSavedLogWhileTheHomeIsStartingAsksAgain(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{Files: &apitest.StubFilesLister{Err: files.ErrHomeStarting}}, apitest.Sales29())
 	run := f.RunsOf(apitest.AliceID, "nightly-sales")[0]
 	w := f.Do("GET", "/api/jobs/nightly-sales/runs/"+run.ID+"/log", "", f.Session(apitest.AliceID))
@@ -321,6 +332,7 @@ func TestSavedLogWhileTheHomeIsStartingAsksAgain(t *testing.T) {
 }
 
 func TestLogStreamsTheRunPodAsPlainText(t *testing.T) {
+	t.Parallel()
 	def := gatewaytest.WithRuns{Job: apitest.JobObj(apitest.AliceID, "nightly-sales"), Runs: []model.Run{
 		{K8sJob: "nightly-sales-30", Trigger: "schedule", Outcome: model.RunOutcomeRunning}}}
 	pod := &corev1.Pod{
@@ -364,6 +376,7 @@ func TestLogStreamsTheRunPodAsPlainText(t *testing.T) {
 // and deletes nothing in Kubernetes. A finished run is left alone, and a run
 // of another job is not found.
 func TestCancelAsksTheControllerToStopTheRun(t *testing.T) {
+	t.Parallel()
 	def := gatewaytest.WithRuns{Job: apitest.JobObj(apitest.AliceID, "nightly-sales"), Runs: []model.Run{
 		{K8sJob: "nightly-sales-1", Trigger: "schedule", Outcome: model.RunOutcomeRunning},
 		{K8sJob: "nightly-sales-2", Trigger: "schedule", Outcome: model.RunOutcomeSucceeded},
@@ -416,6 +429,7 @@ func TestCancelAsksTheControllerToStopTheRun(t *testing.T) {
 }
 
 func TestJobViewListsRunsOldestFirstInTheStripAndExplainsAFailure(t *testing.T) {
+	t.Parallel()
 	def := apitest.JobObj(apitest.AliceID, "nightly-sales")
 	def.Spec.Schedule = &model.JobSchedule{Cron: "0 6 * * *", TimeZone: "Europe/Berlin", Concurrency: "Forbid"}
 	def.Status.Phase = model.JobPhaseReady
@@ -482,6 +496,7 @@ func TestJobViewListsRunsOldestFirstInTheStripAndExplainsAFailure(t *testing.T) 
 // Deleting marks the job; the controller removes its CronJob and Jobs and
 // then the row. Until then the job is gone from every route.
 func TestDeleteRemovesTheDefinition(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.AliceID, "nightly-sales"))
 	if w := f.Do("DELETE", "/api/jobs/nightly-sales", "", f.Session(apitest.AliceID)); w.Code != http.StatusNoContent || len(f.Jobs()) != 0 {
 		t.Fatalf("status %d, %d left", w.Code, len(f.Jobs()))
@@ -495,6 +510,7 @@ func TestDeleteRemovesTheDefinition(t *testing.T) {
 }
 
 func TestSchedulePreviewMatchesTheCronJobControllerAndWarnsAboutDST(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
 	w := f.Do("POST", "/api/schedule/preview", `{"cron":"30 2 * * *","timeZone":"Europe/Berlin"}`, f.Session(apitest.AliceID))
 	if w.Code != http.StatusOK {
@@ -538,6 +554,7 @@ func TestSchedulePreviewMatchesTheCronJobControllerAndWarnsAboutDST(t *testing.T
 }
 
 func TestEnginesComeFromTheRegistry(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
 	w := f.Do("GET", "/api/engines", "", f.Session(apitest.AliceID))
 	got := apitest.Decode[struct {
@@ -563,6 +580,7 @@ func TestEnginesComeFromTheRegistry(t *testing.T) {
 }
 
 func TestTemplatesShowJobSettingsBasePathAndAppLogin(t *testing.T) {
+	t.Parallel()
 	tpl := apitest.JobTemplateObj()
 	tpl.Spec.BasePath, tpl.Spec.AppLogin = "Strip", "Disabled"
 	f := apitest.New(t, apitest.Options{Engines: apitest.TestEngines()}, tpl, gatewaytest.Template("plain", "streamlit"))
@@ -590,6 +608,7 @@ func TestTemplatesShowJobSettingsBasePathAndAppLogin(t *testing.T) {
 }
 
 func TestRunNowRefusesWhenTheUserLeftTheTemplateGroups(t *testing.T) {
+	t.Parallel()
 	tpl := apitest.JobTemplateObj()
 	tpl.Spec.AllowedGroups = []string{"data-team"}
 	f := apitest.New(t, apitest.Options{Engines: apitest.TestEngines()}, tpl, apitest.JobObj(apitest.AliceID, "nightly-sales"))
@@ -603,6 +622,7 @@ func TestRunNowRefusesWhenTheUserLeftTheTemplateGroups(t *testing.T) {
 // A template that turned jobs off since the job was saved refuses a run the
 // controller could not start, and no run is stored.
 func TestRunNowRefusesWhenTheTemplateNoLongerAllowsJobs(t *testing.T) {
+	t.Parallel()
 	tpl := apitest.JobTemplateObj()
 	tpl.Spec.Jobs = nil
 	f := apitest.New(t, apitest.Options{Engines: apitest.TestEngines()}, tpl, apitest.JobObj(apitest.AliceID, "nightly-sales"))
@@ -618,6 +638,7 @@ func TestRunNowRefusesWhenTheTemplateNoLongerAllowsJobs(t *testing.T) {
 }
 
 func TestNewServerRefusesWhatItCannotWorkWithout(t *testing.T) {
+	t.Parallel()
 	db := storetest.New(t)
 	full := gateway.Config{Store: db, Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{}, Tokens: &token.DBStore{}, Machines: capacity.Nodes{}}
 	for name, cut := range map[string]func(*gateway.Config){
@@ -641,6 +662,7 @@ func TestNewServerRefusesWhatItCannotWorkWithout(t *testing.T) {
 }
 
 func TestLogOfAnActiveRunWhoseContainerHasNotStartedIs409WithRetryAfter(t *testing.T) {
+	t.Parallel()
 	pending := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "nightly-sales-31-abc", Namespace: gatewaytest.Namespace, Labels: map[string]string{
 			jobs.LabelJobName: "nightly-sales-31", model.LabelOwner: apitest.AliceID}},
@@ -678,6 +700,7 @@ func TestLogOfAnActiveRunWhoseContainerHasNotStartedIs409WithRetryAfter(t *testi
 // owner's apps, and is found, run and deleted there; another person neither
 // lists nor reaches it.
 func TestPerUserJobLivesInTheOwnersNamespace(t *testing.T) {
+	t.Parallel()
 	pl := placementperuser.New(config.Namespaces{Prefix: "javo"})
 	f := apitest.JobFixture(t, apitest.Options{Placement: pl}, apitest.ManagedNS("javo-"+apitest.AliceID), apitest.ManagedNS("javo-"+apitest.BobID))
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
@@ -709,6 +732,7 @@ func TestPerUserJobLivesInTheOwnersNamespace(t *testing.T) {
 // anyone else gets the same 404 as a missing job, and the admin's own list
 // keeps only the admin's jobs.
 func TestAdminReachesAnothersJobWithOwner(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.AliceID, "nightly-sales"))
 	admin, bob := f.Session(apitest.CarolID, "javo-admins"), f.Session(apitest.BobID)
 	q := "/api/jobs/nightly-sales"
@@ -735,6 +759,7 @@ func TestAdminReachesAnothersJobWithOwner(t *testing.T) {
 // A command job is a command line, read like an app's typed command, with
 // no file; the job shows it back as a line.
 func TestCreateCommandJobSplitsTheLineAndShowsItBack(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
 	body := `{"displayName":"Print the time","template":"lab","engine":"command","command":"bash '{{.Home}}/my jobs/run.sh' --n 2",` +
 		`"parameters":[{"name":"greeting","type":"string","default":"hello"}]}`
@@ -756,6 +781,7 @@ func TestCreateCommandJobSplitsTheLineAndShowsItBack(t *testing.T) {
 }
 
 func TestCreateChecksTheCommandLine(t *testing.T) {
+	t.Parallel()
 	cmd := func(line string) string {
 		return `{"displayName":"A","template":"lab","engine":"command","command":` + apitest.StrconvQuote(line) + `}`
 	}
@@ -790,6 +816,7 @@ func TestCreateChecksTheCommandLine(t *testing.T) {
 // A bash job keeps the typed script whole (variables, pipes, several lines),
 // since bash reads it, and shows it back unchanged.
 func TestCreateBashJobKeepsTheScriptWhole(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.ShellTemplate())
 	script := "echo \"Hello from $(hostname)\"\ndate | tee log.txt\necho $JAVO_PARAM_GREETING"
 	w := f.Do("POST", "/api/jobs", `{"displayName":"Hello","template":"shell","engine":"bash","command":`+apitest.StrconvQuote(script)+`}`, f.Session(apitest.AliceID))
@@ -805,6 +832,7 @@ func TestCreateBashJobKeepsTheScriptWhole(t *testing.T) {
 }
 
 func TestCreateChecksTheBashScript(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, script, msg string }{
 		{"blank", " \n ", reasons.Msg(reasons.MsgJobCommandRequired)},
 		{"too long", strings.Repeat("a", model.MaxCommandLength+1), reasons.Msg(reasons.MsgCommandTooLong)},
@@ -825,6 +853,7 @@ func TestCreateChecksTheBashScript(t *testing.T) {
 // One click makes the template's sample job, run on demand; a second click
 // makes another under the next free name, as app samples do.
 func TestStartJobSampleMakesTheTemplatesCommandJob(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.SampleJobTemplate())
 	w := f.Do("POST", "/api/job-samples/jobs-lab", "", f.Session(apitest.AliceID))
 	if w.Code != http.StatusCreated {
@@ -851,6 +880,7 @@ func TestStartJobSampleMakesTheTemplatesCommandJob(t *testing.T) {
 }
 
 func TestStartJobSampleOfATemplateWithoutOneIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
 	w := f.Do("POST", "/api/job-samples/lab", "", f.Session(apitest.AliceID))
 	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), reasons.Msg(reasons.MsgNoSample, "lab")) {
@@ -862,6 +892,7 @@ func TestStartJobSampleOfATemplateWithoutOneIsRefused(t *testing.T) {
 }
 
 func TestTemplatesShowTheJobSample(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.SampleJobTemplate())
 	w := f.Do("GET", "/api/templates", "", f.Session(apitest.AliceID))
 	if !strings.Contains(w.Body.String(), `"sample":{"title":"Print the time","command":"bash /opt/javo/samples/jobs/print-time.sh","parameters":[{"name":"greeting","type":"string","default":"hello"}]}`) {

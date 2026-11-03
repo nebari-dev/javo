@@ -35,6 +35,7 @@ func startedStore(t *testing.T) (*store.Store, store.Config) {
 // A write on one connection reaches the listener only once it has committed,
 // and a rolled-back write is never announced.
 func TestPostgresNotifyAfterCommit(t *testing.T) {
+	t.Parallel()
 	requirePostgres(t)
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "lab")
@@ -59,6 +60,7 @@ func TestPostgresNotifyAfterCommit(t *testing.T) {
 // A second Store on the same database (another replica) hears the first one's
 // writes, and each write arrives once.
 func TestPostgresNotifyReachesOtherReplica(t *testing.T) {
+	t.Parallel()
 	requirePostgres(t)
 	writer, cfg := startedStore(t)
 	reader := storetest.Open(t, cfg)
@@ -79,6 +81,7 @@ func TestPostgresNotifyReachesOtherReplica(t *testing.T) {
 }
 
 func TestPostgresReconnectEmitsResync(t *testing.T) {
+	t.Parallel()
 	requirePostgres(t)
 	s, cfg := startedStore(t)
 	admin, err := sql.Open("pgx", cfg.DSN)

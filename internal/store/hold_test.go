@@ -12,6 +12,7 @@ import (
 // HoldAll holds every live app under the restore's name; a deleted one is
 // left alone.
 func TestHoldAllHoldsLiveApps(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a := mustCreate(t, s, newApp("alice", "lab"))
 	p := newApp("alice", "paused")
@@ -43,6 +44,7 @@ func TestHoldAllHoldsLiveApps(t *testing.T) {
 // the rate, in name order, and apps that were stopped the present time (they
 // start nothing). Each release raises the version, so the controller hears of it.
 func TestReleaseStaggersAppsThatWereRunning(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	var ids []string
 	for _, name := range []string{"c", "a", "b"} {
@@ -75,6 +77,7 @@ func TestReleaseStaggersAppsThatWereRunning(t *testing.T) {
 // Release with Stopped stops every app of the restore and lets them all go
 // at once.
 func TestReleaseStoppedStopsEverything(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a := mustCreate(t, s, newApp("alice", "lab"))
 	if _, err := s.Apps().HoldAll(ctx, alice, "r1"); err != nil {

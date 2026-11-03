@@ -71,6 +71,7 @@ func TestRepoTokenComesFromASecret(t *testing.T) {
 }
 
 func TestCreateFromRepoRefusesWhatTheModelRefuses(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RepoTemplates()...)
 	alice := f.Session(apitest.AliceID)
 	cases := []struct {
@@ -100,6 +101,7 @@ func TestCreateFromRepoRefusesWhatTheModelRefuses(t *testing.T) {
 }
 
 func TestCreateFromRepoSkipsTheHomeFileRules(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RepoTemplates()...)
 	alice := f.Session(apitest.AliceID)
 	// A static site from a repo has no file; from the home it needs an .html one.
@@ -125,6 +127,7 @@ func TestCreateFromRepoSkipsTheHomeFileRules(t *testing.T) {
 }
 
 func TestCreateFromRepoWithoutTokenStoresNoTokenRow(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RepoTemplates()...)
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Open","template":"streamlit","file":"app.py","source":{"url":"https://github.com/example-org/site"}}`, f.Session(apitest.AliceID))
 	if w.Code != http.StatusCreated {
@@ -139,6 +142,7 @@ func TestCreateFromRepoWithoutTokenStoresNoTokenRow(t *testing.T) {
 }
 
 func TestSourceViewLinksToTheCommitAndSaysWhenPreviewsAreAvailable(t *testing.T) {
+	t.Parallel()
 	app := apitest.RepoApp("site")
 	app.Status = model.AppStatus{Phase: "Running", Commit: "0123456789abcdef"}
 	other := apitest.RepoApp("elsewhere")
@@ -166,6 +170,7 @@ func TestSourceViewLinksToTheCommitAndSaysWhenPreviewsAreAvailable(t *testing.T)
 }
 
 func TestPutAndDeleteTheRepoToken(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), apitest.RepoApp("site"), gatewaytest.Workspace("plain", apitest.AliceID, "Plain"))
 	f.WithSecretKeys()
 	alice := f.Session(apitest.AliceID)
@@ -215,6 +220,7 @@ func TestPutAndDeleteTheRepoToken(t *testing.T) {
 // alice's app, and a platform admin who manages it is refused. (An app's own
 // API token is refused by authn.NoAppTokens, as for its variables.)
 func TestOnlyTheOwnerPicksTheRepoToken(t *testing.T) {
+	t.Parallel()
 	ws := apitest.RepoApp("site")
 	ws.Owner = apitest.LocalAlice()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), ws)
@@ -241,6 +247,7 @@ func TestOnlyTheOwnerPicksTheRepoToken(t *testing.T) {
 }
 
 func TestRedeployAsksForOneRestart(t *testing.T) {
+	t.Parallel()
 	site := gatewaytest.Workspace("page", apitest.AliceID, "Page")
 	site.Template, site.File = "static-site", "index.html"
 	homeOnly := gatewaytest.Workspace("plain", apitest.AliceID, "Plain")
@@ -271,6 +278,7 @@ func TestRedeployAsksForOneRestart(t *testing.T) {
 }
 
 func TestWorkspaceSaysWhetherItCanBeRedeployed(t *testing.T) {
+	t.Parallel()
 	page := gatewaytest.Workspace("page", apitest.AliceID, "Page")
 	page.Template, page.File = "static-site", "index.html"
 	homeOnly := gatewaytest.Workspace("plain", apitest.AliceID, "Plain")
@@ -286,6 +294,7 @@ func TestWorkspaceSaysWhetherItCanBeRedeployed(t *testing.T) {
 }
 
 func TestReadTokenCannotRedeploy(t *testing.T) {
+	t.Parallel()
 	app := apitest.RepoApp("mine")
 	app.Owner = apitest.LocalAlice()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), app)
@@ -305,6 +314,7 @@ func TestReadTokenCannotRedeploy(t *testing.T) {
 }
 
 func TestPreviewsAreHiddenUnlessAsked(t *testing.T) {
+	t.Parallel()
 	parent := apitest.RepoApp("site")
 	parent.Sharing = model.Sharing{Access: model.AccessRestricted, Users: []string{apitest.BobID}}
 	tpl := gatewaytest.Template("streamlit", "streamlit")
@@ -346,6 +356,7 @@ func TestPreviewsAreHiddenUnlessAsked(t *testing.T) {
 }
 
 func TestPreviewSpecIsManagedByTheParent(t *testing.T) {
+	t.Parallel()
 	parent := apitest.RepoApp("site")
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), parent)
 	child := f.PreviewChild(parent, 7)
@@ -378,6 +389,7 @@ func TestPreviewSpecIsManagedByTheParent(t *testing.T) {
 }
 
 func TestTemplateViewSaysWhetherItTakesARepoAndItsBuild(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.RepoTemplates()...)
 	list := apitest.Decode[struct {
 		Items []struct {
@@ -405,6 +417,7 @@ func TestTemplateViewSaysWhetherItTakesARepoAndItsBuild(t *testing.T) {
 }
 
 func TestPreviewSettingsAreReadAndSavedOnTheApp(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Previews: true}, gatewaytest.Template("streamlit", "streamlit"), apitest.RepoApp("site"), gatewaytest.Workspace("plain", apitest.AliceID, "Plain"))
 	alice := f.Session(apitest.AliceID)
 
@@ -430,6 +443,7 @@ func TestPreviewSettingsAreReadAndSavedOnTheApp(t *testing.T) {
 }
 
 func TestPreviewSettingsRefuseWhatCannotWork(t *testing.T) {
+	t.Parallel()
 	elsewhere := apitest.RepoApp("elsewhere")
 	elsewhere.Source.URL = "https://git.example.org/example-org/site"
 	f := apitest.New(t, apitest.Options{Previews: true}, gatewaytest.Template("streamlit", "streamlit"), apitest.RepoApp("site"), elsewhere, gatewaytest.Workspace("plain", apitest.AliceID, "Plain"))
@@ -466,6 +480,7 @@ func TestPreviewSettingsRefuseWhatCannotWork(t *testing.T) {
 }
 
 func TestPreviewLimitFollowsThePlatformCap(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Previews: true, PreviewsMax: 3}, gatewaytest.Template("streamlit", "streamlit"), apitest.RepoApp("site"))
 	alice := f.Session(apitest.AliceID)
 	if got := apitest.Decode[apitest.PreviewsJSON](t, f.Do("GET", "/api/workspaces/site/previews", "", alice)); got.MaxAllowed != 3 {
@@ -486,6 +501,7 @@ func TestPreviewLimitFollowsThePlatformCap(t *testing.T) {
 }
 
 func TestReportedPreviewLimitNeverExceedsThePlatformCap(t *testing.T) {
+	t.Parallel()
 	lowered := apitest.RepoApp("old")
 	lowered.Source.Previews = &model.Previews{Max: 3}
 	f := apitest.New(t, apitest.Options{Previews: true, PreviewsMax: 2}, gatewaytest.Template("streamlit", "streamlit"), apitest.RepoApp("site"), lowered)
@@ -503,6 +519,7 @@ func TestReportedPreviewLimitNeverExceedsThePlatformCap(t *testing.T) {
 }
 
 func TestPreviewSyncResultCarriesTheCatalogsWords(t *testing.T) {
+	t.Parallel()
 	parent := apitest.RepoApp("site")
 	parent.Source.Previews = &model.Previews{Enabled: true, Max: 1}
 	f := apitest.New(t, apitest.Options{Previews: true}, gatewaytest.Template("streamlit", "streamlit"), parent)

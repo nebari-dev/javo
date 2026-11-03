@@ -22,6 +22,7 @@ import (
 // engine) must run on whichever engine JAVO_TEST_DB names. make test-db runs
 // this on both.
 func TestOneQuerySetRunsOnBothEngines(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, storetest.Config(t))
 	db := s.DB()
@@ -134,6 +135,7 @@ func generatedQueries(t *testing.T) map[string]string {
 // SQLite numbers "$N" parameters by first appearance, so a query whose
 // placeholders first appear out of order would bind the wrong arguments there.
 func TestPlaceholdersFirstAppearInAscendingOrder(t *testing.T) {
+	t.Parallel()
 	for name, text := range generatedQueries(t) {
 		next := 1
 		for _, m := range placeholder.FindAllStringSubmatch(text, -1) {
@@ -150,6 +152,7 @@ func TestPlaceholdersFirstAppearInAscendingOrder(t *testing.T) {
 
 // Syntax SQLite does not have.
 func TestQueriesAvoidPostgresOnlySyntax(t *testing.T) {
+	t.Parallel()
 	banned := regexp.MustCompile(`::|(?i)\bILIKE\b|(?i)\bANY\s*\(|(?i)\bUNNEST\b|->>?|@>|(?i)\bNOW\s*\(`)
 	for name, text := range generatedQueries(t) {
 		if m := banned.FindString(text); m != "" {
@@ -161,6 +164,7 @@ func TestQueriesAvoidPostgresOnlySyntax(t *testing.T) {
 // Time columns hold unix milliseconds: every column named *_at must be
 // generated as dbtime.Time or dbtime.NullTime, never a bare integer.
 func TestTimeColumnsUseDBTime(t *testing.T) {
+	t.Parallel()
 	files, _ := filepath.Glob("*/models.go")
 	if len(files) == 0 {
 		t.Fatal("no generated models found")

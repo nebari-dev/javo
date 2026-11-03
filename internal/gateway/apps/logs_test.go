@@ -25,6 +25,7 @@ import (
 // After a mode change the home's files are on another claim; its events are
 // the ones shown, not those of the claim kept for the grace period.
 func TestEventsAreThoseOfTheHomesCurrentClaim(t *testing.T) {
+	t.Parallel()
 	owner := "alice-aaaaaaaa"
 	old, live := naming.HomeClaimName(owner), naming.HomeClaimNameGen(owner, 2)
 	home := &model.Home{Namespace: gatewaytest.Namespace, Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: live}}
@@ -43,6 +44,7 @@ func TestEventsAreThoseOfTheHomesCurrentClaim(t *testing.T) {
 }
 
 func TestEventsAreTheLivePodsAndHomeClaimsMappedToSteps(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("app", "alice-aaaaaaaa", "App")
 	pod := gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live")
 	claim := naming.HomeClaimName("alice-aaaaaaaa")
@@ -84,6 +86,7 @@ func TestEventsAreTheLivePodsAndHomeClaimsMappedToSteps(t *testing.T) {
 }
 
 func TestLogsAndEventsAreOwnerScoped(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"), gatewaytest.Template("streamlit", "streamlit"),
 		gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"))
 	bob := f.Session("bob-bbbbbbbb")
@@ -96,6 +99,7 @@ func TestLogsAndEventsAreOwnerScoped(t *testing.T) {
 }
 
 func TestEventsInTheSameSecondKeepStartupOrder(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("app", "alice-aaaaaaaa", "App")
 	pod := gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live")
 	// The scheduler records a precise event time; the kubelet whole seconds.
@@ -111,6 +115,7 @@ func TestEventsInTheSameSecondKeepStartupOrder(t *testing.T) {
 }
 
 func TestLogsReturnsTheAppContainersRecentLinesAsText(t *testing.T) {
+	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01.5Z  You can now view your Streamlit app\n2026-10-30T12:00:02Z <script>alert(1)</script>\n")
 	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 2))
@@ -152,6 +157,7 @@ func TestLogsReturnsTheAppContainersRecentLinesAsText(t *testing.T) {
 }
 
 func TestLogsTailIsBounded(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: apitest.FakeLogs("")}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 0))
 	for _, q := range []string{"tail=0", "tail=100000"} {
@@ -162,6 +168,7 @@ func TestLogsTailIsBounded(t *testing.T) {
 }
 
 func TestLogsAreEmptyBeforeTheContainerStartsOrWithoutAPreviousRun(t *testing.T) {
+	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01Z never read\n")
 	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"),
@@ -182,6 +189,7 @@ func TestLogsAreEmptyBeforeTheContainerStartsOrWithoutAPreviousRun(t *testing.T)
 }
 
 func TestLogsOfACrashLoopingContainerAreItsLastRun(t *testing.T) {
+	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01Z ModuleNotFoundError: No module named 'plotly'\n")
 	pod := apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 3)
 	pod.Status.ContainerStatuses[0].State = corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}
@@ -196,6 +204,7 @@ func TestLogsOfACrashLoopingContainerAreItsLastRun(t *testing.T) {
 // A site app's Build step comes between the image and the start, and only on
 // an app that has one.
 func TestBuildStepIsShownOnlyOnAnAppThatBuilds(t *testing.T) {
+	t.Parallel()
 	ws, _ := apitest.SiteApp()
 	f := apitest.New(t, apitest.Options{}, ws, gatewaytest.Workspace("plots", "alice-aaaaaaaa", "Plots"), gatewaytest.Template("static-site", "static"), gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session("alice-aaaaaaaa")
@@ -218,6 +227,7 @@ func TestBuildStepIsShownOnlyOnAnAppThatBuilds(t *testing.T) {
 // step of an app that builds, and to the start of one that does not (where
 // a failed clone shows).
 func TestSiteStepEventsBelongToTheBuildStep(t *testing.T) {
+	t.Parallel()
 	ws, pod := apitest.SiteApp()
 	plain := gatewaytest.Workspace("plots", "alice-aaaaaaaa", "Plots")
 	plainPod := gatewaytest.LivePod("alice-aaaaaaaa", "plots", "uid-plots")
@@ -238,6 +248,7 @@ func TestSiteStepEventsBelongToTheBuildStep(t *testing.T) {
 // The Build step's log is the build container's: the full output of a
 // failed build, with its own restarts.
 func TestBuildStepLogIsTheBuildContainers(t *testing.T) {
+	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01Z npm error code EUSAGE\n2026-10-30T12:00:01Z npm error The `npm ci` command can only install with an existing package-lock.json\n")
 	ws, pod := apitest.SiteApp()
 	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, ws, gatewaytest.Template("static-site", "static"), pod)
@@ -255,6 +266,7 @@ func TestBuildStepLogIsTheBuildContainers(t *testing.T) {
 }
 
 func TestLogStreamSendsLinesAndStopsWhenTheClientLeaves(t *testing.T) {
+	t.Parallel()
 	logs := apitest.NewPipeLogs()
 	f := apitest.New(t, apitest.Options{Logs: logs}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 0))
@@ -304,6 +316,7 @@ func TestLogStreamSendsLinesAndStopsWhenTheClientLeaves(t *testing.T) {
 // The home step stalls on the Job that readies the home; its events and its
 // pod's are the home step's, the kubelet's warnings first.
 func TestTheHomeStepShowsThePrepareJobsEventsWarningsFirst(t *testing.T) {
+	t.Parallel()
 	owner := "alice-aaaaaaaa"
 	claim := naming.HomeClaimName(owner)
 	prep := apitest.HomePreparePod(owner, "javo-prepare-home-alice-x1", "uid-prep")

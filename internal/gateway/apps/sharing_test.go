@@ -13,6 +13,7 @@ import (
 )
 
 func TestSharingWithBobShowsInBobsSharedList(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
 
@@ -38,6 +39,7 @@ func TestSharingWithBobShowsInBobsSharedList(t *testing.T) {
 }
 
 func TestRemovingBobEndsHisSharedListing(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
 	f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, alice)
@@ -53,6 +55,7 @@ func TestRemovingBobEndsHisSharedListing(t *testing.T) {
 }
 
 func TestSharedViaGroupNamesTheGroup(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":[],"groups":["/org/ml"]}`, f.Session(apitest.AliceID, "/org/ml"))
 	got := apitest.Decode[apitest.SharedJSON](t, f.Do("GET", "/api/shared", "", f.Session(apitest.BobID, "/org/ml")))
@@ -65,6 +68,7 @@ func TestSharedViaGroupNamesTheGroup(t *testing.T) {
 }
 
 func TestBobCannotReadOrChangeAlicesSharing(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
 	f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, alice)
@@ -87,6 +91,7 @@ func TestBobCannotReadOrChangeAlicesSharing(t *testing.T) {
 }
 
 func TestShareAboveTemplateCapIsRefusedNamingTheCap(t *testing.T) {
+	t.Parallel()
 	lab := gatewaytest.Template("streamlit", "jupyterlab")
 	lab.Spec.MaxSharing = model.AccessPrivate
 	f := apitest.New(t, apitest.Options{Urls: apitest.SeparateHosts, People: []apitest.TestPerson{apitest.SignedIn("alice", time.Time{})}},
@@ -103,6 +108,7 @@ func TestShareAboveTemplateCapIsRefusedNamingTheCap(t *testing.T) {
 }
 
 func TestUnknownUserIsRefusedOnItsEntry(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	w := f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`","nobody-00000000"],"groups":[]}`, f.Session(apitest.AliceID))
 	if w.Code != http.StatusUnprocessableEntity {
@@ -121,6 +127,7 @@ func TestUnknownUserIsRefusedOnItsEntry(t *testing.T) {
 }
 
 func TestSharingNeedsAnAppsHostUnlessOneHostIsAllowed(t *testing.T) {
+	t.Parallel()
 	oneHost := config.URLs{UIHost: "javo.example.com", AppsHost: "javo.example.com"}
 	cases := []struct {
 		name   string
@@ -157,6 +164,7 @@ func TestSharingNeedsAnAppsHostUnlessOneHostIsAllowed(t *testing.T) {
 }
 
 func TestTransientIdentityErrorIsNotShownAsInactive(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	alice := f.Session(apitest.AliceID)
 	if w := f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, alice); w.Code != http.StatusOK {
@@ -172,6 +180,7 @@ func TestTransientIdentityErrorIsNotShownAsInactive(t *testing.T) {
 }
 
 func TestSharedShowsOwnerIDWhenOwnerIdentityIsGone(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, f.Session(apitest.AliceID))
 	f.DeletePerson(apitest.AliceID)
@@ -182,6 +191,7 @@ func TestSharedShowsOwnerIDWhenOwnerIdentityIsGone(t *testing.T) {
 }
 
 func TestGetSharingMarksStaleAndMissingPeopleInactive(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	f := apitest.NewSharingFixture(t, apitest.Options{StaleAfter: 24 * time.Hour, Urls: apitest.SeparateHosts, People: []apitest.TestPerson{apitest.SignedIn("dave", now.Add(-48*time.Hour))}})
 	alice := f.Session(apitest.AliceID, "/org/ml")
@@ -217,6 +227,7 @@ func TestGetSharingMarksStaleAndMissingPeopleInactive(t *testing.T) {
 }
 
 func TestDirectory(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{})
 	get := func(q string, groups ...string) apitest.DirectoryJSON {
 		t.Helper()
@@ -242,6 +253,7 @@ func TestDirectory(t *testing.T) {
 }
 
 func TestDirectoryReturnsAtMostTenPeople(t *testing.T) {
+	t.Parallel()
 	var people []apitest.TestPerson
 	for i := range 12 {
 		people = append(people, apitest.SignedIn("pat"+string(rune('a'+i)), time.Time{}))
@@ -254,6 +266,7 @@ func TestDirectoryReturnsAtMostTenPeople(t *testing.T) {
 }
 
 func TestSharingViewCarriesTheWordsTheUIShows(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	f := apitest.NewSharingFixture(t, apitest.Options{StaleAfter: 24 * time.Hour, Urls: apitest.SeparateHosts, People: []apitest.TestPerson{apitest.SignedIn("dave", now.Add(-48*time.Hour))}})
 	alice := f.Session(apitest.AliceID)
@@ -296,6 +309,7 @@ func TestSharingViewCarriesTheWordsTheUIShows(t *testing.T) {
 }
 
 func TestSharedListSaysSoWhenNothingIsShared(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	got := apitest.Decode[apitest.SharedJSON](t, f.Do("GET", "/api/shared", "", f.Session(apitest.BobID)))
 	if want := reasons.Msg(reasons.MsgNothingShared); got.Empty != want {

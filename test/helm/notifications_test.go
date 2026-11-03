@@ -20,6 +20,7 @@ import (
 )
 
 func TestNotificationsOffByDefault(t *testing.T) {
+	t.Parallel()
 	out, err := render(t)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -33,6 +34,7 @@ func TestNotificationsOffByDefault(t *testing.T) {
 // failed newest run, and its webhook body is valid JSON with the job name and
 // the catalog title of the run's reason.
 func TestExampleNotificationConfigSendsAFailedRun(t *testing.T) {
+	t.Parallel()
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)

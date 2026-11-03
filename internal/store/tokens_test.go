@@ -24,6 +24,7 @@ func apiToken(id, owner string) store.APIToken {
 }
 
 func TestTokenRoundTripAndLookupByID(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	alicePerson := signedIn(t, s, "alice")
 	exp := t0.Add(time.Hour)
@@ -46,6 +47,7 @@ func TestTokenRoundTripAndLookupByID(t *testing.T) {
 }
 
 func TestTokenOfUnknownPersonIsRefused(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if _, err := s.Tokens().Create(ctx, alice, apiToken("t1", "nobody")); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Create for an unknown person = %v", err)
@@ -53,6 +55,7 @@ func TestTokenOfUnknownPersonIsRefused(t *testing.T) {
 }
 
 func TestAppTokenNamesItsApp(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	p := signedIn(t, s, "alice")
 	app := createApp(t, s, p.Name, "agent")
@@ -77,6 +80,7 @@ func TestAppTokenNamesItsApp(t *testing.T) {
 }
 
 func TestTokenListIsOwnersOldestFirst(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a, b := signedIn(t, s, "alice"), signedIn(t, s, "bob")
 	for i, tok := range []store.APIToken{apiToken("t2", a.Name), apiToken("t1", a.Name), apiToken("t3", b.Name)} {
@@ -92,6 +96,7 @@ func TestTokenListIsOwnersOldestFirst(t *testing.T) {
 }
 
 func TestRevokeIsTheOwnersAndAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a, b := signedIn(t, s, "alice"), signedIn(t, s, "bob")
 	if _, err := s.Tokens().Create(ctx, alice, apiToken("t1", a.Name)); err != nil {
@@ -115,6 +120,7 @@ func TestRevokeIsTheOwnersAndAudited(t *testing.T) {
 }
 
 func TestDeletingAnAppEndsItsTokens(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	p := signedIn(t, s, "alice")
 	app := createApp(t, s, p.Name, "agent")
@@ -151,6 +157,7 @@ func TestDeletingAnAppEndsItsTokens(t *testing.T) {
 }
 
 func TestDeleteForRemovesOnlyThatPersonsTokens(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a, b := signedIn(t, s, "alice"), signedIn(t, s, "bob")
 	for _, tok := range []store.APIToken{apiToken("t1", a.Name), apiToken("t2", a.Name), apiToken("t3", b.Name)} {
@@ -170,6 +177,7 @@ func TestDeleteForRemovesOnlyThatPersonsTokens(t *testing.T) {
 }
 
 func TestSweepRemovesExpiredAndTokensOfDeletedApps(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	p := signedIn(t, s, "alice")
 	app := createApp(t, s, p.Name, "agent")
@@ -201,6 +209,7 @@ func TestSweepRemovesExpiredAndTokensOfDeletedApps(t *testing.T) {
 }
 
 func TestTouchWritesAtMostOncePerInterval(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	p := signedIn(t, s, "alice")
 	if _, err := s.Tokens().Create(ctx, alice, apiToken("t1", p.Name)); err != nil {

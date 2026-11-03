@@ -80,6 +80,7 @@ func pgTool(t *testing.T, container string, stdin []byte, args ...string) []byte
 }
 
 func TestBackupUnderWriteLoad(t *testing.T) {
+	t.Parallel()
 	cfg := storetest.Config(t)
 	s := storetest.Open(t, cfg)
 	if err := s.Migrate(ctx); err != nil {
@@ -154,6 +155,7 @@ func TestBackupUnderWriteLoad(t *testing.T) {
 }
 
 func TestRestoreRefusesOpenDatabase(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cfg := store.Config{Engine: store.EngineSQLite, Path: filepath.Join(dir, "javo.db")}
 	s := storetest.Open(t, cfg)
@@ -195,6 +197,7 @@ func TestRestoreRefusesOpenDatabase(t *testing.T) {
 }
 
 func TestRestoreRefusesAFileThatIsNotADatabase(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	junk := filepath.Join(dir, "junk.db")
 	if err := os.WriteFile(junk, []byte("this is not a database file at all, not even close"), 0o600); err != nil {
@@ -210,6 +213,7 @@ func TestRestoreRefusesAFileThatIsNotADatabase(t *testing.T) {
 }
 
 func TestRestoreRefusesADatabaseWithoutTheJavoSchema(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	empty := filepath.Join(dir, "empty.db")
 	db, err := sql.Open("sqlite", "file:"+empty)
@@ -241,6 +245,7 @@ func TestRestoreRefusesADatabaseWithoutTheJavoSchema(t *testing.T) {
 }
 
 func TestBackupRefusesPostgres(t *testing.T) {
+	t.Parallel()
 	if storetest.Engine() != store.EnginePostgres {
 		t.Skip("engine under test is not postgres")
 	}
@@ -252,6 +257,7 @@ func TestBackupRefusesPostgres(t *testing.T) {
 }
 
 func TestBackupRetention(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)
 	var names []string
@@ -284,6 +290,7 @@ func TestBackupRetention(t *testing.T) {
 }
 
 func TestScheduledBackupsRunAndPrune(t *testing.T) {
+	t.Parallel()
 	cfg := store.Config{Engine: store.EngineSQLite, Path: filepath.Join(t.TempDir(), "javo.db")}
 	s := storetest.Open(t, cfg)
 	if err := s.Migrate(ctx); err != nil {
@@ -319,6 +326,7 @@ func TestScheduledBackupsRunAndPrune(t *testing.T) {
 // Each scheduled backup, once written and pruned, is handed to the plan's
 // After (the copy to the bucket), with the file's full name.
 func TestScheduledBackupsAreHandedOn(t *testing.T) {
+	t.Parallel()
 	cfg := store.Config{Engine: store.EngineSQLite, Path: filepath.Join(t.TempDir(), "javo.db")}
 	s := storetest.Open(t, cfg)
 	if err := s.Migrate(ctx); err != nil {
@@ -357,6 +365,7 @@ func TestScheduledBackupsAreHandedOn(t *testing.T) {
 }
 
 func TestBackupPlanRejectsABadSchedule(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	err := s.RunBackups(ctx, store.BackupPlan{Schedule: "not a cron", Dir: t.TempDir(), Keep: 1})
 	if err == nil {

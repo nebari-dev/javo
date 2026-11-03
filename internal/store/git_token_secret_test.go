@@ -13,6 +13,7 @@ import (
 // A repository token comes from one of the owner's secrets: it
 // is bound beside the app's variables, never one of them.
 func TestGitTokenFromASecret(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	createSecret(t, s, "alice", "GH_TOKEN")
 	createSecret(t, s, "alice", "API_KEY")
@@ -73,6 +74,7 @@ func TestGitTokenFromASecret(t *testing.T) {
 // A token pasted before tokens came from secrets becomes a secret of the owner, bound as
 // the app's token, and the pasted copy is dropped.
 func TestAdoptPastedGitToken(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "site")
 	in.Source = &model.Source{URL: "https://github.com/example-org/site"}

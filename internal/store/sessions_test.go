@@ -24,6 +24,7 @@ func child(id, parent, kind string, expires time.Time) store.Session {
 }
 
 func TestSessionRoundTripAndVersionedUpdate(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sessions := s.Sessions()
 	if err := sessions.Create(ctx, alice, uiSession("a", "alice", t0.Add(time.Hour))); err != nil {
@@ -52,6 +53,7 @@ func TestSessionRoundTripAndVersionedUpdate(t *testing.T) {
 }
 
 func TestSessionCascade(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sessions := s.Sessions()
 	exp := t0.Add(time.Hour)
@@ -79,6 +81,7 @@ func TestSessionCascade(t *testing.T) {
 }
 
 func TestSessionCreateWithUnknownParentFails(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if err := s.Sessions().Create(ctx, alice, child("orphan", "nope", "app", t0.Add(time.Hour))); err == nil {
 		t.Fatal("an app session without a parent was stored")
@@ -86,6 +89,7 @@ func TestSessionCreateWithUnknownParentFails(t *testing.T) {
 }
 
 func TestSweepDeletesExpired(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sessions := s.Sessions()
 	must := func(err error) {
@@ -110,6 +114,7 @@ func TestSweepDeletesExpired(t *testing.T) {
 }
 
 func TestRedeemUsesATicketOnce(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sessions := s.Sessions()
 	exp := t0.Add(time.Hour)
@@ -125,6 +130,7 @@ func TestRedeemUsesATicketOnce(t *testing.T) {
 }
 
 func TestDeleteForPersonEndsEverySession(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sessions := s.Sessions()
 	exp := t0.Add(time.Hour)
@@ -141,6 +147,7 @@ func TestDeleteForPersonEndsEverySession(t *testing.T) {
 }
 
 func TestDeleteForIsAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	_ = s.Sessions().Create(ctx, model.Actor{Person: "bob"}, uiSession("a1", "bob", t0.Add(time.Hour)))
 	before := auditCount(t, s)
@@ -165,6 +172,7 @@ func TestDeleteForIsAudited(t *testing.T) {
 // Signing in and out are audited; app sessions and tickets, made per app
 // request, are not, and nor is deleting a session that is already gone.
 func TestOnlyUISessionsAreAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sessions := s.Sessions()
 	exp := t0.Add(time.Hour)

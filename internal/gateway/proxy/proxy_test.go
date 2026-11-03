@@ -71,6 +71,7 @@ func (f *fixture) do(r *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestOwnerGetsBackendResponse(t *testing.T) {
+	t.Parallel()
 	var gotPath, gotQuery, gotCookie, gotXFH string
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath, gotQuery, gotXFH = r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Forwarded-Host")
@@ -98,6 +99,7 @@ func TestOwnerGetsBackendResponse(t *testing.T) {
 }
 
 func TestNotOwnerAndMissingLookIdentical(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("backend reached") }))
 	bob := f.login(t, "bob-bbbbbbbb", "bob")
 	get := func(p string) *httptest.ResponseRecorder {
@@ -116,6 +118,7 @@ func TestNotOwnerAndMissingLookIdentical(t *testing.T) {
 }
 
 func TestSameShortNameForTwoUsersReachesEachOwnersApp(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	gatewaytest.Seed(t, f.db, []any{gatewaytest.App("bob-bbbbbbbb", "nb1")})
 	var resolved []string
@@ -139,6 +142,7 @@ func TestSameShortNameForTwoUsersReachesEachOwnersApp(t *testing.T) {
 }
 
 func TestNotFoundPageUsesCatalogText(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("backend reached") }))
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nope/", nil)
 	r.AddCookie(f.login(t, "alice-aaaaaaaa", "alice"))
@@ -149,6 +153,7 @@ func TestNotFoundPageUsesCatalogText(t *testing.T) {
 }
 
 func TestSlugMustMatchOwnerEvenForOwner(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("backend reached") }))
 	r := httptest.NewRequest("GET", "/u/someone-else/nb1/", nil)
 	r.AddCookie(f.login(t, "alice-aaaaaaaa", "alice"))
@@ -158,6 +163,7 @@ func TestSlugMustMatchOwnerEvenForOwner(t *testing.T) {
 }
 
 func TestNoSessionRedirectsToLogin(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("backend reached") }))
 	p := "/u/" + f.aliceSl + "/nb1/lab?a=b&c=d"
 	for _, r := range []*http.Request{
@@ -177,6 +183,7 @@ func TestNoSessionRedirectsToLogin(t *testing.T) {
 }
 
 func TestBackendDownBrandedBadGateway(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.NotFoundHandler())
 	f.backend.Close()
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
@@ -196,6 +203,7 @@ func TestBackendDownBrandedBadGateway(t *testing.T) {
 // network policy lets the gateway in. The proxy keeps dialing for a short
 // while instead of answering 502 at once.
 func TestProxyWaitsForAppThatIsNotReachableYet(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.NotFoundHandler())
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -237,6 +245,7 @@ func (f *fixture) appID(t *testing.T, owner, name string) string {
 }
 
 func TestRequestRecordsActivity(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
 	r.AddCookie(f.login(t, "alice-aaaaaaaa", "alice"))
@@ -250,6 +259,7 @@ func TestRequestRecordsActivity(t *testing.T) {
 
 // A refused request is not use: someone without access cannot keep an app alive.
 func TestRefusedRequestRecordsNoActivity(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
 	r.AddCookie(f.login(t, "bob-bbbbbbbb", "bob"))
@@ -264,6 +274,7 @@ func TestRefusedRequestRecordsNoActivity(t *testing.T) {
 // An open websocket keeps the app active at every flush, with no frames
 // sent, until it closes.
 func TestOpenWebsocketKeepsTheAppActive(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(gatewaytest.EchoBackend))
 	srv := httptest.NewServer(f.proxy)
 	defer srv.Close()
@@ -308,6 +319,7 @@ func TestOpenWebsocketKeepsTheAppActive(t *testing.T) {
 }
 
 func TestBackendCannotTouchGatewaySessionOrOrigin(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Add("Set-Cookie", "javo_session=evil; Path=/")
@@ -332,6 +344,7 @@ func TestBackendCannotTouchGatewaySessionOrOrigin(t *testing.T) {
 }
 
 func TestHostPreservedAndCookiesByteForByte(t *testing.T) {
+	t.Parallel()
 	var host, xfh, cookie string
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, xfh, cookie = r.Host, r.Header.Get("X-Forwarded-Host"), r.Header.Get("Cookie")
@@ -349,6 +362,7 @@ func TestHostPreservedAndCookiesByteForByte(t *testing.T) {
 }
 
 func TestDefaultResolveUsesTemplatePort(t *testing.T) {
+	t.Parallel()
 	app := &model.App{Namespace: gatewaytest.Namespace, Name: "nb1", Owner: "alice-aaaaaaaa", Template: "t"}
 	resolve := func(port int32) (Backend, error) {
 		tpl := &model.Template{Name: "t", Spec: model.TemplateSpec{Port: port}}
@@ -367,6 +381,7 @@ func TestDefaultResolveUsesTemplatePort(t *testing.T) {
 }
 
 func TestResolveErrorRendersUnreachablePage(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.NotFoundHandler())
 	p := New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
 		Resolve: func(context.Context, *model.App, *model.Template) (Backend, error) { return Backend{}, io.EOF }})
@@ -420,6 +435,7 @@ func (f *fixture) get(t *testing.T, p http.Handler, path string, hdr ...string) 
 }
 
 func TestStripModeRemovesPrefixAndSendsForwardedPrefix(t *testing.T) {
+	t.Parallel()
 	var got seen
 	f := setup(t, recordingBackend(&got))
 	p := templateProxy(t, f, model.TemplateSpec{Port: 8000, BasePath: "Strip"})
@@ -447,6 +463,7 @@ func TestStripModeRemovesPrefixAndSendsForwardedPrefix(t *testing.T) {
 }
 
 func TestStripModeReplacesClientForwardedPrefix(t *testing.T) {
+	t.Parallel()
 	var got seen
 	f := setup(t, recordingBackend(&got))
 	p := templateProxy(t, f, model.TemplateSpec{Port: 8000, BasePath: "Strip"})
@@ -457,6 +474,7 @@ func TestStripModeReplacesClientForwardedPrefix(t *testing.T) {
 }
 
 func TestPrefixModeKeepsPathAndDropsClientForwardedPrefix(t *testing.T) {
+	t.Parallel()
 	var got seen
 	f := setup(t, recordingBackend(&got))
 	p := templateProxy(t, f, model.TemplateSpec{Port: 8000, BasePath: "Prefix"})
@@ -470,6 +488,7 @@ func TestPrefixModeKeepsPathAndDropsClientForwardedPrefix(t *testing.T) {
 }
 
 func TestProxyHeadersAreRenderedWithBaseURL(t *testing.T) {
+	t.Parallel()
 	var got seen
 	f := setup(t, recordingBackend(&got))
 	p := templateProxy(t, f, model.TemplateSpec{Port: 8000, BasePath: "Strip",
@@ -484,6 +503,7 @@ func TestProxyHeadersAreRenderedWithBaseURL(t *testing.T) {
 }
 
 func TestBadProxyHeaderTemplateIsUnreachablePage(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.NotFoundHandler())
 	p := templateProxy(t, f, model.TemplateSpec{Port: 8000, ProxyHeaders: map[string]string{"X-A": "{{.Nope}}"}})
 	if w := f.get(t, p, "/u/"+f.aliceSl+"/nb1/"); w.Code != 502 {
@@ -492,6 +512,7 @@ func TestBadProxyHeaderTemplateIsUnreachablePage(t *testing.T) {
 }
 
 func TestGatewayPagesLinkTheSiteIcon(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.NotFoundHandler())
 	w := f.get(t, f.proxy, "/u/"+f.aliceSl+"/nope/")
 	if w.Code != 404 {
@@ -514,6 +535,7 @@ func TestGatewayPagesLinkTheSiteIcon(t *testing.T) {
 // in path mode (on a separate apps host too), nothing in subdomain mode,
 // where the app already sits at the root of its own host.
 func TestStripPrefixFollowsTheExposure(t *testing.T) {
+	t.Parallel()
 	tpl := &model.Template{Name: "t", Spec: model.TemplateSpec{
 		Port: 8000, BasePath: "Strip", ProxyHeaders: map[string]string{"X-Root": "{{.BaseURL}}"}}}
 	app := &model.App{Namespace: gatewaytest.Namespace, Name: "nb1", Owner: "alice-aaaaaaaa", Template: "t"}
@@ -537,6 +559,7 @@ func TestStripPrefixFollowsTheExposure(t *testing.T) {
 
 // An app that names its own port (a container image) is reached on it.
 func TestDefaultResolveUsesTheAppsOwnPort(t *testing.T) {
+	t.Parallel()
 	tpl := &model.Template{Name: "t", Spec: model.TemplateSpec{Port: 8080, UserImage: true, BasePath: "Strip"}}
 	app := &model.App{Namespace: gatewaytest.Namespace, Name: "web", Owner: "alice-aaaaaaaa", Template: "t", Image: "example.org/web:1", Port: 9000}
 	b, err := defaultResolve(gatewaytest.OneHostExposure)(context.Background(), app, tpl)
@@ -549,6 +572,7 @@ func TestDefaultResolveUsesTheAppsOwnPort(t *testing.T) {
 // absolute links and redirects from these headers: they get the public
 // scheme, and no port a client or proxy in front claimed.
 func TestAppsSeeThePublicSchemeAndNoForwardedPort(t *testing.T) {
+	t.Parallel()
 	var got seen
 	f := setup(t, recordingBackend(&got))
 	p := templateProxy(t, f, model.TemplateSpec{Port: 8000, BasePath: "Strip"})
@@ -564,6 +588,7 @@ func TestAppsSeeThePublicSchemeAndNoForwardedPort(t *testing.T) {
 // Opening the app through the proxy is the owner's use that keeps the
 // token: the token of the session's ID token ends up stored for the app.
 func TestTheOwnerOpeningTheAppStoresTheirNebiToken(t *testing.T) {
+	t.Parallel()
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "lab") }))
 	opener := gatewaytest.Keyset(t, f.db)
 	tpl := gatewaytest.Template("t", "jupyterlab")

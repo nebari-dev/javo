@@ -12,6 +12,7 @@ import (
 )
 
 func TestRegisterAdminRefusesAPathOutsideAdmin(t *testing.T) {
+	t.Parallel()
 	api := humago.New(http.NewServeMux(), huma.DefaultConfig("test", "v1"))
 	defer func() {
 		if recover() == nil {

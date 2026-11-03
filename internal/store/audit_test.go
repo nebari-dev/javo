@@ -21,6 +21,7 @@ func jobObject(j model.Job) object { return object{j.Name, j.ID, j.Namespace, j.
 // short names repeat across owners, so the row also carries the row id,
 // namespace and owner.
 func TestWriteAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	var app model.App
 	var job model.Job
@@ -100,6 +101,7 @@ func TestWriteAudited(t *testing.T) {
 // When someone else (an admin, the controller) removes bob's, the log must
 // say it was bob's.
 func TestAuditTellsApartSameNamedAppsOfDifferentOwners(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	var bobs model.App
 	for _, owner := range []string{"alice", "bob"} {
@@ -126,6 +128,7 @@ func TestAuditTellsApartSameNamedAppsOfDifferentOwners(t *testing.T) {
 }
 
 func TestAuditNamesTheActorAndHowTheyActed(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for i, a := range []model.Actor{
 		{Person: "alice", Token: "tok1"}, {Person: "alice"}, {System: model.SystemController},
@@ -147,6 +150,7 @@ func TestAuditNamesTheActorAndHowTheyActed(t *testing.T) {
 }
 
 func TestAuditRecordsDeniedActions(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	err := s.Audit().Append(ctx, store.AuditEvent{Actor: "bob", Via: "session", Action: "app.open", ObjectKind: "app", ObjectName: "lab", Allowed: false})
 	if err != nil {
@@ -180,6 +184,7 @@ func TestFailedAuditRollsBackTheWrite(t *testing.T) {
 }
 
 func TestFailedWriteLeavesNoAuditRowAndNoChange(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "lab")
 	drain(s)

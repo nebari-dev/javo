@@ -34,6 +34,7 @@ func loadedConfig(t *testing.T, out string) config.Platform {
 }
 
 func TestBrandingValuesReachTheConfigAndTheGatewaysFiles(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, append(engineArgs(engine),
 			"--set", "branding.name=Acme Lab", "--set", "branding.accent=#0a7d55",
@@ -77,6 +78,7 @@ func TestBrandingValuesReachTheConfigAndTheGatewaysFiles(t *testing.T) {
 }
 
 func TestDefaultRenderHasNoBrandingFiles(t *testing.T) {
+	t.Parallel()
 	out, err := render(t)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -90,6 +92,7 @@ func TestDefaultRenderHasNoBrandingFiles(t *testing.T) {
 }
 
 func TestBrandingImageTakesOneSource(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, "--set", "branding.logo.light.svg="+brandSVG, "--set", "branding.logo.light.url=https://cdn.example.com/l.svg")
 	if err == nil || !strings.Contains(out, "branding.logo.light") {
 		t.Fatalf("render with two sources: err %v\n%s", err, out)

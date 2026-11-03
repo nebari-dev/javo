@@ -17,6 +17,7 @@ func withEnvironment[T any](in T, set func(T, *model.Environment)) T {
 }
 
 func TestAnAppKeepsTheEnvironmentFilesItWasCreatedWith(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := withEnvironment(newApp("alice", "lab"), func(a *model.App, e *model.Environment) { a.Environment = e })
 	app, err := s.Apps().CreateWith(ctx, alice, in, store.AppExtras{Environment: &salesFiles})
@@ -42,6 +43,7 @@ func TestAnAppKeepsTheEnvironmentFilesItWasCreatedWith(t *testing.T) {
 }
 
 func TestAJobKeepsTheEnvironmentFilesItWasCreatedWith(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := withEnvironment(newJob("alice", "nightly"), func(j *model.Job, e *model.Environment) { j.Spec.Environment = e })
 	job, err := s.Jobs().CreateWith(ctx, alice, in, store.JobExtras{Environment: &salesFiles})
@@ -55,6 +57,7 @@ func TestAJobKeepsTheEnvironmentFilesItWasCreatedWith(t *testing.T) {
 }
 
 func TestEnvironmentFilesMustMatchTheDigestTheSpecNames(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := withEnvironment(newApp("alice", "lab"), func(a *model.App, e *model.Environment) { a.Environment = e })
 	other := model.EnvironmentFiles{Manifest: "x", Lock: "y"}

@@ -37,6 +37,7 @@ func auditText(t *testing.T, s *store.Store) string {
 }
 
 func TestCreateFromRepoStoresAppAndTokenTogether(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := repoAppWithToken(t, s, "private")
 	token, gen, has, err := s.GitTokens().Pending(ctx, app.ID)
@@ -69,6 +70,7 @@ func TestCreateFromRepoStoresAppAndTokenTogether(t *testing.T) {
 }
 
 func TestHandedOffClearsOnlyTheGenerationItWasGiven(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := repoAppWithToken(t, s, "private")
 	_, gen, _, _ := s.GitTokens().Pending(ctx, app.ID)
@@ -95,6 +97,7 @@ func TestHandedOffClearsOnlyTheGenerationItWasGiven(t *testing.T) {
 }
 
 func TestSetAndRemoveAnnounceAndNeedAnApp(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "site")
 	drain(s)
@@ -127,6 +130,7 @@ func TestSetAndRemoveAnnounceAndNeedAnApp(t *testing.T) {
 }
 
 func TestTokenNeverReachesTheAuditLog(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := repoAppWithToken(t, s, "private")
 	if err := s.GitTokens().Set(ctx, alice, app.ID, "ghp_rotated456"); err != nil {
@@ -149,6 +153,7 @@ func TestTokenNeverReachesTheAuditLog(t *testing.T) {
 }
 
 func TestPurgingTheAppRemovesItsTokenRow(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := repoAppWithToken(t, s, "private")
 	if err := s.Apps().MarkDeleted(ctx, alice, app.ID); err != nil {
@@ -164,6 +169,7 @@ func TestPurgingTheAppRemovesItsTokenRow(t *testing.T) {
 
 // After the controller handed the token to a Secret, no backup of the database holds it.
 func TestBackupAfterHandOffHoldsNoToken(t *testing.T) {
+	t.Parallel()
 	if storetest.Engine() != store.EngineSQLite {
 		t.Skip("Postgres backups are pg_dump; checked in the end-to-end tests")
 	}
@@ -197,6 +203,7 @@ func TestBackupAfterHandOffHoldsNoToken(t *testing.T) {
 }
 
 func TestRemoveThenSetNeverReusesAGeneration(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := repoAppWithToken(t, s, "private")
 	_, oldGen, _, _ := s.GitTokens().Pending(ctx, app.ID)

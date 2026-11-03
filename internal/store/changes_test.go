@@ -43,6 +43,7 @@ func requireNoChange(t *testing.T, s *store.Store, what string) {
 }
 
 func TestChangeAfterCommit(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "lab")
 	c := next(t, s)
@@ -63,6 +64,7 @@ func TestChangeAfterCommit(t *testing.T) {
 
 // Status writes are the controller's own: they do not wake the controller.
 func TestStatusWriteIsNotAnnounced(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "lab")
 	drain(s)
@@ -73,6 +75,7 @@ func TestStatusWriteIsNotAnnounced(t *testing.T) {
 }
 
 func TestRunRequestsAreAnnounced(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	j := createJob(t, s, "alice", "nightly")
 	drain(s)
@@ -94,6 +97,7 @@ func TestRunRequestsAreAnnounced(t *testing.T) {
 // A prune announces its job, so the jobs reconciler (which maps a job_runs
 // change to the run's job by run id) is woken even though the runs are gone.
 func TestPruneRunsAnnouncesTheJob(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	j := createJob(t, s, "alice", "nightly")
 	for range 2 {

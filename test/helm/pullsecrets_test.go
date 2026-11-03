@@ -38,6 +38,7 @@ func podSpecs(t *testing.T, out string) map[string]corev1.PodSpec {
 // controller is told to give them to every pod it makes with the image, and
 // it may read those Secrets (by name only) to copy them into app namespaces.
 func TestImagePullSecretsReachEveryPodAndTheController(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		t.Run(engine, func(t *testing.T) {
 			args := append([]string{"--set", "imagePullSecrets[0].name=ghcr", "--set", "imagePullSecrets[1].name=mirror",
@@ -77,6 +78,7 @@ func TestImagePullSecretsReachEveryPodAndTheController(t *testing.T) {
 
 // No pull secrets: no pod names any and the controller gets no flag.
 func TestNoImagePullSecretsByDefault(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, append([]string{"--set", "database.backup.schedule=0 3 * * *"}, engineArgs(engine)...)...)
 		if err != nil {

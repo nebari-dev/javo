@@ -13,6 +13,7 @@ import (
 // apps that were running start at the chosen rate (so some are scheduled for
 // later); the ones that were stopped go at once.
 func TestAdminReleasesARestore(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }}, gatewaytest.Template("t", "streamlit"),
 		apitest.HeldApp(apitest.AliceID, "a", "r1", false), apitest.HeldApp(apitest.AliceID, "b", "r1", false), apitest.HeldApp(apitest.MemberID, "c", "r1", true))

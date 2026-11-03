@@ -17,6 +17,7 @@ var controller = model.Actor{System: model.SystemController}
 
 // The first app of an owner asks for a home; the next ones find the same one.
 func TestEnsureHomeOncePerOwner(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	size := resource.MustParse("10Gi")
 	first, err := s.Homes().Ensure(ctx, "javo-apps", "alice-1234abcd", &size)
@@ -38,6 +39,7 @@ func TestEnsureHomeOncePerOwner(t *testing.T) {
 // A write names the version it read; a stale one is ErrConflict, so the home
 // and migration controllers never overwrite each other's status.
 func TestUpdateHomeConflict(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	h, err := s.Homes().Ensure(ctx, "javo-apps", "alice-1234abcd", nil)
 	if err != nil {
@@ -65,6 +67,7 @@ func TestUpdateHomeConflict(t *testing.T) {
 
 // Home writes are announced: an app waiting for its home hears when it is ready.
 func TestHomeWritesAreAnnounced(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	h, err := s.Homes().Ensure(ctx, "javo-apps", "alice-1234abcd", nil)
 	if err != nil {
@@ -84,6 +87,7 @@ func TestHomeWritesAreAnnounced(t *testing.T) {
 
 // A person with homes in two namespaces (namespace mode changed) has both.
 func TestHomesByOwner(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for _, ns := range []string{"javo-apps", "javo-alice"} {
 		if _, err := s.Homes().Ensure(ctx, ns, "alice-1234abcd", nil); err != nil {
@@ -113,6 +117,7 @@ func TestHomesByOwner(t *testing.T) {
 // An admin's restore of a home is audited and kept in the spec; a second
 // one is refused while the first has not ended.
 func TestRequestHomeRestoreAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	h, err := s.Homes().Ensure(ctx, "javo-apps", "alice-1234abcd", nil)
 	if err != nil {
@@ -151,6 +156,7 @@ func TestRequestHomeRestoreAudited(t *testing.T) {
 // A full backup run asks every home and every shared folder to be backed
 // up as part of it, once, audited.
 func TestRequestBackupRunMarksEveryHomeAndFolder(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for _, o := range []string{"alice-1234abcd", "bob-5678abcd"} {
 		if _, err := s.Homes().Ensure(ctx, "javo-apps", o, nil); err != nil {
@@ -189,6 +195,7 @@ func TestRequestBackupRunMarksEveryHomeAndFolder(t *testing.T) {
 // Removing a person's homes deletes their rows (and with them their backup
 // and restore bookkeeping), audited; other people's homes stay.
 func TestDeleteHomesOfAnOwner(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for _, ns := range []string{"javo-apps", "team-a"} {
 		if _, err := s.Homes().Ensure(ctx, ns, "alice-1234abcd", nil); err != nil {
@@ -216,6 +223,7 @@ func TestDeleteHomesOfAnOwner(t *testing.T) {
 
 // An admin's resize of a home is audited and kept in the spec.
 func TestSetHomeSizeAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	h, err := s.Homes().Ensure(ctx, "javo-apps", "alice-1234abcd", nil)
 	if err != nil {
@@ -232,6 +240,7 @@ func TestSetHomeSizeAudited(t *testing.T) {
 }
 
 func TestSharedFolders(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	admin := model.Actor{Person: "admin"}
 	f, err := s.SharedFolders().Create(ctx, admin, model.SharedFolder{
@@ -273,6 +282,7 @@ func TestSharedFolders(t *testing.T) {
 // The admin's requests are read back as written, audited and announced; a
 // stale write is a conflict.
 func TestStorageRequests(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	empty, err := s.Storage().Requests(ctx)
 	if err != nil || empty.Probe.Nonce != "" {
@@ -313,6 +323,7 @@ func TestStorageRequests(t *testing.T) {
 // The cluster and probe controllers write their own parts of the status; the
 // read puts them together and neither write undoes the other.
 func TestStorageStatusParts(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	err := s.Storage().SetClusterStatus(ctx, model.ClusterStorageStatus{
 		Nodes: 2, Choice: &model.StorageChoice{Mode: model.HomeModePerUser},
@@ -347,6 +358,7 @@ func TestStorageStatusParts(t *testing.T) {
 
 // Cluster puts together the config, the admin's requests and the status.
 func TestStorageCluster(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	var cfg model.ClusterStorageSpec
 	cfg.ApplyDefaults()

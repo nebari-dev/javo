@@ -16,6 +16,7 @@ import (
 )
 
 func TestFilesListsAGroupFolderForAMember(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "x.csv", Size: 1}}}
 	f := apitest.GroupFilesFixture(t, l, apitest.Folder("/org/data-science", "ds", true, ""))
 	w := f.Do("GET", "/api/files?place=group:data-science&path=data", "", f.Session(apitest.AliceID))
@@ -25,6 +26,7 @@ func TestFilesListsAGroupFolderForAMember(t *testing.T) {
 }
 
 func TestFilesHidesAGroupFolderFromANonMember(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{}
 	f := apitest.GroupFilesFixture(t, l, apitest.Folder("/org/data-science", "ds", true, ""), apitest.Folder("/org/finance", "fin", true, ""))
 	for _, place := range []string{"group:finance", "group:nope"} {
@@ -38,6 +40,7 @@ func TestFilesHidesAGroupFolderFromANonMember(t *testing.T) {
 }
 
 func TestFilesRefusesABadPlaceAndExplainsAFolderNotReady(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{}
 	f := apitest.GroupFilesFixture(t, l, apitest.Folder("/org/data-science", "ds", false, reasons.GroupHasNoId))
 	for _, place := range []string{"group:../x", "group:", "other", "group:a/b"} {
@@ -53,6 +56,7 @@ func TestFilesRefusesABadPlaceAndExplainsAFolderNotReady(t *testing.T) {
 }
 
 func TestFilesRequiresSignIn(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{}
 	rec := apitest.GetFiles(t, l, true, http.MethodGet, "/api/files?path=")
 	if rec.Code != http.StatusUnauthorized || apitest.DecodeFilesBody(t, rec)["title"] != reasons.Msg(reasons.MsgSignInRequired) || l.Calls != 0 {
@@ -61,6 +65,7 @@ func TestFilesRequiresSignIn(t *testing.T) {
 }
 
 func TestFilesOnlyGet(t *testing.T) {
+	t.Parallel()
 	rec := apitest.GetFiles(t, &apitest.StubFilesLister{}, false, http.MethodPost, "/api/files")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("got %d", rec.Code)
@@ -68,6 +73,7 @@ func TestFilesOnlyGet(t *testing.T) {
 }
 
 func TestFilesRejectsPathsOutsideHome(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"../", "..", "/../etc", "Data/../../x"} {
 		l := &apitest.StubFilesLister{}
 		rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files?path="+p)
@@ -81,6 +87,7 @@ func TestFilesRejectsPathsOutsideHome(t *testing.T) {
 }
 
 func TestFilesListsCallersHomeSorted(t *testing.T) {
+	t.Parallel()
 	mod := time.Date(2026, 10, 30, 19, 22, 27, 0, time.UTC)
 	l := &apitest.StubFilesLister{Entries: []files.Entry{
 		{Name: "zeta.csv", Size: 5, ModTime: mod},
@@ -124,6 +131,7 @@ func TestFilesListsCallersHomeSorted(t *testing.T) {
 }
 
 func TestFilesEmptyFolderIsEmptyArray(t *testing.T) {
+	t.Parallel()
 	rec := apitest.GetFiles(t, &apitest.StubFilesLister{Entries: nil}, false, http.MethodGet, "/api/files")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"entries":[]`) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
@@ -131,6 +139,7 @@ func TestFilesEmptyFolderIsEmptyArray(t *testing.T) {
 }
 
 func TestFilesHomeNotReady(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		err    error
 		status int
@@ -157,6 +166,7 @@ func TestFilesHomeNotReady(t *testing.T) {
 }
 
 func TestFilesMissingFolder(t *testing.T) {
+	t.Parallel()
 	rec := apitest.GetFiles(t, &apitest.StubFilesLister{Err: files.ErrNotFound}, false, http.MethodGet, "/api/files?path=nope")
 	if rec.Code != http.StatusNotFound || apitest.DecodeFilesBody(t, rec)["title"] != reasons.Msg(reasons.MsgFolderNotFound) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
@@ -164,6 +174,7 @@ func TestFilesMissingFolder(t *testing.T) {
 }
 
 func TestFilesInternalErrorHidesDetail(t *testing.T) {
+	t.Parallel()
 	rec := apitest.GetFiles(t, &apitest.StubFilesLister{Err: errors.New("dial tcp 10.0.0.5:5572: refused")}, false, http.MethodGet, "/api/files")
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "10.0.0.5") {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
@@ -171,6 +182,7 @@ func TestFilesInternalErrorHidesDetail(t *testing.T) {
 }
 
 func TestFilesReportsTruncatedFolder(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "a"}, {Name: "b"}}, Truncated: true}
 	rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files?path=big")
 	body := apitest.DecodeFilesBody(t, rec)
@@ -186,6 +198,7 @@ func TestFilesReportsTruncatedFolder(t *testing.T) {
 // --- raw file content ---
 
 func TestRawServesHTMLSandboxed(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Content: "<script>alert(1)</script>"}
 	rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files/raw?path=jobs/nightly/r1/output.html")
 	if rec.Code != http.StatusOK {
@@ -213,6 +226,7 @@ func TestRawServesHTMLSandboxed(t *testing.T) {
 }
 
 func TestRawContentTypesComeFromAnAllowList(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ file, typ string }{
 		{"a.png", "image/png"},
 		{"a.svg", "image/svg+xml"},
@@ -234,6 +248,7 @@ func TestRawContentTypesComeFromAnAllowList(t *testing.T) {
 }
 
 func TestRawSendsNotebooksAndUnknownTypesAsAttachments(t *testing.T) {
+	t.Parallel()
 	for _, file := range []string{"output.ipynb", "data.parquet", "noext"} {
 		rec := apitest.GetFiles(t, &apitest.StubFilesLister{Content: "x"}, false, http.MethodGet, "/api/files/raw?path=jobs/"+file)
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/octet-stream" ||
@@ -247,6 +262,7 @@ func TestRawSendsNotebooksAndUnknownTypesAsAttachments(t *testing.T) {
 }
 
 func TestRawRejectsPathsOutsideHomeAndEmptyPath(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"../bob/x", "/../bob/x", "a/../../bob/x"} {
 		l := &apitest.StubFilesLister{Content: "secret"}
 		rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files/raw?path="+p)
@@ -261,6 +277,7 @@ func TestRawRejectsPathsOutsideHomeAndEmptyPath(t *testing.T) {
 }
 
 func TestRawOnlyReadsTheCallersHome(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Content: "x"}
 	apitest.GetFiles(t, l, false, http.MethodGet, "/api/files/raw?path=a.txt")
 	if len(l.Opened) != 1 || l.Opened[0] != "alice:a.txt" {
@@ -274,6 +291,7 @@ func TestRawOnlyReadsTheCallersHome(t *testing.T) {
 }
 
 func TestRawTooLargeIs413(t *testing.T) {
+	t.Parallel()
 	rec := apitest.GetFiles(t, &apitest.StubFilesLister{Err: files.ErrTooLarge}, false, http.MethodGet, "/api/files/raw?path=big.log")
 	if rec.Code != http.StatusRequestEntityTooLarge || apitest.DecodeFilesBody(t, rec)["title"] != reasons.Msg(reasons.MsgOutputTooLarge) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
@@ -281,6 +299,7 @@ func TestRawTooLargeIs413(t *testing.T) {
 }
 
 func TestRawHomeStatesAndMissingFile(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		err    error
 		status int
@@ -299,6 +318,7 @@ func TestRawHomeStatesAndMissingFile(t *testing.T) {
 }
 
 func TestRawOnlyGet(t *testing.T) {
+	t.Parallel()
 	rec := apitest.GetFiles(t, &apitest.StubFilesLister{}, false, http.MethodPost, "/api/files/raw?path=a.txt")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("got %d", rec.Code)

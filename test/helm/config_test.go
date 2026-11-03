@@ -49,6 +49,7 @@ func platformConfigMap(t *testing.T, out string) corev1.ConfigMap {
 }
 
 func TestDefaultRenderIsALoadableConfig(t *testing.T) {
+	t.Parallel()
 	out, err := render(t)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -67,6 +68,7 @@ func TestDefaultRenderIsALoadableConfig(t *testing.T) {
 }
 
 func TestConfigValuesReachTheConfigFile(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, "--set", "workspaceNamespace=team-apps", "--set", "config.urls.mode=subdomain",
 		"--set", "config.urls.appsDomain=apps.example.com", "--set", "ingress.host=javo.example.com")
 	if err != nil {
@@ -89,6 +91,7 @@ func TestConfigValuesReachTheConfigFile(t *testing.T) {
 // A config change must roll every Deployment that runs a component, and each
 // must read the file.
 func TestConfigIsMountedAndRollsTheDeployments(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		deployments := func(args ...string) map[string]appsv1.Deployment {
 			out, err := render(t, append(args, engineArgs(engine)...)...)
@@ -163,6 +166,7 @@ func ingressHosts(t *testing.T, args ...string) []string {
 }
 
 func TestIngressRoutesTheAppsHostOrTheWildcardAppsDomain(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		args []string
 		want string
@@ -181,6 +185,7 @@ func TestIngressRoutesTheAppsHostOrTheWildcardAppsDomain(t *testing.T) {
 // The OIDC client secret is read from a Secret the gateway mounts; the
 // config file names the mounted file.
 func TestOIDCClientSecretIsMountedFromASecret(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, "--set", "gateway.oidcClientSecret=dev-oidc",
 		"--set", "config.auth.oidc.issuer=https://idp.example.com/realms/javo", "--set", "config.auth.oidc.clientID=javo")
 	if err != nil {
@@ -221,6 +226,7 @@ func TestOIDCClientSecretIsMountedFromASecret(t *testing.T) {
 // containerImages turns the Container image template on and off and carries
 // the allowed registries to the gateway's config.
 func TestContainerImagesValues(t *testing.T) {
+	t.Parallel()
 	load := func(out string) config.Platform {
 		t.Helper()
 		path := filepath.Join(t.TempDir(), "config.yaml")
@@ -260,6 +266,7 @@ func TestContainerImagesValues(t *testing.T) {
 // The clone image is pinned by digest in the chart, and an operator can point
 // it at a mirror.
 func TestCloneImageReachesTheConfigFile(t *testing.T) {
+	t.Parallel()
 	load := func(args ...string) config.Platform {
 		out, err := render(t, args...)
 		if err != nil {
@@ -285,6 +292,7 @@ func TestCloneImageReachesTheConfigFile(t *testing.T) {
 
 // Previews are off by default, and the chart's settings reach the config file.
 func TestPreviewSettingsReachTheConfigFile(t *testing.T) {
+	t.Parallel()
 	load := func(args ...string) config.Platform {
 		out, err := render(t, args...)
 		if err != nil {

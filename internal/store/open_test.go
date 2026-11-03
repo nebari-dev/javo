@@ -12,6 +12,7 @@ import (
 )
 
 func TestOpenUnknownEngine(t *testing.T) {
+	t.Parallel()
 	_, err := store.Open(context.Background(), store.Config{Engine: "mysql"})
 	if err == nil || !strings.Contains(err.Error(), "mysql") {
 		t.Fatalf("err = %v, want one naming the engine", err)
@@ -19,6 +20,7 @@ func TestOpenUnknownEngine(t *testing.T) {
 }
 
 func TestStoreTestFailsWithoutPostgres(t *testing.T) {
+	t.Parallel()
 	// Nothing listens on port 1: the helper must report an error, not skip.
 	_, _, err := storetest.FreshConfig(context.Background(), "postgres",
 		"postgres://nobody@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=2", t.TempDir())
@@ -31,6 +33,7 @@ func TestStoreTestFailsWithoutPostgres(t *testing.T) {
 }
 
 func TestMetaRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	if _, err := s.Meta(ctx, "absent"); err == nil {
@@ -49,6 +52,7 @@ func TestMetaRoundTrip(t *testing.T) {
 }
 
 func TestWritersWait(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	var wg sync.WaitGroup
@@ -71,6 +75,7 @@ func TestWritersWait(t *testing.T) {
 }
 
 func TestReadOnlyRejectsWrites(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := storetest.Config(t)
 	rw := storetest.Open(t, cfg)
@@ -91,6 +96,7 @@ func TestReadOnlyRejectsWrites(t *testing.T) {
 }
 
 func TestOpenDBUnknownEngine(t *testing.T) {
+	t.Parallel()
 	if _, err := store.OpenDB(store.Config{Engine: "mysql"}); err == nil || !strings.Contains(err.Error(), "mysql") {
 		t.Fatalf("err = %v, want one naming the engine", err)
 	}

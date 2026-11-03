@@ -16,6 +16,7 @@ import (
 )
 
 func TestTokenShownOnce(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	created := f.NewToken(c, `{"name":"laptop","scope":"read"}`)
@@ -46,6 +47,7 @@ func TestTokenShownOnce(t *testing.T) {
 }
 
 func TestBearerTokenActsAsItsOwner(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read"}`).Token
 	w := f.Bearer("GET", "/api/me", "", tok, nil)
@@ -64,6 +66,7 @@ func TestBearerTokenActsAsItsOwner(t *testing.T) {
 }
 
 func TestWriteTokenActsAsOwner(t *testing.T) {
+	t.Parallel()
 	bobs := gatewaytest.Workspace("sales", "bob-5e6f7a8b", "Sales")
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), bobs)
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read-write"}`).Token
@@ -81,6 +84,7 @@ func TestWriteTokenActsAsOwner(t *testing.T) {
 }
 
 func TestReadTokenCannotWrite(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read"}`).Token
 	w := f.Bearer("POST", "/api/workspaces", `{"displayName":"Mine","template":"streamlit","file":"app.py"}`, tok, nil)
@@ -99,6 +103,7 @@ func TestReadTokenCannotWrite(t *testing.T) {
 }
 
 func TestTokenCannotManageTokens(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	tok := f.NewToken(c, `{"name":"ci","scope":"read-write"}`)
@@ -119,6 +124,7 @@ func TestTokenCannotManageTokens(t *testing.T) {
 }
 
 func TestRevokedTokenFailsAtOnce(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	tok := f.NewToken(c, `{"name":"ci","scope":"read"}`)
@@ -141,6 +147,7 @@ func TestRevokedTokenFailsAtOnce(t *testing.T) {
 }
 
 func TestOthersCannotRevokeYourToken(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read"}`)
 	if w := f.Do("DELETE", "/api/tokens/"+tok.ID, "", f.Session("bob-5e6f7a8b")); w.Code != http.StatusNotFound {
@@ -152,6 +159,7 @@ func TestOthersCannotRevokeYourToken(t *testing.T) {
 }
 
 func TestExpiredToken(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }})
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read","expiresInDays":1}`)
@@ -168,6 +176,7 @@ func TestExpiredToken(t *testing.T) {
 }
 
 func TestStaleGroupsRefused(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }, GroupsMaxAge: 30 * 24 * time.Hour})
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read"}`)
@@ -190,6 +199,7 @@ func TestStaleGroupsRefused(t *testing.T) {
 }
 
 func TestBearerIgnoresCookie(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	// A bad token with a good cookie is refused: the cookie is not consulted.
@@ -207,6 +217,7 @@ func TestBearerIgnoresCookie(t *testing.T) {
 }
 
 func TestBearerSkipsTheCookieCSRFCheckOnly(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	c := f.LoginAlice()
 	tok := f.NewToken(c, `{"name":"ci","scope":"read-write"}`).Token
@@ -235,6 +246,7 @@ func TestBearerSkipsTheCookieCSRFCheckOnly(t *testing.T) {
 }
 
 func TestCreateTokenChecksItsFields(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{MaxLifetime: 90 * 24 * time.Hour})
 	c := f.LoginAlice()
 	for _, tc := range []struct {
@@ -263,6 +275,7 @@ func TestCreateTokenChecksItsFields(t *testing.T) {
 }
 
 func TestTokenNotAcceptedOnAppPaths(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales", apitest.LocalAlice(), "Sales")
 	ws.Status.Phase = "Running"
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +303,7 @@ func TestTokenNotAcceptedOnAppPaths(t *testing.T) {
 }
 
 func TestDeletingAnAppRevokesItsTokens(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	f := apitest.New(t, apitest.Options{}, apitest.AgentTemplate(), ws)
@@ -318,6 +332,7 @@ func TestDeletingAnAppRevokesItsTokens(t *testing.T) {
 }
 
 func TestAppTokenStopsWhenItsAppIsGone(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	f := apitest.New(t, apitest.Options{}, apitest.AgentTemplate(), ws)
@@ -344,6 +359,7 @@ func TestAppTokenStopsWhenItsAppIsGone(t *testing.T) {
 }
 
 func TestRevokingAnAppTokenAsksForANewOne(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	f := apitest.New(t, apitest.Options{}, ws)
 	c := f.LoginAlice()
@@ -365,6 +381,7 @@ func TestRevokingAnAppTokenAsksForANewOne(t *testing.T) {
 }
 
 func TestInfoSaysWhetherAPIDocsAreOn(t *testing.T) {
+	t.Parallel()
 	for _, on := range []bool{false, true} {
 		f := apitest.New(t, apitest.Options{ApiDocs: on})
 		got := apitest.Decode[struct{ APIDocs bool }](t, f.Do("GET", "/api/info", "", f.LoginAlice()))
@@ -375,6 +392,7 @@ func TestInfoSaysWhetherAPIDocsAreOn(t *testing.T) {
 }
 
 func TestCreatingAndRevokingATokenIsAudited(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	c := f.LoginAlice()
 	created := f.NewToken(c, `{"name":"laptop","scope":"read"}`)

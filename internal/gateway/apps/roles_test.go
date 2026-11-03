@@ -18,6 +18,7 @@ import (
 // A template gated to /org/ml: a platform admin sees it, a member outside the
 // group neither sees nor uses it, and a member named in allowedUsers does both.
 func TestTemplateGatingByUserAndGroup(t *testing.T) {
+	t.Parallel()
 	ml := gatewaytest.Template("ml-lab", "jupyterlab", "/org/ml")
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()}, ml, gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session(apitest.AliceID, "javo-admins")
@@ -55,6 +56,7 @@ func TestTemplateGatingByUserAndGroup(t *testing.T) {
 }
 
 func TestTemplateListCarriesMaxSharing(t *testing.T) {
+	t.Parallel()
 	tpl := gatewaytest.Template("streamlit", "streamlit")
 	tpl.Spec.MaxSharing = model.AccessSignedIn
 	f := apitest.New(t, apitest.Options{}, tpl)
@@ -70,6 +72,7 @@ func TestTemplateListCarriesMaxSharing(t *testing.T) {
 // A signed-in person outside every member group can still list (nothing) but
 // cannot create.
 func TestNonMemberCannotCreate(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()}, gatewaytest.Template("streamlit", "streamlit"))
 	carol := f.Session("carol-33333333", "/org/visitors")
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Sales","template":"streamlit","file":"app.py"}`, carol)
@@ -91,6 +94,7 @@ func TestNonMemberCannotCreate(t *testing.T) {
 // A platform admin reaches another person's app by naming its owner; anyone
 // else naming an owner gets the same 404 as for a missing app.
 func TestPlatformAdminManagesOthersApps(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig(), Sizes: apitest.TestCatalog(t), Logs: podlogs.Clientset{Clientset: apitest.FakeLogs("")}},
 		gatewaytest.Workspace("sales-app", apitest.BobID, "Sales app"), gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session(apitest.AliceID, "javo-admins")
@@ -140,6 +144,7 @@ func TestPlatformAdminManagesOthersApps(t *testing.T) {
 // Template admins create, replace and delete templates; anyone else gets
 // the 404 of an address with nothing behind it.
 func TestTemplateAdminManagesTemplates(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()})
 	tadmin := f.Session("tara-44444444", "tmpl-admins")
 	bob := f.Session(apitest.BobID, "/org/members")
@@ -183,6 +188,7 @@ func TestTemplateAdminManagesTemplates(t *testing.T) {
 // replacing or deleting it through the API is a 409 that says so, and
 // changes nothing. An administrator's template of another name is unaffected.
 func TestBuiltinTemplateReadOnly(t *testing.T) {
+	t.Parallel()
 	builtin := gatewaytest.Template("lab", "jupyterlab")
 	builtin.Source = store.SourceBuiltin
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()}, builtin)
@@ -209,6 +215,7 @@ func TestBuiltinTemplateReadOnly(t *testing.T) {
 // one that is not a lowercase DNS-1123 name is refused with catalog text and
 // nothing is stored.
 func TestTemplateWithAnInvalidNameIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()})
 	tadmin := f.Session("tara-44444444", "tmpl-admins")
 	for _, name := range []string{"My%20Lab", "Lab", strings.Repeat("a", 254)} {
@@ -226,6 +233,7 @@ func TestTemplateWithAnInvalidNameIsRefused(t *testing.T) {
 }
 
 func TestMeHasDisplayNameAndRoles(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()})
 	tok, err := f.Store.Create(context.Background(), apitest.SessionFor(apitest.AliceID, "Alice Example", "javo-admins"))
 	if err != nil {
@@ -244,6 +252,7 @@ func TestMeHasDisplayNameAndRoles(t *testing.T) {
 // Changes in a row do not turn into conflicts: each is built on the app as
 // the last one left it.
 func TestStopStartStopInARowDoNotConflict(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{},
 		gatewaytest.Workspace("sales-app", apitest.AliceID, "Sales app"), gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session(apitest.AliceID)

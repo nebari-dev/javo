@@ -18,6 +18,7 @@ import (
 // Each step's log is the log of the containers doing that step's work, in
 // the order they run.
 func TestStepContainers(t *testing.T) {
+	t.Parallel()
 	env := gatewaytest.PodWith("env", gatewaytest.EnvInits...)
 	site := gatewaytest.PodWith("site", "clone", "source-check", "build", "site-copy", "site-config", "javo-files", "pod-user")
 	plain := gatewaytest.PodWith("plain", "clone", "source-check", "javo-files", "pod-user")
@@ -46,6 +47,7 @@ func TestStepContainers(t *testing.T) {
 
 // The events of a container belong to the step its log does.
 func TestContainerEventsFollowTheStepMapping(t *testing.T) {
+	t.Parallel()
 	env := gatewaytest.PodWith("env", gatewaytest.EnvInits...)
 	for c, want := range map[string]string{
 		"clone": model.ConditionEnvReady, "env-install": model.ConditionEnvReady, "env-tools": model.ConditionEnvReady,
@@ -59,6 +61,7 @@ func TestContainerEventsFollowTheStepMapping(t *testing.T) {
 }
 
 func TestEventStepMapping(t *testing.T) {
+	t.Parallel()
 	app := "spec.containers{app}"
 	for _, tc := range []struct{ reason, path, msg, step string }{
 		{"Scheduled", "", "Successfully assigned", model.ConditionScheduled},
@@ -96,6 +99,7 @@ func TestEventStepMapping(t *testing.T) {
 // A change built on an app another request has changed since is refused with
 // the 409 "app changed", and changes nothing.
 func TestConcurrentChangeIsAConflict(t *testing.T) {
+	t.Parallel()
 	const alice = "alice-1a2b3c4d"
 	ctx := context.Background()
 	db := storetest.New(t)

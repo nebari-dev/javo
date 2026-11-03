@@ -13,6 +13,7 @@ import (
 // ListBackups lists the scheduled backups newest first, with the time from
 // the name; other files are left out.
 func TestListBackupsNewestFirst(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 1, 2, 0, 0, 0, time.UTC)
 	for i := range 3 {
@@ -38,6 +39,7 @@ func TestListBackupsNewestFirst(t *testing.T) {
 // ReadBackup reads a backup through a scratch copy brought to this schema,
 // so the backup file itself is never changed, and removes the copy after.
 func TestReadBackupLeavesTheFileAlone(t *testing.T) {
+	t.Parallel()
 	cfg := store.Config{Engine: store.EngineSQLite, Path: filepath.Join(t.TempDir(), "javo.db")}
 	s := storetest.Open(t, cfg)
 	if err := s.Migrate(ctx); err != nil {

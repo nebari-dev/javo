@@ -26,6 +26,7 @@ import (
 // and copied with the run's tag, every home and shared folder is asked to
 // follow, and its progress shows each step until all ended.
 func TestAFullBackupRunCopiesTheDatabaseAndAsksEveryHomeAndFolder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	var f *apitest.Fixture
 	c := &apitest.Copies{}
@@ -95,6 +96,7 @@ func TestAFullBackupRunCopiesTheDatabaseAndAsksEveryHomeAndFolder(t *testing.T) 
 // The page sums up the newest run of the backup job in one status, what it
 // included and how much failed; without a backup job it says to set one up.
 func TestTheBackupsPageSumsUpTheNewestRun(t *testing.T) {
+	t.Parallel()
 	var f *apitest.Fixture
 	cfg := apitest.SqliteBackups(t.TempDir())
 	cfg.Bucket = apitest.BucketWith(t, &f, &apitest.Copies{}, nil, nil)
@@ -154,6 +156,7 @@ func TestTheBackupsPageSumsUpTheNewestRun(t *testing.T) {
 // come back held (from that run's database copy) and every home folder in
 // that run is restored; a home not in it says so.
 func TestRestoreEverythingFromARun(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	dir := t.TempDir()
 	alice := apitest.PersonID("alice")
@@ -204,6 +207,7 @@ func TestRestoreEverythingFromARun(t *testing.T) {
 // Without database backups (SQLite and no database.backup.schedule) a full
 // backup cannot hold the database, and its progress says so.
 func TestAFullBackupWithoutDatabaseBackupsSaysTheDatabaseIsMissing(t *testing.T) {
+	t.Parallel()
 	var f *apitest.Fixture
 	cfg := adminapi.BackupConfig{Engine: store.EngineSQLite}
 	cfg.Bucket = apitest.BucketWith(t, &f, &apitest.Copies{}, nil, nil)
@@ -217,6 +221,7 @@ func TestAFullBackupWithoutDatabaseBackupsSaysTheDatabaseIsMissing(t *testing.T)
 // Back up now takes no body and runs the backup job; Restore runs the
 // restore job with what to restore as the run's parameters.
 func TestBackUpNowAndRestoreRunTheJobs(t *testing.T) {
+	t.Parallel()
 	var f *apitest.Fixture
 	cfg := apitest.SqliteBackups(t.TempDir())
 	cfg.Bucket = apitest.BucketWith(t, &f, &apitest.Copies{}, nil, nil)
@@ -262,6 +267,7 @@ func TestBackUpNowAndRestoreRunTheJobs(t *testing.T) {
 // tell a home volume with no account apart, and the database step's log
 // says what was dumped and uploaded where, with restic's numbers.
 func TestFullBackupStepsSayWhoAndWhere(t *testing.T) {
+	t.Parallel()
 	var f *apitest.Fixture
 	cfg := apitest.SqliteBackups(t.TempDir())
 	cfg.Bucket = apitest.BucketWith(t, &f, &apitest.Copies{}, nil, nil)

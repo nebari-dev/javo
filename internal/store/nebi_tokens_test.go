@@ -12,6 +12,7 @@ import (
 // An app's sealed Nebi token is kept until replaced, with its expiry, and a
 // new one announces the app so the controller copies it to its Secret.
 func TestNebiTokenPutGetReplace(t *testing.T) {
+	t.Parallel()
 	// Started, so on Postgres the LISTEN connection delivers announcements.
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "lab")

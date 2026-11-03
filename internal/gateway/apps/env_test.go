@@ -18,6 +18,7 @@ import (
 // An app's environment holds plain values, shown again as typed, beside
 // values from secrets, which are only ever named.
 func TestAppEnvHoldsPlainValuesAndSecrets(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")
@@ -51,6 +52,7 @@ func TestAppEnvHoldsPlainValuesAndSecrets(t *testing.T) {
 }
 
 func TestJobEnvHoldsPlainValuesAndSecrets(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
 	f.WithSecretKeys()
 	alice := f.Session(apitest.AliceID)
@@ -85,6 +87,7 @@ func TestJobEnvHoldsPlainValuesAndSecrets(t *testing.T) {
 }
 
 func TestPlainValuesAreChecked(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Workspace("dash", "alice-aaaaaaaa", "Dash"))
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")
@@ -118,6 +121,7 @@ func TestPlainValuesAreChecked(t *testing.T) {
 // Only the owner changes an app's or a job's variables: a platform admin who
 // manages them, and an app's own API token, are refused even for plain values.
 func TestOnlyTheOwnerChangesTheEnvironment(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.AgentTemplate(), ws, apitest.JobObj(apitest.LocalAlice(), "nightly"))
@@ -149,6 +153,7 @@ func TestOnlyTheOwnerChangesTheEnvironment(t *testing.T) {
 // An export holds plain values and the names of secrets, never a secret's
 // value; an import brings both back, binding the importer's own secrets.
 func TestExportAndImportCarryTheEnvironment(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")

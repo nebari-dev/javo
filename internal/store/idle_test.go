@@ -11,6 +11,7 @@ import (
 // The idle timeout is kept, and an app the idle check stopped says so until
 // it runs again.
 func TestAppIdleStopRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "lab")
 	in.IdleStopMinutes = 60
@@ -43,6 +44,7 @@ func TestAppIdleStopRoundTrip(t *testing.T) {
 // StopIdle goes through the versioned write: an app changed since it was
 // read is not stopped.
 func TestStopIdleRefusesAChangedApp(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	if _, err := s.Apps().StopIdle(ctx, app.ID, app.Version+1); err == nil {
@@ -51,6 +53,7 @@ func TestStopIdleRefusesAChangedApp(t *testing.T) {
 }
 
 func TestAppIdleStopMayNotBeNegative(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "lab")
 	in.IdleStopMinutes = -1
@@ -62,6 +65,7 @@ func TestAppIdleStopMayNotBeNegative(t *testing.T) {
 // Activity only ever moves forward, so gateway replicas flushing in any
 // order leave the latest time, and it never changes the app's version.
 func TestNoteActivityKeepsTheLatest(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	later := time.Now().Add(time.Minute).Truncate(time.Millisecond)

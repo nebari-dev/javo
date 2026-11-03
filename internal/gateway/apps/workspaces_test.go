@@ -33,6 +33,7 @@ import (
 )
 
 func TestUnauthenticatedIsSignInRequired(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	for _, c := range []*http.Cookie{nil, {Name: model.SessionCookieName, Value: "bogus"}} {
 		w := f.Do("GET", "/api/workspaces", "", c)
@@ -46,6 +47,7 @@ func TestUnauthenticatedIsSignInRequired(t *testing.T) {
 }
 
 func TestLoginSetsSessionCookieAndLogoutEndsIt(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Secure: true})
 
 	w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"wrong"}`, nil)
@@ -95,6 +97,7 @@ func TestLoginSetsSessionCookieAndLogoutEndsIt(t *testing.T) {
 }
 
 func TestPlainCookieWithoutTLS(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Secure: false})
 	w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
 	cs := w.Result().Cookies()
@@ -104,6 +107,7 @@ func TestPlainCookieWithoutTLS(t *testing.T) {
 }
 
 func TestOtherUsersWorkspaceIsNotFound(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Workspace("alices-app", "alice-aaaaaaaa", "Alice's app"))
 	bob := f.Session("bob-bbbbbbbb")
 
@@ -137,6 +141,7 @@ func TestOtherUsersWorkspaceIsNotFound(t *testing.T) {
 }
 
 func TestWorkspaceStepsComeFromCatalog(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
 	ws.File = "sales/app.py"
 	ws.Status = model.AppStatus{
@@ -193,6 +198,7 @@ func TestWorkspaceStepsComeFromCatalog(t *testing.T) {
 }
 
 func TestTwoUsersCanUseTheSameName(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	body := `{"displayName":"Sales app","template":"streamlit","file":"app.py"}`
 	for _, who := range []string{"alice-aaaaaaaa", "bob-bbbbbbbb"} {
@@ -214,6 +220,7 @@ func TestTwoUsersCanUseTheSameName(t *testing.T) {
 }
 
 func TestStepsCarryTransitionTimes(t *testing.T) {
+	t.Parallel()
 	ready := time.Date(2026, 10, 30, 12, 0, 42, 0, time.UTC)
 	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
 	ws.Status = model.AppStatus{Phase: "Running", Conditions: []metav1.Condition{
@@ -241,6 +248,7 @@ func TestStepsCarryTransitionTimes(t *testing.T) {
 }
 
 func TestCreateWithTakenNameIs422AndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app"), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Sales app","template":"streamlit","file":"app.py"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusUnprocessableEntity {
@@ -256,6 +264,7 @@ func TestCreateWithTakenNameIs422AndCreatesNothing(t *testing.T) {
 }
 
 func TestCreateWithTemplateOutsideGroupsIs422(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("gpu-lab", "jupyterlab", "admins"))
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Big lab","template":"gpu-lab"}`, f.Session("alice-aaaaaaaa", "analysts"))
 	if w.Code != http.StatusUnprocessableEntity {
@@ -270,6 +279,7 @@ func TestCreateWithTemplateOutsideGroupsIs422(t *testing.T) {
 }
 
 func TestCreateRejectsFileOutsideHome(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session("alice-aaaaaaaa")
 	for _, file := range []string{"/etc/passwd", "../other/app.py", "sales/../../app.py", `sales\u0000/app.py`, `sales\napp.py`} {
@@ -289,6 +299,7 @@ func TestCreateRejectsFileOutsideHome(t *testing.T) {
 // A rejection by model validation reaches the form as catalog text, not as the
 // validator's words, and creates nothing.
 func TestCreateMapsModelValidationAndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	// An owner that is not a DNS label is rejected by the model, on a field
 	// the form has no message for.
@@ -308,6 +319,7 @@ func TestCreateMapsModelValidationAndCreatesNothing(t *testing.T) {
 }
 
 func TestCreateStopStartDelete(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session("alice-aaaaaaaa")
 
@@ -344,6 +356,7 @@ func TestCreateStopStartDelete(t *testing.T) {
 }
 
 func TestTemplatesFilteredByGroups(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{},
 		gatewaytest.Template("streamlit", "streamlit"),
 		gatewaytest.Template("gpu-lab", "jupyterlab", "admins"),
@@ -362,6 +375,7 @@ func TestTemplatesFilteredByGroups(t *testing.T) {
 }
 
 func TestOpenAPIDocument(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Files: &apitest.StubFilesLister{}})
 	w := f.Do("GET", "/api/openapi.json", "", nil)
 	if w.Code != http.StatusOK {
@@ -382,6 +396,7 @@ func TestOpenAPIDocument(t *testing.T) {
 }
 
 func TestSchemaValidationUsesCatalogCopy(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"","template":"streamlit","file":"app.py"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusUnprocessableEntity {
@@ -396,6 +411,7 @@ func TestSchemaValidationUsesCatalogCopy(t *testing.T) {
 }
 
 func TestCreateChecksFileAgainstTemplate(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Template("lab", "jupyterlab"))
 	alice := f.Session("alice-aaaaaaaa")
 	for _, file := range []string{"notes.txt", "", "sales"} {
@@ -420,6 +436,7 @@ func TestCreateChecksFileAgainstTemplate(t *testing.T) {
 }
 
 func TestCreateReleasesTheFilePickerHome(t *testing.T) {
+	t.Parallel()
 	Homes := &apitest.StubFilesLister{}
 	f := apitest.New(t, apitest.Options{Files: Homes}, gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session("alice-aaaaaaaa")
@@ -436,6 +453,7 @@ func TestCreateReleasesTheFilePickerHome(t *testing.T) {
 }
 
 func TestAuthIsDefaultOnForAPI(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	huma.Register(f.Srv.API, huma.Operation{OperationID: "newThing", Method: http.MethodGet, Path: "/api/new-thing"},
 		func(context.Context, *struct{}) (*struct{}, error) { return nil, nil })
@@ -457,6 +475,7 @@ func TestAuthIsDefaultOnForAPI(t *testing.T) {
 }
 
 func TestAPIResponsesAreNoSniff(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	for _, path := range []string{"/api/workspaces", "/api/openapi.json"} {
 		if w := f.Do("GET", path, "", nil); w.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -468,6 +487,7 @@ func TestAPIResponsesAreNoSniff(t *testing.T) {
 // Guessing alice's password from one address locks out that address only:
 // alice still signs in from her own.
 func TestLoginGuessesLimitOnlyTheGuessingAddress(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	limited := false
 	for i := 0; i < 20 && !limited; i++ {
@@ -483,6 +503,7 @@ func TestLoginGuessesLimitOnlyTheGuessingAddress(t *testing.T) {
 
 // Guesses spread over many addresses still hit a looser cap per username.
 func TestLoginIsRateLimitedPerUsername(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	var last *httptest.ResponseRecorder
 	for i := 0; i < 200; i++ {
@@ -510,6 +531,7 @@ func TestLoginIsRateLimitedPerUsername(t *testing.T) {
 }
 
 func TestLoginIsRateLimitedPerClientIP(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	limited := false
 	for i := 0; i < 60 && !limited; i++ {
@@ -526,6 +548,7 @@ func TestLoginIsRateLimitedPerClientIP(t *testing.T) {
 // Behind a trusted proxy each client is limited on its own address; without
 // trust every client shares the proxy's address.
 func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
+	t.Parallel()
 	const proxyIP = "10.42.0.1"
 	exhaust := func(f *apitest.Fixture) {
 		t.Helper()
@@ -555,6 +578,7 @@ func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
 }
 
 func TestLoginEndsThePreviousSession(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	old := f.Session("alice-aaaaaaaa")
 	r := httptest.NewRequest("POST", "/api/auth/local/login", strings.NewReader(`{"username":"alice","password":"alice-password"}`))
@@ -571,6 +595,7 @@ func TestLoginEndsThePreviousSession(t *testing.T) {
 }
 
 func TestCreateAcceptsProductPrefixInName(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("lab", "jupyterlab"))
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"javo files","template":"lab"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusCreated {
@@ -579,6 +604,7 @@ func TestCreateAcceptsProductPrefixInName(t *testing.T) {
 }
 
 func TestUnknownAPIRouteAndMethodUseCatalogText(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	alice := f.Session("alice-aaaaaaaa")
 	for _, tc := range []struct {
@@ -606,6 +632,7 @@ func TestUnknownAPIRouteAndMethodUseCatalogText(t *testing.T) {
 }
 
 func TestMePicture(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Secure: true})
 	tok, err := f.Store.Create(context.Background(), session.Session{
 		Principal: authz.Principal{ID: "bob-bbbbbbbb", Username: "bob", Picture: "https://example.com/bob.png"},
@@ -626,6 +653,7 @@ func TestMePicture(t *testing.T) {
 }
 
 func TestStartSampleCreatesNumberedWorkspacePerUser(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.SampleTemplateObj("streamlit", "streamlit"))
 	alice, bob := f.Session("alice-aaaaaaaa"), f.Session("bob-bbbbbbbb")
 
@@ -659,6 +687,7 @@ func TestStartSampleCreatesNumberedWorkspacePerUser(t *testing.T) {
 // A name that is taken, whoever took it and whenever, is skipped: the create
 // itself reports it, so two sample starts at once get two names.
 func TestStartSampleSkipsTakenNamesAndTwoAtOnceGetTwo(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.SampleTemplateObj("streamlit", "streamlit"),
 		gatewaytest.Workspace("streamlit-sample", "alice-aaaaaaaa", "Streamlit sample"))
 	alice := f.Session("alice-aaaaaaaa")
@@ -687,6 +716,7 @@ func TestStartSampleSkipsTakenNamesAndTwoAtOnceGetTwo(t *testing.T) {
 }
 
 func TestStartSampleGivesUpAfterTwentyNames(t *testing.T) {
+	t.Parallel()
 	objs := []any{apitest.SampleTemplateObj("streamlit", "streamlit")}
 	for i := 1; i <= 20; i++ {
 		short, display := "streamlit-sample", "Streamlit sample"
@@ -709,6 +739,7 @@ func TestStartSampleGivesUpAfterTwentyNames(t *testing.T) {
 }
 
 func TestStartSampleRefusals(t *testing.T) {
+	t.Parallel()
 	gpu := apitest.SampleTemplateObj("gpu-lab", "jupyterlab")
 	gpu.Spec.AllowedGroups = []string{"admins"}
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("plain", "jupyterlab"), gpu)
@@ -736,6 +767,7 @@ func TestStartSampleRefusals(t *testing.T) {
 }
 
 func TestTemplatesReportTheirSample(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.SampleTemplateObj("streamlit", "streamlit"), gatewaytest.Template("plain", "jupyterlab"))
 	w := f.Do("GET", "/api/templates", "", f.Session("alice-aaaaaaaa"))
 	out := apitest.Decode[struct {
@@ -760,6 +792,7 @@ func TestTemplatesReportTheirSample(t *testing.T) {
 // A template gated by an identity provider role is listed for a person whose
 // session holds the role and not for another member.
 func TestTemplatesGatedByAProviderRole(t *testing.T) {
+	t.Parallel()
 	gpu := gatewaytest.Template("gpu-lab", "jupyterlab")
 	gpu.Spec.AllowedProviderRoles = []string{"gpu-users"}
 	f := apitest.New(t, apitest.Options{}, gpu, gatewaytest.Template("plain", "jupyterlab"))
@@ -791,6 +824,7 @@ func TestTemplatesGatedByAProviderRole(t *testing.T) {
 // Other, and the list names every category with its title in the order New
 // app shows them.
 func TestTemplatesReportTheirCategory(t *testing.T) {
+	t.Parallel()
 	lab := gatewaytest.Template("lab", "jupyterlab")
 	lab.Spec.Category = "notebooks"
 	f := apitest.New(t, apitest.Options{}, lab, gatewaytest.Template("plain", "streamlit"))
@@ -812,6 +846,7 @@ func TestTemplatesReportTheirCategory(t *testing.T) {
 }
 
 func TestCreateWithSampleRunsTheSampleUnderTheChosenName(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.SampleTemplateObj("streamlit", "streamlit"))
 	alice := f.Session("alice-aaaaaaaa")
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"My demo","template":"streamlit","sample":true}`, alice)
@@ -833,6 +868,7 @@ func TestCreateWithSampleRunsTheSampleUnderTheChosenName(t *testing.T) {
 }
 
 func TestCreateWithSampleOnTemplateWithoutOneIs422(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("plain", "jupyterlab"))
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Lab","template":"plain","sample":true}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), reasons.Msg(reasons.MsgNoSample, "plain")) {
@@ -844,6 +880,7 @@ func TestCreateWithSampleOnTemplateWithoutOneIs422(t *testing.T) {
 }
 
 func TestTemplatesReportTheSampleFile(t *testing.T) {
+	t.Parallel()
 	lab := apitest.SampleTemplateObj("jupyterlab", "jupyterlab")
 	lab.Spec.Sample.Open = ""
 	f := apitest.New(t, apitest.Options{}, apitest.SampleTemplateObj("streamlit", "streamlit"), lab)
@@ -864,6 +901,7 @@ func TestTemplatesReportTheSampleFile(t *testing.T) {
 }
 
 func TestCreateLoginlessAppNeedsEnforcedNetworkPolicy(t *testing.T) {
+	t.Parallel()
 	for _, st := range []netprobe.State{netprobe.NotEnforced, netprobe.Unknown, ""} {
 		f := apitest.New(t, apitest.Options{Policy: st}, apitest.LoginlessTemplate())
 		w := f.Do("POST", "/api/workspaces", `{"displayName":"My code","template":"code"}`, f.Session("alice-aaaaaaaa"))
@@ -881,6 +919,7 @@ func TestCreateLoginlessAppNeedsEnforcedNetworkPolicy(t *testing.T) {
 }
 
 func TestCreateLoginlessAppWorksWhenNetworkPolicyIsEnforced(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Policy: netprobe.Enforced}, apitest.LoginlessTemplate())
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"My code","template":"code"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusOK && w.Code != http.StatusCreated {
@@ -892,6 +931,7 @@ func TestCreateLoginlessAppWorksWhenNetworkPolicyIsEnforced(t *testing.T) {
 }
 
 func TestCreateAppWithItsOwnLoginIgnoresNetworkPolicy(t *testing.T) {
+	t.Parallel()
 	tpl := gatewaytest.Template("code", "jupyterlab")
 	tpl.Spec.AppLogin = "Enabled"
 	f := apitest.New(t, apitest.Options{Policy: netprobe.NotEnforced}, tpl)
@@ -902,6 +942,7 @@ func TestCreateAppWithItsOwnLoginIgnoresNetworkPolicy(t *testing.T) {
 }
 
 func TestStartSampleOfLoginlessAppNeedsEnforcedNetworkPolicy(t *testing.T) {
+	t.Parallel()
 	tpl := apitest.SampleTemplateObj("streamlit", "streamlit")
 	tpl.Spec.AppLogin = "Disabled"
 	f := apitest.New(t, apitest.Options{Policy: netprobe.NotEnforced}, tpl)
@@ -912,6 +953,7 @@ func TestStartSampleOfLoginlessAppNeedsEnforcedNetworkPolicy(t *testing.T) {
 }
 
 func TestCreateLoginlessAppFailsClosedWhenPolicyCannotBeRead(t *testing.T) {
+	t.Parallel()
 	funcs := interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 		if _, ok := obj.(*corev1.ConfigMap); ok {
 			return errors.New("api server unavailable")
@@ -926,6 +968,7 @@ func TestCreateLoginlessAppFailsClosedWhenPolicyCannotBeRead(t *testing.T) {
 }
 
 func TestCreateOnJobOnlyTemplateIs422OnTemplate(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.JobOnlyTemplate())
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Py","template":"jobs-py"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusUnprocessableEntity {
@@ -940,6 +983,7 @@ func TestCreateOnJobOnlyTemplateIs422OnTemplate(t *testing.T) {
 }
 
 func TestTemplatesMarkJobOnlyAndKeepJobs(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.JobOnlyTemplate(), gatewaytest.Template("lab", "jupyterlab"))
 	w := f.Do("GET", "/api/templates", "", f.Session("alice-aaaaaaaa"))
 	out := apitest.Decode[struct {

@@ -15,6 +15,7 @@ import (
 )
 
 func TestListSizes(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)})
 	w := f.Do("GET", "/api/sizes", "", f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusOK {
@@ -38,6 +39,7 @@ func TestListSizes(t *testing.T) {
 
 // With no sizes configured the list is empty, not null.
 func TestListSizesEmpty(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	w := f.Do("GET", "/api/sizes", "", f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusOK || !strings.HasPrefix(w.Body.String(), `{"items":[],"custom":{"allowed":false,`) {
@@ -48,6 +50,7 @@ func TestListSizesEmpty(t *testing.T) {
 // An app created without a size is stored at the default size, so a later
 // change of the default does not restart it.
 func TestCreateStoresTheChosenOrDefaultSize(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, gatewaytest.Template("lab", "jupyterlab"))
 	alice := f.Session("alice-aaaaaaaa")
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Plain","template":"lab"}`, alice)
@@ -67,6 +70,7 @@ func TestCreateStoresTheChosenOrDefaultSize(t *testing.T) {
 }
 
 func TestCreateWithUnknownSizeIs422AndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, gatewaytest.Template("lab", "jupyterlab"))
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Huge","template":"lab","size":"huge"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusUnprocessableEntity {
@@ -81,6 +85,7 @@ func TestCreateWithUnknownSizeIs422AndCreatesNothing(t *testing.T) {
 }
 
 func TestStartSampleUsesTheDefaultSize(t *testing.T) {
+	t.Parallel()
 	tpl := gatewaytest.Template("lab", "jupyterlab")
 	tpl.Spec.Sample = &model.TemplateSample{Path: "/opt/sample", Title: "Tour"}
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, tpl)
@@ -94,6 +99,7 @@ func TestStartSampleUsesTheDefaultSize(t *testing.T) {
 }
 
 func TestChangeSize(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
 	ws.Size = "small"
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, ws, gatewaytest.Template("streamlit", "streamlit"))
@@ -126,6 +132,7 @@ func TestChangeSize(t *testing.T) {
 // An app stored without a size (made before sizes existed) shows the
 // default size it runs at.
 func TestWorkspaceWithoutSizeShowsTheDefault(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app"))
 	w := f.Do("GET", "/api/workspaces/sales-app", "", f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusOK || apitest.Decode[apitest.WorkspaceJSON](t, w).Size != "small" {
@@ -136,6 +143,7 @@ func TestWorkspaceWithoutSizeShowsTheDefault(t *testing.T) {
 // A running app whose spec changed (for example its size) is restarting
 // until the controller catches up, so the page keeps polling.
 func TestRunningAppWithUnobservedChangeShowsStarting(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
 	ws.Status.Phase = "Running"
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, ws)
@@ -163,6 +171,7 @@ func TestRunningAppWithUnobservedChangeShowsStarting(t *testing.T) {
 // A stopped app whose pod is still going away reports Stopping, so the page
 // shows the change at once and keeps polling until it is Stopped.
 func TestPausedAppStillRunningShowsStopping(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
 	ws.Paused, ws.Status.Phase = true, "Running"
 	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, ws)
@@ -174,6 +183,7 @@ func TestPausedAppStillRunningShowsStopping(t *testing.T) {
 
 // Each size says whether some machine can hold it, and why not when none can.
 func TestListSizesMarksSizesNoMachineCanHold(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.FitCatalog(t, "small")}, apitest.SingleNode())
 	got := apitest.ListFits(t, f)
 	want := map[string]apitest.FitJSON{
@@ -191,6 +201,7 @@ func TestListSizesMarksSizesNoMachineCanHold(t *testing.T) {
 
 // With no nodes to read, nothing is known and every size is offered.
 func TestListSizesWithoutNodesOffersAll(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.FitCatalog(t, "small")})
 	for name, s := range apitest.ListFits(t, f) {
 		if !s.Fits || s.Reason != "" {
@@ -202,6 +213,7 @@ func TestListSizesWithoutNodesOffersAll(t *testing.T) {
 // A configured default no machine can hold gives way to the largest size
 // that fits, in the list and for apps created without a size.
 func TestDefaultThatDoesNotFitFallsBackToTheLargestThatFits(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.FitCatalog(t, "large")}, apitest.SingleNode(), gatewaytest.Template("lab", "jupyterlab"))
 	got := apitest.ListFits(t, f)
 	if got["large"].Default || !got["medium"].Default {
@@ -219,6 +231,7 @@ func TestDefaultThatDoesNotFitFallsBackToTheLargestThatFits(t *testing.T) {
 // Creating at, or changing to, a size no machine can hold is refused on the
 // size field with the reason; a size marked allowUnschedulable is not.
 func TestSizeNoMachineCanHoldIsRefused(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
 	ws.Size = "small"
 	f := apitest.New(t, apitest.Options{Sizes: apitest.FitCatalog(t, "small")}, apitest.SingleNode(), ws, gatewaytest.Template("lab", "jupyterlab"), gatewaytest.Template("streamlit", "streamlit"))
@@ -254,6 +267,7 @@ func TestSizeNoMachineCanHoldIsRefused(t *testing.T) {
 // A GPU size lists its GPU count; it fits only a cluster with a machine that
 // has the GPU and the labels, and is refused like any too-big size otherwise.
 func TestGPUSizeListedAndFitChecked(t *testing.T) {
+	t.Parallel()
 	type gpuJSON struct {
 		Name   string `json:"name"`
 		GPU    int64  `json:"gpu"`

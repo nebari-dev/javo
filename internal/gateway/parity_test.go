@@ -27,6 +27,7 @@ import (
 // rest. Only the token operations themselves and plan approval need a session. A route added
 // for the UI that refuses tokens fails here.
 func TestEveryUIOperationAcceptsToken(t *testing.T) {
+	t.Parallel()
 	for _, op := range apiOperations(t) {
 		if op.public() {
 			continue
@@ -74,6 +75,7 @@ func TestEveryUIOperationAcceptsToken(t *testing.T) {
 // names outside the generated client and checks it is an operation of the
 // document, so the UI cannot reach a route a token cannot.
 func TestUICallsOnlyDocumentedOperations(t *testing.T) {
+	t.Parallel()
 	var docPaths []*regexp.Regexp
 	for _, op := range apiOperations(t) {
 		re := regexp.MustCompile(`\\\{[^}]+\\\}`).ReplaceAllString(regexp.QuoteMeta(op.path), `[^/]+`)
@@ -122,6 +124,7 @@ func TestUICallsOnlyDocumentedOperations(t *testing.T) {
 // client is built from, with the document the server serves. A renamed or
 // removed operation with a stale client fails here; run `make openapi`.
 func TestCommittedSpecMatchesServer(t *testing.T) {
+	t.Parallel()
 	committed, err := os.ReadFile(filepath.Join("..", "..", "ui", "openapi.json"))
 	if err != nil {
 		t.Fatal(err)

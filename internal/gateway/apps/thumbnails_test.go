@@ -14,6 +14,7 @@ import (
 )
 
 func TestThumbnailsOffChangesNothing(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
 	alice := f.Session(apitest.AliceID)
 	if w := f.PutThumb(apitest.ThumbPath, "image/png", apitest.TestPNG(t), alice); w.Code != http.StatusNotFound {
@@ -32,6 +33,7 @@ func TestThumbnailsOffChangesNothing(t *testing.T) {
 }
 
 func TestOwnerSetsThumbnailAndItIsServedAsAnImageOnly(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts, Thumbnails: true})
 	alice := f.Session(apitest.AliceID)
 
@@ -88,6 +90,7 @@ func TestOwnerSetsThumbnailAndItIsServedAsAnImageOnly(t *testing.T) {
 }
 
 func TestThumbnailRefusesWhatIsNotAPNGOrJPEG(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts, Thumbnails: true})
 	alice := f.Session(apitest.AliceID)
 	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
@@ -108,6 +111,7 @@ func TestThumbnailRefusesWhatIsNotAPNGOrJPEG(t *testing.T) {
 }
 
 func TestThumbnailFollowsTheAppsSharing(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts, Thumbnails: true})
 	alice, bob, carol := f.Session(apitest.AliceID), f.Session(apitest.BobID), f.Session(apitest.CarolID)
 	th := apitest.ThumbOf(t, f.PutThumb(apitest.ThumbPath, "image/png", apitest.TestPNG(t), alice))
