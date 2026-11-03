@@ -1,4 +1,4 @@
-import { Container, Globe, House, SquareTerminal, type LucideIcon } from 'lucide-react'
+import { Container, Globe, House, SquareTerminal, Terminal, type LucideIcon } from 'lucide-react'
 import bokeh from '../assets/logos/bokeh.svg'
 import claudeCode from '../assets/logos/claudecode.svg'
 import codeServer from '../assets/logos/code-server.svg'
@@ -52,7 +52,7 @@ const LOGOS: Record<string, Logo> = {
 }
 
 // Kinds that are no project of their own get a line icon.
-const ICONS: Record<string, LucideIcon> = { container: Container, static: Globe, home: House }
+const ICONS: Record<string, LucideIcon> = { container: Container, static: Globe, home: House, terminal: Terminal }
 
 /** The app kind's mark: the project's logo, a line icon for kinds without one, or a neutral terminal for custom and unknown kinds. */
 export function KindLogo({ kind, big = false }: { kind: string; big?: boolean }) {

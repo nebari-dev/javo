@@ -59,11 +59,12 @@ const allTemplates = [
     ['claude-code', 'Claude Code', 'Claude coding agent', ''],
     ['pi', 'pi coding agent', 'pi coding agent', ''],
     ['herdr', 'herdr', 'Agents in a terminal', ''],
+    ['terminal', 'Terminal', 'Shell in your files', ''],
   ] as const).map(([kind, displayName, description, ext]) => ({
     name: kind,
     displayName,
     description,
-    category: ['panel', 'bokeh', 'dash', 'gradio', 'voila'].includes(kind) ? 'dashboards' : ['marimo', 'vscode', 'rstudio'].includes(kind) ? 'notebooks' : kind === 'fastapi' ? 'web' : 'agents',
+    category: ['panel', 'bokeh', 'dash', 'gradio', 'voila'].includes(kind) ? 'dashboards' : ['marimo', 'vscode', 'rstudio', 'terminal'].includes(kind) ? 'notebooks' : kind === 'fastapi' ? 'web' : 'agents',
     kind,
     fileExtensions: ext ? [ext] : [],
     sample: { title: `${displayName} sample`, file: ext ? `samples/${kind}/app${ext}` : `samples/${kind}`, command: '' },

@@ -351,7 +351,7 @@ type Template struct {
 	Version int64
 }
 
-var templateKinds = []string{"jupyterlab", "streamlit", "vscode", "marimo", "pluto", "rstudio", "panel", "bokeh", "dash", "gradio", "voila", "custom", "fastapi", "container", "static", "claude-code", "pi", "herdr", "python", "julia", "r", "go", "node"}
+var templateKinds = []string{"jupyterlab", "streamlit", "vscode", "marimo", "pluto", "rstudio", "panel", "bokeh", "dash", "gradio", "voila", "custom", "fastapi", "container", "static", "claude-code", "pi", "herdr", "terminal", "python", "julia", "r", "go", "node"}
 
 // Activity values (TemplateSpec.Activity).
 const (

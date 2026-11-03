@@ -1,0 +1,56 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: terminal
+spec:
+  # Runs without a password: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Terminal
+  description: Shell in your files
+  category: notebooks
+  kind: terminal
+  # The terminal runs code as you, with your home folder: never shared.
+  maxSharing: Private
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/agents, the one the coding agents use (ttyd,
+  # tmux, git, ripgrep, fd, less), installed into the owner's home on the
+  # first start and reused after, by these templates too (internal/pixienv).
+  # An environment picked from Nebi is installed instead and must bring
+  # ttyd. Set workspaceTemplates.<name>.image to use a mirror.
+  environment: agents
+  port: 7681
+  # pod-user.sh gives the pod's uid a passwd entry, then runs the rest.
+  command: ["/opt/javo/pod-user.sh"]
+  args:
+    - "ttyd"
+    - "--port={{.Port}}"
+    # ttyd is read-only unless told otherwise.
+    - "--writable"
+    # Refuse a websocket whose Origin is not the host the page came from.
+    - "--check-origin"
+    # The terminal page: Fira Code, javo's light and dark colours, and OSC
+    # 52 copy to the browser clipboard.
+    - "--index=/opt/javo/agents/terminal.html"
+    - "--cwd={{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+    # A plain interactive bash per tab, with the platform's prompt and
+    # defaults (pod/files/javo.bashrc, read through /etc/bash.bashrc). No
+    # multiplexer: the page keeps the scrollback. Closing a tab ends its
+    # shell; ttyd asks first.
+    - "bash"
+  # ttyd serves at /; its page finds the websocket relative to its own URL.
+  basePath: Strip
+  appLogin: Disabled
+  # Opens a folder; with none chosen, the home folder.
+  fileExtensions: []
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/"
+  # A shell needs little; heavy work belongs in a bigger size or a job.
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 1Gi}
+  # The sample is a short tour of the prompt. New app offers the home folder
+  # too.
+  sample:
+    path: /opt/javo/samples/terminal
+    title: Terminal tour

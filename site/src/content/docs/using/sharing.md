@@ -18,7 +18,7 @@ Open an app's **Sharing** tab to choose who else can open it. Only the owner cha
 
 ## Why a level may be missing
 
-**Each template sets the most open level its apps may use.** A template that gives the visitor a terminal with your files, such as JupyterLab, Claude Code, pi and herdr, is private only: anyone who opens it could act on your files. Of the built-in templates, Streamlit and Static site may be shared up to **Anyone with the link**; the others are private unless a template admin raises their limit.
+**Each template sets the most open level its apps may use.** A template that gives the visitor a terminal with your files, such as JupyterLab, Terminal, Claude Code, pi and herdr, is private only: anyone who opens it could act on your files. Of the built-in templates, Streamlit and Static site may be shared up to **Anyone with the link**; the others are private unless a template admin raises their limit.
 
 **Sharing needs apps on a separate host.** When apps are served on the same host as the web UI, a shared app could act through its visitor's Javo session. Javo then refuses every level above Private, with the message "Sharing needs apps served on a separate host from this page". Your admin fixes this by [serving apps on their own host](/admin/app-addresses/), or accepts the risk with `config.sharing.allowOneHost` (the Docker Compose install does).
 

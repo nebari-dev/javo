@@ -64,6 +64,7 @@ func TestKinds(t *testing.T) {
 		{template: "claude-code", folder: true, noAsset: true, ws: "ws", wsProtocol: "tty"},
 		{template: "pi", folder: true, noAsset: true, ws: "ws", wsProtocol: "tty"},
 		{template: "herdr", folder: true, noAsset: true, ws: "ws", wsProtocol: "tty"},
+		{template: "terminal", folder: true, noAsset: true, ws: "ws", wsProtocol: "tty"},
 	}
 	for _, k := range kinds {
 		t.Run(k.template, func(t *testing.T) {

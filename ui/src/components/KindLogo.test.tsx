@@ -14,7 +14,7 @@ describe('KindLogo', () => {
   })
 
   // Kinds that are not a project have a line icon instead of a logo.
-  const ICON_KINDS = ['custom', 'container', 'static']
+  const ICON_KINDS = ['custom', 'container', 'static', 'terminal']
 
   it.each(KINDS.filter((k) => !ICON_KINDS.includes(k)))('draws the project logo for the %s kind', (kind) => {
     const { container } = render(<KindLogo kind={kind} />)
@@ -30,6 +30,11 @@ describe('KindLogo', () => {
   it('draws a globe line icon for the static kind', () => {
     const { container } = render(<KindLogo kind="static" />)
     expect(container.querySelector('svg.lucide-globe')).not.toBeNull()
+  })
+
+  it('draws a prompt line icon for the terminal kind', () => {
+    const { container } = render(<KindLogo kind="terminal" />)
+    expect(container.querySelector('svg.lucide-terminal')).not.toBeNull()
   })
 
   it.each(['custom', 'not-a-kind'])('draws the neutral terminal icon for %s', (kind) => {

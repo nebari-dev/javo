@@ -1,5 +1,5 @@
 # javo's shell defaults for interactive bash, for the templates that give a
-# terminal (JupyterLab, VS Code, RStudio, the coding agents). It is one of the
+# terminal (JupyterLab, VS Code, RStudio, Terminal, the coding agents). It is one of the
 # pod files (/opt/javo/javo.bashrc); the pod's /etc/bash.bashrc, which bash
 # reads for every interactive shell (login shells through /etc/profile), is
 # the image's own plus a line that sources it (internal/podfiles). A user's own
