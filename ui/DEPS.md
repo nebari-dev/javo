@@ -30,6 +30,20 @@ newest release at least 14 days old as of 2026-10-30; no install scripts; `pnpm 
 | cmdk | 1.1.1 | 2025-03-14 | paco, dipnpm | pacocoursey/cmdk |
 | @radix-ui/react-dialog | 1.3.1 | 2026-10-13 | hadihallak, chancestrickland, mark-workos, npm-workos; GitHub Actions with provenance | radix-ui/primitives |
 | @radix-ui/react-select | 2.4.1 | 2026-10-12 | hadihallak, chancestrickland, mark-workos, npm-workos; GitHub Actions with provenance | radix-ui/primitives |
+| @codemirror/state | 6.7.6 | 2026-09-22 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/state |
+| @codemirror/view | 6.43.15 | 2026-10-19 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/view |
+| @codemirror/commands | 6.11.1 | 2026-09-15 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/commands |
+| @codemirror/language | 6.13.1 | 2026-10-07 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/language |
+| @codemirror/lang-python | 6.2.1 | 2025-05-14 | marijn (sole maintainer and publisher) | github.com/codemirror/lang-python |
+| @codemirror/lang-markdown | 6.5.2 | 2026-08-04 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/lang-markdown |
+| @codemirror/lang-json | 6.0.2 | 2025-06-19 | marijn (sole maintainer and publisher) | github.com/codemirror/lang-json |
+| @codemirror/lang-yaml | 6.1.3 | 2026-03-24 | marijn (sole maintainer and publisher) | github.com/codemirror/lang-yaml |
+| @codemirror/lang-javascript | 6.2.5 | 2026-03-02 | marijn (sole maintainer and publisher) | github.com/codemirror/lang-javascript |
+| @codemirror/lang-html | 6.4.12 | 2026-08-04 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/lang-html |
+| @codemirror/lang-css | 6.3.1 | 2024-11-26 | marijn (sole maintainer and publisher) | github.com/codemirror/lang-css |
+| @codemirror/lang-sql | 6.10.0 | 2025-09-16 | marijn (sole maintainer and publisher) | github.com/codemirror/lang-sql |
+| @codemirror/legacy-modes | 6.5.5 | 2026-10-07 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/codemirror/legacy-modes |
+| @lezer/highlight | 1.2.5 | 2026-09-28 | marijn (sole maintainer and publisher) | code.haverbeke.berlin/lezer/highlight |
 
 Notes
 - downshift 9.4.0: newest stable (the alpha tags are not used), 4 months old; last releases 9.3.0 to 9.3.6 match GitHub tags, no burst. OSV clean for it and its 8 new transitive packages
@@ -81,6 +95,25 @@ Notes
   no new maintainer. No install scripts (none in any manifest; `pnpm add --save-exact --ignore-scripts`; lockfile has no
   `requiresBuild`). OSV batch over all 14: 0 with vulnerabilities. `pnpm audit --audit-level=low`: no known
   vulnerabilities. Names match the upstream repos (radix-ui/primitives, floating-ui/floating-ui).
+- File editor (added 2026-11-03): CodeMirror 6 used directly (no React wrapper): `@codemirror/state` 6.7.6, `view` 6.43.15,
+  `commands` 6.11.1, `language` 6.13.1, `legacy-modes` 6.5.5 (only the shell mode is imported), `lang-python` 6.2.1,
+  `lang-markdown` 6.5.2, `lang-json` 6.0.2, `lang-yaml` 6.1.3, `lang-javascript` 6.2.5, `lang-html` 6.4.12, `lang-css` 6.3.1,
+  `lang-sql` 6.10.0, and `@lezer/highlight` 1.2.5 (the highlight tags). Each is the newest release and at least 15 days old.
+  They add 16 transitive packages, all by the same author: `@codemirror/autocomplete` 6.20.4, `lint` 6.9.7, `streamparser`
+  6.0.0, `@lezer/common`, `lr`, `css` 1.3.9, `html` 1.3.13, `javascript` 1.5.6, `json` 1.0.3, `markdown` 1.8.1, `python`
+  1.1.19, `yaml` 1.0.4, `@marijn/find-cluster-break` 1.0.4, `crelt` 1.0.7, `style-mod` 4.1.4, `w3c-keyname` 2.2.8.
+  `@lezer/common` 1.5.5 and 1.5.4 and `@lezer/lr` 1.4.12 are under 14 days old, so they are pinned back with pnpm
+  overrides to `@lezer/common` 1.5.3 (2026-09-24) and `@lezer/lr` 1.4.11 (2026-10-07); every dependent's range
+  (`^1.0.0` to `^1.5.0`) accepts them. All 30 packages list one maintainer, marijn (Marijn Haverbeke, CodeMirror's
+  author), who published every release of the last 12 months; no new maintainer. Releases since 2026-06 name
+  code.haverbeke.berlin as their repository instead of github.com/codemirror (`@codemirror/state` from 6.7.0); the GitHub repositories
+  are archived with a README that points to the new forge, codemirror.net links there, and its tags match the npm
+  versions and dates (view 6.43.15 tag da63d53 on 2026-10-19). No package has an install script (`hasInstallScript`
+  false for all 30; their `prepare` scripts only run in a git checkout; `pnpm add --save-exact --ignore-scripts`; lockfile
+  has no `requiresBuild`). OSV batch over all 30: 0 with vulnerabilities. `pnpm audit --audit-level=low`: no known
+  vulnerabilities. Names match the official `@codemirror` and `@lezer` scopes. The file viewer reuses Shiki 4.5.0 with
+  more of its grammars from `@shikijs/langs` (python, markdown, json, yaml, javascript, jsx, typescript, tsx, html, css,
+  sql, shellscript); no new package. The editor and each grammar load lazily, in chunks of their own.
 
 ## API client generator (ui/tools/gen-api, own lockfile)
 
