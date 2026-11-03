@@ -58,13 +58,13 @@ make down        # delete the local cluster
 
 ## Architecture
 
-The gateway serves the UI, the API and the apps; the controller turns database changes into pods.
+The gateway serves the UI, the API and the apps; the controller turns database changes into pods. They share only the database (SQLite in one pod, or Postgres with a Deployment each). The [architecture page](site/src/content/docs/architecture/index.md) walks through every piece.
 
 Javo builds one image, `javo`. Apps and jobs run upstream images as they are published: the templates run the pixi image in a pixi environment of their own (`pod/files/envs`: conda-forge packages pinned by a committed `pixi.lock`), installed into the person's home on the first start and reused after. An app can bring its own environment instead, with a `pixi.toml` and `pixi.lock` at the root of its Git repository or a Nebi environment. RStudio runs the Rocker project's image and static sites run nginx, both unmodified. Samples and other files pods need come from the `javo` image (`pod/files`).
 
 ![Javo architecture](site/diagrams/architecture.png)
 
-How an app is deployed:
+How an app is created, from the New app form to Open:
 
 ![How an app is deployed](site/diagrams/app-deploy.png)
 

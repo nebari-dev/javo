@@ -17,60 +17,68 @@ config:
     curve: basis
     padding: 18
 ---
-flowchart TB
-  browser{{"`**Browser**
-web UI`"}}
-  agents{{"`**Coding agents**
-API tokens, MCP`"}}
+flowchart LR
+  browser{{"<b>Browser</b><br/>web UI, apps"}}
+  agents{{"<b>Coding agents</b><br/>API tokens, MCP"}}
+  route["<b>Ingress</b> or<br/><b>Envoy Gateway</b> HTTPRoute<br/>UI host, apps host"]
+  operator{{"<b>nebari-operator</b><br/>Nebari pack only<br/>reads two NebariApps"}}
 
-  subgraph javo["Javo"]
+  subgraph sys["javo-system: pod javo (SQLite) or two Deployments (Postgres)"]
     direction TB
-    gw["`**Gateway**
-API, UI, app proxy
-sign-in: OIDC or local`"]
-    db[("`**Database**
-SQLite or Postgres
-source of truth`")]
-    ctrl["`**Controller**
-apps, jobs, previews
-storage, backups
-idle stop`"]
+    gw["<b>Gateway</b><br/>UI, API, MCP, sign-in<br/>app proxy<br/>files pods, live logs"]
+    db[("<b>Database</b><br/>SQLite file or Postgres<br/>the source of truth")]
+    ctrl["<b>Controller</b> (leader)<br/>apps, jobs, previews<br/>homes, backups<br/>idle stop"]
   end
 
-  idp{{"`**Sign-in provider**
-OIDC, such as Keycloak`"}}
-  k8s["`**Kubernetes**
-app pods, job runs
-home volumes`"]
-  s3[("`**S3 bucket**
-restic backups
-database copies`")]
-  git{{"`**Git hosts**
-repositories
-pull requests`"}}
-  llm{{"`**Model server**
-OpenAI-compatible
-or Anthropic`"}}
+  api["<b>Kubernetes API</b>"]
 
-  browser --> gw
-  agents --> gw
-  gw -.-> idp
-  gw --> db
+  subgraph apps["javo-apps: Pod Security restricted, only the gateway may connect"]
+    direction TB
+    app["<b>App pod</b> + Service<br/>upstream image (pixi)<br/>init steps first"]
+    home[("<b>Home volume</b><br/>one claim per person<br/>pixi envs in ~/.javo")]
+    job["<b>Job runs</b><br/>CronJob, Job<br/>javo runner in pixi image"]
+    files["<b>Files pod</b><br/>rclone, home read-only<br/>for the file picker"]
+    helper["<b>Helper Jobs</b><br/>home prepare, migrate<br/>backup, restore (restic)"]
+  end
+
+  idp{{"<b>Identity provider</b><br/>Keycloak or any OIDC"}}
+  nebi{{"<b>Nebi</b><br/>environments"}}
+  llm{{"<b>AI model</b><br/>OpenAI-compatible<br/>or Anthropic"}}
+  git{{"<b>Git hosts</b><br/>repositories<br/>GitHub pull requests"}}
+  s3[("<b>S3 bucket</b><br/>restic repositories<br/>database, homes, folders")]
+
+  browser -- "HTTPS" --> route
+  agents -- "HTTPS" --> route
+  operator -. "HTTPRoutes, TLS" .-> route
+  operator -. "Keycloak client" .-> idp
+  route --> gw
+  gw -- "rows" --> db
   db -- "change feed" --> ctrl
-  ctrl --> k8s
-  gw -- "proxies apps" --> k8s
-  ctrl --> s3
-  k8s -. "clone" .-> git
+  ctrl -- "pods, Services<br/>claims, Jobs" --> api
+  gw -- "files pods, logs<br/>Nebi token Secrets" --> api
+  api --> apps
+  gw -- "proxies visitors" --> app
+  gw -- "folder listings" --> files
+  app --- home
+  job --- home
+  gw -- "OIDC sign-in" --> idp
+  gw -- "list, fetch envs" --> nebi
+  app -. "nebi CLI" .-> nebi
+  gw -. "Ask AI" .-> llm
+  app -. "git clone" .-> git
+  ctrl -. "list PRs" .-> git
   git -. "PR webhooks" .-> gw
-  gw -.-> llm
+  sys -- "database copies" --> s3
+  helper -- "home snapshots" --> s3
 
   classDef box fill:#E0E7FF,stroke:#4338CA,color:#312E81
   classDef ext fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-dasharray:6 4
   classDef chan fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
   classDef good fill:#ECFDF5,stroke:#059669,color:#064E3B
   classDef store fill:#E0F2FE,stroke:#0369A1,color:#0C4A6E
-  class browser,agents,idp,git,llm ext
-  class gw,ctrl box
+  class browser,agents,operator,idp,nebi,llm,git ext
+  class gw,ctrl,app,job,files,helper box
   class db,s3 store
-  class k8s chan
-  class javo good
+  class home good
+  class route,api chan
+  class sys,apps good

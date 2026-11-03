@@ -18,52 +18,52 @@ config:
     padding: 18
 ---
 flowchart TB
-  person{{"`**Person**
-creates an app in the UI`"}}
-  gw["`**Gateway API**
-saves the app`"]
-  db[("`**Database**
-app row`")]
-  ctrl["`**Controller** (leader)
-hears the change feed`"]
-
-  subgraph pod["App pod in the apps namespace"]
-    direction TB
-    init["`**Init steps**
-home folder or git clone
-build, if any`"]
-    app["`**App container**
-image pulled
-size: CPU and memory`"]
-    mounts["`**Mounts**
-home volume
-secrets from a Secret`"]
+  subgraph create["Create: the API call and the reconcile"]
+    direction LR
+    person{{"<b>Person</b><br/>New app form"}}
+    gw["<b>1. Gateway API</b><br/>POST /api/workspaces<br/>checks role, template<br/>and size<br/>gets a picked Nebi env"]
+    db[("<b>2. Database</b><br/>app row saved<br/>change feed fires")]
+    ctrl["<b>3. Controller</b> (leader)<br/>reconciles the app<br/>asks for the home"]
+    storage["<b>4. Storage controller</b><br/>home claim<br/>prepare Job, once"]
+    build["<b>5. Controller builds</b><br/>Service, Secrets<br/>API and Nebi tokens<br/>then the Pod"]
+    person -- "Create" --> gw --> db --> ctrl -- "home row" --> storage -- "home prepared" --> build
   end
 
-  ready["`**Readiness**
-probe passes`"]
-  proxy["`**Gateway proxy**
-checks sign-in, sharing
-forwards to the pod`"]
-  viewer{{"`**Visitor**
-apps host /u/owner/app/`"}}
+  subgraph pod["6. App pod in javo-apps: init steps, in order"]
+    direction LR
+    src["<b>clone</b>, <b>source-check</b><br/>build, site-copy<br/>Git apps only"]
+    pf["<b>javo-files, pod-user</b><br/>platform files, passwd"]
+    sample["<b>sample-dir</b><br/><b>sample-copy</b><br/>sample apps only"]
+    nebicli["<b>nebi-cli</b><br/>with Nebi on"]
+    env["<b>env-tools, env-install</b><br/>pixi install --frozen<br/>into ~/.javo/envs"]
+    appc["<b>App container</b><br/>upstream pixi image<br/>home mounted, sized"]
+    src --> pf --> sample --> nebicli --> env --> appc
+  end
 
-  person --> gw --> db --> ctrl
-  ctrl -- "builds the pod" --> init
-  init --> app
-  mounts --- app
-  app --> ready --> proxy
-  viewer --> proxy
+  subgraph watch["Watch and open"]
+    direction LR
+    ready["<b>7. Readiness probe</b><br/>HTTP GET, or TCP<br/>for own images"]
+    status[("<b>8. Status in the row</b><br/>controller writes steps")]
+    logs["<b>Live log stream</b><br/>.../steps/{step}/log<br/>NDJSON from pod logs"]
+    steps["<b>Steps the UI shows</b><br/>Find a machine<br/>Attach your home folder<br/>Download the image<br/>Set up the environment<br/>Start the app<br/>Check it answers"]
+    visitor{{"<b>Open</b><br/>apps host /u/owner/app/"}}
+    proxy["<b>9. Gateway proxy</b><br/>session or one-use ticket<br/>checks sharing<br/>forwards to the app"]
+    ready --> status -- "UI reads the app" --> steps
+    logs --> steps --> visitor --> proxy
+  end
+
+  create -- "Kubernetes API creates the Pod" --> pod
+  pod -- "kubelet probes, logs" --> watch
 
   classDef box fill:#E0E7FF,stroke:#4338CA,color:#312E81
   classDef ext fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-dasharray:6 4
   classDef chan fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
   classDef good fill:#ECFDF5,stroke:#059669,color:#064E3B
   classDef store fill:#E0F2FE,stroke:#0369A1,color:#0C4A6E
-  class person,viewer ext
-  class gw,ctrl,proxy box
-  class db store
-  class init,app chan
-  class mounts good
-  class ready chan
-  class pod good
+  class person,visitor ext
+  class gw,ctrl,storage,build,proxy box
+  class db,status store
+  class pf,env,appc chan
+  class src,sample,nebicli chan
+  class ready,steps,logs chan
+  class create,pod,watch good
