@@ -2,6 +2,8 @@ package helm
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -10,12 +12,18 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+
+	"github.com/nebari-dev/javo/internal/files"
+	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
 // vapAPI tells helm template the cluster serves ValidatingAdmissionPolicy, as
@@ -79,10 +87,19 @@ func TestControllerAdmissionPoliciesNeedTheAPI(t *testing.T) {
 // acts as the controller's service account.
 func admissionEnv(t *testing.T, engine string) (admin, ctl client.Client) {
 	t.Helper()
+	admin, as, _ := admissionCluster(t, engine)
+	return admin, as("javo-controller")
+}
+
+// admissionCluster is admissionEnv returning, besides the admin client, a
+// client for each component's service account (javo-gateway or
+// javo-controller) and the render applied.
+func admissionCluster(t *testing.T, engine string) (admin client.Client, as func(sa string) client.Client, out string) {
+	t.Helper()
 	if testing.Short() || os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("needs the envtest binaries (KUBEBUILDER_ASSETS); skipped with -short")
 	}
-	out, err := render(t, append(append([]string{"--set", "config.namespaces.mode=per-user"}, engineArgs(engine)...), vapAPI...)...)
+	out, err := render(t, append(modeArgs("per-user"), engineArgs(engine)...)...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
@@ -115,15 +132,19 @@ func admissionEnv(t *testing.T, engine string) (admin, ctl client.Client) {
 			t.Fatalf("create %s %s: %v", u.GetKind(), u.GetName(), err)
 		}
 	}
-	as := rest.CopyConfig(cfg)
-	as.Impersonate = rest.ImpersonationConfig{
-		UserName: "system:serviceaccount:javo-system:" + serviceAccount(engine, "javo-controller"),
-		Groups:   []string{"system:serviceaccounts", "system:serviceaccounts:javo-system", "system:authenticated"},
+	as = func(sa string) client.Client {
+		ic := rest.CopyConfig(cfg)
+		ic.Impersonate = rest.ImpersonationConfig{
+			UserName: "system:serviceaccount:javo-system:" + serviceAccount(engine, sa),
+			Groups:   []string{"system:serviceaccounts", "system:serviceaccounts:javo-system", "system:authenticated"},
+		}
+		c, err := client.New(ic, client.Options{Scheme: scheme})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
 	}
-	if ctl, err = client.New(as, client.Options{Scheme: scheme}); err != nil {
-		t.Fatal(err)
-	}
-	return admin, ctl
+	return admin, as, out
 }
 
 // deniedByPolicy is true when err is a ValidatingAdmissionPolicy's denial.
@@ -292,5 +313,105 @@ func TestControllerPatchesOnlyJavoKeysOnItsNamespaces(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// noStorage gives a file pod just the owner's home claim.
+type noStorage struct{}
+
+func (noStorage) Input(context.Context, string, string) (podstorage.Input, error) {
+	return podstorage.Input{}, nil
+}
+
+// The gateway may create pods in workspace namespaces only for the file
+// picker: a pod creator there could otherwise mount any Secret or claim, or
+// run any image. Its own file pods (made by the real code) still start;
+// anything else from its account is refused.
+func TestGatewayCreatesOnlyFilePods(t *testing.T) {
+	t.Parallel()
+	admin, as, out := admissionCluster(t, "postgres")
+	gw := as("javo-gateway")
+	ctx := context.Background()
+	image := controllerArg(deploymentOf(t, out, "postgres", "gateway"), "files-image")
+	nsName, owner := "javo-alice", "alice"
+
+	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName, Labels: map[string]string{"javo.nebari.dev/managed": "true"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Create(ctx, appRoleBinding(nsName, "javo-javo-system-javo-gateway-apps")); err != nil {
+		t.Fatal(err)
+	}
+	claim := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Namespace: nsName, Name: naming.HomeClaimName(owner), Annotations: map[string]string{model.AnnotationOwnerID: owner}},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+		},
+	}
+	if err := admin.Create(ctx, claim); err != nil {
+		t.Fatal(err)
+	}
+	other := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Namespace: nsName, Name: name},
+			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "example.org/app:1"}}},
+		}
+	}
+	waitForPolicy(t, func() error {
+		return gw.Create(ctx, other("javo-test-probe-"+strconv.FormatInt(time.Now().UnixNano(), 36)))
+	})
+
+	pods, err := files.NewPods(files.PodsConfig{Client: gw, Namespace: nsName, Image: image, Storage: noStorage{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pods.Ensure(ctx, owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatalf("the gateway's own file pod: %v, want it created", err)
+	}
+	var made corev1.Pod
+	if err := admin.Get(ctx, client.ObjectKey{Namespace: nsName, Name: model.FilesPodPrefix + owner}, &made); err != nil {
+		t.Fatalf("file pod not created: %v", err)
+	}
+
+	// Each case is the real file pod with one thing changed.
+	variant := func(name string, change func(*corev1.Pod)) *corev1.Pod {
+		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: nsName, Name: "javo-test-" + name, Labels: maps.Clone(made.Labels)}, Spec: *made.Spec.DeepCopy()}
+		p.Spec.NodeName = ""
+		change(p)
+		return p
+	}
+	ctr := func(p *corev1.Pod) *corev1.Container { return &p.Spec.Containers[0] }
+	for _, c := range []struct {
+		name   string
+		change func(*corev1.Pod)
+	}{
+		{"no-role-label", func(p *corev1.Pod) { delete(p.Labels, "javo.nebari.dev/role") }},
+		{"other-image", func(p *corev1.Pod) { ctr(p).Image = "example.org/tool:1" }},
+		{"init-container", func(p *corev1.Pod) {
+			p.Spec.InitContainers = []corev1.Container{{Name: "i", Image: image}}
+		}},
+		{"secret-volume", func(p *corev1.Pod) {
+			p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: "s", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "javo-db"}}})
+		}},
+		{"writable-claim", func(p *corev1.Pod) {
+			for i := range p.Spec.Volumes {
+				if pvc := p.Spec.Volumes[i].PersistentVolumeClaim; pvc != nil {
+					pvc.ReadOnly = false
+				}
+			}
+		}},
+		{"env-from-secret", func(p *corev1.Pod) {
+			ctr(p).EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "javo-db"}}}}
+		}},
+		{"env-value-from-secret", func(p *corev1.Pod) {
+			ctr(p).Env = append(ctr(p).Env, corev1.EnvVar{Name: "X", ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "javo-db"}, Key: "dsn"},
+			}})
+		}},
+		{"service-account-token", func(p *corev1.Pod) { p.Spec.AutomountServiceAccountToken = nil }},
+	} {
+		if err := gw.Create(ctx, variant(c.name, c.change)); !deniedByPolicy(err) {
+			t.Errorf("%s: %v, want a policy denial", c.name, err)
+		}
 	}
 }
