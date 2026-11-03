@@ -17,6 +17,8 @@ import (
 // Redactor hides secrets in text and says how many values it hid. It finds
 // what it knows (Known) and what looks like a credential (gitleaks' rules);
 // it does not look for personal data such as names or email addresses.
+// It keeps the text's line breaks (a value over several lines is hidden on
+// each), as log lines are redacted together, joined by them.
 // Without one, log lines are not sent at all: they are the text an app
 // controls, so a password it prints would otherwise reach the model.
 type Redactor interface {
@@ -56,6 +58,14 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 		log       bool
 	}
 	var pieces []piece
+	var logText []string
+	if r != nil && !withholdLogs {
+		var n int
+		var ok bool
+		logText, n, ok = redactLogs(evs, r)
+		b.Hidden += n
+		withholdLogs = !ok
+	}
 	logs := 0
 	for _, e := range evs {
 		isLog := e.Kind == diagnose.KindLog
@@ -63,12 +73,19 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 			b.Withheld++
 			continue
 		}
-		text := e.Excerpt
-		if r != nil {
+		var text string
+		switch {
+		case isLog:
+			text, logText = logText[0], logText[1:]
+		case r != nil:
 			var n int
-			text, n = r.Redact(text)
+			text, n = r.Redact(e.Whole())
 			b.Hidden += n
+		default:
+			text = e.Whole()
 		}
+		// Cut only once redacted, so a secret straddling the cut is hidden whole.
+		text = diagnose.Cut(text)
 		pieces = append(pieces, piece{ref: e.Ref, log: isLog,
 			text: fmt.Sprintf("<untrusted ref=%q kind=%q>%s</untrusted>\n", e.Ref, e.Kind, html.EscapeString(text))})
 		if isLog {
@@ -112,4 +129,27 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 		b.Notes = append(b.Notes, reasons.Msg(reasons.MsgAITrimmed, t.Used, t.Total))
 	}
 	return b
+}
+
+// redactLogs redacts the whole text of evs' log lines in one go, joined by
+// line breaks, so a secret of several lines (a key file) is found across the
+// lines it spans. It returns each line's redacted text, in order, and how
+// many values were hidden; ok is false when r did not keep one text per line
+// (the lines cannot then be told apart, so none may be sent).
+func redactLogs(evs []diagnose.Evidence, r Redactor) (lines []string, hidden int, ok bool) {
+	var whole []string
+	for _, e := range evs {
+		if e.Kind == diagnose.KindLog {
+			whole = append(whole, e.Whole())
+		}
+	}
+	if len(whole) == 0 {
+		return nil, 0, true
+	}
+	out, n := r.Redact(strings.Join(whole, "\n"))
+	lines = strings.Split(out, "\n")
+	if len(lines) != len(whole) {
+		return nil, 0, false
+	}
+	return lines, n, true
 }

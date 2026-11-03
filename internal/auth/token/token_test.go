@@ -50,6 +50,17 @@ func (e *env) create(t *testing.T, tok token.Token) (string, token.Token) {
 	return text, created
 }
 
+// Pattern finds a token in the text around it, so a scanner can hide it.
+func TestPatternFindsATokenInText(t *testing.T) {
+	e := newEnv(t, time.Unix(1_800_000_000, 0))
+	for range 20 {
+		text, _ := e.create(t, token.Token{Name: "laptop", Owner: e.alice, Scope: token.ScopeRead})
+		if got := token.Pattern.FindString("export JAVO=" + text + ", done"); got != text {
+			t.Fatalf("found %q in a line with %q", got, text)
+		}
+	}
+}
+
 func TestCreateShowsTheSecretOnceAndStoresOnlyItsHash(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	e := newEnv(t, now)

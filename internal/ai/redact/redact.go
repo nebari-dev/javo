@@ -10,12 +10,15 @@ import (
 	"sync"
 
 	"github.com/zricethezav/gitleaks/v8/detect"
+
+	"github.com/nebari-dev/javo/internal/auth/token"
 )
 
 // Hidden replaces each secret found.
 const Hidden = "[hidden]"
 
-// Scanner finds secrets with gitleaks' default rules.
+// Scanner finds secrets with gitleaks' default rules and the platform's own
+// API tokens (token.Pattern).
 type Scanner struct {
 	mu sync.Mutex
 	d  *detect.Detector
@@ -47,10 +50,22 @@ func (s *Scanner) Redact(text string) (string, int) {
 			secrets = append(secrets, v)
 		}
 	}
+	// The platform's own API tokens, which no gitleaks rule knows.
+	for _, v := range token.Pattern.FindAllString(text, -1) {
+		if !slices.Contains(secrets, v) {
+			secrets = append(secrets, v)
+		}
+	}
 	// Longest first, so a secret that contains another is hidden whole.
 	slices.SortFunc(secrets, func(a, b string) int { return len(b) - len(a) })
 	for _, v := range secrets {
-		text = strings.ReplaceAll(text, v, Hidden)
+		text = strings.ReplaceAll(text, v, marker(Hidden, v))
 	}
 	return text, len(secrets)
+}
+
+// marker is what replaces secret: mark, once per line secret spans, so the
+// text keeps its line breaks.
+func marker(mark, secret string) string {
+	return mark + strings.Repeat("\n"+mark, strings.Count(secret, "\n"))
 }

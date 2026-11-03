@@ -41,6 +41,27 @@ type Evidence struct {
 	Ref     string       `json:"ref"`
 	Excerpt string       `json:"excerpt"`
 	At      *time.Time   `json:"at,omitempty"`
+	// Full is the whole text Excerpt was cut from, set only when it was cut.
+	// It is never shown: it is there so text can be redacted before it is
+	// cut, as a secret straddling the cut would otherwise leak in part.
+	Full string `json:"-"`
+}
+
+// Whole is the evidence's whole text: Full, or Excerpt when nothing was cut.
+func (e Evidence) Whole() string {
+	if e.Full != "" {
+		return e.Full
+	}
+	return e.Excerpt
+}
+
+// excerpt is evidence of text, cut to MaxExcerpt runes.
+func excerpt(kind EvidenceKind, ref, text string) Evidence {
+	e := Evidence{Kind: kind, Ref: ref, Excerpt: Cut(text)}
+	if e.Excerpt != text {
+		e.Full = text
+	}
+	return e
 }
 
 // LogLine is one line of a container's log; N counts from 1 in the tail read.
@@ -186,7 +207,6 @@ func bundle(in *Input) []Evidence {
 			return
 		}
 		seen[e.Ref] = true
-		e.Excerpt = cut(e.Excerpt)
 		out = append(out, e)
 	}
 	for _, c := range in.App.Status.Conditions {
@@ -198,7 +218,7 @@ func bundle(in *Input) []Evidence {
 		add(eventEvidence(&in.Events[i]))
 	}
 	for _, l := range in.Logs {
-		add(Evidence{Kind: KindLog, Ref: l.Ref(), Excerpt: l.Text})
+		add(excerpt(KindLog, l.Ref(), l.Text))
 	}
 	return out
 }
@@ -209,7 +229,7 @@ func conditionEvidence(c metav1.Condition) Evidence {
 	if msg == "" {
 		msg = c.Reason
 	}
-	e := Evidence{Kind: KindCondition, Ref: "condition/" + c.Type, Excerpt: cut(msg)}
+	e := excerpt(KindCondition, "condition/"+c.Type, msg)
 	if !at.IsZero() {
 		e.At = &at
 	}
@@ -217,15 +237,15 @@ func conditionEvidence(c metav1.Condition) Evidence {
 }
 
 func eventEvidence(ev *corev1.Event) Evidence {
-	e := Evidence{Kind: KindEvent, Ref: "event/" + ev.Name, Excerpt: cut(ev.Reason + ": " + ev.Message)}
+	e := excerpt(KindEvent, "event/"+ev.Name, ev.Reason+": "+ev.Message)
 	if at := status.EventTime(ev); !at.IsZero() {
 		e.At = &at
 	}
 	return e
 }
 
-// cut keeps at most MaxExcerpt runes of s.
-func cut(s string) string {
+// Cut keeps at most MaxExcerpt runes of s.
+func Cut(s string) string {
 	if utf8.RuneCountInString(s) <= MaxExcerpt {
 		return s
 	}

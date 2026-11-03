@@ -70,7 +70,7 @@ func (r logRule) Match(in *Input) (Finding, bool) {
 		if !r.re.MatchString(l.Text) {
 			continue
 		}
-		f := Finding{Code: r.code, Evidence: []Evidence{{Kind: KindLog, Ref: l.Ref(), Excerpt: cut(l.Text)}, conditionEvidence(*c)}}
+		f := Finding{Code: r.code, Evidence: []Evidence{excerpt(KindLog, l.Ref(), l.Text), conditionEvidence(*c)}}
 		if r.propose != nil {
 			f.Proposals = r.propose(in)
 		}

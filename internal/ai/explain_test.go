@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -261,5 +263,71 @@ func TestKnownForAnApp(t *testing.T) {
 	k, err = s.KnownFor(context.Background(), "alice", env)
 	if err != nil || k.Unchecked || asked != "alice" || len(k.Spans("x")) != 1 {
 		t.Fatalf("known %+v, asked %q, %v", k, asked, err)
+	}
+}
+
+// failedWithLogs is the diagnosis of a failed app whose log is lines.
+func failedWithLogs(lines ...string) diagnose.Diagnosis {
+	in := &diagnose.Input{App: &model.App{Status: model.AppStatus{Phase: "Failed"}}}
+	for i, l := range lines {
+		in.Logs = append(in.Logs, diagnose.LogLine{Container: "app", N: i + 1, Text: l})
+	}
+	return diagnose.NewEngine().Diagnose(in)
+}
+
+// A log line longer than an excerpt is redacted whole before it is cut, so a
+// secret value straddling the cut leaks no part of itself.
+func TestSecretStraddlingTheExcerptCutIsHidden(t *testing.T) {
+	scan, err := redact.NewScanner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const pw = "Vx9-kQ2pLr7mWz4s"
+	d := failedWithLogs(strings.Repeat("x", diagnose.MaxExcerpt-8) + pw + " tail")
+	s := service(aitest.New())
+	s.Redactor = scan
+	known := Known{Values: []redact.Value{{Name: "DB_PASSWORD", Value: pw}}}
+	r, err := s.Explain(context.Background(), "alice-a", d, salesScope, known, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(r.Bundle.Text, pw[:8]) || r.Bundle.Hidden != 1 {
+		t.Fatalf("hidden %d: %s", r.Bundle.Hidden, r.Bundle.Text)
+	}
+}
+
+// A stored secret of several lines (a key file) printed to the log is found
+// across the lines it spans, and every line keeps its ref.
+func TestMultiLineSecretAcrossLogLinesIsHidden(t *testing.T) {
+	scan, err := redact.NewScanner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const value = "first-Qz7xKb\nsecond-Wm4pRc\nthird-Lt9sVd"
+	d := failedWithLogs(append([]string{"loading key"}, append(strings.Split(value, "\n"), "key loaded")...)...)
+	s := service(aitest.New())
+	s.Redactor = scan
+	known := Known{Spans: func(text string) []redact.Span {
+		if i := strings.Index(text, value); i >= 0 {
+			return []redact.Span{{Start: i, End: i + len(value), Name: "TLS_KEY"}}
+		}
+		return nil
+	}}
+	r, err := s.Explain(context.Background(), "alice-a", d, salesScope, known, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []string{"Qz7xKb", "Wm4pRc", "Lt9sVd"} {
+		if strings.Contains(r.Bundle.Text, part) {
+			t.Fatalf("%q leaked: %s", part, r.Bundle.Text)
+		}
+	}
+	for i := 1; i <= 5; i++ {
+		if ref := "log/app/cur/" + strconv.Itoa(i); !slices.Contains(r.Bundle.Refs, ref) {
+			t.Fatalf("lost %s: %v", ref, r.Bundle.Refs)
+		}
+	}
+	if !strings.Contains(r.Bundle.Text, "loading key") || !strings.Contains(r.Bundle.Text, "key loaded") || r.Bundle.Hidden != 1 {
+		t.Fatalf("hidden %d: %s", r.Bundle.Hidden, r.Bundle.Text)
 	}
 }

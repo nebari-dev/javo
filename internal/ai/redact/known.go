@@ -84,7 +84,7 @@ func replace(text string, spans []Span) (string, int) {
 			continue
 		}
 		sb.WriteString(text[at:s.Start])
-		sb.WriteString("[redacted:" + s.Name + "]")
+		sb.WriteString(marker("[redacted:"+s.Name+"]", text[s.Start:s.End]))
 		at, n = s.End, n+1
 	}
 	sb.WriteString(text[at:])

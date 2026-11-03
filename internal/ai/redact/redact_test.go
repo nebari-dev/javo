@@ -36,6 +36,16 @@ func TestSecretsInALogLineAreHidden(t *testing.T) {
 	}
 }
 
+// The platform's own API tokens (an app's, a person's) are hidden wherever
+// they appear, with no keyword near them.
+func TestJavoTokensAreHidden(t *testing.T) {
+	const tok = "javo_abcdefgh234567ab_Zq8XbT3kLm9PvR2sW7yN4cJ6hF1dG5aE0uIo-_xYz12"
+	out, n := scanner(t).Redact("upload failed for " + tok + ", retrying")
+	if n != 1 || strings.Contains(out, "Zq8XbT3k") || out != "upload failed for "+Hidden+", retrying" {
+		t.Fatalf("got %q (%d hidden)", out, n)
+	}
+}
+
 func TestPlainLinesAreUnchanged(t *testing.T) {
 	s := scanner(t)
 	line := "ModuleNotFoundError: No module named 'plotly'"

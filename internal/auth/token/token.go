@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -91,6 +92,10 @@ var (
 	idLen     = idEncoding.EncodedLen(idBytes)
 	secretLen = base64.RawURLEncoding.EncodedLen(secretBytes)
 )
+
+// Pattern matches a token's text inside other text, so a secret scanner can
+// hide every token whatever surrounds it.
+var Pattern = regexp.MustCompile(regexp.QuoteMeta(Prefix) + fmt.Sprintf(`[a-z2-7]{%d}_[A-Za-z0-9_-]{%d}`, idLen, secretLen))
 
 // App is the app a token was made for. Name is the name of the app's Pod and
 // Service (its object name); Short is the name people see.
