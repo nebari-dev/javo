@@ -46,6 +46,8 @@ spec:
   # The kubelet reaches the pod directly, so no prefix here.
   readinessPath: "/"
   # A shell needs little; heavy work belongs in a bigger size or a job.
+  # A shell is light; the smallest default (not measured yet).
+  defaultResources: {cpu: 100m, memory: 256Mi}
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 1Gi}
