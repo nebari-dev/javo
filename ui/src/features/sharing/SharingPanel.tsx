@@ -9,7 +9,7 @@ import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { CopyLink } from '../../components/CopyLink'
 import { PeoplePicker, type Picked } from './PeoplePicker'
-import { PartTitle } from '../../components/Section'
+import { PartIcon } from '../../components/Section'
 import { Segmented } from '../../components/Segmented'
 
 const RANK: Access[] = ['Private', 'Restricted', 'SignedIn', 'Public']
@@ -60,7 +60,10 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
   return (
     <div className="two">
       <Card className="pad">
-        <PartTitle part="sharing">Who can open this app</PartTitle>
+        <h2 className="label">
+          <PartIcon part="sharing" size={15} />
+          Who can open this app
+        </h2>
         {view.actsAsOwner && (
           // An app that can write as its owner is a way to act as them for anyone it is shared with.
           <Banner tone={view.apiAccess === 'ReadWrite' && view.access !== 'Private' ? 'warn' : 'info'} title={view.actsAsOwner} />
@@ -124,9 +127,10 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
 function PrivateOnly() {
   return (
     <Card className="pad">
-      <PartTitle part="private" className="card-h">
+      <h2 className="label">
+        <PartIcon part="private" size={15} />
         Only you can open this app
-      </PartTitle>
+      </h2>
       <p className="muted tight">
         This kind of app cannot be shared: anyone who opens it gets a terminal with your files. To share your work, run it as an app
         that only shows results, such as Streamlit, Panel or Voila.
