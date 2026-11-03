@@ -57,53 +57,106 @@ if [[ -t 0 ]]; then
   bind '"\e[B": history-search-forward'
 fi
 
-# The prompt, on two lines so the cursor always starts near the same column:
-#   (base) alice@alice-report in ~/projects/report on main* ↑1
-#   [1] $
-# The active Python environment (a venv, else conda's), the user and host
-# (in a pod, the app's name), the folder (the last three parts), the git
-# branch with "*" when there are changes and the commits ahead (↑) and
-# behind (↓) its upstream. The prompt is rebuilt before each one is shown,
-# so what conda and venv activation add to PS1 never stays: the environment
-# is shown here, once, always in the same place.
-# When the last command failed, its exit status starts the second line, in
-# red with the "$", where a narrow terminal cannot cut it off. Terminals such as JupyterLab's keep xterm's dark-theme ANSI colours on
-# a light background, and draw bold colours in their bright shade, so only
-# shades that read on white and on black are used: text-colour bold, bright
-# blue, magenta and red. No green, yellow or cyan. Values from git go in
-# through variables, never into PS1 itself, so a branch name is never run.
+# The prompt, on two lines so the cursor always starts at the same column:
+#   alice-report in ~/projects/report on main* ↑1 via analysis
+#   ❯
+# The host (in a pod, the app's name), the folder (from ~, its last three
+# parts), the git branch with "*" when a tracked file changed and the commits
+# ahead (↑) and behind (↓) its upstream, and the active environment (a
+# venv, else conda's or pixi's). The arrow is green after a command that
+# succeeded; after one that failed it is red and its exit status comes first.
+# The prompt is rebuilt before each one is shown, so what conda and venv
+# activation add to PS1 never stays. Values from git go in through
+# variables, never into PS1 itself, so a branch name is never run.
 PROMPT_DIRTRIM=3
 __javo_has_git=
 command -v git >/dev/null && __javo_has_git=1
 
+# Colours, set once. Terminals differ in their palette (JupyterLab's keeps a
+# dark-theme palette on its light theme; javo's terminal page follows the
+# browser's light or dark mode), so on a 256-colour terminal the prompt uses
+# fixed shades that read on white and on black alike (each at least 3.5:1 on
+# both). Other terminals get the basic colours, and a dumb one or NO_COLOR
+# none. The marks are Unicode only in a UTF-8 locale: bash counts the second
+# line's bytes otherwise and puts the cursor in the wrong place.
+__javo_prompt_style() {
+  local mode=256
+  case ${TERM:-dumb} in
+    dumb | unknown) mode= ;;
+    *256color* | xterm* | screen* | tmux*) ;;
+    *) mode=8 ;;
+  esac
+  [ -z "${NO_COLOR:-}" ] || mode=
+  local -A sgr
+  case $mode in
+    256) sgr=([host]='1' [dim]='38;5;244' [dir]='1;38;5;32' [git]='38;5;134' [dirty]='38;5;166'
+      [env]='38;5;31' [ok]='1;38;5;29' [err]='1;38;5;167') ;;
+    8) sgr=([host]='1' [dim]='' [dir]='1;34' [git]='35' [dirty]='31' [env]='36' [ok]='32' [err]='1;31') ;;
+  esac
+  local k
+  for k in host dim dir git dirty env ok err; do
+    if [ -n "${sgr[$k]:-}" ]; then
+      printf -v "__javo_c_$k" '\\[\\e[%sm\\]' "${sgr[$k]}"
+    else
+      printf -v "__javo_c_$k" ''
+    fi
+  done
+  __javo_c_reset= __javo_title=
+  if [ -n "$mode" ]; then
+    __javo_c_reset='\[\e[0m\]'
+    __javo_title='\[\e]0;\h: \w\a\]'
+  fi
+  case ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} in
+    *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) __javo_arrow='❯' __javo_up='↑' __javo_down='↓' ;;
+    *) __javo_arrow='>' __javo_up='^' __javo_down='v' ;;
+  esac
+  [ "${EUID:-1}" != 0 ] || __javo_arrow='#'
+}
+__javo_prompt_style
+
+# The repository of the current folder, found by reading the folders up to
+# the root and the HEAD file: no git process, so the branch costs nothing.
+# Then two quick git calls: whether a tracked file changed (git diff, which
+# never looks at untracked files, the slow part of git status in big
+# repositories) and the commits ahead and behind. JAVO_PROMPT_GIT_STATUS=0
+# leaves those out and shows the branch only.
 __javo_git_info() {
-  __javo_git=
+  __javo_git= __javo_git_dirty= __javo_git_ab=
   [ -n "$__javo_has_git" ] || return 0
-  local out line head="" oid="" dirty="" ab=""
-  out=$(GIT_OPTIONAL_LOCKS=0 git status --porcelain=v2 --branch 2>/dev/null) || return 0
-  while IFS= read -r line; do
-    case $line in
-      '# branch.head '*) head=${line#\# branch.head } ;;
-      '# branch.oid '*) oid=${line#\# branch.oid } ;;
-      '# branch.ab '*)
-        line=${line#\# branch.ab }
-        local ahead=${line%% *} behind=${line##* }
-        [ "$ahead" = +0 ] || ab+=" ↑${ahead#+}"
-        [ "$behind" = -0 ] || ab+=" ↓${behind#-}"
-        ;;
-      '#'*) ;;
-      ?*) dirty='*' ;;
-    esac
-  done <<<"$out"
-  [ "$head" = "(detached)" ] && head=${oid:0:7}
-  __javo_git=$head
-  __javo_git_dirty=$dirty
-  __javo_git_ab=$ab
+  local d=$PWD gitdir=${GIT_DIR:-} head
+  while [ -z "$gitdir" ]; do
+    if [ -d "$d/.git" ]; then
+      gitdir=$d/.git
+    elif [ -f "$d/.git" ]; then
+      # A worktree or submodule: "gitdir: <path>", maybe relative.
+      read -r gitdir <"$d/.git" || true
+      gitdir=${gitdir#gitdir: }
+      [[ $gitdir == /* ]] || gitdir=$d/$gitdir
+    elif [ -z "$d" ]; then
+      return 0
+    else
+      d=${d%/*}
+    fi
+  done
+  read -r head <"$gitdir/HEAD" 2>/dev/null || return 0
+  case $head in
+    'ref: refs/heads/'*) __javo_git=${head#ref: refs/heads/} ;;
+    'ref: '*) __javo_git=${head#ref: } ;;
+    *) __javo_git=${head:0:7} ;;
+  esac
+  [ "${JAVO_PROMPT_GIT_STATUS:-1}" != 0 ] || return 0
+  GIT_OPTIONAL_LOCKS=0 git diff --no-ext-diff --quiet --ignore-submodules=dirty HEAD -- 2>/dev/null
+  [ $? != 1 ] || __javo_git_dirty='*'
+  local behind ahead
+  if read -r behind ahead < <(GIT_OPTIONAL_LOCKS=0 git rev-list --count --left-right '@{upstream}...HEAD' 2>/dev/null); then
+    [ "${ahead:-0}" = 0 ] || __javo_git_ab+=" $__javo_up$ahead"
+    [ "${behind:-0}" = 0 ] || __javo_git_ab+=" $__javo_down$behind"
+  fi
 }
 
 # The name of the active environment: a venv's prompt name (its folder when
 # it has none), else conda's environment (the folder's name for one
-# activated by path).
+# activated by path; pixi's shell sets it too).
 __javo_env_info() {
   __javo_env=
   if [ -n "${VIRTUAL_ENV:-}" ]; then
@@ -123,21 +176,19 @@ __javo_prompt() {
   history -n
   __javo_git_info
   __javo_env_info
-  local r='\[\e[0m\]' b='\[\e[1m\]' red='\[\e[31m\]' blue='\[\e[1;34m\]' magenta='\[\e[35m\]'
-  local mark=$b
-  PS1='\[\e]0;\u: \w\a\]'
-  [ -z "$__javo_env" ] || PS1+='(${__javo_env}) '
-  PS1+="$b"'\u@\h'"$r in $blue"'\w'"$r"
+  local r=$__javo_c_reset dim=$__javo_c_dim
+  PS1="$__javo_title$__javo_c_host"'\h'"$r $dim"'in'"$r $__javo_c_dir"'\w'"$r"
   if [ -n "$__javo_git" ]; then
-    PS1+=" on $magenta"'${__javo_git}'"$r$red"'${__javo_git_dirty}'"$r$magenta"'${__javo_git_ab}'"$r"
+    PS1+=" $dim"'on'"$r $__javo_c_git"'${__javo_git}'"$r$__javo_c_dirty"'${__javo_git_dirty}'"$r$dim"'${__javo_git_ab}'"$r"
   fi
+  [ -z "$__javo_env" ] || PS1+=" $dim"'via'"$r $__javo_c_env"'${__javo_env}'"$r"
   PS1+='\n'
-  if [ "$status" -ne 0 ]; then
-    PS1+="$red"'[${__javo_status}] '
-    mark=$red
-  fi
   __javo_status=$status
-  PS1+="$mark"'\$'"$r "
+  if [ "$status" -ne 0 ]; then
+    PS1+="$__javo_c_err"'${__javo_status} '"$__javo_arrow$r "
+  else
+    PS1+="$__javo_c_ok$__javo_arrow$r "
+  fi
   return "$status"
 }
 
@@ -145,4 +196,4 @@ case ";${PROMPT_COMMAND:-};" in
   *";__javo_prompt;"*) ;;
   *) PROMPT_COMMAND="__javo_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
 esac
-PS2='\[\e[2m\]... \[\e[0m\]'
+PS2="$__javo_c_dim... $__javo_c_reset"
