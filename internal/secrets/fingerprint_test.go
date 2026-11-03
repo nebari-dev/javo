@@ -42,6 +42,27 @@ func TestFingerprintsFindEveryOccurrenceOfAValue(t *testing.T) {
 	}
 }
 
+// Looking for many long values in a long text costs one keyed hash of each
+// value's length at every place in it. Past a bound on that work the text is
+// not searched but found whole, so it is hidden rather than sent unchecked.
+func TestTooMuchToSearchIsFoundWhole(t *testing.T) {
+	t.Parallel()
+	f := fingerprinter(t, strings.Repeat("k", 32))
+	var fps []secrets.Fingerprint
+	for i := range 32 {
+		fps = append(fps, f.Fingerprint("KEY", []byte(strings.Repeat("v", 16<<10+i))))
+	}
+	text := strings.Repeat("log line\n", 64<<10/9)
+	got := f.Find(text, fps)
+	if len(got) != 1 || got[0].Start != 0 || got[0].End != len(text) {
+		t.Fatalf("found %+v in %d bytes", got, len(text))
+	}
+	// Few short values in the same text are searched as usual.
+	if got := f.Find(text+"Vx9-kQ2pLr7mWz4s", []secrets.Fingerprint{f.Fingerprint("DB_PASSWORD", []byte("Vx9-kQ2pLr7mWz4s"))}); len(got) != 1 || got[0].Start != len(text) {
+		t.Fatalf("short value: %+v", got)
+	}
+}
+
 // Values too short to look for get an empty fingerprint that finds nothing.
 func TestShortValuesAreNotLookedFor(t *testing.T) {
 	t.Parallel()

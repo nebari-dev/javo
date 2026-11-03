@@ -175,6 +175,7 @@ const (
 	MsgAIWithheld      MessageCode = "AIWithheld"   // arg: count
 	MsgAITrimmed       MessageCode = "AITrimmed"    // args: used, total
 	MsgAINothingToTell MessageCode = "AINothingToTell"
+	MsgAITooManyAsks   MessageCode = "AITooManyAsks"
 	MsgAdminOnly       MessageCode = "AdminOnly"
 	MsgRestoreHeld     MessageCode = "RestoreHeldStart"
 	MsgRestoreNotFound MessageCode = "RestoreNotFound"
@@ -415,6 +416,7 @@ var messages = map[MessageCode]string{
 	MsgAIWithheld:          "%d log lines were not sent: they could not be checked for secrets.",
 	MsgAITrimmed:           "Only the newest %d of %d log lines fit.",
 	MsgAINothingToTell:     "This app is not failing, so there is nothing to explain.",
+	MsgAITooManyAsks:       "Too many requests to explain a failure. Wait a minute, then try again.",
 	MsgAdminOnly:           "Only platform admins can do this.",
 	MsgBackupNotFound:      "No database backup with that name.",
 	MsgBackupNotHere:       "This install keeps its data in Postgres. Restore a pg_dump backup with pg_restore, as the Backups page of the admin guide shows.",

@@ -57,26 +57,53 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 		ref, text string
 		log       bool
 	}
-	var pieces []piece
-	var logText []string
-	if r != nil && !withholdLogs {
-		var n int
-		var ok bool
-		logText, n, ok = redactLogs(evs, r)
-		b.Hidden += n
-		withholdLogs = !ok
+	// Cut only once redacted, so a secret straddling the cut is hidden whole.
+	wrap := func(e diagnose.Evidence, text string) string {
+		return fmt.Sprintf("<untrusted ref=%q kind=%q>%s</untrusted>\n", e.Ref, e.Kind, html.EscapeString(diagnose.Cut(text)))
 	}
-	logs := 0
+	// Log lines come oldest first (the previous run, then the current one).
+	// Only the newest that may fit are redacted: searching text for every
+	// secret value is the costly part, and older lines would be trimmed.
+	var logEvs []diagnose.Evidence
+	room := maxRunes
+	for _, e := range evs {
+		if e.Kind == diagnose.KindLog {
+			logEvs = append(logEvs, e)
+		} else {
+			room -= utf8.RuneCountInString(wrap(e, e.Whole()))
+		}
+	}
+	first := len(logEvs)
+	for ; first > 0; first-- {
+		n := utf8.RuneCountInString(wrap(logEvs[first-1], logEvs[first-1].Whole()))
+		if n > room {
+			break
+		}
+		room -= n
+	}
+	sendLogs := r != nil && !withholdLogs
+	var logText []string
+	if sendLogs {
+		var n int
+		logText, n, sendLogs = redactLogs(logEvs[first:], r)
+		b.Hidden += n
+	}
+	var pieces []piece
+	logs, dropped := 0, 0
 	for _, e := range evs {
 		isLog := e.Kind == diagnose.KindLog
-		if isLog && (r == nil || withholdLogs) {
+		if isLog && !sendLogs {
 			b.Withheld++
 			continue
 		}
 		var text string
 		switch {
+		case isLog && logs < first:
+			logs++
+			dropped++
+			continue
 		case isLog:
-			text, logText = logText[0], logText[1:]
+			text = logText[logs-first]
 		case r != nil:
 			var n int
 			text, n = r.Redact(e.Whole())
@@ -84,10 +111,7 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 		default:
 			text = e.Whole()
 		}
-		// Cut only once redacted, so a secret straddling the cut is hidden whole.
-		text = diagnose.Cut(text)
-		pieces = append(pieces, piece{ref: e.Ref, log: isLog,
-			text: fmt.Sprintf("<untrusted ref=%q kind=%q>%s</untrusted>\n", e.Ref, e.Kind, html.EscapeString(text))})
+		pieces = append(pieces, piece{ref: e.Ref, log: isLog, text: wrap(e, text)})
 		if isLog {
 			logs++
 		}
@@ -96,8 +120,6 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 	for _, p := range pieces {
 		size += utf8.RuneCountInString(p.text)
 	}
-	// Log lines come oldest first (the previous run, then the current one).
-	dropped := 0
 	for i := 0; i < len(pieces) && size > maxRunes; i++ {
 		if pieces[i].log {
 			size -= utf8.RuneCountInString(pieces[i].text)
@@ -131,17 +153,15 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRune
 	return b
 }
 
-// redactLogs redacts the whole text of evs' log lines in one go, joined by
-// line breaks, so a secret of several lines (a key file) is found across the
-// lines it spans. It returns each line's redacted text, in order, and how
+// redactLogs redacts the whole text of the log lines evs in one go, joined
+// by line breaks, so a secret of several lines (a key file) is found across
+// the lines it spans. It returns each line's redacted text, in order, and how
 // many values were hidden; ok is false when r did not keep one text per line
 // (the lines cannot then be told apart, so none may be sent).
 func redactLogs(evs []diagnose.Evidence, r Redactor) (lines []string, hidden int, ok bool) {
-	var whole []string
-	for _, e := range evs {
-		if e.Kind == diagnose.KindLog {
-			whole = append(whole, e.Whole())
-		}
+	whole := make([]string, len(evs))
+	for i, e := range evs {
+		whole[i] = e.Whole()
 	}
 	if len(whole) == 0 {
 		return nil, 0, true

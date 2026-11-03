@@ -78,9 +78,19 @@ func (f *Fingerprinter) Fingerprint(name string, value []byte) Fingerprint {
 	return fp
 }
 
+// maxFindWork bounds one Find, in bytes hashed: a few hundred milliseconds.
+// Each keyed hash costs about hashOverhead bytes beyond its input.
+const (
+	maxFindWork  = 1 << 30
+	hashOverhead = 512
+)
+
 // Find returns every place in text where one of the values fps were made
 // of appears, by hashing each stretch of text of each fingerprint's length.
-// Fingerprints of another key, or of values too short, find nothing.
+// Fingerprints of another key, or of values too short, find nothing. When
+// that would hash more than maxFindWork bytes, text is not searched and one
+// match covering all of it is returned, so it is hidden whole rather than
+// sent unchecked.
 func (f *Fingerprinter) Find(text string, fps []Fingerprint) []Match {
 	byLength := map[int]map[string]string{}
 	for _, fp := range fps {
@@ -91,6 +101,13 @@ func (f *Fingerprinter) Find(text string, fps []Fingerprint) []Match {
 			byLength[fp.Length] = map[string]string{}
 		}
 		byLength[fp.Length][fp.MAC] = fp.Name
+	}
+	work := 0
+	for n := range byLength {
+		work += (len(text) - n + 1) * (n + hashOverhead)
+	}
+	if work > maxFindWork {
+		return []Match{{Start: 0, End: len(text), Name: "too much to check"}}
 	}
 	var out []Match
 	m := f.mac()

@@ -2,6 +2,7 @@ package apps_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,29 @@ func TestExplainPreviewCallsNoModel(t *testing.T) {
 	r := apitest.Decode[apitest.ExplainJSON](t, f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{"preview":true}`, f.Session(apitest.PlanOwner)))
 	if p.Calls() != 0 || !strings.Contains(r.Bundle.Text, `ref="condition/Started"`) {
 		t.Fatalf("preview: %d calls, %+v", p.Calls(), r)
+	}
+}
+
+// Explaining, preview or not, is limited per person: it reads the cluster
+// and searches the evidence for every stored secret value, and a preview
+// uses no AI allowance. Another person is not held back.
+func TestExplainIsRateLimitedPerPerson(t *testing.T) {
+	t.Parallel()
+	p := aitest.New()
+	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.CrashedApp(), apitest.RunningSalesOf("bob-bbbbbbbb"), gatewaytest.Template("streamlit", "streamlit"))
+	alice := f.Session(apitest.PlanOwner)
+	var w *httptest.ResponseRecorder
+	for range 50 {
+		if w = f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{"preview":true}`, alice); w.Code != http.StatusOK {
+			break
+		}
+	}
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" ||
+		apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgAITooManyAsks) {
+		t.Fatalf("50 previews: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if w := f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{"preview":true}`, f.Session("bob-bbbbbbbb")); w.Code == http.StatusTooManyRequests {
+		t.Fatalf("bob limited by alice's requests: %s", w.Body)
 	}
 }
 

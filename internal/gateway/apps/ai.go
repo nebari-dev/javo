@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
 	"github.com/nebari-dev/javo/internal/plans"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
@@ -69,7 +71,14 @@ type aiAPI struct {
 	plans    *plansAPI
 	// includeOwners names app owners in the admin report (ai.admin.includeOwners).
 	includeOwners bool
+	// limit holds back a person asking to explain too often (explainLimit).
+	limit *ratelimit.Buckets
 }
+
+// explainLimit is how often one person may ask to explain a failure, preview
+// or not: each ask reads the cluster and searches the evidence for every
+// secret value the app's owner stored, and a preview uses no AI allowance.
+var explainLimit = ratelimit.Spec{Every: 6 * time.Second, Burst: 10}
 
 func (a *aiAPI) on(feature bool) bool { return a.svc != nil && feature }
 
@@ -92,7 +101,7 @@ func (a *aiAPI) register(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "explainDiagnosis", Method: http.MethodPost, Path: "/api/workspaces/{name}/diagnosis/explain",
 		Summary: "Ask the model to explain a failure; its evidence is checked against what was sent", Tags: tag,
-		Errors: []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict},
+		Errors: []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict, http.StatusTooManyRequests},
 	}, a.explain)
 
 	huma.Register(api, huma.Operation{
@@ -119,6 +128,10 @@ func (a *aiAPI) register(api huma.API) {
 }
 
 func (a *aiAPI) explain(ctx context.Context, in *explainInput) (*explainOutput, error) {
+	if wait, ok := a.limit.Take(ratelimit.Bucket{Key: authn.User(ctx).ID, Spec: explainLimit}); !ok {
+		return nil, problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgAITooManyAsks)).
+			WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	}
 	app, err := a.ws.authorized(ctx, &nameInput{Name: in.Name, Owner: in.Owner}, authz.ActManageApp)
 	if err != nil {
 		return nil, err

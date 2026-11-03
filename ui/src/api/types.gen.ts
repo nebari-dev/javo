@@ -4879,6 +4879,10 @@ export type ExplainDiagnosisErrors = {
      */
     422: ErrorModel;
     /**
+     * Too Many Requests
+     */
+    429: ErrorModel;
+    /**
      * Internal Server Error
      */
     500: ErrorModel;

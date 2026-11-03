@@ -36,6 +36,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
 	"github.com/nebari-dev/javo/internal/gateway/sizing"
 	"github.com/nebari-dev/javo/internal/gateway/storage"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
@@ -876,7 +877,7 @@ func (s *Workspaces) Register(api huma.API) {
 	s.registerDiagnosis(api)
 	pa := &plansAPI{ws: s, plans: c.Plans}
 	pa.register(api)
-	(&aiAPI{ws: s, svc: c.AI, features: c.AIFeatures, plans: pa, includeOwners: c.AIIncludeOwners}).register(api)
+	(&aiAPI{ws: s, svc: c.AI, features: c.AIFeatures, plans: pa, includeOwners: c.AIIncludeOwners, limit: ratelimit.NewBuckets()}).register(api)
 	s.registerLogs(api)
 	s.registerSizes(api)
 	s.registerLaunch(api)

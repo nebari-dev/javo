@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,6 +60,33 @@ func TestEachItemIsDelimitedAndCannotBreakOut(t *testing.T) {
 	}
 	if !strings.HasPrefix(b.Text, `<untrusted ref="event/e1" kind="event">`) {
 		t.Fatalf("text %s", b.Text)
+	}
+}
+
+// recordingRedactor hides nothing and keeps what it was asked to redact.
+type recordingRedactor struct{ seen []string }
+
+func (r *recordingRedactor) Redact(s string) (string, int) {
+	r.seen = append(r.seen, s)
+	return s, 0
+}
+
+// Log lines too old to fit are not redacted at all: searching text for every
+// secret value is the costly part, and they would not be sent.
+func TestLogLinesThatCannotFitAreNotRedacted(t *testing.T) {
+	var items []diagnose.Evidence
+	for i := 1; i <= 200; i++ {
+		items = append(items, ev(diagnose.KindLog, fmt.Sprintf("log/app/cur/%d", i), fmt.Sprintf("line %d %s", i, strings.Repeat("a", 90))))
+	}
+	r := &recordingRedactor{}
+	b := BuildBundle(items, r, false, 1000)
+	if b.Trimmed == nil || b.Trimmed.Total != 200 || b.Trimmed.Used == 0 || !slices.Contains(b.Refs, "log/app/cur/200") {
+		t.Fatalf("trimmed %+v refs %v", b.Trimmed, b.Refs)
+	}
+	for _, s := range r.seen {
+		if strings.Contains(s, "line 1 ") {
+			t.Fatalf("the oldest line was redacted, though it cannot be sent")
+		}
 	}
 }
 
