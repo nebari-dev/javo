@@ -12,6 +12,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
+	"github.com/nebari-dev/javo/internal/backup/restic/restictest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
@@ -37,8 +38,9 @@ func body(t *testing.T, path string) string {
 
 // What a home's backup Job and restore Job do, run here against a folder.
 func TestHomeJobBacksUpAndRestoresAHome(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	repo := restic.Repo{Bin: resticBin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=pw"}}
+	repo := restictest.New(t, "pw")
 	j := backup.HomeJob{Repo: repo, Dir: home, Keep: restic.Keep{Daily: 7}}
 
 	put(t, filepath.Join(home, "report.txt"), "v1")
@@ -84,8 +86,9 @@ func TestHomeJobBacksUpAndRestoresAHome(t *testing.T) {
 // Each run's snapshot carries its run's tag, and retention still counts the
 // home's snapshots together (one a day here), whatever run made them.
 func TestHomeBackupsOfRunsAreTaggedAndKeptTogether(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	repo := restic.Repo{Bin: resticBin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=pw"}}
+	repo := restictest.New(t, "pw")
 	for i, run := range []string{"r1", "r2", "r3"} {
 		put(t, filepath.Join(home, "f.txt"), strings.Repeat("x", i+1))
 		if r := (backup.HomeJob{Repo: repo, Dir: home, Keep: restic.Keep{Daily: 1}, Run: run}).Backup(ctx); r.Reason != "" {
@@ -103,6 +106,7 @@ func TestHomeBackupsOfRunsAreTaggedAndKeptTogether(t *testing.T) {
 
 // The result fits a termination message (4096 bytes) and reads back.
 func TestJobResultRoundTripsWithinATerminationMessage(t *testing.T) {
+	t.Parallel()
 	r := backup.JobResult{Snapshot: "abc", Reason: string(reasons.BackupFailed)}
 	for range 100 {
 		r.Evidence = append(r.Evidence, strings.Repeat("x", 200))
@@ -124,9 +128,11 @@ func TestJobResultRoundTripsWithinATerminationMessage(t *testing.T) {
 // key=value lines: where it reads, restic's progress, the snapshot with what
 // was new and what was uploaded where, and what retention kept.
 func TestHomeBackupLogsEachEventAsKeyValues(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	put(t, filepath.Join(home, "a", "b.txt"), "hello")
-	repo := restic.Repo{Bin: resticBin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=pw"}}
+	// No repository yet: the first backup makes it.
+	repo := restic.Repo{Bin: restictest.Bin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=pw"}}
 	var out bytes.Buffer
 	at := time.Date(2026, 11, 2, 14, 3, 12, 0, time.UTC)
 	log := &backup.EventLog{W: &out, Now: func() time.Time { return at }, Fields: []string{"step", "home", "person", "Alice Example (alice)"}}
@@ -152,6 +158,7 @@ func TestHomeBackupLogsEachEventAsKeyValues(t *testing.T) {
 }
 
 func TestEventLogQuotesValuesWithSpaces(t *testing.T) {
+	t.Parallel()
 	var out bytes.Buffer
 	(&backup.EventLog{W: &out, Now: func() time.Time { return time.Date(2026, 1, 1, 9, 5, 0, 0, time.UTC) }}).Event("upload", "dest", "s3://b/x", "note", "two words", "n", 3)
 	if got := out.String(); got != "09:05:00 action=upload dest=s3://b/x note=\"two words\" n=3\n" {
@@ -162,6 +169,7 @@ func TestEventLogQuotesValuesWithSpaces(t *testing.T) {
 // Who owns a volume's files: its root's owner, or when the root is root's
 // (a volume made by the storage driver), whoever owns most of what is in it.
 func TestPickOwner(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		root    backup.Owner
 		entries []backup.Owner

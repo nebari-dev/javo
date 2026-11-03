@@ -9,24 +9,12 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/backup"
-	"github.com/nebari-dev/javo/internal/backup/restic"
+	"github.com/nebari-dev/javo/internal/backup/restic/restictest"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
 
 var ctx = context.Background()
-
-func resticBin(t *testing.T) string {
-	t.Helper()
-	if b := os.Getenv("JAVO_TEST_RESTIC"); b != "" {
-		return b
-	}
-	b, _ := filepath.Abs("../../bin/restic")
-	if _, err := os.Stat(b); err != nil {
-		t.Fatalf("no restic at %s: run make bin/restic or set JAVO_TEST_RESTIC", b)
-	}
-	return b
-}
 
 func dbFile(t *testing.T, dir, name, body string) string {
 	t.Helper()
@@ -40,8 +28,9 @@ func dbFile(t *testing.T, dir, name, body string) string {
 // Each backup file is copied to the bucket, only the newest Keep copies
 // stay there, and the outcome is recorded for the Backups page.
 func TestDatabaseCopiesGoToTheBucketAndAreRecorded(t *testing.T) {
+	t.Parallel()
 	db := storetest.New(t)
-	repo := restic.Repo{Bin: resticBin(t), URL: filepath.Join(t.TempDir(), "repo"), Env: []string{"RESTIC_PASSWORD=pw"}}
+	repo := restictest.New(t, "pw")
 	at := time.Date(2026, 11, 2, 3, 0, 0, 0, time.UTC)
 	c := backup.DatabaseCopier{Repo: repo, Facts: db.Facts(), Keep: 2, Now: func() time.Time { return at }, Dest: "s3://b/javo/database"}
 
