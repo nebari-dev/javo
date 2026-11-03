@@ -31,6 +31,7 @@ kubectl -n javo-system exec deploy/javo -- \
 ```
 
 - `--group` puts the account in a group, the way an identity provider would.
+- **Wrong passwords** are limited per client address (an IPv6 client counts as its /64): a guessing address is refused for a while. Wrong passwords at one username from any address make its next sign-ins wait, from half a second up to 8 seconds, but never refuse them, so nobody can lock a person out by guessing.
 - **Reset a password or change groups**: run the same command with `--force`. Alice gets a new password, her current sessions end and her API tokens are revoked.
 - **Remove a person**: `javo user remove alice`, for a local account or for someone who signs in through single sign-on (by their username, email or identity name). Their sessions end and their API tokens and secrets are deleted. If more than one person signs in as `alice`, nothing is removed and the command lists their identity names; rerun with one. A person with apps or jobs is removed only with `--delete-apps-and-jobs`. Their home folder is forgotten (no longer listed or backed up) but its files are kept, unless you add `--delete-home`. Someone removed who signs in through the identity provider can sign in again until the provider stops them.
 

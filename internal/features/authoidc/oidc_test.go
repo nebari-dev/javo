@@ -34,7 +34,9 @@ func (h *fakeHost) API() huma.API { return nil }
 func (h *fakeHost) Handle(pattern string, hd http.Handler) {
 	h.mux.Handle(pattern, hd)
 }
-func (h *fakeHost) LimitLogin(context.Context, string) error { return nil }
+func (h *fakeHost) LimitLogin(context.Context, string) (func(bool), error) {
+	return func(bool) {}, nil
+}
 func (h *fakeHost) Now() time.Time                           { return time.Now() }
 func (h *fakeHost) Reject(status int, c reasons.MessageCode) error {
 	return errors.New(reasons.Msg(c))

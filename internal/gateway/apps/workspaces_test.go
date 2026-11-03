@@ -502,32 +502,26 @@ func TestLoginGuessesLimitOnlyTheGuessingAddress(t *testing.T) {
 	}
 }
 
-// Guesses spread over many addresses still hit a looser cap per username.
-func TestLoginIsRateLimitedPerUsername(t *testing.T) {
+// Wrong passwords spread over many addresses slow the next attempts at that
+// username instead of refusing them, so the right password still signs in.
+func TestGuessesFromManyAddressesSlowButDoNotLockOut(t *testing.T) {
 	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
-	var last *httptest.ResponseRecorder
-	for i := 0; i < 200; i++ {
-		last = f.LoginFrom(fmt.Sprintf("192.0.%d.%d", i/250, i%250+1), "alice", "wrong")
-		if last.Code == http.StatusTooManyRequests {
-			break
+	for i := 0; i < 6; i++ {
+		if w := f.LoginFrom(fmt.Sprintf("192.0.2.%d", i+1), "alice", "wrong"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("guess %d: %d", i, w.Code)
 		}
 	}
-	if last.Code != http.StatusTooManyRequests {
-		t.Fatalf("never limited: %d", last.Code)
+	start := time.Now()
+	if w := f.LoginFrom("198.51.100.1", "alice", "alice-password"); w.Code != http.StatusOK {
+		t.Fatalf("alice after the guesses: %d", w.Code)
 	}
-	if last.Header().Get("Retry-After") == "" {
-		t.Fatal("no Retry-After")
+	if waited := time.Since(start); waited < 500*time.Millisecond {
+		t.Fatalf("alice waited only %v after six wrong guesses", waited)
 	}
-	if p := apitest.Decode[apitest.Problem](t, last); p.Title != reasons.Msg(reasons.MsgTooManyAttempts) {
-		t.Fatalf("title %q", p.Title)
-	}
-	// The right password is refused too while limited; other users are not affected.
-	if w := f.LoginFrom("198.51.100.1", "alice", "alice-password"); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("limited user signed in: %d", w.Code)
-	}
-	if w := f.LoginFrom("198.51.100.2", "bob", "wrong"); w.Code != http.StatusUnauthorized {
-		t.Fatalf("other user: %d", w.Code)
+	start = time.Now()
+	if w := f.LoginFrom("198.51.100.2", "bob", "wrong"); w.Code != http.StatusUnauthorized || time.Since(start) > 400*time.Millisecond {
+		t.Fatalf("other user: %d after %v", w.Code, time.Since(start))
 	}
 }
 
