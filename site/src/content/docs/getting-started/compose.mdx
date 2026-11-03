@@ -112,7 +112,7 @@ docker compose --profile build down -v
 
 ## Serve it over HTTPS
 
-The Compose install serves plain HTTP on the published port. To serve it over HTTPS, put a TLS proxy in front, set `JAVO_PUBLIC_URL` to the `https://` address, and in `deploy/compose/values.yaml` set `gateway.secureCookies: true` and the proxy's address in `gateway.trustedProxies`.
+The Compose install serves plain HTTP on the published port. To serve it over HTTPS, put a TLS proxy in front, set `JAVO_PUBLIC_URL` to the `https://` address (the session cookie is then marked Secure), and in `deploy/compose/values.yaml` set the proxy's address in `gateway.trustedProxies`.
 
 <Aside type="note" title="Sharing on one host">
 The Compose install serves apps on the same host as the web UI and still allows sharing (`config.sharing.allowOneHost: true`). A shared app could then act through its viewer's session on the web UI, so share only apps everyone trusts. Platform admins cannot open other people's apps and fork previews do not open in this mode. Serving apps on a host of their own removes that risk: see [App addresses](/admin/app-addresses/).

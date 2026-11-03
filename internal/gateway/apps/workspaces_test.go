@@ -25,6 +25,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
@@ -97,13 +98,30 @@ func TestLoginSetsSessionCookieAndLogoutEndsIt(t *testing.T) {
 	}
 }
 
-func TestPlainCookieWithoutTLS(t *testing.T) {
+// The session cookie is Secure whenever the platform's address is https
+// (urls.scheme, https by default), whatever --secure-cookies says; only an
+// http address gets a plain cookie, unless the flag asks for Secure.
+func TestSessionCookieFollowsTheURLScheme(t *testing.T) {
 	t.Parallel()
-	f := apitest.New(t, apitest.Options{Secure: false})
-	w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
-	cs := w.Result().Cookies()
-	if len(cs) != 1 || cs[0].Secure {
-		t.Fatalf("cookies %+v", cs)
+	for _, c := range []struct {
+		name   string
+		scheme string
+		flag   bool
+		secure bool
+	}{
+		{"https by default", "", false, true},
+		{"https", "https", false, true},
+		{"http", "http", false, false},
+		{"http with the flag", "http", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := apitest.New(t, apitest.Options{Secure: c.flag, Urls: config.URLs{Scheme: c.scheme}})
+			w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
+			cs := w.Result().Cookies()
+			if len(cs) != 1 || cs[0].Secure != c.secure {
+				t.Fatalf("cookies %+v", cs)
+			}
+		})
 	}
 }
 

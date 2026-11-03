@@ -85,7 +85,7 @@ func (o *gatewayOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.templatesDir, "templates-dir", "", "directory of built-in template files (*.yaml) to install into the database at start")
 	f.StringSliceVar(&o.trustedProxies, "trusted-proxies", nil,
 		"CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)")
-	f.BoolVar(&o.secure, "secure-cookies", false, "mark the session cookie Secure (set when served over TLS)")
+	f.BoolVar(&o.secure, "secure-cookies", false, "mark the session cookie Secure even when urls.scheme is http (it always is with https)")
 }
 
 func NewGateway() *cobra.Command {

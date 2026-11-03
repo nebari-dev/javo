@@ -27,6 +27,12 @@ registry=${JAVO_IMAGE_REGISTRY:-}
 tag=${JAVO_IMAGE_TAG:?set JAVO_IMAGE_TAG}
 public_host="${public_url#*://}"
 public_host="${public_host%%/*}"
+# The scheme browsers use: the session cookie is Secure only with https,
+# since a browser drops a Secure cookie set over plain http.
+case "$public_url" in
+https://*) public_scheme=https ;;
+*) public_scheme=http ;;
+esac
 export KUBECONFIG=/tmp/kubeconfig
 
 current=start
@@ -159,7 +165,7 @@ step "helm upgrade --install"
 /opt/javo/scripts/install/install-chart.sh "$chart" "$ns" $restart \
   -f "$values" \
   --set image.repository="${javo_image%:*}" --set image.tag="$tag" --set image.pullPolicy="$pull_policy" \
-  --set publicHost="$public_host" $template_args \
+  --set publicHost="$public_host" --set config.urls.scheme="$public_scheme" $template_args \
   --force-conflicts --wait --timeout 10m
 
 step "local user admin"

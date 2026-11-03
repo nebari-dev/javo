@@ -46,9 +46,6 @@ The chart lives in `deploy/helm/javo` in the repository. It installs one image, 
        enabled: true
        secretName: javo-tls
 
-   gateway:
-     secureCookies: true   # served over TLS
-
    config:
      roles:
        platformAdmin: {groups: [javo-admins]}
@@ -92,7 +89,7 @@ Leave `ingress` off and reach the gateway's Service directly:
 kubectl -n javo-system port-forward svc/javo-gateway 8080:80
 ```
 
-Then open `http://localhost:8080`. Leave `gateway.secureCookies` off for plain HTTP.
+Then open `http://localhost:8080`. For plain HTTP, set `config.urls.scheme: http`: with the default `https` the session cookie is marked Secure, which a browser may refuse over HTTP.
 </Aside>
 
 ## What the chart creates
