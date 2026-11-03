@@ -158,3 +158,16 @@ func TestPromptDegradesOnDumbTerminals(t *testing.T) {
 		t.Fatalf("prompt %q, want the branch and the failed status", text)
 	}
 }
+
+// A pod that sets no locale gets C.UTF-8 when the system has it, so the
+// prompt's marks and programs' Unicode output work.
+func TestShellUsesUTF8WhenNoLocaleIsSet(t *testing.T) {
+	t.Parallel()
+	if _, err := os.Stat("/usr/lib/locale/C.utf8"); err != nil {
+		t.Skip("this system has no C.utf8 locale")
+	}
+	_, text := prompt(t, []string{"LANG="}, "true")
+	if !strings.Contains(text, "❯") {
+		t.Fatalf("prompt %q, want the Unicode arrow under C.UTF-8", text)
+	}
+}

@@ -17,6 +17,12 @@ fi
 # pod-user.sh puts them.
 [[ ":$PATH:" == *":/opt/javo/bin:"* ]] || PATH=$PATH:/opt/javo/bin
 
+# Pods set no locale, which leaves bash and every program in plain ASCII:
+# use C.UTF-8 when the system has it (glibc images ship it).
+if [ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ] && [ -d /usr/lib/locale/C.utf8 ]; then
+  export LANG=C.UTF-8
+fi
+
 # History: large, shared between terminals (appended and re-read at every
 # prompt), no repeated or space-prefixed entries.
 HISTSIZE=10000
