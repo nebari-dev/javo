@@ -201,6 +201,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	if p.appsShareOrigin() && fromAnotherApp(r, p.cfg.Exposure.BasePath(t.Owner, t.Name)) {
+		refuseFromAnotherApp(w, r)
+		return
+	}
 	if p.cfg.Exposure.SeparateHost() && t.Rest == ticketPath {
 		p.redeem(w, r, t)
 		return

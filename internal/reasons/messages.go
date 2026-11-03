@@ -21,6 +21,7 @@ const (
 	// each other (path mode with an apps host).
 	MsgAdminOpenNeedsAppsHost   MessageCode = "AdminOpenNeedsAppsHost"
 	MsgForkPreviewNeedsAppsHost MessageCode = "ForkPreviewNeedsAppsHost"
+	MsgOpenedFromAnotherApp     MessageCode = "OpenedFromAnotherApp"
 	MsgAppNotFound              MessageCode = "AppNotFound"
 	MsgAppChanged               MessageCode = "AppChanged"
 	MsgTemplateChanged          MessageCode = "TemplateChanged"
@@ -265,6 +266,7 @@ var messages = map[MessageCode]string{
 		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgForkPreviewNeedsAppsHost: "Previews of pull requests from forks do not open while apps share one address, because a stranger's code could act as you. " +
 		"Ask your platform admin to give each app its own address (urls.mode subdomain with urls.appsDomain).",
+	MsgOpenedFromAnotherApp:  "This app cannot be opened from inside another app. Open it from its own address or from your list of apps.",
 	MsgAppNotFound:           "No app with that name.",
 	MsgAppChanged:            "The app changed while you were working on it. Reload and try again.",
 	MsgTemplateChanged:       "The template changed while you were working on it. Reload and try again.",
