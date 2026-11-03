@@ -31,8 +31,10 @@ import (
 //   - requests without Sec-Fetch headers: clients other than browsers, which
 //     have no ambient cookie of the visitor to abuse;
 //   - top-level navigations (a link, a new tab, a typed address);
-//   - requests from another site or the same site, which the browser's
-//     SameSite cookie rules already keep from carrying the visitor's session;
+//   - requests from another site, which the browser's SameSite cookie rules
+//     keep from carrying the visitor's session, and from the same site:
+//     those do carry it, but while apps share an origin no app runs on
+//     another host of the site, so they do not come from an app;
 //   - websocket handshakes, which by standard carry no Referer at all.
 func fromAnotherApp(r *http.Request, base string) bool {
 	site := r.Header.Get("Sec-Fetch-Site")
@@ -50,6 +52,26 @@ func fromAnotherApp(r *http.Request, base string) bool {
 		return false
 	}
 	return !ownPage
+}
+
+// fromSiblingApp is true when a browser request was started by a page of
+// another host of the same site, in subdomain mode. Every app has a host of
+// its own there, but the apps and the UI host are one site, and SameSite does
+// not keep the visitor's cookie for this app off requests from the same
+// site. Only a top-level GET or HEAD navigation (a link, which also carries
+// the ticket hop from the UI host) gets through: a page of a sibling app
+// cannot fetch, frame, open a websocket to or post a form to this app as
+// the visitor. Refusing frames this way, rather than adding frame-ancestors
+// to the app's own Content-Security-Policy, leaves the app's headers alone;
+// a frame on another site gets no cookie (SameSite Lax), so it opens the app
+// only as an anonymous visitor would.
+func fromSiblingApp(r *http.Request) bool {
+	if r.Header.Get("Sec-Fetch-Site") != "same-site" {
+		return false
+	}
+	link := r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document" &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead)
+	return !link
 }
 
 // referer is the request's Referer, when it has one that parses as an

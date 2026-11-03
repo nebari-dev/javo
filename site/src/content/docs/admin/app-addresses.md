@@ -69,6 +69,10 @@ The guard stops pages that do not try to get around it. It does not stop a page 
 
 So in path mode, with or without an apps host, share apps only with people who trust every app they can open. For apps that run code you do not trust, use subdomain mode.
 
+## Subdomain mode: apps are one site
+
+In subdomain mode every app has an origin of its own, but all apps and the web UI's host are one site (`example.com`). Browsers send a cookie with requests from the same site whatever its `SameSite` setting, so a page of one app could send requests to another app with the visitor's cookie for it. The proxy refuses, with "This app cannot be opened from inside another app", every request whose `Sec-Fetch-Site` is `same-site` unless it is a top-level `GET` navigation (following a link, which is also how the sign-in hop through the UI host arrives): a `fetch`, an image, a frame or iframe, a websocket or a form post from another host of the site does not reach the app. Requests from the app's own pages are `same-origin` and are not affected. A frame on another site gets no cookie of the visitor's, so it opens the app only as an anonymous visitor would.
+
 ## Open websockets
 
 Every request is checked when it arrives. A websocket stays open after that, so the gateway checks it again every 30 seconds, with the same rules as a new request, and closes it once the visitor may no longer open the app: a share was removed, the session ended, or the app was deleted. Until that check, up to 30 seconds, an open websocket keeps working. A check that cannot reach the database closes the websocket too.

@@ -208,7 +208,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	if p.appsShareOrigin() && fromAnotherApp(r, p.cfg.Exposure.BasePath(t.Owner, t.Name)) {
+	if p.startedByAnotherApp(r, t) {
 		refuseFromAnotherApp(w, r)
 		return
 	}
@@ -356,6 +356,15 @@ func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision, roles []au
 		return reasons.MsgPreviewNeedsAppsHost, true
 	}
 	return "", false
+}
+
+// startedByAnotherApp is true when a page of another app could have sent r:
+// fromAnotherApp while apps share an origin, fromSiblingApp in subdomain mode.
+func (p *proxy) startedByAnotherApp(r *http.Request, t exposure.Target) bool {
+	if p.appsShareOrigin() {
+		return fromAnotherApp(r, p.cfg.Exposure.BasePath(t.Owner, t.Name))
+	}
+	return fromSiblingApp(r)
 }
 
 // appsShareOrigin is true unless every app has an origin of its own: apps on

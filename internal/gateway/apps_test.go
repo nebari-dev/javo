@@ -428,6 +428,47 @@ func TestAnAppAddressWithoutItsTrailingSlashOpens(t *testing.T) {
 	}
 }
 
+// In subdomain mode every app has an origin of its own, but all of them, and
+// the UI host, are one site: a sibling app's page could send requests that
+// carry the visitor's cookie for this app. Only top-level GET navigations
+// from the same site reach the app.
+func TestSubdomainModeRefusesRequestsFromSiblingApps(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(nil))
+	appURL := "https://" + sales + "." + appsHost + "/"
+	cookie := f.open(f.ui(alice()), appURL)
+	cases := []struct {
+		name, method, site, mode, dest string
+		refused                        bool
+	}{
+		{"fetch from a sibling app", "GET", "same-site", "cors", "empty", true},
+		{"image from a sibling app", "GET", "same-site", "no-cors", "image", true},
+		{"iframe on a sibling app", "GET", "same-site", "navigate", "iframe", true},
+		{"form posted from a sibling app", "POST", "same-site", "navigate", "document", true},
+		{"websocket from a sibling app", "GET", "same-site", "websocket", "empty", true},
+		{"link from a sibling app or the web UI", "GET", "same-site", "navigate", "document", false},
+		{"fetch from the app's own page", "GET", "same-origin", "cors", "empty", false},
+		{"post from the app's own page", "POST", "same-origin", "cors", "empty", false},
+		{"no fetch metadata (curl, an API client)", "GET", "", "", "", false},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(c.method, appURL+"api/kernels", nil)
+		r.Host = sales + "." + appsHost
+		r.AddCookie(cookie)
+		for k, v := range map[string]string{"Sec-Fetch-Site": c.site, "Sec-Fetch-Mode": c.mode, "Sec-Fetch-Dest": c.dest} {
+			if v != "" {
+				r.Header.Set(k, v)
+			}
+		}
+		w := httptest.NewRecorder()
+		f.srv.ServeHTTP(w, r)
+		refused := w.Code == http.StatusForbidden && strings.Contains(w.Body.String(), html.EscapeString(reasons.Msg(reasons.MsgOpenedFromAnotherApp)))
+		if refused != c.refused || !refused && w.Code != 200 {
+			t.Errorf("%s: %d %s", c.name, w.Code, w.Body)
+		}
+	}
+}
+
 func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
 	t.Parallel()
 	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(nil))
@@ -771,13 +812,18 @@ func sharedWithDS() *model.Sharing {
 var salesURL = "https://" + appsHost + "/u/" + apitest.AliceID + "/sales-app/"
 
 // browse follows redirects the way a browser does, with a cookie jar that
-// applies RFC 6265 domain and path matching. It returns the final response.
+// applies RFC 6265 domain and path matching, for a link opened from the web
+// UI: a top-level navigation from the same site, since the UI host and the
+// apps share example.com. It returns the final response.
 func (f *appsFixture) browse(jar http.CookieJar, rawURL string) *httptest.ResponseRecorder {
 	f.t.Helper()
 	for range 8 {
 		u, _ := url.Parse(rawURL)
 		r := httptest.NewRequest("GET", rawURL, nil)
 		r.Host = u.Host
+		r.Header.Set("Sec-Fetch-Site", "same-site")
+		r.Header.Set("Sec-Fetch-Mode", "navigate")
+		r.Header.Set("Sec-Fetch-Dest", "document")
 		for _, c := range jar.Cookies(u) {
 			r.AddCookie(c)
 		}
