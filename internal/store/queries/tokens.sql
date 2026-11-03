@@ -1,14 +1,14 @@
 -- person_id and app_id are looked up by the caller in the same transaction.
 -- name: InsertAPIToken :exec
-INSERT INTO api_tokens (id, person_id, app_id, name, scope, hash, prefix, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+INSERT INTO api_tokens (id, person_id, app_id, job_id, name, scope, hash, prefix, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
--- The token's owner is the person's name; app columns are NULL for a personal
--- token.
+-- The token's owner is the person's name; app columns and job_id are NULL for
+-- a personal token.
 -- name: GetAPIToken :one
 SELECT t.id, t.name, t.scope, t.hash, t.prefix, t.created_at, t.last_used_at, t.expires_at,
        p.name AS person, t.app_id, a.namespace AS app_namespace,
-       a.object_name AS app_object_name, a.name AS app_name
+       a.object_name AS app_object_name, a.name AS app_name, t.job_id
 FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id
@@ -17,7 +17,7 @@ WHERE t.id = $1;
 -- name: ListAPITokensForPerson :many
 SELECT t.id, t.name, t.scope, t.hash, t.prefix, t.created_at, t.last_used_at, t.expires_at,
        p.name AS person, t.app_id, a.namespace AS app_namespace,
-       a.object_name AS app_object_name, a.name AS app_name
+       a.object_name AS app_object_name, a.name AS app_name, t.job_id
 FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id
@@ -28,7 +28,7 @@ ORDER BY t.created_at, t.id;
 -- name: ListAppAPITokens :many
 SELECT t.id, t.name, t.scope, t.hash, t.prefix, t.created_at, t.last_used_at, t.expires_at,
        p.name AS person, t.app_id, a.namespace AS app_namespace,
-       a.object_name AS app_object_name, a.name AS app_name
+       a.object_name AS app_object_name, a.name AS app_name, t.job_id
 FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id

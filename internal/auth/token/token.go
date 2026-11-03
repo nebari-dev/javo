@@ -112,7 +112,14 @@ type Token struct {
 	LastUsedAt *time.Time
 	// App is set on a token made for one app; it ends with the app.
 	App *App
+	// Job is the row id of the job a token was made for; it ends with the job.
+	Job string
 }
+
+// Workload reports whether t was made for an app or a job rather than by a
+// person: it lives where others can make it act, so it is kept from its
+// owner's secrets.
+func (t Token) Workload() bool { return t.App != nil || t.Job != "" }
 
 // Prefix is the part of the token text that is safe to show: the product
 // prefix and the id.
@@ -178,7 +185,7 @@ func (s *DBStore) Create(ctx context.Context, actor model.Actor, t Token) (strin
 	t.ID, t.CreatedAt, t.LastUsedAt = id, s.now().UTC().Truncate(time.Second), nil
 	row := store.APIToken{
 		ID: id, Owner: t.Owner, Name: t.Name, Scope: string(t.Scope), Hash: hex.EncodeToString(digest(text)),
-		Prefix: t.Prefix(), CreatedAt: t.CreatedAt,
+		Prefix: t.Prefix(), CreatedAt: t.CreatedAt, Job: t.Job,
 	}
 	if t.ExpiresAt != nil {
 		row.ExpiresAt = *t.ExpiresAt
@@ -194,7 +201,7 @@ func (s *DBStore) Create(ctx context.Context, actor model.Actor, t Token) (strin
 
 // tokenOf reads a row; a row with a scope this code does not know is not a token.
 func tokenOf(r store.APIToken) (Token, bool) {
-	t := Token{ID: r.ID, Name: r.Name, Owner: r.Owner, Scope: Scope(r.Scope), CreatedAt: r.CreatedAt}
+	t := Token{ID: r.ID, Name: r.Name, Owner: r.Owner, Scope: Scope(r.Scope), CreatedAt: r.CreatedAt, Job: r.Job}
 	if !t.Scope.Valid() {
 		return Token{}, false
 	}
@@ -238,6 +245,22 @@ func (s *DBStore) Authenticate(ctx context.Context, text string) (Token, error) 
 		return Token{}, ErrInvalid
 	}
 	return t, nil
+}
+
+// Get returns the record of the token with this id, live or expired, or
+// ErrNotFound.
+func (s *DBStore) Get(ctx context.Context, id string) (Token, error) {
+	row, err := s.Tokens.Get(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return Token{}, ErrNotFound
+	}
+	if err != nil {
+		return Token{}, fmt.Errorf("read token: %w", err)
+	}
+	if t, ok := tokenOf(row); ok {
+		return t, nil
+	}
+	return Token{}, ErrNotFound
 }
 
 // Exists reports whether a token with this id has a row.

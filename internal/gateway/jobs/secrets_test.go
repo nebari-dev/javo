@@ -221,6 +221,40 @@ func TestAppTokensCannotGiveJobsSecrets(t *testing.T) {
 	}
 }
 
+// A job's own API token lives in its runs, whose code sits in the owner's
+// home, which people the owner shares a Jupyter app with can edit; so like an
+// app's token it cannot touch secrets.
+func TestJobTokensCannotUseSecrets(t *testing.T) {
+	t.Parallel()
+	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.LocalAlice(), "nightly"))
+	f.WithSecretKeys()
+	c := f.LoginAlice()
+	f.CreateSecret(c, "API_KEY", apitest.SecretValue)
+	job, err := f.Db.Jobs().GetByOwnerName(context.Background(), apitest.LocalAlice(), "nightly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{Name: "job nightly", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+		Job: job.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []struct{ method, path, body string }{
+		{"GET", "/api/secrets", ""},
+		{"POST", "/api/secrets", `{"name":"NEW","value":"v"}`},
+		{"PUT", "/api/jobs/nightly/env", `{"env":[{"name":"K","secret":"API_KEY"}]}`},
+		{"POST", "/api/jobs", fmt.Sprintf(apitest.NewJob, `,"env":[{"name":"K","secret":"API_KEY"}]`)},
+	} {
+		w := f.Bearer(req.method, req.path, req.body, text, nil)
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsNotForAppTokens) {
+			t.Fatalf("%s %s with a job token: %d %s", req.method, req.path, w.Code, w.Body)
+		}
+	}
+	if got := f.JobBindings(apitest.LocalAlice(), "nightly"); len(got) != 0 {
+		t.Fatalf("the job got %+v", got)
+	}
+}
+
 // rewrite is a change of what nightly-sales runs: a command that prints the
 // secret variable K.
 const rewrite = `{"displayName":"Nightly sales","template":"lab","engine":"command","command":"sh -c 'echo $K'"}`
@@ -264,6 +298,28 @@ func TestAdminCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
 		t.Fatalf("admin rewrite of a job without secrets: %d %s", w.Code, w.Body)
 	}
 	if w := f.Do("PUT", "/api/jobs/nightly-sales", rewrite, alice); w.Code != http.StatusOK {
+		t.Fatalf("owner rewrite: %d %s", w.Code, w.Body)
+	}
+}
+
+// A job whose template gives it an API token runs with a token that acts as
+// its owner, so it holds a credential as a bound secret does: a platform
+// admin cannot change what it runs.
+func TestAdminCannotRewriteAJobWithAnAPIToken(t *testing.T) {
+	t.Parallel()
+	tpl := apitest.JobTemplateObj()
+	tpl.Name, tpl.Spec.APIToken = "agent-jobs", true
+	job := apitest.JobObj(apitest.AliceID, "nightly")
+	job.Spec.Template = tpl.Name
+	f := apitest.JobFixture(t, apitest.Options{}, tpl, job)
+	admin := f.Session("root-cccccccc", "javo-admins")
+
+	body := `{"displayName":"nightly","template":"agent-jobs","engine":"command","command":"sh -c 'echo $JAVO_TOKEN'"}`
+	w := f.Do("PUT", "/api/jobs/nightly?owner="+apitest.AliceID, body, admin)
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsHeldOwnerOnly) {
+		t.Fatalf("admin rewrite of a job with an API token: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("PUT", "/api/jobs/nightly", body, f.Session(apitest.AliceID)); w.Code != http.StatusOK {
 		t.Fatalf("owner rewrite: %d %s", w.Code, w.Body)
 	}
 }

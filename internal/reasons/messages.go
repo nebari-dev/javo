@@ -477,8 +477,8 @@ var messages = map[MessageCode]string{
 	MsgSecretsOwnerOnly:       "Only the owner can change its environment variables, with their own secrets.",
 	MsgEnvValueInvalid:        "Use a value of up to 4 KiB of text.",
 	MsgEnvValueOrSecret:       "Type a value or pick a secret, not both.",
-	MsgSecretsNotForAppTokens: "An app's own API token cannot use secrets. Use the browser, or a personal token from Settings.",
-	MsgSecretsHeldOwnerOnly:   "This uses its owner's secrets, so only its owner can change what it runs, and not with an app's own API token. Ask the owner, or have them remove its secrets first.",
+	MsgSecretsNotForAppTokens: "An app's or job's own API token cannot use secrets. Use the browser, or a personal token from Settings.",
+	MsgSecretsHeldOwnerOnly:   "This uses its owner's secrets, so only its owner can change what it runs, and not with an app's or job's own API token. Ask the owner, or have them remove its secrets first.",
 	MsgWebhookUnknown:         "This webhook was not made here. Set up the webhook again and paste the new address and secret into GitHub.",
 
 	MsgEnvironmentsOff:        "Environments are not set up on this platform.",

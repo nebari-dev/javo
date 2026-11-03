@@ -29,6 +29,8 @@ type APIToken struct {
 	ExpiresAt  time.Time
 	// App is set on a token made for one app; it ends with the app.
 	App *TokenApp
+	// Job is the row id of the job a token was made for; it ends with the job.
+	Job string
 }
 
 // TokenApp is the app a token was made for. Create needs only ObjectName;
@@ -80,7 +82,7 @@ func insertToken(ctx context.Context, q *sqlcgen.Queries, t APIToken) error {
 		appID = sql.NullString{String: app.ID, Valid: true}
 	}
 	return q.InsertAPIToken(ctx, sqlcgen.InsertAPITokenParams{
-		ID: t.ID, PersonID: person.ID, AppID: appID, Name: t.Name, Scope: t.Scope,
+		ID: t.ID, PersonID: person.ID, AppID: appID, JobID: sql.NullString{String: t.Job, Valid: t.Job != ""}, Name: t.Name, Scope: t.Scope,
 		Hash: t.Hash, Prefix: t.Prefix, CreatedAt: dbtime.From(t.CreatedAt), ExpiresAt: nullTime(t.ExpiresAt),
 	})
 }
@@ -197,7 +199,7 @@ func (t *Tokens) Touch(ctx context.Context, id string, at time.Time, every time.
 func tokenOf(r sqlcgen.GetAPITokenRow) APIToken {
 	tok := APIToken{
 		ID: r.ID, Owner: r.Person, Name: r.Name, Scope: r.Scope, Hash: r.Hash, Prefix: r.Prefix,
-		CreatedAt: r.CreatedAt.Time(), LastUsedAt: timeOf(r.LastUsedAt), ExpiresAt: timeOf(r.ExpiresAt),
+		CreatedAt: r.CreatedAt.Time(), LastUsedAt: timeOf(r.LastUsedAt), ExpiresAt: timeOf(r.ExpiresAt), Job: r.JobID.String,
 	}
 	if r.AppID.Valid {
 		tok.App = &TokenApp{ID: r.AppID.String, Namespace: r.AppNamespace.String, ObjectName: r.AppObjectName.String, Name: r.AppName.String}

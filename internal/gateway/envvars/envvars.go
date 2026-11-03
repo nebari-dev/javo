@@ -144,9 +144,10 @@ func MayChange(ctx context.Context, u authz.Principal, roles []authz.Role, targe
 // MayRewrite guards a change of what target runs: a job's engine, command,
 // source or template, an app's command, image or port, turning on its
 // previews. While target holds any of its owner's credentials (a secret as a
-// variable or as its repository token, or for an app with target.Template
-// set, an API token), that change decides which code sees them, so only the
-// owner may make it (OwnerOnly). Without them, whoever manages target may.
+// variable or as its repository token, an API token from a job's template, or
+// for an app with target.Template set, an API or Nebi token), that change
+// decides which code sees them, so only the owner may make it (OwnerOnly).
+// Without them, whoever manages target may.
 func MayRewrite(ctx context.Context, db *store.Store, u authz.Principal, roles []authz.Role, target authz.Object) error {
 	held, err := holdsCredentials(ctx, db, target)
 	if err != nil {
@@ -176,14 +177,23 @@ func OwnerOnly(ctx context.Context, u authz.Principal, roles []authz.Role, targe
 }
 
 // holdsCredentials is whether target's app or job is bound to any of its
-// owner's secrets, or is an app with API access.
+// owner's secrets, or runs with a token that acts as its owner: an app with
+// API access or its owner's Nebi token, a job whose template gives an API
+// token.
 func holdsCredentials(ctx context.Context, db *store.Store, target authz.Object) (bool, error) {
 	switch {
 	case target.Job != nil:
+		// Its template may give its runs an API token, as for apps.
+		switch tpl, err := db.Templates().Get(ctx, target.Job.Spec.Template); {
+		case err == nil && model.DefaultAPIAccess(&tpl) != model.APIAccessNone:
+			return true, nil
+		case err != nil && !errors.Is(err, store.ErrNotFound):
+			return false, err
+		}
 		b, err := db.Secrets().JobBindings(ctx, target.Job.ID)
 		return len(b) > 0, err
 	case target.App != nil:
-		if target.Template != nil && model.APIAccessOf(target.App, target.Template) != model.APIAccessNone {
+		if target.Template != nil && (model.APIAccessOf(target.App, target.Template) != model.APIAccessNone || model.NebiTokenFor(target.App, target.Template)) {
 			return true, nil
 		}
 		b, err := db.Secrets().Bindings(ctx, target.App.ID)

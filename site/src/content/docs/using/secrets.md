@@ -29,7 +29,7 @@ A private Git repository's access token is also one of your secrets, picked on t
 
 ## Who can change an app or job that holds secrets
 
-Only you choose which of your secrets an app or job gets. While an app or job holds any of your secrets (as a variable or as its repository token), only you can also change what it runs: a job's engine, command, file or template, an app's command, image or port, or turning on its pull request previews. An app with API access counts the same, because its token acts as you, and only you can give an app more API access. A platform admin, and an app's own API token, get "only its owner can change what it runs" for these; they can still rename, resize, reschedule, stop, start and delete it, and change what it runs once it holds no secrets.
+Only you choose which of your secrets an app or job gets. While an app or job holds any of your secrets (as a variable or as its repository token), only you can also change what it runs: a job's engine, command, file or template, an app's command, image or port, or turning on its pull request previews. An app with API access or your Nebi token, and a job whose template gives it an API token, count the same, because the token acts as you, and only you can give an app more API access. An app's or job's own API token cannot read, change or bind your secrets. A platform admin, and an app's or job's own API token, get "only its owner can change what it runs" for these; they can still rename, resize, reschedule, stop, start and delete it, and change what it runs once it holds no secrets.
 
 ## How values are protected
 

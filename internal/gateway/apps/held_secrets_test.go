@@ -96,6 +96,24 @@ func TestAPIAccessCountsAsASecret(t *testing.T) {
 	}
 }
 
+// An app whose template gives it its owner's Nebi token holds a credential
+// too, so a platform admin cannot change its command.
+func TestANebiTokenCountsAsASecret(t *testing.T) {
+	t.Parallel()
+	ws := gatewaytest.Workspace("nebi", apitest.AliceID, "Nebi")
+	ws.Template = "custom"
+	tpl := apitest.CustomTemplate()
+	tpl.Spec.NebiToken = true
+	f := apitest.New(t, apitest.Options{}, tpl, ws)
+	root := f.Session(admin, "javo-admins")
+
+	w := f.Do("PUT", "/api/workspaces/nebi/launch?owner="+apitest.AliceID, `{"command":"sh -c 'cat $NEBI_TOKEN_FILE'"}`, root)
+	refusedAsHeld(t, "launch with a Nebi token", w)
+	if w := f.Do("PUT", "/api/workspaces/nebi/launch", `{"command":"python b.py"}`, f.Session(apitest.AliceID)); w.Code != http.StatusOK {
+		t.Fatalf("owner: %d %s", w.Code, w.Body)
+	}
+}
+
 // Previews of the repository's own branches clone with the owner's
 // repository token, so only the owner turns them on for an app that has one.
 func TestOnlyTheOwnerTurnsOnPreviewsThatGetTheRepoToken(t *testing.T) {

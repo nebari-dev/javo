@@ -757,6 +757,56 @@ func TestAJobGivesItsOwnerAHome(t *testing.T) {
 // made once and kept in a Secret; deleting the job revokes it.
 func TestAJobFromATokenTemplateGetsItsOwnersToken(t *testing.T) {
 	t.Parallel()
+	h, tokens, d, sec := tokenJob(t)
+	got, err := tokens.Authenticate(bg, string(sec.Data[APITokenKey]))
+	// It is the job's own, kept from its owner's secrets like an app's.
+	if err != nil || got.Owner != d.Owner || got.Scope != token.ScopeReadWrite || got.Job != d.ID || !got.Workload() {
+		t.Fatalf("token = %+v, %v", got, err)
+	}
+
+	if err := h.db.Jobs().MarkDeleted(bg, actor, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "token revoked", func() bool {
+		ok, err := tokens.Exists(bg, got.ID)
+		return err == nil && !ok
+	})
+	eventually(t, "secret gone", func() bool {
+		return apierrors.IsNotFound(k8s.Get(bg, client.ObjectKeyFromObject(sec), &corev1.Secret{}))
+	})
+}
+
+// A job's token made before tokens recorded their job is an ordinary token
+// of its owner, which secrets do not refuse: the controller replaces it with
+// one of the job's own and revokes it.
+func TestAJobTokenNotMarkedAsTheJobsIsReplaced(t *testing.T) {
+	t.Parallel()
+	_, tokens, d, sec := tokenJob(t)
+	text, old, err := tokens.Create(bg, actor, token.Token{Name: "job nightly", Owner: d.Owner, Scope: token.ScopeReadWrite})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec.Annotations[model.AnnotationTokenID] = old.ID
+	sec.Data[APITokenKey] = []byte(text)
+	if err := k8s.Update(bg, sec); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a token of the job's own", func() bool {
+		if err := k8s.Get(bg, client.ObjectKeyFromObject(sec), sec); err != nil {
+			return false
+		}
+		got, err := tokens.Authenticate(bg, string(sec.Data[APITokenKey]))
+		return err == nil && got.Job == d.ID
+	})
+	if ok, err := tokens.Exists(bg, old.ID); err != nil || ok {
+		t.Fatalf("the unmarked token is still there: %v, %v", ok, err)
+	}
+}
+
+// tokenJob is a ready job, of a person, from a template that gives an API
+// token, and the Secret holding its token.
+func tokenJob(t *testing.T) (*harness, *token.DBStore, model.Job, *corev1.Secret) {
+	t.Helper()
 	tokens := &token.DBStore{}
 	h := newHarnessWith(t, func(r *Reconciler) {
 		tokens.Tokens = r.Store.Tokens()
@@ -783,21 +833,7 @@ func TestAJobFromATokenTemplateGetsItsOwnersToken(t *testing.T) {
 	if err := k8s.Get(bg, client.ObjectKey{Namespace: h.ns, Name: env[i].ValueFrom.SecretKeyRef.Name}, sec); err != nil {
 		t.Fatal(err)
 	}
-	got, err := tokens.Authenticate(bg, string(sec.Data[APITokenKey]))
-	if err != nil || got.Owner != p.Name || got.Scope != token.ScopeReadWrite {
-		t.Fatalf("token = %+v, %v", got, err)
-	}
-
-	if err := h.db.Jobs().MarkDeleted(bg, actor, d.ID); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, "token revoked", func() bool {
-		ok, err := tokens.Exists(bg, got.ID)
-		return err == nil && !ok
-	})
-	eventually(t, "secret gone", func() bool {
-		return apierrors.IsNotFound(k8s.Get(bg, client.ObjectKeyFromObject(sec), &corev1.Secret{}))
-	})
+	return h, tokens, d, sec
 }
 
 func (h *harness) cronJobEvent(d model.Job, name, reason, message string, at time.Time) {

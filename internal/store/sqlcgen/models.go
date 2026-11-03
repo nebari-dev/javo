@@ -28,6 +28,7 @@ type ApiToken struct {
 	LastUsedAt dbtime.NullTime
 	ExpiresAt  dbtime.NullTime
 	RevokedAt  dbtime.NullTime
+	JobID      sql.NullString
 }
 
 type App struct {

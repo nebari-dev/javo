@@ -85,7 +85,8 @@ type (
 	peerKey   struct{}
 	// apiTokenKey holds the id of the API token a request came with.
 	apiTokenKey struct{}
-	// appTokenKey is set (true) when that token was made for an app.
+	// appTokenKey is set (true) when that token was made for an app or a
+	// job (token.Token.Workload).
 	appTokenKey struct{}
 )
 
@@ -142,7 +143,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 				return
 			}
 			ctx = context.WithValue(ctx, apiTokenKey{}, tok.ID)
-			ctx = context.WithValue(ctx, appTokenKey{}, tok.App != nil)
+			ctx = context.WithValue(ctx, appTokenKey{}, tok.Workload())
 			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userKey{}, p)))
 			return
 		}
@@ -246,7 +247,8 @@ func isTokenRoute(p string) bool {
 	return p == tokensRoute || strings.HasPrefix(p, tokensRoute+"/")
 }
 
-// viaAppToken reports whether the request came with the API token of an app.
+// viaAppToken reports whether the request came with the API token of an app
+// or a job.
 func viaAppToken(ctx context.Context) bool {
 	app, _ := ctx.Value(appTokenKey{}).(bool)
 	return app
@@ -514,9 +516,10 @@ func IsPlanDecision(p string) bool {
 	return ok && (verb == "approve" || verb == "reject")
 }
 
-// NoAppTokens refuses a request made with an app's own API token. That token
-// lives in the app, where anyone the app is shared with can make it act, so
-// it must not reach its owner's secrets (it could give them to its own app).
+// NoAppTokens refuses a request made with an app's or a job's own API token.
+// That token lives in the app, where anyone the app is shared with can make
+// it act, or in the job's runs, whose code sits in the owner's home, so it
+// must not reach its owner's secrets (it could give them to its own app).
 func NoAppTokens(ctx context.Context) error {
 	if viaAppToken(ctx) {
 		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgSecretsNotForAppTokens))

@@ -99,7 +99,7 @@ type Reconciler struct {
 
 // JobTokens makes, checks and revokes the API tokens of jobs.
 type JobTokens interface {
-	Exists(ctx context.Context, id string) (bool, error)
+	Get(ctx context.Context, id string) (token.Token, error)
 	Create(ctx context.Context, actor model.Actor, t token.Token) (string, token.Token, error)
 	Revoke(ctx context.Context, actor model.Actor, owner, id string) (token.Token, error)
 }
@@ -954,15 +954,19 @@ func (r *Reconciler) syncToken(ctx context.Context, job *model.Job, tpl *model.T
 	default:
 		id := sec.Annotations[model.AnnotationTokenID]
 		if id != "" && sec.Annotations[model.AnnotationTokenScope] == string(scope) && len(sec.Data[APITokenKey]) > 0 {
-			// A Secret can name a token whose record is gone (`javo user remove`).
-			if live, err := r.Tokens.Exists(ctx, id); err != nil {
+			// A Secret can name a token whose record is gone (`javo user remove`),
+			// or one made before tokens recorded their job, which is not kept
+			// from the owner's secrets: both are made again.
+			switch tok, err := r.Tokens.Get(ctx, id); {
+			case errors.Is(err, token.ErrNotFound):
+			case err != nil:
 				return API{}, err
-			} else if live {
+			case tok.Job == job.ID:
 				return API{URL: r.APIURL, Internal: r.APIInternalURL, Secret: name}, nil
 			}
 		}
 	}
-	text, tok, err := r.Tokens.Create(ctx, system, token.Token{Name: "job " + job.Name, Owner: job.Owner, Scope: scope})
+	text, tok, err := r.Tokens.Create(ctx, system, token.Token{Name: "job " + job.Name, Owner: job.Owner, Scope: scope, Job: job.ID})
 	if err != nil {
 		return API{}, fmt.Errorf("make the job's API token: %w", err)
 	}

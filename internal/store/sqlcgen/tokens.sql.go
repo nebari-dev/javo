@@ -57,7 +57,7 @@ func (q *Queries) DeleteAPITokensForPerson(ctx context.Context, name string) (in
 const getAPIToken = `-- name: GetAPIToken :one
 SELECT t.id, t.name, t.scope, t.hash, t.prefix, t.created_at, t.last_used_at, t.expires_at,
        p.name AS person, t.app_id, a.namespace AS app_namespace,
-       a.object_name AS app_object_name, a.name AS app_name
+       a.object_name AS app_object_name, a.name AS app_name, t.job_id
 FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id
@@ -78,10 +78,11 @@ type GetAPITokenRow struct {
 	AppNamespace  sql.NullString
 	AppObjectName sql.NullString
 	AppName       sql.NullString
+	JobID         sql.NullString
 }
 
-// The token's owner is the person's name; app columns are NULL for a personal
-// token.
+// The token's owner is the person's name; app columns and job_id are NULL for
+// a personal token.
 func (q *Queries) GetAPIToken(ctx context.Context, id string) (GetAPITokenRow, error) {
 	row := q.db.QueryRowContext(ctx, getAPIToken, id)
 	var i GetAPITokenRow
@@ -99,19 +100,21 @@ func (q *Queries) GetAPIToken(ctx context.Context, id string) (GetAPITokenRow, e
 		&i.AppNamespace,
 		&i.AppObjectName,
 		&i.AppName,
+		&i.JobID,
 	)
 	return i, err
 }
 
 const insertAPIToken = `-- name: InsertAPIToken :exec
-INSERT INTO api_tokens (id, person_id, app_id, name, scope, hash, prefix, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO api_tokens (id, person_id, app_id, job_id, name, scope, hash, prefix, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertAPITokenParams struct {
 	ID        string
 	PersonID  string
 	AppID     sql.NullString
+	JobID     sql.NullString
 	Name      string
 	Scope     string
 	Hash      string
@@ -126,6 +129,7 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 		arg.ID,
 		arg.PersonID,
 		arg.AppID,
+		arg.JobID,
 		arg.Name,
 		arg.Scope,
 		arg.Hash,
@@ -139,7 +143,7 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 const listAPITokensForPerson = `-- name: ListAPITokensForPerson :many
 SELECT t.id, t.name, t.scope, t.hash, t.prefix, t.created_at, t.last_used_at, t.expires_at,
        p.name AS person, t.app_id, a.namespace AS app_namespace,
-       a.object_name AS app_object_name, a.name AS app_name
+       a.object_name AS app_object_name, a.name AS app_name, t.job_id
 FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id
@@ -161,6 +165,7 @@ type ListAPITokensForPersonRow struct {
 	AppNamespace  sql.NullString
 	AppObjectName sql.NullString
 	AppName       sql.NullString
+	JobID         sql.NullString
 }
 
 func (q *Queries) ListAPITokensForPerson(ctx context.Context, name string) ([]ListAPITokensForPersonRow, error) {
@@ -186,6 +191,7 @@ func (q *Queries) ListAPITokensForPerson(ctx context.Context, name string) ([]Li
 			&i.AppNamespace,
 			&i.AppObjectName,
 			&i.AppName,
+			&i.JobID,
 		); err != nil {
 			return nil, err
 		}
@@ -203,7 +209,7 @@ func (q *Queries) ListAPITokensForPerson(ctx context.Context, name string) ([]Li
 const listAppAPITokens = `-- name: ListAppAPITokens :many
 SELECT t.id, t.name, t.scope, t.hash, t.prefix, t.created_at, t.last_used_at, t.expires_at,
        p.name AS person, t.app_id, a.namespace AS app_namespace,
-       a.object_name AS app_object_name, a.name AS app_name
+       a.object_name AS app_object_name, a.name AS app_name, t.job_id
 FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id
@@ -225,6 +231,7 @@ type ListAppAPITokensRow struct {
 	AppNamespace  sql.NullString
 	AppObjectName sql.NullString
 	AppName       sql.NullString
+	JobID         sql.NullString
 }
 
 // Tokens made for an app, for the janitor to check against the app's API access.
@@ -251,6 +258,7 @@ func (q *Queries) ListAppAPITokens(ctx context.Context) ([]ListAppAPITokensRow, 
 			&i.AppNamespace,
 			&i.AppObjectName,
 			&i.AppName,
+			&i.JobID,
 		); err != nil {
 			return nil, err
 		}
