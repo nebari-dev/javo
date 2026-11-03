@@ -21,6 +21,14 @@ side changes, the three `pnpm` steps above when `ui/` changes, and the docs site
     make reload    # rebuild and roll out after a change
     make down      # delete the cluster
 
+To run it on another Docker host on your LAN instead (UI changes show in seconds through Vite, Go changes after a reload):
+
+    JAVO_REMOTE=user@192.0.2.10 scripts/dev/remote-up.sh   # prints the Vite URL to open
+    scripts/dev/remote-reload.sh                           # after a Go change
+
+The UI and Vite bind to the host's address (`JAVO_BIND_ADDR`, default the host in `JAVO_REMOTE`); the Kubernetes API stays on its
+loopback and is reached through an ssh tunnel. `ui/` is copied to the host as you edit (log in `.dev/ui-sync.log`).
+
 `ui/` also has `pnpm mock`, which runs the UI against canned API answers without a cluster.
 [Development](site/src/content/docs/contributing/development.md) covers end-to-end tests and the other settings.
 

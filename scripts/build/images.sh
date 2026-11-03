@@ -16,7 +16,8 @@
 #   image        only these (javo, fakegithub: the e2e tests' fake GitHub
 #                API); default javo. Images not named keep the reference
 #                values-file had.
-# Prints one line per image: its reference and whether it was built.
+# Prints one line per image: its reference and whether it was built; the
+# build and push logs stream to stderr.
 set -euo pipefail
 
 registry=${1:?registry}
@@ -50,11 +51,11 @@ for name in "${want[@]}"; do
   else
     start=$SECONDS
     if [ "$name" = javo ]; then
-      docker build -q -t "$ref" . >/dev/null
+      docker build --progress=plain -t "$ref" . >&2
     else
-      docker build -q -t "$ref" test/e2e/fakegithub >/dev/null
+      docker build --progress=plain -t "$ref" test/e2e/fakegithub >&2
     fi
-    docker push -q "$ref" >/dev/null
+    docker push "$ref" >&2
     echo "$ref (built and pushed in $((SECONDS - start)) s)"
   fi
   refs="$refs"$'\n'"$name $ref"

@@ -7,15 +7,17 @@
 #
 #   JAVO_HTTP_PORT      UI and apps (NodePort 30080)
 #   JAVO_KEYCLOAK_PORT  dev Keycloak (NodePort 30081)
-#   JAVO_API_PORT       Kubernetes API, on 127.0.0.1
+#   JAVO_API_PORT       Kubernetes API, always on 127.0.0.1
+#   JAVO_BIND_ADDR      host address of the UI and Keycloak ports (default
+#                       127.0.0.1; scripts/dev/remote-up.sh sets the LAN address)
 services:
   k3s:
     # Built once (Dockerfile stage k3s); compose.yaml's "build" policy
     # rebuilds and recreates the container on every up.
     pull_policy: missing
     ports: !override
-      - "127.0.0.1:${JAVO_HTTP_PORT:?}:30080"
-      - "127.0.0.1:${JAVO_KEYCLOAK_PORT:?}:30081"
+      - "${JAVO_BIND_ADDR:-127.0.0.1}:${JAVO_HTTP_PORT:?}:30080"
+      - "${JAVO_BIND_ADDR:-127.0.0.1}:${JAVO_KEYCLOAK_PORT:?}:30081"
       - "127.0.0.1:${JAVO_API_PORT:?}:6443"
     volumes:
       - ./registries.yaml:/etc/rancher/k3s/registries.yaml:ro

@@ -33,6 +33,10 @@
 # drill (scripts/test/e2e-s3-up.sh) and turns on backupTarget with home backups
 # every minute.
 #
+# JAVO_UI_HOST and JAVO_APPS_HOST override the hosts browsers use (default
+# javo.localhost:<JAVO_HTTP_PORT> and apps.localhost:<JAVO_HTTP_PORT>);
+# scripts/dev/remote-up.sh points them at the Vite server and the LAN address.
+#
 # Everything talks to the cluster through .dev/kubeconfig; the user's own
 # kubectl context and ~/.kube/config are never touched.
 set -euo pipefail
@@ -43,7 +47,9 @@ cd "$root"
 
 cluster="$JAVO_KIND_NAME"
 provider="${JAVO_CLUSTER:-compose}"
-ui_url="http://javo.localhost:$JAVO_HTTP_PORT"
+ui_host="${JAVO_UI_HOST:-javo.localhost:$JAVO_HTTP_PORT}"
+apps_host="${JAVO_APPS_HOST:-apps.localhost:$JAVO_HTTP_PORT}"
+ui_url="http://$ui_host"
 kc_url="http://keycloak.localhost:$JAVO_KEYCLOAK_PORT/auth"
 ns=javo-system
 apps_ns=javo-apps
@@ -54,7 +60,8 @@ case "$db" in
 esac
 mkdir -p .dev
 export KUBECONFIG="$root/.dev/kubeconfig"
-compose=(docker compose -p "$cluster" -f deploy/compose/compose.yaml -f deploy/compose/dev.yaml)
+# JAVO_COMPOSE: a command that stands in for "docker compose" (scripts/dev/remote-compose.sh).
+compose=(${JAVO_COMPOSE:-docker compose} -p "$cluster" -f deploy/compose/compose.yaml -f deploy/compose/dev.yaml)
 
 step() { printf '\n==> %s (%s s)\n' "$*" "$SECONDS"; }
 kc() { kubectl "$@"; }
@@ -197,9 +204,9 @@ fi
 # deploy/dev/values.yaml. The gateway reaches the issuer's host through the
 # Keycloak Service.
 url_args=(
-  --set publicHost="javo.localhost:$JAVO_HTTP_PORT"
-  --set config.urls.uiHost="javo.localhost:$JAVO_HTTP_PORT"
-  --set config.urls.appsHost="apps.localhost:$JAVO_HTTP_PORT"
+  --set publicHost="$ui_host"
+  --set config.urls.uiHost="$ui_host"
+  --set config.urls.appsHost="$apps_host"
 )
 if [ "$keycloak" = 1 ]; then
   step "dev Keycloak"
@@ -279,7 +286,7 @@ echo "networkPolicy: ${state:-not probed yet}"
 case "$state" in *'state=Enforced'*) ;; *) echo "NetworkPolicy probe did not report Enforced" >&2; exit 1 ;; esac
 
 echo
-echo "Open $ui_url (apps are served on http://apps.localhost:$JAVO_HTTP_PORT; $provider cluster $cluster, ready in $SECONDS s)"
+echo "Open $ui_url (apps are served on http://$apps_host; $provider cluster $cluster, ready in $SECONDS s)"
 echo "Local sign-in: alice, password in .dev/alice.password"
 if [ "$keycloak" = 1 ]; then
   echo "Sign in with Keycloak as alice or bob: passwords in .dev/alice.keycloak.password, .dev/bob.keycloak.password"
