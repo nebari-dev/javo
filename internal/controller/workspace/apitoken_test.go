@@ -17,13 +17,13 @@ import (
 	"github.com/nebari-dev/javo/internal/store"
 )
 
-func records() *token.DBStore { return &token.DBStore{Tokens: db.Tokens()} }
+func (fx *env) records() *token.DBStore { return &token.DBStore{Tokens: fx.db.Tokens()} }
 
 // signedIn makes a person, as signing in does, and returns their name: an
 // API token belongs to a person who exists.
-func signedIn(t *testing.T, username string) string {
+func (fx *env) signedIn(t *testing.T, username string) string {
 	t.Helper()
-	p, err := db.People(store.IDRange{First: 100000, Last: 199999}).Ensure(bg, store.Claims{
+	p, err := fx.db.People(store.IDRange{First: 100000, Last: 199999}).Ensure(bg, store.Claims{
 		Issuer: "https://idp.example.com", Subject: username, Username: username,
 	})
 	if err != nil {
@@ -32,9 +32,9 @@ func signedIn(t *testing.T, username string) string {
 	return p.Name
 }
 
-func newAPITokenTemplate(t *testing.T, name string) {
+func (fx *env) newAPITokenTemplate(t *testing.T, name string) {
 	t.Helper()
-	newTemplate(t, name, func(s *model.TemplateSpec) {
+	fx.newTemplate(t, name, func(s *model.TemplateSpec) {
 		s.Kind, s.Image, s.Port = "claude-code", "example.com/agents:1", 7681
 		s.Command, s.Args = []string{"ttyd"}, nil
 		s.APIToken, s.APIGuidePaths = true, []string{"/etc/claude-code/CLAUDE.md"}
@@ -43,28 +43,30 @@ func newAPITokenTemplate(t *testing.T, name string) {
 
 // appTokenSecret returns the API token Secret of the app whose Pod is called
 // objectName, once it holds a token.
-func appTokenSecret(t *testing.T, objectName string) *corev1.Secret {
+func (fx *env) appTokenSecret(t *testing.T, objectName string) *corev1.Secret {
 	t.Helper()
 	sec := &corev1.Secret{}
 	eventually(t, "the app's API token Secret", func() bool {
-		return exists(sec, APITokenSecretName(objectName)) && len(sec.Data[APITokenKey]) > 0
+		return fx.exists(sec, APITokenSecretName(objectName)) && len(sec.Data[APITokenKey]) > 0
 	})
 	return sec
 }
 
 func TestAPITokenTemplateGivesTheAppATokenOfItsOwner(t *testing.T) {
-	newAPITokenTemplate(t, "agent-tpl")
-	alice := signedIn(t, "alice-agent")
-	app := newApp(t, "ws-agent", alice, "agent-tpl")
-	sec := appTokenSecret(t, app.ObjectName())
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newAPITokenTemplate(t, "agent-tpl")
+	alice := fx.signedIn(t, "alice-agent")
+	app := fx.newApp(t, "ws-agent", alice, "agent-tpl")
+	sec := fx.appTokenSecret(t, app.ObjectName())
 	if sec.Labels[model.LabelApp] != app.ID {
 		t.Fatalf("token Secret labels %v lack the app id, so it would outlive the app", sec.Labels)
 	}
-	tok, err := records().Authenticate(context.Background(), string(sec.Data[APITokenKey]))
+	tok, err := fx.records().Authenticate(context.Background(), string(sec.Data[APITokenKey]))
 	if err != nil {
 		t.Fatalf("the app's token does not authenticate: %v", err)
 	}
-	want := token.App{Namespace: testNS, Name: app.ObjectName(), Short: "ws-agent"}
+	want := token.App{Namespace: fx.ns, Name: app.ObjectName(), Short: "ws-agent"}
 	if tok.Owner != alice || tok.Scope != token.ScopeReadWrite || tok.App == nil || *tok.App != want || tok.Name != "ws-agent" {
 		t.Fatalf("token %+v", tok)
 	}
@@ -75,7 +77,7 @@ func TestAPITokenTemplateGivesTheAppATokenOfItsOwner(t *testing.T) {
 		t.Fatalf("guide %q", sec.Data[APIGuideKey])
 	}
 	pod := &corev1.Pod{}
-	eventually(t, "pod", func() bool { return exists(pod, app.ObjectName()) })
+	eventually(t, "pod", func() bool { return fx.exists(pod, app.ObjectName()) })
 	var ref *corev1.SecretKeySelector
 	for _, e := range pod.Spec.Containers[0].Env {
 		if e.Name == "JAVO_TOKEN" && e.ValueFrom != nil {
@@ -86,58 +88,62 @@ func TestAPITokenTemplateGivesTheAppATokenOfItsOwner(t *testing.T) {
 		t.Fatalf("pod env %+v", pod.Spec.Containers[0].Env)
 	}
 	// Reconciling again keeps the one token.
-	reconcileNow(t, rec, app.ID)
-	if n := appTokenRecords(t, alice, "ws-agent"); n != 1 {
+	reconcileNow(t, fx.rec, app.ID)
+	if n := fx.appTokenRecords(t, alice, "ws-agent"); n != 1 {
 		t.Fatalf("%d token records for one app", n)
 	}
 }
 
 func TestRevokedAppTokenIsReplaced(t *testing.T) {
-	newAPITokenTemplate(t, "agent-tpl-revoke")
-	alice := signedIn(t, "alice-revoke")
-	app := newApp(t, "ws-agent-revoke", alice, "agent-tpl-revoke")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newAPITokenTemplate(t, "agent-tpl-revoke")
+	alice := fx.signedIn(t, "alice-revoke")
+	app := fx.newApp(t, "ws-agent-revoke", alice, "agent-tpl-revoke")
 	ctx := context.Background()
-	old := string(appTokenSecret(t, app.ObjectName()).Data[APITokenKey])
-	tok, err := records().Authenticate(ctx, old)
+	old := string(fx.appTokenSecret(t, app.ObjectName()).Data[APITokenKey])
+	tok, err := fx.records().Authenticate(ctx, old)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// What the gateway does when the owner revokes it in Settings.
-	if _, err := records().Revoke(ctx, model.Actor{Person: alice}, alice, tok.ID); err != nil {
+	if _, err := fx.records().Revoke(ctx, model.Actor{Person: alice}, alice, tok.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Apps().NoteTokenRevoked(ctx, model.Actor{Person: alice}, app.ID, tok.ID); err != nil {
+	if err := fx.db.Apps().NoteTokenRevoked(ctx, model.Actor{Person: alice}, app.ID, tok.ID); err != nil {
 		t.Fatal(err)
 	}
 	var fresh string
 	eventually(t, "a new token", func() bool {
 		sec := &corev1.Secret{}
-		if !exists(sec, APITokenSecretName(app.ObjectName())) {
+		if !fx.exists(sec, APITokenSecretName(app.ObjectName())) {
 			return false
 		}
 		fresh = string(sec.Data[APITokenKey])
 		return fresh != old
 	})
-	if _, err := records().Authenticate(ctx, fresh); err != nil {
+	if _, err := fx.records().Authenticate(ctx, fresh); err != nil {
 		t.Fatalf("new token: %v", err)
 	}
-	if _, err := records().Authenticate(ctx, old); !errors.Is(err, token.ErrInvalid) {
+	if _, err := fx.records().Authenticate(ctx, old); !errors.Is(err, token.ErrInvalid) {
 		t.Fatalf("old token: %v", err)
 	}
 }
 
 func TestNoTokenForOtherTemplates(t *testing.T) {
-	newTemplate(t, "lab-no-token")
-	app := newApp(t, "ws-no-token", "alice", "lab-no-token")
-	eventually(t, "pod", func() bool { return exists(&corev1.Pod{}, app.ObjectName()) })
-	if exists(&corev1.Secret{}, APITokenSecretName(app.ObjectName())) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-no-token")
+	app := fx.newApp(t, "ws-no-token", "alice", "lab-no-token")
+	eventually(t, "pod", func() bool { return fx.exists(&corev1.Pod{}, app.ObjectName()) })
+	if fx.exists(&corev1.Secret{}, APITokenSecretName(app.ObjectName())) {
 		t.Fatal("an app whose template has no apiToken got a token Secret")
 	}
 }
 
-func appTokenRecords(t *testing.T, owner, shortName string) int {
+func (fx *env) appTokenRecords(t *testing.T, owner, shortName string) int {
 	t.Helper()
-	list, err := records().List(bg, owner)
+	list, err := fx.records().List(bg, owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,45 +160,44 @@ func appTokenRecords(t *testing.T, owner, shortName string) int {
 // remove`, the app's Secret names a token id that has no row: the pod's token
 // gets 401 on every call and must be replaced.
 func TestAppTokenWithoutARowIsReplaced(t *testing.T) {
-	newAPITokenTemplate(t, "agent-tpl-norow")
-	alice := signedIn(t, "alice-norow")
-	app := newApp(t, "ws-agent-norow", alice, "agent-tpl-norow")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newAPITokenTemplate(t, "agent-tpl-norow")
+	alice := fx.signedIn(t, "alice-norow")
+	app := fx.newApp(t, "ws-agent-norow", alice, "agent-tpl-norow")
 	ctx := context.Background()
-	old := string(appTokenSecret(t, app.ObjectName()).Data[APITokenKey])
-	tok, err := records().Authenticate(ctx, old)
+	old := string(fx.appTokenSecret(t, app.ObjectName()).Data[APITokenKey])
+	tok, err := fx.records().Authenticate(ctx, old)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// No controller runs from here on, so only the reconcile below acts.
+	fx.stop()
 	// The row goes without the gateway marking the app (DeleteFor, a restore).
-	if n, err := db.Tokens().DeleteFor(ctx, model.Actor{System: model.SystemCLI}, alice); err != nil || n != 1 {
+	if n, err := fx.db.Tokens().DeleteFor(ctx, model.Actor{System: model.SystemCLI}, alice); err != nil || n != 1 {
 		t.Fatalf("DeleteFor = %d, %v", n, err)
 	}
-	// The manager may reconcile the app at the same time; losing that race
-	// is a conflict, or the pod it just replaced is not found, and the
-	// winner replaces the token as well.
-	if _, err := rec.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: app.ID}}); err != nil && !apierrors.IsConflict(err) && !apierrors.IsNotFound(err) {
-		t.Fatal(err)
-	}
+	reconcileNow(t, newRec(fx.db, func(r *Reconciler) { r.Tokens, r.Secrets = fx.records(), k8s }), app.ID)
 	var fresh string
 	eventually(t, "a new token", func() bool {
 		sec := &corev1.Secret{}
-		if !exists(sec, APITokenSecretName(app.ObjectName())) {
+		if !fx.exists(sec, APITokenSecretName(app.ObjectName())) {
 			return false
 		}
 		fresh = string(sec.Data[APITokenKey])
 		return fresh != old
 	})
-	got, err := records().Authenticate(ctx, fresh)
+	got, err := fx.records().Authenticate(ctx, fresh)
 	if err != nil || got.ID == tok.ID {
 		t.Fatalf("new token: %+v, %v", got, err)
 	}
 }
 
 // appPod returns the pod called objectName once it satisfies cond.
-func appPod(t *testing.T, objectName, what string, cond func(*corev1.Pod) bool) *corev1.Pod {
+func (fx *env) appPod(t *testing.T, objectName, what string, cond func(*corev1.Pod) bool) *corev1.Pod {
 	t.Helper()
 	pod := &corev1.Pod{}
-	eventually(t, what, func() bool { return exists(pod, objectName) && cond(pod) })
+	eventually(t, what, func() bool { return fx.exists(pod, objectName) && cond(pod) })
 	return pod
 }
 
@@ -205,9 +210,9 @@ func hasTokenEnv(p *corev1.Pod) bool {
 	return false
 }
 
-func authenticateSecret(t *testing.T, objectName string) token.Token {
+func (fx *env) authenticateSecret(t *testing.T, objectName string) token.Token {
 	t.Helper()
-	tok, err := records().Authenticate(context.Background(), string(appTokenSecret(t, objectName).Data[APITokenKey]))
+	tok, err := fx.records().Authenticate(context.Background(), string(fx.appTokenSecret(t, objectName).Data[APITokenKey]))
 	if err != nil {
 		t.Fatalf("the app's token does not authenticate: %v", err)
 	}
@@ -215,13 +220,15 @@ func authenticateSecret(t *testing.T, objectName string) token.Token {
 }
 
 func TestAnyAppCanAskForReadAccess(t *testing.T) {
-	newTemplate(t, "lab-read-access")
-	alice := signedIn(t, "alice-read-access")
-	app := newApp(t, "ws-read-access", alice, "lab-read-access", func(a *model.App) { a.APIAccess = model.APIAccessRead })
-	if tok := authenticateSecret(t, app.ObjectName()); tok.Scope != token.ScopeRead {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-read-access")
+	alice := fx.signedIn(t, "alice-read-access")
+	app := fx.newApp(t, "ws-read-access", alice, "lab-read-access", func(a *model.App) { a.APIAccess = model.APIAccessRead })
+	if tok := fx.authenticateSecret(t, app.ObjectName()); tok.Scope != token.ScopeRead {
 		t.Fatalf("scope %q, want read", tok.Scope)
 	}
-	pod := appPod(t, app.ObjectName(), "pod with JAVO_TOKEN", hasTokenEnv)
+	pod := fx.appPod(t, app.ObjectName(), "pod with JAVO_TOKEN", hasTokenEnv)
 	var guide bool
 	for _, m := range pod.Spec.Containers[0].VolumeMounts {
 		guide = guide || m.MountPath == APIGuidePath
@@ -232,50 +239,56 @@ func TestAnyAppCanAskForReadAccess(t *testing.T) {
 }
 
 func TestChangingAPIAccessRotatesTheTokenAndRestarts(t *testing.T) {
-	newAPITokenTemplate(t, "agent-tpl-rotate")
-	alice := signedIn(t, "alice-rotate")
-	app := newApp(t, "ws-agent-rotate", alice, "agent-tpl-rotate")
-	if tok := authenticateSecret(t, app.ObjectName()); tok.Scope != token.ScopeReadWrite {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newAPITokenTemplate(t, "agent-tpl-rotate")
+	alice := fx.signedIn(t, "alice-rotate")
+	app := fx.newApp(t, "ws-agent-rotate", alice, "agent-tpl-rotate")
+	if tok := fx.authenticateSecret(t, app.ObjectName()); tok.Scope != token.ScopeReadWrite {
 		t.Fatalf("default scope %q, want read-write", tok.Scope)
 	}
-	old := appPod(t, app.ObjectName(), "pod", hasTokenEnv)
-	editApp(t, db, app.ID, func(a *model.App) { a.APIAccess = model.APIAccessRead })
+	old := fx.appPod(t, app.ObjectName(), "pod", hasTokenEnv)
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.APIAccess = model.APIAccessRead })
 	eventually(t, "a read token", func() bool {
 		sec := &corev1.Secret{}
-		if !exists(sec, APITokenSecretName(app.ObjectName())) {
+		if !fx.exists(sec, APITokenSecretName(app.ObjectName())) {
 			return false
 		}
-		tok, err := records().Authenticate(context.Background(), string(sec.Data[APITokenKey]))
+		tok, err := fx.records().Authenticate(context.Background(), string(sec.Data[APITokenKey]))
 		return err == nil && tok.Scope == token.ScopeRead
 	})
-	appPod(t, app.ObjectName(), "a new pod", func(p *corev1.Pod) bool { return p.UID != old.UID && hasTokenEnv(p) })
+	fx.appPod(t, app.ObjectName(), "a new pod", func(p *corev1.Pod) bool { return p.UID != old.UID && hasTokenEnv(p) })
 }
 
 func TestAPIAccessNoneRemovesTheTokenSecretAndRestarts(t *testing.T) {
-	newAPITokenTemplate(t, "agent-tpl-none")
-	alice := signedIn(t, "alice-none")
-	app := newApp(t, "ws-agent-none", alice, "agent-tpl-none")
-	appTokenSecret(t, app.ObjectName())
-	old := appPod(t, app.ObjectName(), "pod", hasTokenEnv)
-	editApp(t, db, app.ID, func(a *model.App) { a.APIAccess = model.APIAccessNone })
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newAPITokenTemplate(t, "agent-tpl-none")
+	alice := fx.signedIn(t, "alice-none")
+	app := fx.newApp(t, "ws-agent-none", alice, "agent-tpl-none")
+	fx.appTokenSecret(t, app.ObjectName())
+	old := fx.appPod(t, app.ObjectName(), "pod", hasTokenEnv)
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.APIAccess = model.APIAccessNone })
 	eventually(t, "the token Secret removed", func() bool {
-		return !exists(&corev1.Secret{}, APITokenSecretName(app.ObjectName()))
+		return !fx.exists(&corev1.Secret{}, APITokenSecretName(app.ObjectName()))
 	})
-	pod := appPod(t, app.ObjectName(), "a new pod", func(p *corev1.Pod) bool { return p.UID != old.UID })
+	pod := fx.appPod(t, app.ObjectName(), "a new pod", func(p *corev1.Pod) bool { return p.UID != old.UID })
 	if hasTokenEnv(pod) {
 		t.Fatal("the new pod still gets JAVO_TOKEN")
 	}
 }
 
 func TestTemplateCapsAPIAccess(t *testing.T) {
-	newTemplate(t, "agent-tpl-capped", func(s *model.TemplateSpec) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "agent-tpl-capped", func(s *model.TemplateSpec) {
 		s.Kind, s.Image, s.Port = "claude-code", "example.com/agents:1", 7681
 		s.Command, s.Args = []string{"ttyd"}, nil
 		s.APIToken, s.MaxAPIAccess = true, model.APIAccessRead
 	})
-	alice := signedIn(t, "alice-capped")
-	app := newApp(t, "ws-agent-capped", alice, "agent-tpl-capped")
-	if tok := authenticateSecret(t, app.ObjectName()); tok.Scope != token.ScopeRead {
+	alice := fx.signedIn(t, "alice-capped")
+	app := fx.newApp(t, "ws-agent-capped", alice, "agent-tpl-capped")
+	if tok := fx.authenticateSecret(t, app.ObjectName()); tok.Scope != token.ScopeRead {
 		t.Fatalf("scope %q, want read (the template's cap)", tok.Scope)
 	}
 }
@@ -305,36 +318,33 @@ func (c secretWriteFails) Update(ctx context.Context, o client.Object, opts ...c
 // not be written is deleted again, so no working token is left that no
 // Secret holds.
 func TestAppTokenNotStoredIsRevoked(t *testing.T) {
-	newAPITokenTemplate(t, "agent-tpl-lost")
-	alice := signedIn(t, "alice-lost")
-	app := newApp(t, "ws-agent-lost", alice, "agent-tpl-lost")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newAPITokenTemplate(t, "agent-tpl-lost")
+	alice := fx.signedIn(t, "alice-lost")
+	app := fx.newApp(t, "ws-agent-lost", alice, "agent-tpl-lost")
 	name := APITokenSecretName(app.ObjectName())
-	appTokenSecret(t, app.ObjectName())
-	failing := newRec(db, func(r *Reconciler) {
+	fx.appTokenSecret(t, app.ObjectName())
+	// No controller runs from here on, so only the reconcile below acts.
+	fx.stop()
+	failing := newRec(fx.db, func(r *Reconciler) {
 		r.Client = secretWriteFails{Client: k8s, name: name}
-		r.Tokens, r.Secrets = records(), k8s
+		r.Tokens, r.Secrets = fx.records(), k8s
 	})
-	// The row goes, so the next reconcile makes a new token. The manager
-	// running beside the test may replace it first, leaving this reconcile
-	// nothing to write; then the row goes again.
-	for try := 1; ; try++ {
-		if _, err := db.Tokens().DeleteFor(bg, model.Actor{System: model.SystemCLI}, alice); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := failing.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: app.ID}}); err != nil {
-			break
-		}
-		if try == 5 {
-			t.Fatal("the reconcile whose Secret write failed reported no error")
-		}
+	// The row goes, so the next reconcile makes a new token.
+	if _, err := fx.db.Tokens().DeleteFor(bg, model.Actor{System: model.SystemCLI}, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := failing.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: app.ID}}); err == nil {
+		t.Fatal("the reconcile whose Secret write failed reported no error")
 	}
 	// Every token alice has is the one her app's Secret holds.
 	eventually(t, "only the stored token", func() bool {
 		sec := &corev1.Secret{}
-		if !exists(sec, name) {
+		if !fx.exists(sec, name) {
 			return false
 		}
-		toks, err := records().List(bg, alice)
+		toks, err := fx.records().List(bg, alice)
 		if err != nil {
 			t.Fatal(err)
 		}

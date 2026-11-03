@@ -36,6 +36,7 @@ func fixtures() (*model.App, *model.Template) {
 }
 
 func TestBuildPodRendersTemplates(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/alice-1a2b3c4d/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -56,6 +57,7 @@ func TestBuildPodRendersTemplates(t *testing.T) {
 }
 
 func TestBuildPodUnknownFieldNamesTemplateAndField(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.Args = []string{"{{.Nope}}"}
 	pod, err := BuildPod(ws, tpl, "/u/x/y/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -68,6 +70,7 @@ func TestBuildPodUnknownFieldNamesTemplateAndField(t *testing.T) {
 }
 
 func TestBuildPodHardening(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -112,6 +115,7 @@ func TestBuildPodHardening(t *testing.T) {
 }
 
 func TestBuildServiceSelectsTheApp(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	svc := BuildService(ws, tpl)
 	if svc.Name != ws.ObjectName() || svc.Namespace != "javo-apps" {
@@ -129,6 +133,7 @@ func TestBuildServiceSelectsTheApp(t *testing.T) {
 }
 
 func TestBuildPodFileCannotEscapeHome(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"../../etc/passwd": "/home/user/etc/passwd",
 		"sales/../app.py":  "/home/user/app.py",
@@ -149,6 +154,7 @@ func TestBuildPodFileCannotEscapeHome(t *testing.T) {
 }
 
 func TestBuildPodRejectsControlCharsInFile(t *testing.T) {
+	t.Parallel()
 	for _, f := range []string{"a\nb.py", "a\x00b.py", "a\rb.py", "a\u0085b.py", "a\xffb.py", "a\u2028b.py"} {
 		ws, tpl := fixtures()
 		ws.File = f
@@ -169,6 +175,7 @@ func sampleTemplate() *model.Template {
 }
 
 func TestBuildPodSampleCopiesIntoHomeBeforeStart(t *testing.T) {
+	t.Parallel()
 	ws, _ := fixtures()
 	tpl := sampleTemplate()
 	ws.Sample = true
@@ -216,6 +223,7 @@ func TestBuildPodSampleCopiesIntoHomeBeforeStart(t *testing.T) {
 // the identity before anything else runs; the sample is then copied from
 // them.
 func TestBuildPodGivesThePodFilesBeforeTheSample(t *testing.T) {
+	t.Parallel()
 	ws, _ := fixtures()
 	tpl := sampleTemplate()
 	tpl.Spec.PodFiles = true
@@ -241,6 +249,7 @@ func TestBuildPodGivesThePodFilesBeforeTheSample(t *testing.T) {
 }
 
 func TestBuildPodSampleFalseIsUnchanged(t *testing.T) {
+	t.Parallel()
 	ws, _ := fixtures()
 	pod, err := BuildPod(ws, sampleTemplate(), "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -252,6 +261,7 @@ func TestBuildPodSampleFalseIsUnchanged(t *testing.T) {
 }
 
 func TestBuildPodSampleWithoutTemplateSampleIsInvalid(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	ws.Sample = true
 	if pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages); err == nil || pod != nil {
@@ -260,6 +270,7 @@ func TestBuildPodSampleWithoutTemplateSampleIsInvalid(t *testing.T) {
 }
 
 func TestSampleFile(t *testing.T) {
+	t.Parallel()
 	tpl := sampleTemplate()
 	if got := SampleFileOf(tpl); got != "samples/streamlit/app.py" {
 		t.Fatalf("file kind = %q", got)
@@ -271,6 +282,7 @@ func TestSampleFile(t *testing.T) {
 }
 
 func TestBuildPodDropsArgsThatRenderEmpty(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	ws.File = ""
 	tpl.Spec.Args = []string{"run", "--x={{.Port}}", "{{if .File}}--f={{.File}}{{end}}"}
@@ -286,6 +298,7 @@ func TestBuildPodDropsArgsThatRenderEmpty(t *testing.T) {
 // Apps that check the websocket Origin (Bokeh, Panel) are told the public
 // host the browser uses; without one configured the argument is dropped.
 func TestBuildPodRendersPublicHost(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.Args = []string{"{{if .Host}}--allow-websocket-origin={{.Host}}{{end}}"}
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "javo.example.com", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -308,6 +321,7 @@ func TestBuildPodRendersPublicHost(t *testing.T) {
 // trailing slash (Starlette's root_path) get them from the template functions
 // dir, base and trimSuffix.
 func TestBuildPodTemplateFunctions(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	ws.File = "api/main.py"
 	tpl.Spec.Args = []string{"--app-dir", "{{dir .File}}", `{{base .File | trimSuffix ".py"}}:app`, `--root-path={{trimSuffix "/" .BaseURL}}`}
@@ -324,6 +338,7 @@ func TestBuildPodTemplateFunctions(t *testing.T) {
 // A size sets the app container's CPU and memory as both requests and
 // limits; other template resources stay, and the template is not changed.
 func TestBuildPodSizeOverridesCPUAndMemory(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.Resources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("512Mi"),
@@ -355,6 +370,7 @@ func TestBuildPodSizeOverridesCPUAndMemory(t *testing.T) {
 // A GPU size's app pod asks for the GPU and lands on the size's GPU nodes,
 // tolerating their taint.
 func TestBuildPodGPUSizePlacesThePod(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{Name: "gpu", DisplayName: "GPU", CPU: resource.MustParse("4"), Memory: resource.MustParse("16Gi"),
 		GPU: 1, GPUResource: sizes.DefaultGPUResource, NodeSelector: map[string]string{"pool": "gpu"},
@@ -372,6 +388,7 @@ func TestBuildPodGPUSizePlacesThePod(t *testing.T) {
 
 // The zero Size (no sizes configured) keeps the template's resources.
 func TestBuildPodZeroSizeKeepsTemplateResources(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.Resources = corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")}}
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -388,6 +405,7 @@ func TestBuildPodZeroSizeKeepsTemplateResources(t *testing.T) {
 }
 
 func TestBuildPodRunsAsTheGivenUID(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(100500), sizes.Size{}, testImages)
 	if err != nil {
@@ -423,6 +441,7 @@ func customFixtures(command string) (*model.App, *model.Template) {
 // The typed command is split like a shell would and rendered like template
 // args, then replaces the args; no shell runs it.
 func TestBuildPodRunsTheTypedCommand(t *testing.T) {
+	t.Parallel()
 	ws, tpl := customFixtures(`python "my app.py" --port={{.Port}} --base-url={{.BaseURL}} --data '{{.Home}}/data'`)
 	pod, err := BuildPod(ws, tpl, "/u/alice/clock/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -445,6 +464,7 @@ func TestBuildPodRunsTheTypedCommand(t *testing.T) {
 // A template's own command (an entrypoint) still runs; the typed command
 // takes the place of its args, as with docker run IMAGE COMMAND.
 func TestBuildPodTypedCommandKeepsTemplateEntrypoint(t *testing.T) {
+	t.Parallel()
 	ws, tpl := customFixtures("serve --port={{.Port}}")
 	tpl.Spec.Command = []string{"tini", "--"}
 	tpl.Spec.Args = []string{"default"}
@@ -461,6 +481,7 @@ func TestBuildPodTypedCommandKeepsTemplateEntrypoint(t *testing.T) {
 // A typed command runs in the folder of the chosen file, whatever the
 // template's file types.
 func TestBuildPodTypedCommandRunsInTheChosenFilesFolder(t *testing.T) {
+	t.Parallel()
 	for _, exts := range [][]string{nil, {".py"}} {
 		ws, tpl := customFixtures("python app.py")
 		tpl.Spec.FileExtensions = exts
@@ -477,6 +498,7 @@ func TestBuildPodTypedCommandRunsInTheChosenFilesFolder(t *testing.T) {
 
 // Apps without a typed command are built as before: no PORT, no working dir.
 func TestBuildPodWithoutTypedCommandIsUnchanged(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -489,6 +511,7 @@ func TestBuildPodWithoutTypedCommandIsUnchanged(t *testing.T) {
 }
 
 func TestBuildPodRefusesAnUnreadableCommand(t *testing.T) {
+	t.Parallel()
 	for _, cmd := range []string{"echo $HOME", `python "app.py`, "python app.py --x={{.Nope}}"} {
 		ws, tpl := customFixtures(cmd)
 		if _, err := BuildPod(ws, tpl, "/u/alice/clock/", "", testLayout(FixedUID), sizes.Size{}, testImages); err == nil {
@@ -498,6 +521,7 @@ func TestBuildPodRefusesAnUnreadableCommand(t *testing.T) {
 }
 
 func TestCheckCommand(t *testing.T) {
+	t.Parallel()
 	if err := CheckCommand("python app.py --port={{.Port}} --base-url={{.BaseURL}} --root={{.Home}} {{.File}}"); err != nil {
 		t.Fatalf("placeholders refused: %v", err)
 	}
@@ -526,6 +550,7 @@ func containerFixtures() (*model.App, *model.Template) {
 // An image sample has no folder to copy: a Workspace that asks for the
 // sample copy anyway is refused instead of copying the image's root.
 func TestBuildPodRefusesASampleCopyFromAnImageSample(t *testing.T) {
+	t.Parallel()
 	ws, tpl := containerFixtures()
 	tpl.Spec.Sample = &model.TemplateSample{Title: "Toolbox", Image: "registry.example.com/toolbox:1"}
 	ws.Sample = true
@@ -535,6 +560,7 @@ func TestBuildPodRefusesASampleCopyFromAnImageSample(t *testing.T) {
 }
 
 func TestBuildPodRunsTheChosenImage(t *testing.T) {
+	t.Parallel()
 	ws, tpl := containerFixtures()
 	pod, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages)
 	if err != nil {
@@ -578,6 +604,7 @@ func TestBuildPodRunsTheChosenImage(t *testing.T) {
 }
 
 func TestBuildPodChosenImageWithACommand(t *testing.T) {
+	t.Parallel()
 	ws, tpl := containerFixtures()
 	ws.Command = "--listen=:{{.Port}} --prefix {{.BaseURL}}"
 	pod, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages)
@@ -591,6 +618,7 @@ func TestBuildPodChosenImageWithACommand(t *testing.T) {
 }
 
 func TestBuildPodChosenImageNeedsAnImage(t *testing.T) {
+	t.Parallel()
 	ws, tpl := containerFixtures()
 	ws.Image = ""
 	if _, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages); err == nil {
@@ -600,6 +628,7 @@ func TestBuildPodChosenImageNeedsAnImage(t *testing.T) {
 
 // The port falls back to the template's when the app names none.
 func TestAppPortDefaultsToTheTemplates(t *testing.T) {
+	t.Parallel()
 	ws, tpl := containerFixtures()
 	ws.Port = 0
 	if got := AppPortOf(ws, tpl); got != 8080 {
@@ -616,6 +645,7 @@ func TestAppPortDefaultsToTheTemplates(t *testing.T) {
 // What the app runs is recorded on the pod, so a change can restart it; an
 // app that types nothing gets no record (pods from before keep running).
 func TestRunFingerprint(t *testing.T) {
+	t.Parallel()
 	ws, _ := fixtures()
 	if RunFingerprint(ws) != "" {
 		t.Fatal("fingerprint for an app without command, image or port")
@@ -639,6 +669,7 @@ func TestRunFingerprint(t *testing.T) {
 }
 
 func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.APIToken = true
 	tpl.Spec.APIGuidePaths = []string{"/etc/claude-code/CLAUDE.md", "/home/AGENTS.md"}
@@ -684,6 +715,7 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 }
 
 func TestNoAPITokenWithoutTheTemplateField(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -768,6 +800,7 @@ func hasHomeClaim(pod *corev1.Pod) bool {
 }
 
 func TestBuildPodClonesChecksAndRunsFromTheClone(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	pod, err := BuildPod(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -817,6 +850,7 @@ func TestBuildPodClonesChecksAndRunsFromTheClone(t *testing.T) {
 }
 
 func TestBuildPodWithoutRefClonesTheDefaultBranch(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	ws.Source.Ref, ws.Source.Path, ws.File = "", "", ""
 	tpl.Spec.Args = []string{"{{.Source}}|{{.File}}"}
@@ -836,6 +870,7 @@ func TestBuildPodWithoutRefClonesTheDefaultBranch(t *testing.T) {
 }
 
 func TestCloneTakesTheGitConfigOfThePlatform(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	img := testImages
 	img.GitConfig = "http.sslVerify:false"
@@ -856,6 +891,7 @@ func TestCloneTakesTheGitConfigOfThePlatform(t *testing.T) {
 }
 
 func TestWithGitTokenMountsTheSecretOnlyIntoClone(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -900,6 +936,7 @@ func TestWithGitTokenMountsTheSecretOnlyIntoClone(t *testing.T) {
 }
 
 func TestWithGitTokenNeverReachesAForkPreview(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	ws.ParentID, ws.PullNumber, ws.Source.Fork = "parent-1", 7, true
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -921,6 +958,7 @@ func TestWithGitTokenNeverReachesAForkPreview(t *testing.T) {
 }
 
 func TestPreviewPodHasNoHomeClaim(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	ws.ParentID, ws.PullNumber = "parent-1", 7
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -942,6 +980,7 @@ func TestPreviewPodHasNoHomeClaim(t *testing.T) {
 }
 
 func TestStaticTemplateBuildsInTheClonesThenCopiesTheSite(t *testing.T) {
+	t.Parallel()
 	ws, _ := sourceFixtures()
 	ws.File, ws.Source.Path = "", "site"
 	pod, err := BuildPod(ws, staticTemplate("npm ci && npm run build"), "/u/alice/site/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -981,6 +1020,7 @@ func TestStaticTemplateBuildsInTheClonesThenCopiesTheSite(t *testing.T) {
 // absolute redirect (http, the pod's port, no URL prefix), which sends the
 // visitor off the app. The pod serves with a config that redirects relatively.
 func TestStaticSiteServesWithRelativeRedirects(t *testing.T) {
+	t.Parallel()
 	repo, _ := sourceFixtures()
 	repo.File = ""
 	home := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "page", Owner: "alice", Template: "static-site", File: "pages/page.html"}
@@ -1013,6 +1053,7 @@ func TestStaticSiteServesWithRelativeRedirects(t *testing.T) {
 // The server config belongs to the template: one without it keeps its image's
 // own config, so no step is added and nothing is mounted over the image.
 func TestTemplateWithoutServerConfigAddsNoConfigStep(t *testing.T) {
+	t.Parallel()
 	repo, _ := sourceFixtures()
 	repo.File = ""
 	home := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "page", Owner: "alice", Template: "static-site", File: "pages/page.html"}
@@ -1037,6 +1078,7 @@ func TestTemplateWithoutServerConfigAddsNoConfigStep(t *testing.T) {
 
 // The folder the config goes to is the template's, not nginx's.
 func TestServerConfigGoesToTheTemplatesFolder(t *testing.T) {
+	t.Parallel()
 	ws, _ := sourceFixtures()
 	ws.File = ""
 	tpl := plainStaticTemplate("")
@@ -1062,6 +1104,7 @@ func TestServerConfigGoesToTheTemplatesFolder(t *testing.T) {
 const siteConfigScript = `printf '%s\n' "$1" > "$2/site.conf"`
 
 func TestServerConfigFolderIsNeverShell(t *testing.T) {
+	t.Parallel()
 	ws, _ := sourceFixtures()
 	ws.File = ""
 	tpl := plainStaticTemplate("")
@@ -1079,6 +1122,7 @@ func TestServerConfigFolderIsNeverShell(t *testing.T) {
 }
 
 func TestStaticTemplateWithoutABuildCommandSkipsBuildAndServesTheFolder(t *testing.T) {
+	t.Parallel()
 	ws, _ := sourceFixtures()
 	ws.File = ""
 	pod, err := BuildPod(ws, staticTemplate(""), "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -1094,6 +1138,7 @@ func TestStaticTemplateWithoutABuildCommandSkipsBuildAndServesTheFolder(t *testi
 }
 
 func TestAppBuildSettingsOverrideTheTemplate(t *testing.T) {
+	t.Parallel()
 	ws, _ := sourceFixtures()
 	ws.File = ""
 	ws.Source.Build = &model.SourceBuild{Command: "make site", Output: "public"}
@@ -1118,6 +1163,7 @@ func TestAppBuildSettingsOverrideTheTemplate(t *testing.T) {
 }
 
 func TestStaticTemplateFromAHomeFileCopiesOnlyThatFile(t *testing.T) {
+	t.Parallel()
 	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "page", Owner: "alice", Template: "static-site", File: "pages/page.html"}
 	pod, err := BuildPod(ws, staticTemplate("npm ci && npm run build"), "/u/alice/page/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -1143,6 +1189,7 @@ func TestStaticTemplateFromAHomeFileCopiesOnlyThatFile(t *testing.T) {
 }
 
 func TestAppWithoutASourceBuildsTodaysPod(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
@@ -1165,6 +1212,7 @@ func TestAppWithoutASourceBuildsTodaysPod(t *testing.T) {
 }
 
 func TestRunFingerprintOfAnAppWithoutASourceIsUnchanged(t *testing.T) {
+	t.Parallel()
 	// Recorded before sources existed: upgrading must not replace a running pod.
 	if got := RunFingerprint(&model.App{}); got != "" {
 		t.Fatalf("no command, image, port: %q", got)
@@ -1175,6 +1223,7 @@ func TestRunFingerprintOfAnAppWithoutASourceIsUnchanged(t *testing.T) {
 }
 
 func TestRunFingerprintChangesWithTheSource(t *testing.T) {
+	t.Parallel()
 	a := &model.App{Source: &model.Source{URL: "https://github.com/example-org/site", Ref: "main"}}
 	base := RunFingerprint(a)
 	if base == "" {
@@ -1195,6 +1244,7 @@ func TestRunFingerprintChangesWithTheSource(t *testing.T) {
 }
 
 func TestSourceAppNeedsTheImages(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	if _, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, Images{}); err == nil || !strings.Contains(err.Error(), "source.cloneImage") {
 		t.Fatalf("err = %v", err)
@@ -1205,6 +1255,7 @@ func TestSourceAppNeedsTheImages(t *testing.T) {
 // it: the pod files copy and the source check. Pods that do not run it get
 // none.
 func TestBuildPodPullsAPrivatePlatformImageWithItsSecrets(t *testing.T) {
+	t.Parallel()
 	private := testImages
 	private.Runner.PullSecrets = []string{"ghcr"}
 	want := []corev1.LocalObjectReference{{Name: "ghcr"}}
@@ -1258,6 +1309,7 @@ func effectiveEnv(t *testing.T, c corev1.Container, name string) string {
 
 // Programs in an app print colours as in a terminal, unless the app says otherwise.
 func TestAppPodAsksForColourUnlessTheAppSetsItsOwn(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	pod, err := BuildPod(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {

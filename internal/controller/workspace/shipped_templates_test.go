@@ -34,6 +34,7 @@ func shippedTemplate(t *testing.T, name string) *model.Template {
 // gone falls back to the home. The pod's start command runs here against a
 // stub jupyter-lab, with the home moved to a temporary folder.
 func TestJupyterLabOpensTheChosenFolder(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "jupyterlab")
 	home := t.TempDir()
 	for _, d := range []string{"projects/q3", "samples/jupyterlab"} {
@@ -93,6 +94,7 @@ func TestJupyterLabOpensTheChosenFolder(t *testing.T) {
 // The shipped custom template's sample starts with its own command, in the
 // sample's folder, serving on the template's port under the app's prefix.
 func TestCustomSampleRunsItsCommand(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "custom")
 	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "clock", Owner: "alice", Template: tpl.Name, File: SampleFileOf(tpl), Sample: true,
 		Command: tpl.Spec.Sample.Command}
@@ -112,6 +114,7 @@ func TestCustomSampleRunsItsCommand(t *testing.T) {
 
 // The shipped Container image template runs what each app names.
 func TestShippedContainerTemplate(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "container")
 	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "web", Owner: "alice", Template: tpl.Name, Image: "nginxinc/nginx-unprivileged:1", Port: 8080}
 	pod, err := BuildPod(ws, tpl, "/u/a/web/", "", testLayout(FixedUID), sizes.Size{}, testImages)
@@ -128,6 +131,7 @@ func TestShippedContainerTemplate(t *testing.T) {
 // chose (the sample's folder, or the home), and every tab attaches to the
 // same tmux session, so closing a tab keeps the agent running.
 func TestAgentTemplatesStartTmuxInTheChosenFolder(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"claude-code", "pi"} {
 		tpl := shippedTemplate(t, name)
 		cases := []struct {
@@ -165,6 +169,7 @@ func TestAgentTemplatesStartTmuxInTheChosenFolder(t *testing.T) {
 // directly (no tmux) in the folder the user chose; every tab is a herdr
 // client attached to the same server.
 func TestHerdrTemplateStartsInTheChosenFolder(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "herdr")
 	cases := []struct {
 		label  string
@@ -199,6 +204,7 @@ func TestHerdrTemplateStartsInTheChosenFolder(t *testing.T) {
 // (Pluto requires it to start and end with a slash) and the notebook to open.
 // With no notebook chosen, none is passed and Pluto starts on its file menu.
 func TestPlutoOpensTheChosenNotebook(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "pluto")
 	cases := []struct {
 		label  string
@@ -239,6 +245,7 @@ func repoApp(tpl *model.Template) *model.App {
 // Every template that accepts a repository builds a pod that clones it, and
 // the ones that must not (an IDE editing a throwaway clone loses work) say so.
 func TestShippedTemplatesTakeRepositoriesWhereTheyShould(t *testing.T) {
+	t.Parallel()
 	withRepo := []string{"streamlit", "panel", "bokeh", "dash", "gradio", "voila", "marimo", "pluto", "fastapi", "custom", "static-site", "backend-node", "backend-go"}
 	without := []string{"jupyterlab", "vscode", "rstudio", "claude-code", "pi", "herdr", "container"}
 	for _, name := range withRepo {
@@ -275,6 +282,7 @@ func TestShippedTemplatesTakeRepositoriesWhereTheyShould(t *testing.T) {
 // The static template builds a front-end with node and serves it with nginx
 // under the app's prefix; a single HTML file of the home is copied instead.
 func TestShippedStaticSite(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "static-site")
 	if tpl.Spec.Kind != "static" || tpl.Spec.BasePath != "Strip" || tpl.Spec.AppLogin != "Disabled" ||
 		tpl.Spec.Port != 8080 || tpl.Spec.ReadinessPath != "/" || len(tpl.Spec.Command)+len(tpl.Spec.Args) != 0 {
@@ -322,6 +330,7 @@ func TestShippedStaticSite(t *testing.T) {
 // here, with the clone and the served folder moved to a temporary folder and
 // a stub npm whose build writes dist/index.html.
 func TestShippedStaticSiteBuildsOnlyWithAPackageJSON(t *testing.T) {
+	t.Parallel()
 	tpl := shippedTemplate(t, "static-site")
 	ws := repoApp(tpl)
 	ws.Source.Path = "web"
@@ -383,6 +392,7 @@ func TestShippedStaticSiteBuildsOnlyWithAPackageJSON(t *testing.T) {
 // The node and Go back-ends run the command their creator types, in their
 // environment, from the repository or from the folder of a file in the home.
 func TestShippedBackends(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, kind, command string }{
 		{"backend-node", "node", "node server.js --port={{.Port}}"},
 		{"backend-go", "go", "go run . --port={{.Port}}"},
@@ -422,6 +432,7 @@ func TestShippedBackends(t *testing.T) {
 // Template cards are all one size: every shipped template says what it is in
 // one short line, and the details live in the form.
 func TestShippedTemplateDescriptionsAreOneShortLine(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob(filepath.Join("..", "..", "..", "deploy", "helm", "javo", "files", "templates", "*.yaml"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("templates: %v %v", files, err)

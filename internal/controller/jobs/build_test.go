@@ -81,6 +81,7 @@ func runSpec(t *testing.T, c corev1.Container) runner.Spec {
 }
 
 func TestBuildCronJobRendersSchedule(t *testing.T) {
+	t.Parallel()
 	in := testInputs(nil)
 	cj, err := BuildCronJob(in)
 	if err != nil {
@@ -122,6 +123,7 @@ func TestBuildCronJobRendersSchedule(t *testing.T) {
 }
 
 func TestBuildCronJobPausedSuspends(t *testing.T) {
+	t.Parallel()
 	cj, err := BuildCronJob(testInputs(func(d *model.Job) { d.Spec.Schedule.Paused = true }))
 	if err != nil {
 		t.Fatal(err)
@@ -132,12 +134,14 @@ func TestBuildCronJobPausedSuspends(t *testing.T) {
 }
 
 func TestBuildCronJobNeedsSchedule(t *testing.T) {
+	t.Parallel()
 	if _, err := BuildCronJob(testInputs(func(d *model.Job) { d.Spec.Schedule = nil })); err == nil {
 		t.Fatal("want error for a definition without schedule")
 	}
 }
 
 func TestBuildCronJobLongNameStaysUnder52(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("n", 60)
 	cj, err := BuildCronJob(testInputs(func(d *model.Job) { d.Name = long }))
 	if err != nil {
@@ -152,6 +156,7 @@ func TestBuildCronJobLongNameStaysUnder52(t *testing.T) {
 }
 
 func TestTimeoutIsCappedByTemplateMax(t *testing.T) {
+	t.Parallel()
 	in := testInputs(func(d *model.Job) {
 		d.Spec.Run.Timeout = &metav1.Duration{Duration: 48 * time.Hour}
 	})
@@ -168,6 +173,7 @@ func TestTimeoutIsCappedByTemplateMax(t *testing.T) {
 }
 
 func TestPodFailurePolicyOrder(t *testing.T) {
+	t.Parallel()
 	jt, err := BuildJobTemplate(testInputs(nil), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -195,6 +201,7 @@ func TestPodFailurePolicyOrder(t *testing.T) {
 }
 
 func TestJobPodShape(t *testing.T) {
+	t.Parallel()
 	in := testInputs(nil)
 	folder := model.SharedFolder{
 		Spec:   model.SharedFolderSpec{Group: "research"},
@@ -268,6 +275,7 @@ func TestJobPodShape(t *testing.T) {
 }
 
 func TestJAVORunRoundTripsDefinition(t *testing.T) {
+	t.Parallel()
 	jt, err := BuildJobTemplate(testInputs(nil), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -287,6 +295,7 @@ func TestJAVORunRoundTripsDefinition(t *testing.T) {
 // Secret as JAVO_TOKEN, never in clear, and the API address as JAVO_URL; one
 // without gets neither.
 func TestBuildJobGivesAnAPITokenOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
 	env := func(in Inputs) []corev1.EnvVar {
 		t.Helper()
 		j, err := BuildManualJob(in, "run-1", nil)
@@ -321,6 +330,7 @@ func TestBuildJobGivesAnAPITokenOnlyWhenAsked(t *testing.T) {
 }
 
 func TestBuildManualJobOverridesParams(t *testing.T) {
+	t.Parallel()
 	job, err := BuildManualJob(testInputs(nil), "run-1", map[string]string{"region": "apac"})
 	if err != nil {
 		t.Fatal(err)
@@ -345,12 +355,14 @@ func TestBuildManualJobOverridesParams(t *testing.T) {
 }
 
 func TestBuildManualJobRejectsUndeclaredParam(t *testing.T) {
+	t.Parallel()
 	if _, err := BuildManualJob(testInputs(nil), "run-1", map[string]string{"nope": "x"}); err == nil {
 		t.Fatal("want error for an undeclared parameter")
 	}
 }
 
 func TestTemplateMustAllowTheJob(t *testing.T) {
+	t.Parallel()
 	noJobs := testInputs(nil)
 	noJobs.Template.Spec.Jobs = nil
 	if _, err := BuildJobTemplate(noJobs, nil); !errors.Is(err, ErrJobsNotAllowed) {
@@ -376,6 +388,7 @@ func TestTemplateMustAllowTheJob(t *testing.T) {
 // twice (a resync, a restart) cannot make a second Job, and the name is a
 // valid Job name however long the job's own name is.
 func TestManualJobNameIsStablePerRunAndFits(t *testing.T) {
+	t.Parallel()
 	in := testInputs(func(j *model.Job) { j.Name = strings.Repeat("n", 60) })
 	a, b := ManualJobName(in.Job, "run-1"), ManualJobName(in.Job, "run-2")
 	if a == b || a != ManualJobName(in.Job, "run-1") {
@@ -393,6 +406,7 @@ func TestManualJobNameIsStablePerRunAndFits(t *testing.T) {
 // container's CPU and memory requests and limits; the zero Size keeps the
 // template's resources.
 func TestRunsGetTheJobsSize(t *testing.T) {
+	t.Parallel()
 	in := testInputs(nil)
 	in.Template.Spec.Resources = corev1.ResourceRequirements{Requests: corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi"),
@@ -443,6 +457,7 @@ func TestRunsGetTheJobsSize(t *testing.T) {
 // Every job pod runs the platform image (the runner install), so a private
 // one is pulled with its Secrets; a public one adds none.
 func TestJobPodPullsAPrivatePlatformImageWithItsSecrets(t *testing.T) {
+	t.Parallel()
 	in := testInputs(nil)
 	in.RunnerImage.PullSecrets = []string{"ghcr"}
 	cj, err := BuildCronJob(in)
@@ -465,6 +480,7 @@ func TestJobPodPullsAPrivatePlatformImageWithItsSecrets(t *testing.T) {
 
 // Programs in a run print colours as in a terminal, unless the job says otherwise.
 func TestJobPodAsksForColourUnlessTheJobSetsItsOwn(t *testing.T) {
+	t.Parallel()
 	effective := func(t *testing.T, mutate func(*model.Job), name string) string {
 		t.Helper()
 		jt, err := BuildJobTemplate(testInputs(mutate), nil)

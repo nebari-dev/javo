@@ -24,16 +24,18 @@ func installStep(pod *corev1.Pod) *corev1.Container {
 }
 
 func TestAnAppInAnEnvironmentInstallsItBeforeItStarts(t *testing.T) {
-	newTemplate(t, "lab-pixi1")
-	in := &model.App{Namespace: testNS, Name: "ws-pixi1", Owner: "alice", Template: "lab-pixi1",
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-pixi1")
+	in := &model.App{Namespace: fx.ns, Name: "ws-pixi1", Owner: "alice", Template: "lab-pixi1",
 		Environment: &model.Environment{Source: "nebi", ID: "ws-1", Name: "sales", Version: "3", Digest: envFiles.Digest()}}
-	app, err := db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, in, store.AppExtras{Environment: &envFiles})
+	app, err := fx.db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, in, store.AppExtras{Environment: &envFiles})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var pod *corev1.Pod
 	eventually(t, "a pod that installs the environment", func() bool {
-		pod = podOf(app)
+		pod = fx.podOf(app)
 		return pod != nil && installStep(pod) != nil
 	})
 	if img := installStep(pod).Image; img != testPixiImage {
@@ -57,12 +59,14 @@ func stepEnv(c *corev1.Container, name string) string {
 // from Git may override it with the repository's lockfile, so the step sees
 // the clone. A pick wins over both.
 func TestATemplatesEnvironmentInstallsAndARepositoryMayReplaceIt(t *testing.T) {
-	newTemplate(t, "lab-pixi4", func(s *model.TemplateSpec) { s.Environment = "streamlit"; s.FromRepo = model.FromRepoOptional })
-	home := newApp(t, "ws-pixi4", "alice", "lab-pixi4")
-	repo := newApp(t, "ws-pixi5", "alice", "lab-pixi4", func(a *model.App) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-pixi4", func(s *model.TemplateSpec) { s.Environment = "streamlit"; s.FromRepo = model.FromRepoOptional })
+	home := fx.newApp(t, "ws-pixi4", "alice", "lab-pixi4")
+	repo := fx.newApp(t, "ws-pixi5", "alice", "lab-pixi4", func(a *model.App) {
 		a.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "main"}
 	})
-	picked, err := db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, &model.App{Namespace: testNS, Name: "ws-pixi6", Owner: "alice", Template: "lab-pixi4",
+	picked, err := fx.db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, &model.App{Namespace: fx.ns, Name: "ws-pixi6", Owner: "alice", Template: "lab-pixi4",
 		Environment: &model.Environment{Source: "nebi", ID: "ws-1", Name: "sales", Version: "3", Digest: envFiles.Digest()}}, store.AppExtras{Environment: &envFiles})
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +74,7 @@ func TestATemplatesEnvironmentInstallsAndARepositoryMayReplaceIt(t *testing.T) {
 	steps := map[string]*corev1.Container{}
 	eventually(t, "three pods that install", func() bool {
 		for _, a := range []model.App{home, repo, picked} {
-			if pod := podOf(a); pod != nil && installStep(pod) != nil {
+			if pod := fx.podOf(a); pod != nil && installStep(pod) != nil {
 				steps[a.Name] = installStep(pod)
 			}
 		}
@@ -88,10 +92,12 @@ func TestATemplatesEnvironmentInstallsAndARepositoryMayReplaceIt(t *testing.T) {
 }
 
 func TestAnAppWithoutAnEnvironmentInstallsNothing(t *testing.T) {
-	newTemplate(t, "lab-pixi2")
-	app := newApp(t, "ws-pixi2", "alice", "lab-pixi2")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-pixi2")
+	app := fx.newApp(t, "ws-pixi2", "alice", "lab-pixi2")
 	var pod *corev1.Pod
-	eventually(t, "a pod", func() bool { pod = podOf(app); return pod != nil })
+	eventually(t, "a pod", func() bool { pod = fx.podOf(app); return pod != nil })
 	if installStep(pod) != nil {
 		t.Fatal("an app with no environment got an install step")
 	}
@@ -100,22 +106,24 @@ func TestAnAppWithoutAnEnvironmentInstallsNothing(t *testing.T) {
 // A preview of an app in an environment runs in the same environment: the
 // controller makes it from the parent, and installs the parent's files.
 func TestAPreviewInstallsItsParentsEnvironment(t *testing.T) {
-	newTemplate(t, "lab-pixi3")
-	in := &model.App{Namespace: testNS, Name: "ws-pixi3", Owner: "alice", Template: "lab-pixi3", File: "app.py",
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-pixi3")
+	in := &model.App{Namespace: fx.ns, Name: "ws-pixi3", Owner: "alice", Template: "lab-pixi3", File: "app.py",
 		Source:      &model.Source{URL: "https://github.com/example-org/site", Ref: "main"},
 		Environment: &model.Environment{Source: "nebi", ID: "ws-1", Name: "sales", Version: "3", Digest: envFiles.Digest()}}
-	parent, err := db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, in, store.AppExtras{Environment: &envFiles})
+	parent, err := fx.db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, in, store.AppExtras{Environment: &envFiles})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// As preview.Child makes it: the parent's spec, with no files of its own.
-	child, err := db.Previews().Put(bg, &model.App{Namespace: testNS, Name: "ws-pixi3-pr-1", Owner: "alice", Template: "lab-pixi3", File: "app.py",
+	child, err := fx.db.Previews().Put(bg, &model.App{Namespace: fx.ns, Name: "ws-pixi3-pr-1", Owner: "alice", Template: "lab-pixi3", File: "app.py",
 		Source: parent.Source, Environment: parent.Environment, ParentID: parent.ID, PullNumber: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "the preview's pod installs the environment", func() bool {
-		pod := podOf(child)
+		pod := fx.podOf(child)
 		return pod != nil && installStep(pod) != nil
 	})
 }
@@ -124,16 +132,18 @@ func TestAPreviewInstallsItsParentsEnvironment(t *testing.T) {
 // template's own; elsewhere it replaces it and must bring the program the
 // template starts, which the step is told with the environment's name.
 func TestAPickedEnvironmentGoesBesideAKernelServerAndIsCheckedElsewhere(t *testing.T) {
-	newTemplate(t, "lab-pixi7", func(s *model.TemplateSpec) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-pixi7", func(s *model.TemplateSpec) {
 		s.Image, s.Environment, s.ServesKernels = "", "jupyterlab", true
 		s.Command = []string{"/opt/javo/pod-user.sh", "sh", "-c", "exec jupyter-lab"}
 	})
-	newTemplate(t, "lab-pixi8", func(s *model.TemplateSpec) {
+	fx.newTemplate(t, "lab-pixi8", func(s *model.TemplateSpec) {
 		s.Image, s.Environment = "", "streamlit"
 		s.Command, s.Args = []string{"/opt/javo/pod-user.sh", "streamlit"}, []string{"run", "app.py"}
 	})
 	picked := func(name, tpl string) model.App {
-		a, err := db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, &model.App{Namespace: testNS, Name: name, Owner: "alice", Template: tpl,
+		a, err := fx.db.Apps().CreateWith(bg, model.Actor{Person: "alice"}, &model.App{Namespace: fx.ns, Name: name, Owner: "alice", Template: tpl,
 			Environment: &model.Environment{Source: "nebi", ID: "ws-1", Name: "smoke-pushed", Version: "3", Digest: envFiles.Digest()}}, store.AppExtras{Environment: &envFiles})
 		if err != nil {
 			t.Fatal(err)
@@ -144,7 +154,7 @@ func TestAPickedEnvironmentGoesBesideAKernelServerAndIsCheckedElsewhere(t *testi
 	steps := map[string]*corev1.Container{}
 	eventually(t, "two pods that install", func() bool {
 		for _, a := range []model.App{lab, st} {
-			if pod := podOf(a); pod != nil && installStep(pod) != nil {
+			if pod := fx.podOf(a); pod != nil && installStep(pod) != nil {
 				steps[a.Name] = installStep(pod)
 			}
 		}

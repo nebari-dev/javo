@@ -3,14 +3,17 @@ package workspace
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -24,13 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
@@ -39,17 +42,10 @@ import (
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/reasons"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
-)
-
-const (
-	testNS = "javo-apps"
-	// allocNS is not watched by the manager; tests that need a Reconciler
-	// of their own reconcile there directly so the manager's reconciler
-	// cannot race them.
-	allocNS = "javo-alloc"
 )
 
 var testSizes = func() sizes.Catalog {
@@ -66,11 +62,53 @@ var (
 	bg     = context.Background()
 	actor  = model.Actor{Person: "alice"}
 	k8s    client.Client
-	rec    *Reconciler
-	db     *store.Store
 	scheme = runtime.NewScheme()
 	cfg    *rest.Config
+	// nsCount numbers the namespaces newNamespace makes, so no two tests
+	// (nor two runs of one test under -count) share one.
+	nsCount atomic.Int32
 )
+
+// newNamespace makes a namespace no other test uses and returns its name.
+func newNamespace(t *testing.T, prefix string, labels map[string]string) string {
+	t.Helper()
+	name := fmt.Sprintf("%s-%d", prefix, nsCount.Add(1))
+	if err := k8s.Create(bg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}); err != nil {
+		t.Fatal(err)
+	}
+	return name
+}
+
+// env is one test's own world: a database, a namespace no other test uses,
+// and a manager whose app reconciler serves that namespace from that
+// database, so tests run in parallel without seeing each other's apps.
+type env struct {
+	db     *store.Store
+	ns     string
+	rec    *Reconciler
+	policy *stubPolicy
+	keys   *secrets.Keys
+	// stop stops the manager and waits for it; calling it again is a no-op.
+	stop func()
+}
+
+func newEnv(t *testing.T) *env {
+	t.Helper()
+	fx := &env{db: storetest.New(t), ns: newNamespace(t, "javo-apps", nil), policy: &stubPolicy{state: netprobe.Enforced}}
+	keys, err := newTestKeys(fx.db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.keys = keys
+	mgr, feed, r, err := newManager(fx.db, []string{fx.ns}, func(r *Reconciler) { r.SecretKeys, r.NetworkPolicy = keys, fx.policy }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.rec = r
+	fx.stop = run(fx.db, mgr, feed)
+	t.Cleanup(fx.stop)
+	return fx
+}
 
 // newManager builds a manager over namespaces whose app reconciler reads
 // the database s. The caller starts it with run.
@@ -121,6 +159,11 @@ func newManager(s *store.Store, namespaces []string, tune func(*Reconciler), mtu
 	if err := setupFakeHomes(mgr, s, feed); err != nil {
 		return nil, nil, nil, err
 	}
+	for _, o := range []client.Object{&corev1.Pod{}, &corev1.Service{}, &corev1.Event{}, &corev1.PersistentVolumeClaim{}, &corev1.Secret{}, &networkingv1.NetworkPolicy{}, &corev1.Namespace{}, &corev1.Node{}} {
+		if _, err := mgr.GetCache().GetInformer(bg, o); err != nil {
+			return nil, nil, nil, err
+		}
+	}
 	return mgr, feed, r, nil
 }
 
@@ -148,52 +191,21 @@ func run(s *store.Store, mgr ctrl.Manager, feed *dbsource.Feed) (stop func()) {
 }
 
 func TestMain(m *testing.M) {
-	env := &envtest.Environment{}
-	var err error
-	if cfg, err = env.Start(); err != nil {
+	var (
+		stop func()
+		err  error
+	)
+	if cfg, stop, err = ctrltest.Start(); err != nil {
 		panic(err)
 	}
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		panic(err)
 	}
-	dir, err := os.MkdirTemp("", "javo-workspace-test")
-	if err != nil {
-		panic(err)
-	}
-	scfg, cleanup, err := storetest.FreshConfig(bg, storetest.Engine(), os.Getenv("JAVO_TEST_PG_DSN"), dir)
-	if err != nil {
-		panic(err)
-	}
-	if db, err = store.Open(bg, scfg); err != nil {
-		panic(err)
-	}
-	if err := db.Migrate(bg); err != nil {
-		panic(err)
-	}
-	policy.set(netprobe.Enforced)
-	if testKeys, err = newTestKeys(db, dir); err != nil {
-		panic(err)
-	}
-	mgr, feed, r, err := newManager(db, []string{testNS}, func(r *Reconciler) { r.SecretKeys = testKeys }, nil)
-	if err != nil {
-		panic(err)
-	}
-	rec = r
-	stop := run(db, mgr, feed)
 	if k8s, err = client.New(cfg, client.Options{Scheme: scheme}); err != nil {
 		panic(err)
 	}
-	for _, ns := range []string{testNS, allocNS} {
-		if err := k8s.Create(bg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
-			panic(err)
-		}
-	}
 	code := m.Run()
 	stop()
-	_ = db.Close()
-	cleanup()
-	_ = os.RemoveAll(dir)
-	_ = env.Stop()
 	os.Exit(code)
 }
 
@@ -212,19 +224,22 @@ func putTemplateIn(t *testing.T, s *store.Store, name string, tune ...func(*mode
 	}
 }
 
-func newTemplate(t *testing.T, name string, tune ...func(*model.TemplateSpec)) {
+func (fx *env) newTemplate(t *testing.T, name string, tune ...func(*model.TemplateSpec)) {
 	t.Helper()
-	putTemplateIn(t, db, name, tune...)
+	putTemplateIn(t, fx.db, name, tune...)
 }
 
-// newAppIn stores an app row in s. Outside the test namespace, which the
-// stand-in for the storage controller serves, the owner's home is prepared
-// first.
+// newAppIn stores an app row in s for ns, which no stand-in for the storage
+// controller serves, so the owner's home is prepared first.
 func newAppIn(t *testing.T, s *store.Store, ns, name, owner, tpl string, tune ...func(*model.App)) model.App {
 	t.Helper()
-	if ns != testNS {
-		primeHome(t, s, owner, ns)
-	}
+	primeHome(t, s, owner, ns)
+	return createApp(t, s, ns, name, owner, tpl, tune...)
+}
+
+// createApp stores an app row in s for ns.
+func createApp(t *testing.T, s *store.Store, ns, name, owner, tpl string, tune ...func(*model.App)) model.App {
+	t.Helper()
 	a := &model.App{Namespace: ns, Name: name, Owner: owner, Template: tpl}
 	for _, f := range tune {
 		f(a)
@@ -237,9 +252,9 @@ func newAppIn(t *testing.T, s *store.Store, ns, name, owner, tpl string, tune ..
 }
 
 // newApp stores an app row the manager reconciles.
-func newApp(t *testing.T, name, owner, tpl string, tune ...func(*model.App)) model.App {
+func (fx *env) newApp(t *testing.T, name, owner, tpl string, tune ...func(*model.App)) model.App {
 	t.Helper()
-	return newAppIn(t, db, testNS, name, owner, tpl, tune...)
+	return createApp(t, fx.db, fx.ns, name, owner, tpl, tune...)
 }
 
 // editApp changes the app's spec through the store, as the gateway does.
@@ -263,29 +278,29 @@ func eventually(t *testing.T, what string, cond func() bool) {
 		if cond() {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-func key(name string) types.NamespacedName {
-	return types.NamespacedName{Namespace: testNS, Name: name}
+func (fx *env) key(name string) types.NamespacedName {
+	return types.NamespacedName{Namespace: fx.ns, Name: name}
 }
 
-func getApp(t *testing.T, id string) model.App {
+func (fx *env) getApp(t *testing.T, id string) model.App {
 	t.Helper()
-	return mustApp(t, db, id)
+	return mustApp(t, fx.db, id)
 }
 
-func phaseIs(id, phase string) func() bool {
+func (fx *env) phaseIs(id, phase string) func() bool {
 	return func() bool {
-		app, err := db.Apps().Get(bg, id)
+		app, err := fx.db.Apps().Get(bg, id)
 		return err == nil && app.Status.Phase == phase
 	}
 }
 
-func exists(obj client.Object, name string) bool {
-	return k8s.Get(bg, key(name), obj) == nil
+func (fx *env) exists(obj client.Object, name string) bool {
+	return k8s.Get(bg, fx.key(name), obj) == nil
 }
 
 // reconcileNow runs one reconcile of the app on r, which reads the API
@@ -302,7 +317,7 @@ func reconcileNow(t *testing.T, r *Reconciler, id string) reconcile.Result {
 // newRec is a Reconciler that reads the API server directly, so a reconcile
 // run on it has finished when it returns.
 func newRec(s *store.Store, tune ...func(*Reconciler)) *Reconciler {
-	r := &Reconciler{Client: k8s, Store: s, Storage: testStorage(s), Sizes: rec.Sizes, ReadyTimeout: rec.ReadyTimeout, Exposure: pathExposure, NetworkPolicy: policy,
+	r := &Reconciler{Client: k8s, Store: s, Storage: testStorage(s), Sizes: testSizes, ReadyTimeout: time.Minute, Exposure: pathExposure, NetworkPolicy: policy,
 		Machines: capacity.Nodes{Reader: k8s}, CloneImage: testImages.Clone, RunnerImage: testImages.Runner}
 	for _, f := range tune {
 		f(r)
@@ -315,11 +330,13 @@ func condition(app model.App, typ string) *metav1.Condition {
 }
 
 func TestCreateFromRow(t *testing.T) {
-	newTemplate(t, "lab-create")
-	app := newApp(t, "ws-create", "alice", "lab-create")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-create")
+	app := fx.newApp(t, "ws-create", "alice", "lab-create")
 
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	got := getApp(t, app.ID)
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	got := fx.getApp(t, app.ID)
 	if want := pathExposure.BasePath("alice", "ws-create"); got.Status.URL != want {
 		t.Fatalf("url = %q, want %q", got.Status.URL, want)
 	}
@@ -327,7 +344,7 @@ func TestCreateFromRow(t *testing.T) {
 		t.Fatalf("observed version = %d, want %d", got.Status.ObservedVersion, app.Version)
 	}
 	pod, svc := &corev1.Pod{}, &corev1.Service{}
-	if !exists(pod, app.ObjectName()) || !exists(svc, app.ObjectName()) {
+	if !fx.exists(pod, app.ObjectName()) || !fx.exists(svc, app.ObjectName()) {
 		t.Fatal("pod or service missing")
 	}
 	for _, o := range []client.Object{pod, svc} {
@@ -341,7 +358,7 @@ func TestCreateFromRow(t *testing.T) {
 	if svc.Spec.Selector[model.LabelApp] != app.ID {
 		t.Fatalf("service selector = %v", svc.Spec.Selector)
 	}
-	home, err := db.Homes().ByOwner(bg, testNS, "alice")
+	home, err := fx.db.Homes().ByOwner(bg, fx.ns, "alice")
 	if err != nil || home.Spec.Owner != "alice" {
 		t.Fatalf("home missing: %+v, %v", home, err)
 	}
@@ -350,14 +367,16 @@ func TestCreateFromRow(t *testing.T) {
 
 // The URL uses the short name the user knows; the object name is owner-scoped.
 func TestURLUsesShortName(t *testing.T) {
-	newTemplate(t, "lab-short")
-	app := newApp(t, "sales", "alice", "lab-short")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	if got, want := getApp(t, app.ID).Status.URL, pathExposure.BasePath("alice", "sales"); got != want {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-short")
+	app := fx.newApp(t, "sales", "alice", "lab-short")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	if got, want := fx.getApp(t, app.ID).Status.URL, pathExposure.BasePath("alice", "sales"); got != want {
 		t.Fatalf("url = %q, want %q", got, want)
 	}
 	pod := &corev1.Pod{}
-	if app.ObjectName() == "sales" || !exists(pod, app.ObjectName()) ||
+	if app.ObjectName() == "sales" || !fx.exists(pod, app.ObjectName()) ||
 		!strings.Contains(strings.Join(pod.Spec.Containers[0].Args, " "), pathExposure.BasePath("alice", "sales")) {
 		t.Fatalf("pod missing, or not named by the object name, or base URL not the short-name URL: %v", pod.Spec.Containers)
 	}
@@ -366,28 +385,32 @@ func TestURLUsesShortName(t *testing.T) {
 // The app reconciler asks for a home and waits; it makes no claim, and no
 // pod, until the home is prepared.
 func TestAnAppMakesAHomeNotAClaimAndWaitsForIt(t *testing.T) {
-	newTemplate(t, "lab-wait")
-	app := newApp(t, "ws-wait", stuckPrefix+"a", "lab-wait")
-	eventually(t, "phase Pending", phaseIs(app.ID, "Pending"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-wait")
+	app := fx.newApp(t, "ws-wait", stuckPrefix+"a", "lab-wait")
+	eventually(t, "phase Pending", fx.phaseIs(app.ID, "Pending"))
 
-	home, err := db.Homes().ByOwner(bg, testNS, stuckPrefix+"a")
+	home, err := fx.db.Homes().ByOwner(bg, fx.ns, stuckPrefix+"a")
 	if err != nil {
 		t.Fatalf("home not requested: %v", err)
 	}
 	if home.Spec.Size == nil || home.Spec.Size.Cmp(resource.MustParse("1Gi")) != 0 {
 		t.Fatalf("home size = %v, want the configured default 1Gi", home.Spec.Size)
 	}
-	c := condition(getApp(t, app.ID), model.ConditionHomeReady)
+	c := condition(fx.getApp(t, app.ID), model.ConditionHomeReady)
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != string(reasons.HomePreparing) {
 		t.Fatalf("HomeReady = %+v", c)
 	}
-	if exists(&corev1.Pod{}, app.ObjectName()) || exists(&corev1.PersistentVolumeClaim{}, naming.HomeClaimName(stuckPrefix+"a")) {
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) || fx.exists(&corev1.PersistentVolumeClaim{}, naming.HomeClaimName(stuckPrefix+"a")) {
 		t.Fatal("a pod or claim exists before the home is prepared")
 	}
 }
 
 // Whatever stops a home from being mounted is the app's reason too.
 func TestAHomeThatCannotBeUsedFailsTheAppWithItsReason(t *testing.T) {
+	t.Parallel()
+	fx := newEnv(t)
 	for _, tc := range []struct {
 		code      reasons.Code
 		wantPhase string
@@ -398,20 +421,20 @@ func TestAHomeThatCannotBeUsedFailsTheAppWithItsReason(t *testing.T) {
 	} {
 		t.Run(string(tc.code), func(t *testing.T) {
 			owner := stuckPrefix + strings.ToLower(string(tc.code))
-			stuckHome(t, owner, metav1.Condition{Status: metav1.ConditionFalse, Reason: string(tc.code), Message: "evidence from the home"})
-			newTemplate(t, "lab-"+owner)
-			app := newApp(t, "ws-"+owner, owner, "lab-"+owner)
-			eventually(t, "phase "+tc.wantPhase, phaseIs(app.ID, tc.wantPhase))
+			fx.stuckHome(t, owner, metav1.Condition{Status: metav1.ConditionFalse, Reason: string(tc.code), Message: "evidence from the home"})
+			fx.newTemplate(t, "lab-"+owner)
+			app := fx.newApp(t, "ws-"+owner, owner, "lab-"+owner)
+			eventually(t, "phase "+tc.wantPhase, fx.phaseIs(app.ID, tc.wantPhase))
 
 			want := tc.code
 			if tc.code == reasons.HomeClaimForeign {
 				want = reasons.HomeConflict // the app-level wording for a home that is not theirs
 			}
-			c := condition(getApp(t, app.ID), model.ConditionHomeReady)
+			c := condition(fx.getApp(t, app.ID), model.ConditionHomeReady)
 			if c == nil || c.Status != metav1.ConditionFalse || c.Reason != string(want) {
 				t.Fatalf("HomeReady = %+v, want reason %s", c, want)
 			}
-			if exists(&corev1.Pod{}, app.ObjectName()) {
+			if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 				t.Fatal("pod mounts a home that is not usable")
 			}
 		})
@@ -421,18 +444,20 @@ func TestAHomeThatCannotBeUsedFailsTheAppWithItsReason(t *testing.T) {
 // An app that is already running keeps its real status while its home is
 // being (re)prepared, as on upgrade: the pod is the truth, not the home.
 func TestARunningAppIsNotBlockedByAHomeBeingPrepared(t *testing.T) {
-	newTemplate(t, "lab-run")
-	app := newApp(t, "ws-run", "pat", "lab-run")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-run")
+	app := fx.newApp(t, "ws-run", "pat", "lab-run")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
-	setHome(t, "pat", func(h *model.Home) {
+	fx.setHome(t, "pat", func(h *model.Home) {
 		h.Status.Prepared = false
 		h.Status.Conditions = []metav1.Condition{{Type: model.ConditionReady, Status: metav1.ConditionFalse, Reason: string(reasons.HomePreparing), LastTransitionTime: metav1.Now()}}
 	})
 	for range 2 {
-		reconcileNow(t, rec, app.ID)
+		reconcileNow(t, fx.rec, app.ID)
 	}
-	if got := getApp(t, app.ID).Status.Phase; got != "Starting" {
+	if got := fx.getApp(t, app.ID).Status.Phase; got != "Starting" {
 		t.Fatalf("phase = %s, want the running pod's Starting", got)
 	}
 }
@@ -441,30 +466,32 @@ func TestARunningAppIsNotBlockedByAHomeBeingPrepared(t *testing.T) {
 // reads Stopped with HomeMigrating (not Failed, not a spinner); clearing the
 // copy brings the pod back with no action from the user.
 func TestAppsWaitOutAHomeMigrationAndStartAfterIt(t *testing.T) {
-	newTemplate(t, "lab-mig")
-	app := newApp(t, "ws-mig", "mia", "lab-mig")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-mig")
+	app := fx.newApp(t, "ws-mig", "mia", "lab-mig")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
 	setMigrating := func(on bool) {
 		st := metav1.ConditionFalse
 		if on {
 			st = metav1.ConditionTrue
 		}
-		setHome(t, "mia", func(h *model.Home) {
+		fx.setHome(t, "mia", func(h *model.Home) {
 			meta.SetStatusCondition(&h.Status.Conditions, metav1.Condition{Type: model.ConditionMigrating, Status: st, Reason: "Copying"})
 		})
 	}
 	setMigrating(true)
-	eventually(t, "phase Stopped", phaseIs(app.ID, "Stopped"))
-	eventually(t, "pod deleted", func() bool { return !exists(&corev1.Pod{}, app.ObjectName()) })
-	c := condition(getApp(t, app.ID), model.ConditionHomeReady)
+	eventually(t, "phase Stopped", fx.phaseIs(app.ID, "Stopped"))
+	eventually(t, "pod deleted", func() bool { return !fx.exists(&corev1.Pod{}, app.ObjectName()) })
+	c := condition(fx.getApp(t, app.ID), model.ConditionHomeReady)
 	if c == nil || c.Reason != string(reasons.HomeMigrating) {
 		t.Fatalf("HomeReady = %+v", c)
 	}
 
 	setMigrating(false)
-	eventually(t, "phase Starting again", phaseIs(app.ID, "Starting"))
-	if !exists(&corev1.Pod{}, app.ObjectName()) {
+	eventually(t, "phase Starting again", fx.phaseIs(app.ID, "Starting"))
+	if !fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("no pod after the migration ended")
 	}
 }
@@ -472,43 +499,47 @@ func TestAppsWaitOutAHomeMigrationAndStartAfterIt(t *testing.T) {
 // While an admin restores the owner's home from a backup the app is held
 // like during a move, reading HomeRestoring, and starts again after.
 func TestAppsWaitOutAHomeRestoreAndStartAfterIt(t *testing.T) {
-	newTemplate(t, "lab-rst")
-	app := newApp(t, "ws-rst", "rex", "lab-rst")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-rst")
+	app := fx.newApp(t, "ws-rst", "rex", "lab-rst")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 	setRestoring := func(st metav1.ConditionStatus) {
-		setHome(t, "rex", func(h *model.Home) {
+		fx.setHome(t, "rex", func(h *model.Home) {
 			meta.SetStatusCondition(&h.Status.Conditions, metav1.Condition{Type: model.ConditionRestoring, Status: st, Reason: "HomeRestoreRunning"})
 		})
 	}
 	setRestoring(metav1.ConditionTrue)
-	eventually(t, "phase Stopped", phaseIs(app.ID, "Stopped"))
-	eventually(t, "pod deleted", func() bool { return !exists(&corev1.Pod{}, app.ObjectName()) })
-	if c := condition(getApp(t, app.ID), model.ConditionHomeReady); c == nil || c.Reason != string(reasons.HomeRestoring) {
+	eventually(t, "phase Stopped", fx.phaseIs(app.ID, "Stopped"))
+	eventually(t, "pod deleted", func() bool { return !fx.exists(&corev1.Pod{}, app.ObjectName()) })
+	if c := condition(fx.getApp(t, app.ID), model.ConditionHomeReady); c == nil || c.Reason != string(reasons.HomeRestoring) {
 		t.Fatalf("HomeReady = %+v", c)
 	}
 	setRestoring(metav1.ConditionFalse)
-	eventually(t, "phase Starting again", phaseIs(app.ID, "Starting"))
+	eventually(t, "phase Starting again", fx.phaseIs(app.ID, "Starting"))
 }
 
 // The pod mounts the ready folders of the owner's groups and carries their
 // gids as supplemental groups, never as fsGroup.
 func TestPodMountsGroupFoldersWithoutFSGroup(t *testing.T) {
+	t.Parallel()
+	fx := newEnv(t)
 	for _, group := range []string{"research", "finance"} {
-		f, err := db.SharedFolders().Create(bg, actor, model.SharedFolder{Namespace: testNS, Name: group, Spec: model.SharedFolderSpec{Group: group}})
+		f, err := fx.db.SharedFolders().Create(bg, actor, model.SharedFolder{Namespace: fx.ns, Name: group, Spec: model.SharedFolderSpec{Group: group}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		f.Status = model.SharedFolderStatus{ClaimName: "folder-" + group, GID: 5001, Prepared: true,
 			Conditions: []metav1.Condition{{Type: model.ConditionReady, Status: metav1.ConditionTrue, Reason: "Ready", LastTransitionTime: metav1.Now()}}}
-		if _, err := db.SharedFolders().Update(bg, f, f.Version); err != nil {
+		if _, err := fx.db.SharedFolders().Update(bg, f, f.Version); err != nil {
 			t.Fatal(err)
 		}
 	}
-	newTemplate(t, "lab-grp")
-	app := newApp(t, "ws-grp", "gina", "lab-grp")
-	eventually(t, "pod", func() bool { return exists(&corev1.Pod{}, app.ObjectName()) })
+	fx.newTemplate(t, "lab-grp")
+	app := fx.newApp(t, "ws-grp", "gina", "lab-grp")
+	eventually(t, "pod", func() bool { return fx.exists(&corev1.Pod{}, app.ObjectName()) })
 	pod := &corev1.Pod{}
-	exists(pod, app.ObjectName())
+	fx.exists(pod, app.ObjectName())
 	if pod.Spec.SecurityContext.FSGroup != nil {
 		t.Error("fsGroup set on an app pod")
 	}
@@ -521,14 +552,16 @@ func TestPodMountsGroupFoldersWithoutFSGroup(t *testing.T) {
 }
 
 func TestMissingTemplateFails(t *testing.T) {
-	app := newApp(t, "ws-notpl", "bob", "no-such-template")
+	t.Parallel()
+	fx := newEnv(t)
+	app := fx.newApp(t, "ws-notpl", "bob", "no-such-template")
 
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	c := condition(getApp(t, app.ID), model.ConditionScheduled)
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	c := condition(fx.getApp(t, app.ID), model.ConditionScheduled)
 	if c == nil || c.Reason != "TemplateMissing" || c.Status != metav1.ConditionFalse {
 		t.Fatalf("scheduled condition = %+v", c)
 	}
-	if exists(&corev1.Pod{}, app.ObjectName()) {
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("pod must not exist without a template")
 	}
 }
@@ -536,64 +569,70 @@ func TestMissingTemplateFails(t *testing.T) {
 // An app on a job-only template (a row written around the API) must not get
 // a pod: the template's command is a placeholder that exits at once.
 func TestJobOnlyTemplateBuildsNoPod(t *testing.T) {
-	newTemplate(t, "lab-jobonly", func(s *model.TemplateSpec) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-jobonly", func(s *model.TemplateSpec) {
 		s.JobOnly = true
 		s.Jobs = &model.TemplateJobs{Engines: []string{"command"}}
 	})
-	app := newApp(t, "ws-jobonly", "bob", "lab-jobonly")
+	app := fx.newApp(t, "ws-jobonly", "bob", "lab-jobonly")
 
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	c := condition(getApp(t, app.ID), model.ConditionScheduled)
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	c := condition(fx.getApp(t, app.ID), model.ConditionScheduled)
 	if c == nil || c.Reason != "TemplateInvalid" || c.Status != metav1.ConditionFalse {
 		t.Fatalf("scheduled condition = %+v", c)
 	}
 	if !strings.Contains(c.Message, "only runs jobs") {
 		t.Fatalf("scheduled condition message lacks the evidence: %q", c.Message)
 	}
-	if exists(&corev1.Pod{}, app.ObjectName()) {
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("pod must not exist for a job-only template")
 	}
 }
 
 func TestPauseDeletesPodKeepsServiceAndClaim(t *testing.T) {
-	newTemplate(t, "lab-pause")
-	app := newApp(t, "ws-pause", "carol", "lab-pause")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-pause")
+	app := fx.newApp(t, "ws-pause", "carol", "lab-pause")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
-	editApp(t, db, app.ID, func(a *model.App) { a.Paused = true })
-	eventually(t, "phase Stopped", phaseIs(app.ID, "Stopped"))
-	eventually(t, "pod gone", func() bool { return !exists(&corev1.Pod{}, app.ObjectName()) })
-	if !exists(&corev1.Service{}, app.ObjectName()) || !exists(&corev1.PersistentVolumeClaim{}, naming.HomeClaimName("carol")) {
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Paused = true })
+	eventually(t, "phase Stopped", fx.phaseIs(app.ID, "Stopped"))
+	eventually(t, "pod gone", func() bool { return !fx.exists(&corev1.Pod{}, app.ObjectName()) })
+	if !fx.exists(&corev1.Service{}, app.ObjectName()) || !fx.exists(&corev1.PersistentVolumeClaim{}, naming.HomeClaimName("carol")) {
 		t.Fatal("service and claim must survive pause")
 	}
 
-	editApp(t, db, app.ID, func(a *model.App) { a.Paused = false })
-	eventually(t, "pod recreated", func() bool { return exists(&corev1.Pod{}, app.ObjectName()) })
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Paused = false })
+	eventually(t, "pod recreated", func() bool { return fx.exists(&corev1.Pod{}, app.ObjectName()) })
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 }
 
 // Deleting an app removes its Pod, Service and token Secret, purges the row,
 // and keeps the owner's home.
 func TestDeleteRemovesObjectsKeepsHomeClaim(t *testing.T) {
-	newTemplate(t, "lab-del", func(s *model.TemplateSpec) { s.APIToken = true })
-	bob := signedIn(t, "bob-del")
-	app := newApp(t, "ws-del", bob, "lab-del")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	appTokenSecret(t, app.ObjectName())
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-del", func(s *model.TemplateSpec) { s.APIToken = true })
+	bob := fx.signedIn(t, "bob-del")
+	app := fx.newApp(t, "ws-del", bob, "lab-del")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	fx.appTokenSecret(t, app.ObjectName())
 
-	if err := db.Apps().MarkDeleted(bg, model.Actor{Person: bob}, app.ID); err != nil {
+	if err := fx.db.Apps().MarkDeleted(bg, model.Actor{Person: bob}, app.ID); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "row purged", func() bool {
-		_, err := db.Apps().Get(bg, app.ID)
+		_, err := fx.db.Apps().Get(bg, app.ID)
 		return errors.Is(err, store.ErrNotFound)
 	})
 	eventually(t, "objects gone", func() bool {
-		return !exists(&corev1.Pod{}, app.ObjectName()) && !exists(&corev1.Service{}, app.ObjectName()) &&
-			!exists(&corev1.Secret{}, APITokenSecretName(app.ObjectName()))
+		return !fx.exists(&corev1.Pod{}, app.ObjectName()) && !fx.exists(&corev1.Service{}, app.ObjectName()) &&
+			!fx.exists(&corev1.Secret{}, APITokenSecretName(app.ObjectName()))
 	})
 	claim := &corev1.PersistentVolumeClaim{}
-	if !exists(claim, naming.HomeClaimName(bob)) {
+	if !fx.exists(claim, naming.HomeClaimName(bob)) {
 		t.Fatal("home claim deleted with the app")
 	}
 	if len(claim.OwnerReferences) != 0 {
@@ -604,10 +643,8 @@ func TestDeleteRemovesObjectsKeepsHomeClaim(t *testing.T) {
 // An app marked deleted while no controller ran loses its objects and its row
 // as soon as a controller starts, though nobody announced the change to it.
 func TestDeleteWhileControllerDown(t *testing.T) {
-	const ns = "javo-down"
-	if err := k8s.Create(bg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	ns := newNamespace(t, "javo-down", nil)
 	s := storetest.New(t)
 	putTemplateIn(t, s, "lab-down")
 	app := newAppIn(t, s, ns, "ws-down", "dave", "lab-down")
@@ -643,23 +680,25 @@ func TestDeleteWhileControllerDown(t *testing.T) {
 }
 
 func TestReconcileTwiceMakesNoWrites(t *testing.T) {
-	newTemplate(t, "lab-idem")
-	app := newApp(t, "ws-idem", "erin", "lab-idem")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-idem")
+	app := fx.newApp(t, "ws-idem", "erin", "lab-idem")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 	time.Sleep(500 * time.Millisecond) // let any in-flight reconcile settle
 
 	rvs := func() [3]string {
 		pod, svc, pvc := &corev1.Pod{}, &corev1.Service{}, &corev1.PersistentVolumeClaim{}
-		exists(pod, app.ObjectName())
-		exists(svc, app.ObjectName())
-		exists(pvc, naming.HomeClaimName("erin"))
+		fx.exists(pod, app.ObjectName())
+		fx.exists(svc, app.ObjectName())
+		fx.exists(pvc, naming.HomeClaimName("erin"))
 		return [3]string{pod.ResourceVersion, svc.ResourceVersion, pvc.ResourceVersion}
 	}
-	before, status := rvs(), getApp(t, app.ID).Status
+	before, status := rvs(), fx.getApp(t, app.ID).Status
 	for range 2 {
-		reconcileNow(t, rec, app.ID)
+		reconcileNow(t, fx.rec, app.ID)
 	}
-	after := getApp(t, app.ID).Status
+	after := fx.getApp(t, app.ID).Status
 	if got := rvs(); got != before {
 		t.Fatalf("resource versions changed: %v -> %v", before, got)
 	}
@@ -681,10 +720,10 @@ func conditionsEqual(a, b []metav1.Condition) bool {
 	return true
 }
 
-func makePodReady(t *testing.T, name string) {
+func (fx *env) makePodReady(t *testing.T, name string) {
 	t.Helper()
 	pod := &corev1.Pod{}
-	if !exists(pod, name) {
+	if !fx.exists(pod, name) {
 		t.Fatal("pod missing")
 	}
 	started := metav1.NewTime(time.Now().Add(-10 * time.Second))
@@ -706,23 +745,25 @@ func makePodReady(t *testing.T, name string) {
 // A status write names the spec version the controller acted on and never
 // undoes a spec edit made in the meantime.
 func TestStatusWriteKeepsSpecEdit(t *testing.T) {
-	newTemplate(t, "lab-keep")
-	app := newApp(t, "ws-keep", "alice", "lab-keep")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-keep")
+	app := fx.newApp(t, "ws-keep", "alice", "lab-keep")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
-	edited := editApp(t, db, app.ID, func(a *model.App) { a.DisplayName = "renamed"; a.Size = "medium" })
+	edited := editApp(t, fx.db, app.ID, func(a *model.App) { a.DisplayName = "renamed"; a.Size = "medium" })
 	eventually(t, "status observed the edit", func() bool {
-		return getApp(t, app.ID).Status.ObservedVersion == edited.Version
+		return fx.getApp(t, app.ID).Status.ObservedVersion == edited.Version
 	})
-	got := getApp(t, app.ID)
+	got := fx.getApp(t, app.ID)
 	if got.DisplayName != "renamed" || got.Size != "medium" || got.Version != edited.Version {
 		t.Fatalf("spec after status writes: %+v", got)
 	}
 	// A reconcile that read the old version finishes late.
-	if err := db.Apps().SetStatus(bg, app.ID, app.Version, model.AppStatus{Phase: "Starting"}); err != nil {
+	if err := fx.db.Apps().SetStatus(bg, app.ID, app.Version, model.AppStatus{Phase: "Starting"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := getApp(t, app.ID); got.DisplayName != "renamed" || got.Size != "medium" || got.Version != edited.Version {
+	if got := fx.getApp(t, app.ID); got.DisplayName != "renamed" || got.Size != "medium" || got.Version != edited.Version {
 		t.Fatalf("late status write undid the spec edit: %+v", got)
 	}
 }
@@ -730,11 +771,13 @@ func TestStatusWriteKeepsSpecEdit(t *testing.T) {
 // Running time is recorded: an interval opens when the app becomes Running
 // and closes when it stops.
 func TestUsageIntervalOpenClose(t *testing.T) {
-	newTemplate(t, "lab-usage")
-	app := newApp(t, "ws-usage", "alice", "lab-usage")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-usage")
+	app := fx.newApp(t, "ws-usage", "alice", "lab-usage")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 	intervals := func() []store.UsageInterval {
-		got, err := db.Usage().ForApp(bg, app.ID)
+		got, err := fx.db.Usage().ForApp(bg, app.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -744,15 +787,15 @@ func TestUsageIntervalOpenClose(t *testing.T) {
 		t.Fatalf("%d intervals before the app ran", n)
 	}
 
-	makePodReady(t, app.ObjectName())
-	eventually(t, "phase Running", phaseIs(app.ID, "Running"))
+	fx.makePodReady(t, app.ObjectName())
+	eventually(t, "phase Running", fx.phaseIs(app.ID, "Running"))
 	got := intervals()
 	if len(got) != 1 || !got[0].StoppedAt.IsZero() || got[0].Owner != "alice" || got[0].Template != "lab-usage" {
 		t.Fatalf("intervals while running: %+v", got)
 	}
 
-	editApp(t, db, app.ID, func(a *model.App) { a.Paused = true })
-	eventually(t, "phase Stopped", phaseIs(app.ID, "Stopped"))
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Paused = true })
+	eventually(t, "phase Stopped", fx.phaseIs(app.ID, "Stopped"))
 	if got = intervals(); len(got) != 1 || got[0].StoppedAt.IsZero() {
 		t.Fatalf("intervals after stop: %+v", got)
 	}
@@ -762,15 +805,17 @@ func TestUsageIntervalOpenClose(t *testing.T) {
 // interval names that size, so a later change of the default cannot make the
 // row ambiguous.
 func TestUsageIntervalNamesDefaultSize(t *testing.T) {
-	newTemplate(t, "lab-usage-size")
-	app := newApp(t, "ws-usage-size", "alice", "lab-usage-size")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-usage-size")
+	app := fx.newApp(t, "ws-usage-size", "alice", "lab-usage-size")
 	if app.Size != "" {
 		t.Fatalf("app size = %q, want none", app.Size)
 	}
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	makePodReady(t, app.ObjectName())
-	eventually(t, "phase Running", phaseIs(app.ID, "Running"))
-	got, err := db.Usage().ForApp(bg, app.ID)
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	fx.makePodReady(t, app.ObjectName())
+	eventually(t, "phase Running", fx.phaseIs(app.ID, "Running"))
+	got, err := fx.db.Usage().ForApp(bg, app.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -782,37 +827,41 @@ func TestUsageIntervalNamesDefaultSize(t *testing.T) {
 // A restart request replaces the pod once. Later reconciles, including the
 // periodic ones, leave the new pod alone.
 func TestRestartRequest(t *testing.T) {
-	newTemplate(t, "lab-restart")
-	app := newApp(t, "ws-restart", "alice", "lab-restart")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-restart")
+	app := fx.newApp(t, "ws-restart", "alice", "lab-restart")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 	old := &corev1.Pod{}
-	if !exists(old, app.ObjectName()) {
+	if !fx.exists(old, app.ObjectName()) {
 		t.Fatal("pod missing")
 	}
 
-	editApp(t, db, app.ID, func(a *model.App) { a.RestartRequestedAt = time.Now() })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.RestartRequestedAt = time.Now() })
 	var fresh corev1.Pod
-	eventually(t, "a new pod", func() bool { return exists(&fresh, app.ObjectName()) && fresh.UID != old.UID })
+	eventually(t, "a new pod", func() bool { return fx.exists(&fresh, app.ObjectName()) && fresh.UID != old.UID })
 	eventually(t, "the cache sees the new pod", func() bool {
 		p := &corev1.Pod{}
-		return rec.Get(bg, key(app.ObjectName()), p) == nil && p.UID == fresh.UID
+		return fx.rec.Get(bg, fx.key(app.ObjectName()), p) == nil && p.UID == fresh.UID
 	})
 	for range 3 {
-		reconcileNow(t, rec, app.ID)
+		reconcileNow(t, fx.rec, app.ID)
 	}
 	time.Sleep(300 * time.Millisecond)
-	if cur := (&corev1.Pod{}); !exists(cur, app.ObjectName()) || cur.UID != fresh.UID {
+	if cur := (&corev1.Pod{}); !fx.exists(cur, app.ObjectName()) || cur.UID != fresh.UID {
 		t.Fatal("the pod was replaced again without a new request")
 	}
 }
 
 func TestRunningButNotReadyFailsAfterTimeout(t *testing.T) {
-	newTemplate(t, "lab-slow")
-	app := newApp(t, "ws-slow", "frank", "lab-slow")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-slow")
+	app := fx.newApp(t, "ws-slow", "frank", "lab-slow")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
 	pod := &corev1.Pod{}
-	if !exists(pod, app.ObjectName()) {
+	if !fx.exists(pod, app.ObjectName()) {
 		t.Fatal("pod missing")
 	}
 	started := metav1.NewTime(time.Now().Add(-10 * time.Minute))
@@ -826,52 +875,56 @@ func TestRunningButNotReadyFailsAfterTimeout(t *testing.T) {
 	if err := k8s.Status().Update(bg, pod); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	if c := condition(getApp(t, app.ID), model.ConditionReady); c == nil || c.Reason != "AppNotAnswering" {
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	if c := condition(fx.getApp(t, app.ID), model.ConditionReady); c == nil || c.Reason != "AppNotAnswering" {
 		t.Fatalf("ready condition = %+v", c)
 	}
 }
 
 func TestPodEventsReachStatus(t *testing.T) {
-	newTemplate(t, "lab-ev")
-	app := newApp(t, "ws-ev", "gina", "lab-ev")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-ev")
+	app := fx.newApp(t, "ws-ev", "gina", "lab-ev")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
 	live := &corev1.Pod{}
-	exists(live, app.ObjectName())
+	fx.exists(live, app.ObjectName())
 	ev := &corev1.Event{
-		ObjectMeta:     metav1.ObjectMeta{Name: "ws-ev.fs", Namespace: testNS},
-		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: app.ObjectName(), Namespace: testNS, UID: live.UID},
+		ObjectMeta:     metav1.ObjectMeta{Name: "ws-ev.fs", Namespace: fx.ns},
+		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: app.ObjectName(), Namespace: fx.ns, UID: live.UID},
 		Reason:         "FailedAttachVolume", Message: "Multi-Attach error for volume", Type: corev1.EventTypeWarning,
 	}
 	if err := k8s.Create(bg, ev); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "HomeBusy reason", func() bool {
-		c := condition(getApp(t, app.ID), model.ConditionHomeReady)
+		c := condition(fx.getApp(t, app.ID), model.ConditionHomeReady)
 		return c != nil && c.Reason == "HomeBusy"
 	})
 }
 
 func TestStaleEventFromDeletedPodIsIgnored(t *testing.T) {
-	newTemplate(t, "lab-stale")
-	app := newApp(t, "ws-stale", "hana", "lab-stale")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-stale")
+	app := fx.newApp(t, "ws-stale", "hana", "lab-stale")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 	old := &corev1.Pod{}
-	exists(old, app.ObjectName())
+	fx.exists(old, app.ObjectName())
 
-	editApp(t, db, app.ID, func(a *model.App) { a.Paused = true })
-	eventually(t, "phase Stopped", phaseIs(app.ID, "Stopped"))
-	editApp(t, db, app.ID, func(a *model.App) { a.Paused = false })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Paused = true })
+	eventually(t, "phase Stopped", fx.phaseIs(app.ID, "Stopped"))
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Paused = false })
 	eventually(t, "pod recreated", func() bool {
 		p := &corev1.Pod{}
-		return exists(p, app.ObjectName()) && p.UID != old.UID
+		return fx.exists(p, app.ObjectName()) && p.UID != old.UID
 	})
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
 	stale := &corev1.Event{
-		ObjectMeta:     metav1.ObjectMeta{Name: "ws-stale.old", Namespace: testNS},
-		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: app.ObjectName(), Namespace: testNS, UID: old.UID},
+		ObjectMeta:     metav1.ObjectMeta{Name: "ws-stale.old", Namespace: fx.ns},
+		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: app.ObjectName(), Namespace: fx.ns, UID: old.UID},
 		Reason:         "FailedAttachVolume", Message: "Multi-Attach error for volume", Type: corev1.EventTypeWarning,
 	}
 	if err := k8s.Create(bg, stale); err != nil {
@@ -880,7 +933,7 @@ func TestStaleEventFromDeletedPodIsIgnored(t *testing.T) {
 	// The manager cache must see the event before the direct reconcile below.
 	eventually(t, "cache sees event", func() bool {
 		var l corev1.EventList
-		return rec.List(bg, &l, client.InNamespace(testNS)) == nil && func() bool {
+		return fx.rec.List(bg, &l, client.InNamespace(fx.ns)) == nil && func() bool {
 			for _, e := range l.Items {
 				if e.Name == "ws-stale.old" {
 					return true
@@ -889,37 +942,41 @@ func TestStaleEventFromDeletedPodIsIgnored(t *testing.T) {
 			return false
 		}()
 	})
-	reconcileNow(t, rec, app.ID)
-	c := condition(getApp(t, app.ID), model.ConditionHomeReady)
+	reconcileNow(t, fx.rec, app.ID)
+	c := condition(fx.getApp(t, app.ID), model.ConditionHomeReady)
 	if c == nil || c.Reason == "HomeBusy" {
 		t.Fatalf("stale event changed status: %+v", c)
 	}
 }
 
 func TestTemplateCreatedLaterRecoversApp(t *testing.T) {
-	app := newApp(t, "ws-late", "ivy", "lab-late")
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	newTemplate(t, "lab-late")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	app := fx.newApp(t, "ws-late", "ivy", "lab-late")
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	fx.newTemplate(t, "lab-late")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 }
 
 func TestInvalidTemplateFailsWithTemplateInvalid(t *testing.T) {
-	newTemplate(t, "lab-bad", func(s *model.TemplateSpec) { s.Command = nil; s.Args = []string{"{{.Nope}}"} })
-	app := newApp(t, "ws-bad", "jon", "lab-bad")
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	c := condition(getApp(t, app.ID), model.ConditionScheduled)
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-bad", func(s *model.TemplateSpec) { s.Command = nil; s.Args = []string{"{{.Nope}}"} })
+	app := fx.newApp(t, "ws-bad", "jon", "lab-bad")
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	c := condition(fx.getApp(t, app.ID), model.ConditionScheduled)
 	if c == nil || c.Reason != "TemplateInvalid" {
 		t.Fatalf("scheduled condition = %+v", c)
 	}
-	if exists(&corev1.Pod{}, app.ObjectName()) {
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("pod must not exist for an invalid template")
 	}
 }
 
-func appResources(t *testing.T, app model.App) (*corev1.Pod, corev1.ResourceList) {
+func (fx *env) appResources(t *testing.T, app model.App) (*corev1.Pod, corev1.ResourceList) {
 	t.Helper()
 	pod := &corev1.Pod{}
-	if !exists(pod, app.ObjectName()) {
+	if !fx.exists(pod, app.ObjectName()) {
 		t.Fatal("pod missing")
 	}
 	return pod, pod.Spec.Containers[0].Resources.Limits
@@ -927,10 +984,12 @@ func appResources(t *testing.T, app model.App) (*corev1.Pod, corev1.ResourceList
 
 // An app with no size runs at the default size.
 func TestEmptySizeRunsAtDefault(t *testing.T) {
-	newTemplate(t, "lab-size-default")
-	app := newApp(t, "ws-size-default", "alice", "lab-size-default")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	_, lim := appResources(t, app)
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-size-default")
+	app := fx.newApp(t, "ws-size-default", "alice", "lab-size-default")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	_, lim := fx.appResources(t, app)
 	if !lim.Cpu().Equal(resource.MustParse("1")) || !lim.Memory().Equal(resource.MustParse("2Gi")) {
 		t.Fatalf("limits = %v, want the small size", lim)
 	}
@@ -938,15 +997,17 @@ func TestEmptySizeRunsAtDefault(t *testing.T) {
 
 // Changing the size replaces the pod with one of the new size.
 func TestChangingSizeRestartsThePod(t *testing.T) {
-	newTemplate(t, "lab-resize")
-	app := newApp(t, "ws-resize", "alice", "lab-resize")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	old, _ := appResources(t, app)
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-resize")
+	app := fx.newApp(t, "ws-resize", "alice", "lab-resize")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	old, _ := fx.appResources(t, app)
 
-	editApp(t, db, app.ID, func(a *model.App) { a.Size = "medium" })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Size = "medium" })
 	eventually(t, "pod of the new size", func() bool {
 		p := &corev1.Pod{}
-		return exists(p, app.ObjectName()) && p.UID != old.UID &&
+		return fx.exists(p, app.ObjectName()) && p.UID != old.UID &&
 			p.Spec.Containers[0].Resources.Limits.Memory().Equal(resource.MustParse("8Gi"))
 	})
 }
@@ -954,28 +1015,32 @@ func TestChangingSizeRestartsThePod(t *testing.T) {
 // A size that is not configured fails the app with SizeUnknown and builds
 // no pod.
 func TestUnknownSizeFailsWithSizeUnknown(t *testing.T) {
-	newTemplate(t, "lab-size-unknown")
-	app := newApp(t, "ws-size-unknown", "bob", "lab-size-unknown", func(a *model.App) { a.Size = "huge" })
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	c := condition(getApp(t, app.ID), model.ConditionScheduled)
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-size-unknown")
+	app := fx.newApp(t, "ws-size-unknown", "bob", "lab-size-unknown", func(a *model.App) { a.Size = "huge" })
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	c := condition(fx.getApp(t, app.ID), model.ConditionScheduled)
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != string(reasons.SizeUnknown) || !strings.Contains(c.Message, "huge") {
 		t.Fatalf("scheduled condition = %+v", c)
 	}
-	if exists(&corev1.Pod{}, app.ObjectName()) {
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("pod built for an unknown size")
 	}
 
-	editApp(t, db, app.ID, func(a *model.App) { a.Size = "small" })
-	eventually(t, "pod built once the size is known", func() bool { return exists(&corev1.Pod{}, app.ObjectName()) })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Size = "small" })
+	eventually(t, "pod built once the size is known", func() bool { return fx.exists(&corev1.Pod{}, app.ObjectName()) })
 }
 
 // A pod from before sizes existed (no size annotation) of an app that never
 // picked a size keeps running: upgrading does not restart every app.
 func TestPodWithoutSizeAnnotationIsKeptForAppWithoutSize(t *testing.T) {
-	newTemplate(t, "lab-legacy")
-	app := newApp(t, "ws-legacy", "alice", "lab-legacy")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
-	pod, _ := appResources(t, app)
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-legacy")
+	app := fx.newApp(t, "ws-legacy", "alice", "lab-legacy")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+	pod, _ := fx.appResources(t, app)
 	delete(pod.Annotations, model.AnnotationSize)
 	if err := k8s.Update(bg, pod); err != nil {
 		t.Fatal(err)
@@ -983,23 +1048,25 @@ func TestPodWithoutSizeAnnotationIsKeptForAppWithoutSize(t *testing.T) {
 	// Wait for the cache to see the stripped pod, or for it to be replaced.
 	eventually(t, "cache sees the update", func() bool {
 		p := &corev1.Pod{}
-		err := rec.Get(bg, key(app.ObjectName()), p)
+		err := fx.rec.Get(bg, fx.key(app.ObjectName()), p)
 		return apierrors.IsNotFound(err) || err == nil && (p.UID != pod.UID || p.Annotations[model.AnnotationSize] == "")
 	})
-	reconcileNow(t, rec, app.ID)
-	if got := &(corev1.Pod{}); !exists(got, app.ObjectName()) || got.UID != pod.UID {
+	reconcileNow(t, fx.rec, app.ID)
+	if got := &(corev1.Pod{}); !fx.exists(got, app.ObjectName()) || got.UID != pod.UID {
 		t.Fatal("pod without a size annotation was replaced")
 	}
 }
 
 func TestAllocatedModeWaitsForTheOwnersUID(t *testing.T) {
+	t.Parallel()
+	alloc := newNamespace(t, "javo-alloc", nil)
 	s := storetest.New(t)
 	person, err := s.People(store.IDRange{}).Ensure(bg, store.Claims{Issuer: "https://idp.example.com", Subject: "dora", Username: "dora"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	putTemplateIn(t, s, "lab-alloc")
-	app := newAppIn(t, s, allocNS, "ws-alloc", person.Name, "lab-alloc")
+	app := newAppIn(t, s, alloc, "ws-alloc", person.Name, "lab-alloc")
 	r := newRec(s, func(r *Reconciler) { r.UIDMode = config.UIDModeAllocated })
 
 	reconcileNow(t, r, app.ID)
@@ -1007,14 +1074,14 @@ func TestAllocatedModeWaitsForTheOwnersUID(t *testing.T) {
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != string(reasons.IdentityPending) {
 		t.Fatalf("HomeReady = %+v", c)
 	}
-	if err := k8s.Get(bg, types.NamespacedName{Namespace: allocNS, Name: app.ObjectName()}, &corev1.Pod{}); !apierrors.IsNotFound(err) {
+	if err := k8s.Get(bg, types.NamespacedName{Namespace: alloc, Name: app.ObjectName()}, &corev1.Pod{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("pod exists before a uid was allocated: %v", err)
 	}
 
 	storetest.Exec(t, s, "UPDATE people SET uid = ? WHERE id = ?", 100500, person.ID)
 	reconcileNow(t, r, app.ID)
 	pod := &corev1.Pod{}
-	if err := k8s.Get(bg, types.NamespacedName{Namespace: allocNS, Name: app.ObjectName()}, pod); err != nil {
+	if err := k8s.Get(bg, types.NamespacedName{Namespace: alloc, Name: app.ObjectName()}, pod); err != nil {
 		t.Fatal(err)
 	}
 	if uid := *pod.Spec.SecurityContext.RunAsUser; uid != 100500 {
@@ -1034,16 +1101,18 @@ func mustApp(t *testing.T, s *store.Store, id string) model.App {
 // A running app keeps its real status when its owner's person row is gone
 // (offboarding).
 func TestExistingPodKeepsStatusWhenThePersonIsMissing(t *testing.T) {
+	t.Parallel()
+	alloc := newNamespace(t, "javo-alloc", nil)
 	s := storetest.New(t)
 	person, err := s.People(store.IDRange{First: 100600, Last: 100699}).Ensure(bg, store.Claims{Issuer: "https://idp.example.com", Subject: "erin", Username: "erin"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	putTemplateIn(t, s, "lab-gone")
-	app := newAppIn(t, s, allocNS, "ws-gone", person.Name, "lab-gone")
+	app := newAppIn(t, s, alloc, "ws-gone", person.Name, "lab-gone")
 	r := newRec(s, func(r *Reconciler) { r.UIDMode = config.UIDModeAllocated })
 	reconcileNow(t, r, app.ID)
-	if err := k8s.Get(bg, types.NamespacedName{Namespace: allocNS, Name: app.ObjectName()}, &corev1.Pod{}); err != nil {
+	if err := k8s.Get(bg, types.NamespacedName{Namespace: alloc, Name: app.ObjectName()}, &corev1.Pod{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1064,9 +1133,11 @@ var pathExposure = exposurepath.New(config.URLs{})
 // With subdomain URLs the status URL is the app's own host and the app is
 // told to serve from "/".
 func TestSubdomainExposureSetsHostURLAndRootBase(t *testing.T) {
+	t.Parallel()
+	alloc := newNamespace(t, "javo-alloc", nil)
 	s := storetest.New(t)
 	putTemplateIn(t, s, "lab-sub")
-	app := newAppIn(t, s, allocNS, "sales", "carol", "lab-sub")
+	app := newAppIn(t, s, alloc, "sales", "carol", "lab-sub")
 	r := newRec(s, func(r *Reconciler) {
 		r.Exposure = exposuresubdomain.New(config.URLs{AppsDomain: "apps.example.com", Scheme: "https"})
 	})
@@ -1075,7 +1146,7 @@ func TestSubdomainExposureSetsHostURLAndRootBase(t *testing.T) {
 		t.Fatalf("url = %q, want %q", got, want)
 	}
 	pod := &corev1.Pod{}
-	if err := k8s.Get(bg, types.NamespacedName{Namespace: allocNS, Name: app.ObjectName()}, pod); err != nil || strings.Join(pod.Spec.Containers[0].Args, " ") != "--base-url /" {
+	if err := k8s.Get(bg, types.NamespacedName{Namespace: alloc, Name: app.ObjectName()}, pod); err != nil || strings.Join(pod.Spec.Containers[0].Args, " ") != "--base-url /" {
 		t.Fatalf("pod missing or not served from /: %v %v", err, pod.Spec.Containers)
 	}
 }
@@ -1084,16 +1155,11 @@ func TestSubdomainExposureSetsHostURLAndRootBase(t *testing.T) {
 // the controller labelled as managed: elsewhere there is no Pod Security
 // label and no gateway-only NetworkPolicy.
 func TestManagedOnlyIgnoresAppsInOtherNamespaces(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	putTemplateIn(t, s, "lab-managed")
-	for name, labels := range map[string]map[string]string{
-		"javo-stray":    nil,
-		"javo-labelled": {model.LabelManaged: "true"},
-	} {
-		if err := k8s.Create(bg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	stray := newNamespace(t, "javo-stray", nil)
+	labelled := newNamespace(t, "javo-labelled", map[string]string{model.LabelManaged: "true"})
 	r := newRec(s, func(r *Reconciler) { r.ManagedNamespacesOnly = true })
 	build := func(ns string) types.NamespacedName {
 		t.Helper()
@@ -1102,10 +1168,10 @@ func TestManagedOnlyIgnoresAppsInOtherNamespaces(t *testing.T) {
 		return types.NamespacedName{Namespace: ns, Name: app.ObjectName()}
 	}
 
-	if err := k8s.Get(bg, build("javo-stray"), &corev1.Pod{}); !apierrors.IsNotFound(err) {
+	if err := k8s.Get(bg, build(stray), &corev1.Pod{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("pod in an unlabelled namespace: %v", err)
 	}
-	if err := k8s.Get(bg, build("javo-labelled"), &corev1.Pod{}); err != nil {
+	if err := k8s.Get(bg, build(labelled), &corev1.Pod{}); err != nil {
 		t.Fatalf("pod in a managed namespace: %v", err)
 	}
 }
@@ -1114,15 +1180,16 @@ func TestManagedOnlyIgnoresAppsInOtherNamespaces(t *testing.T) {
 // cache) must not leave the app without a Pod: the app is looked at again
 // until the namespace is managed.
 func TestManagedOnlyRetriesUntilTheNamespaceIsLabelled(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	putTemplateIn(t, s, "lab-relabel")
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-relabel"}}
-	if err := k8s.Create(bg, ns); err != nil {
+	ns := &corev1.Namespace{}
+	if err := k8s.Get(bg, client.ObjectKey{Name: newNamespace(t, "javo-relabel", nil)}, ns); err != nil {
 		t.Fatal(err)
 	}
-	app := newAppIn(t, s, "javo-relabel", "ws-relabel", "alice", "lab-relabel")
+	app := newAppIn(t, s, ns.Name, "ws-relabel", "alice", "lab-relabel")
 	r := newRec(s, func(r *Reconciler) { r.ManagedNamespacesOnly = true })
-	podKey := types.NamespacedName{Namespace: "javo-relabel", Name: app.ObjectName()}
+	podKey := types.NamespacedName{Namespace: ns.Name, Name: app.ObjectName()}
 
 	if res := reconcileNow(t, r, app.ID); res.RequeueAfter <= 0 {
 		t.Fatalf("unmanaged namespace: result %+v; want a requeue", res)
@@ -1145,6 +1212,8 @@ func TestManagedOnlyRetriesUntilTheNamespaceIsLabelled(t *testing.T) {
 // them from: their own subdomain, the apps host, or the public host when apps
 // share the UI host.
 func TestTemplateHostIsTheHostTheAppIsServedOn(t *testing.T) {
+	t.Parallel()
+	alloc := newNamespace(t, "javo-alloc", nil)
 	s := storetest.New(t)
 	putTemplateIn(t, s, "lab-origin", func(ts *model.TemplateSpec) {
 		ts.Kind, ts.Image, ts.Port = "bokeh", "example.com/bokeh:1", 5006
@@ -1160,11 +1229,11 @@ func TestTemplateHostIsTheHostTheAppIsServedOn(t *testing.T) {
 		{"origin-one", pathExposure, "javo.example.com"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			app := newAppIn(t, s, allocNS, tc.name, "frank", "lab-origin")
+			app := newAppIn(t, s, alloc, tc.name, "frank", "lab-origin")
 			r := newRec(s, func(r *Reconciler) { r.PublicHost, r.Exposure = "javo.example.com", tc.exposure })
 			reconcileNow(t, r, app.ID)
 			pod := &corev1.Pod{}
-			if err := k8s.Get(bg, types.NamespacedName{Namespace: allocNS, Name: app.ObjectName()}, pod); err != nil {
+			if err := k8s.Get(bg, types.NamespacedName{Namespace: alloc, Name: app.ObjectName()}, pod); err != nil {
 				t.Fatal(err)
 			}
 			if got := strings.Join(pod.Spec.Containers[0].Args, " "); got != "--allow-websocket-origin="+tc.want {
@@ -1187,41 +1256,46 @@ func (s *stubPolicy) Get(context.Context) (netprobe.Result, error) {
 	return netprobe.Result{State: s.state}, nil
 }
 
-var policy = &stubPolicy{}
+// policy is the probe result for reconcilers whose test does not change it.
+var policy = &stubPolicy{state: netprobe.Enforced}
 
 func TestLoginlessAppWaitsForEnforcedNetworkPolicy(t *testing.T) {
-	policy.set(netprobe.NotEnforced)
-	t.Cleanup(func() { policy.set(netprobe.Enforced) })
-	newTemplate(t, "lab-loginless") // appLogin defaults to Disabled
-	app := newApp(t, "ws-loginless", "alice", "lab-loginless")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.policy.set(netprobe.NotEnforced)
+	t.Cleanup(func() { fx.policy.set(netprobe.Enforced) })
+	fx.newTemplate(t, "lab-loginless") // appLogin defaults to Disabled
+	app := fx.newApp(t, "ws-loginless", "alice", "lab-loginless")
 
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
-	c := condition(getApp(t, app.ID), model.ConditionScheduled)
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	c := condition(fx.getApp(t, app.ID), model.ConditionScheduled)
 	if c == nil || c.Reason != "NetworkPolicyNotEnforced" {
 		t.Fatalf("scheduled condition = %+v", c)
 	}
-	if exists(&corev1.Pod{}, app.ObjectName()) {
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("pod created although NetworkPolicy is not enforced")
 	}
 
-	policy.set(netprobe.Enforced)
-	eventually(t, "pod after the policy is enforced", func() bool { return exists(&corev1.Pod{}, app.ObjectName()) })
+	fx.policy.set(netprobe.Enforced)
+	eventually(t, "pod after the policy is enforced", func() bool { return fx.exists(&corev1.Pod{}, app.ObjectName()) })
 }
 
 // A site app has its Build step from the start, before any pod: here the pod
 // waits for an enforced NetworkPolicy.
 func TestSiteAppHasABuildStepBeforeItsPod(t *testing.T) {
-	policy.set(netprobe.NotEnforced)
-	t.Cleanup(func() { policy.set(netprobe.Enforced) })
-	newTemplate(t, "site-steps", func(s *model.TemplateSpec) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.policy.set(netprobe.NotEnforced)
+	t.Cleanup(func() { fx.policy.set(netprobe.Enforced) })
+	fx.newTemplate(t, "site-steps", func(s *model.TemplateSpec) {
 		s.Kind, s.Command, s.Args, s.FileExtensions = "static", nil, nil, []string{".html"}
 		s.Build = &model.TemplateBuild{Image: "example.com/node:1", ServeDir: "/usr/share/nginx/html"}
 	})
-	app := newApp(t, "ws-site-steps", "alice", "site-steps", func(a *model.App) { a.File = "page.html" })
+	app := fx.newApp(t, "ws-site-steps", "alice", "site-steps", func(a *model.App) { a.File = "page.html" })
 
-	eventually(t, "phase Failed", phaseIs(app.ID, "Failed"))
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
 	var got []string
-	for _, c := range getApp(t, app.ID).Status.Conditions {
+	for _, c := range fx.getApp(t, app.ID).Status.Conditions {
 		got = append(got, c.Type)
 	}
 	if want := []string{"Scheduled", "HomeReady", "ImageReady", "Built", "Started", "Ready"}; !slices.Equal(got, want) {
@@ -1230,45 +1304,51 @@ func TestSiteAppHasABuildStepBeforeItsPod(t *testing.T) {
 }
 
 func TestAppWithItsOwnLoginStartsWithoutEnforcedNetworkPolicy(t *testing.T) {
-	policy.set(netprobe.Unknown)
-	t.Cleanup(func() { policy.set(netprobe.Enforced) })
-	newTemplate(t, "lab-login", func(s *model.TemplateSpec) { s.AppLogin = "Enabled" })
-	app := newApp(t, "ws-login", "alice", "lab-login")
-	eventually(t, "pod", func() bool { return exists(&corev1.Pod{}, app.ObjectName()) })
+	t.Parallel()
+	fx := newEnv(t)
+	fx.policy.set(netprobe.Unknown)
+	t.Cleanup(func() { fx.policy.set(netprobe.Enforced) })
+	fx.newTemplate(t, "lab-login", func(s *model.TemplateSpec) { s.AppLogin = "Enabled" })
+	app := fx.newApp(t, "ws-login", "alice", "lab-login")
+	eventually(t, "pod", func() bool { return fx.exists(&corev1.Pod{}, app.ObjectName()) })
 }
 
 // Changing the typed command replaces the pod with one running the new one.
 func TestChangingCommandRestartsThePod(t *testing.T) {
-	newTemplate(t, "lab-recommand")
-	app := newApp(t, "ws-recommand", "alice", "lab-recommand")
-	editApp(t, db, app.ID, func(a *model.App) { a.Command = "serve --port={{.Port}}" })
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-recommand")
+	app := fx.newApp(t, "ws-recommand", "alice", "lab-recommand")
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Command = "serve --port={{.Port}}" })
 	var old corev1.Pod
 	eventually(t, "pod with the first command", func() bool {
-		return exists(&old, app.ObjectName()) && strings.Join(old.Spec.Containers[0].Args, " ") == "serve --port=8888"
+		return fx.exists(&old, app.ObjectName()) && strings.Join(old.Spec.Containers[0].Args, " ") == "serve --port=8888"
 	})
-	editApp(t, db, app.ID, func(a *model.App) { a.Command = "serve --port={{.Port}} --debug" })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.Command = "serve --port={{.Port}} --debug" })
 	eventually(t, "pod with the new command", func() bool {
 		p := &corev1.Pod{}
-		return exists(p, app.ObjectName()) && p.UID != old.UID && strings.Join(p.Spec.Containers[0].Args, " ") == "serve --port=8888 --debug"
+		return fx.exists(p, app.ObjectName()) && p.UID != old.UID && strings.Join(p.Spec.Containers[0].Args, " ") == "serve --port=8888 --debug"
 	})
 }
 
 // Events last about an hour. What each done step recorded while its events
 // existed stays in the app's status after they are gone.
 func TestStepFactsOutliveTheirEvents(t *testing.T) {
-	newTemplate(t, "lab-facts")
-	app := newApp(t, "ws-facts", "ivy", "lab-facts")
-	eventually(t, "phase Starting", phaseIs(app.ID, "Starting"))
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-facts")
+	app := fx.newApp(t, "ws-facts", "ivy", "lab-facts")
+	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
 
 	pod := &corev1.Pod{}
-	exists(pod, app.ObjectName())
+	fx.exists(pod, app.ObjectName())
 	if err := k8s.SubResource("binding").Create(bg, pod, &corev1.Binding{
 		ObjectMeta: metav1.ObjectMeta{Name: pod.Name, Namespace: pod.Namespace},
 		Target:     corev1.ObjectReference{Kind: "Node", Name: "node-1"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	exists(pod, app.ObjectName())
+	fx.exists(pod, app.ObjectName())
 	placed := metav1.NewTime(time.Now().Add(-time.Minute).Truncate(time.Second))
 	started := metav1.NewTime(placed.Add(5 * time.Second))
 	answered := metav1.NewTime(placed.Add(9 * time.Second))
@@ -1285,8 +1365,8 @@ func TestStepFactsOutliveTheirEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	pulled := &corev1.Event{
-		ObjectMeta: metav1.ObjectMeta{Name: "ws-facts.pulled", Namespace: testNS},
-		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: app.ObjectName(), Namespace: testNS, UID: pod.UID,
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-facts.pulled", Namespace: fx.ns},
+		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: app.ObjectName(), Namespace: fx.ns, UID: pod.UID,
 			FieldPath: "spec.containers{app}"},
 		Reason: "Pulled", Message: `Successfully pulled image "example.com/lab:1" in 4.2s (4.2s including waiting)`, Type: corev1.EventTypeNormal,
 	}
@@ -1294,7 +1374,7 @@ func TestStepFactsOutliveTheirEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := func(typ string) string {
-		c := condition(getApp(t, app.ID), typ)
+		c := condition(fx.getApp(t, app.ID), typ)
 		if c == nil {
 			return ""
 		}
@@ -1306,9 +1386,9 @@ func TestStepFactsOutliveTheirEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "cache drops event", func() bool {
-		return apierrors.IsNotFound(rec.Get(bg, client.ObjectKeyFromObject(pulled), &corev1.Event{}))
+		return apierrors.IsNotFound(fx.rec.Get(bg, client.ObjectKeyFromObject(pulled), &corev1.Event{}))
 	})
-	reconcileNow(t, rec, app.ID)
+	reconcileNow(t, fx.rec, app.ID)
 	want := map[string]string{
 		model.ConditionScheduled:  "node node-1\nplaced at " + placed.UTC().Format("2006-01-02 15:04:05 UTC"),
 		model.ConditionImageReady: "image example.com/lab:1\ndigest sha256:4b1c\ndownloaded in 4.2s",
@@ -1328,10 +1408,8 @@ func TestStepFactsOutliveTheirEvents(t *testing.T) {
 // Only the elected leader reconciles. Two managers share one database; the
 // URL each writes into status tells them apart.
 func TestLeaderOnly(t *testing.T) {
-	const ns = "javo-leader"
-	if err := k8s.Create(bg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	ns := newNamespace(t, "javo-leader", nil)
 	s1 := storetest.New(t)
 	s2 := storetest.Reopen(t, s1)
 	putTemplateIn(t, s1, "lab-leader")
@@ -1339,6 +1417,9 @@ func TestLeaderOnly(t *testing.T) {
 	elect := func(o *ctrl.Options) {
 		o.LeaderElection, o.LeaderElectionID = true, "javo-leader-test"
 		o.LeaderElectionNamespace, o.LeaderElectionReleaseOnCancel = ns, true
+		// The second manager tries for the lease this often, so it takes over
+		// soon after the first lets go.
+		o.RetryPeriod = ptr.To(100 * time.Millisecond)
 	}
 	mgrA, feedA, _, err := newManager(s1, []string{ns}, nil, elect)
 	if err != nil {

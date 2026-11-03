@@ -12,6 +12,7 @@ import (
 // A job's command line follows an app's: shell quoting, no shell, the same
 // placeholder syntax. Only {{.Home}} means something for a job.
 func TestCommandArgsSplitsAndFillsInTheHome(t *testing.T) {
+	t.Parallel()
 	got, err := CommandArgs(`bash "{{.Home}}/my scripts/run.sh" --fast`)
 	if err != nil {
 		t.Fatal(err)
@@ -22,6 +23,7 @@ func TestCommandArgsSplitsAndFillsInTheHome(t *testing.T) {
 }
 
 func TestCommandArgsRefusesWhatAJobCannotFillIn(t *testing.T) {
+	t.Parallel()
 	var bad *workspace.BadPlaceholder
 	if _, err := CommandArgs(`serve --port={{.Port}}`); !errors.As(err, &bad) {
 		t.Errorf("{{.Port}}: err = %v, want a BadPlaceholder", err)

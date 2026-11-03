@@ -33,12 +33,13 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/manager"
 	"github.com/nebari-dev/javo/internal/model"
@@ -64,8 +65,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	env := &envtest.Environment{}
-	rest, err := env.Start()
+	rest, stop, err := ctrltest.Start()
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +78,7 @@ func TestMain(m *testing.M) {
 	}
 	restConfig = rest
 	code := m.Run()
-	_ = env.Stop()
+	stop()
 	os.Exit(code)
 }
 
@@ -114,7 +114,9 @@ func newHarnessWith(t *testing.T, configure func(*Reconciler)) *harness {
 		t.Fatal(err)
 	}
 	h.start()
-	t.Cleanup(h.stop)
+	// A closure, not h.stop itself: a test that restarts the controller
+	// replaces h.stop, and the manager running at the end is the one to stop.
+	t.Cleanup(func() { h.stop() })
 	return h
 }
 
@@ -161,6 +163,19 @@ func (h *harness) start() {
 		h.t.Fatal(err)
 	}
 	h.rec = r
+	// The informers the controller watches start with the caches, not when
+	// the controller starts, so they are synced before the wait below ends
+	// and the controller's first reconcile does not wait for them.
+	for c, objs := range map[cache.Cache][]client.Object{
+		mgr.GetCache(): {&batchv1.Job{}, &batchv1.CronJob{}, &corev1.Event{}},
+		events:         {&corev1.Event{}},
+	} {
+		for _, o := range objs {
+			if _, err := c.GetInformer(bg, o); err != nil {
+				h.t.Fatal(err)
+			}
+		}
+	}
 	ctx, cancel := context.WithCancel(bg)
 	if err := h.db.StartFeed(ctx); err != nil {
 		h.t.Fatal(err)
@@ -176,8 +191,8 @@ func (h *harness) start() {
 	}()
 	h.stop = func() { cancel(); wg.Wait() }
 	// Tests call Reconcile at once: wait until the cache it reads is filled.
-	if !mgr.GetCache().WaitForCacheSync(ctx) {
-		h.t.Fatal("the controller's cache did not sync")
+	if !mgr.GetCache().WaitForCacheSync(ctx) || !events.WaitForCacheSync(ctx) {
+		h.t.Fatal("the controller's caches did not sync")
 	}
 }
 
@@ -239,7 +254,7 @@ func eventually(t *testing.T, what string, cond func() bool) {
 		if cond() {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
@@ -431,6 +446,7 @@ func (h *harness) waitRunWhere(j model.Job, runID, what string, ok func(model.Ru
 const cellErrorMessage = `{"reason":"CellError","message":"Cell 7 raised KeyError: 'region'","outputPath":"jobs/nightly/run"}`
 
 func TestScheduledJobCreatesLabelledCronJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -458,6 +474,7 @@ func TestScheduledJobCreatesLabelledCronJob(t *testing.T) {
 }
 
 func TestPausedJobSuspendsCronJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Spec.Schedule.Paused = true })
@@ -475,6 +492,7 @@ func TestPausedJobSuspendsCronJob(t *testing.T) {
 }
 
 func TestJobWithoutScheduleHasNoCronJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("once", func(j *model.Job) { j.Spec.Schedule = nil })
@@ -486,6 +504,7 @@ func TestJobWithoutScheduleHasNoCronJob(t *testing.T) {
 }
 
 func TestRemovingScheduleDeletesCronJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -501,6 +520,7 @@ func TestRemovingScheduleDeletesCronJob(t *testing.T) {
 }
 
 func TestTemplateMissingBlocksAndSuspendsThenRecovers(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -521,6 +541,7 @@ func TestTemplateMissingBlocksAndSuspendsThenRecovers(t *testing.T) {
 }
 
 func TestOwnerLosingAccessBlocksAndSuspends(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	h.access.allow.Store(false)
@@ -536,6 +557,7 @@ func TestOwnerLosingAccessBlocksAndSuspends(t *testing.T) {
 }
 
 func TestTemplateProblemsMakeJobInvalid(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		mutate func(*model.TemplateSpec)
 		def    func(*model.Job)
@@ -546,6 +568,7 @@ func TestTemplateProblemsMakeJobInvalid(t *testing.T) {
 		"kernel missing": {def: func(j *model.Job) { j.Spec.Kernel = "ir" }, want: reasons.KernelMissing},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t)
 			h.template(tc.mutate)
 			d := h.definition("nightly", tc.def)
@@ -561,6 +584,7 @@ func TestTemplateProblemsMakeJobInvalid(t *testing.T) {
 // time zone database that no longer knows the zone); the controller then
 // marks the job invalid instead of making a CronJob.
 func TestInvalidScheduleMakesJobInvalid(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	h.access.allow.Store(false) // keeps the job quiet until its spec is bad
@@ -585,6 +609,7 @@ func TestInvalidScheduleMakesJobInvalid(t *testing.T) {
 }
 
 func TestRequestedRunBecomesAJobAndItsFailureIsRecorded(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -609,6 +634,7 @@ func TestRequestedRunBecomesAJobAndItsFailureIsRecorded(t *testing.T) {
 }
 
 func TestRunningJobKeepsItsFinalizer(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -625,6 +651,7 @@ func TestRunningJobKeepsItsFinalizer(t *testing.T) {
 }
 
 func TestScheduledJobGetsFinalizerAndARun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	tpl := h.template(nil)
 	d := h.definition("nightly", nil)
@@ -640,6 +667,7 @@ func TestScheduledJobGetsFinalizerAndARun(t *testing.T) {
 // The CronJob history limit deletes finished Jobs; the run
 // must already be in the database by then.
 func TestRunRecordedBeforeJobDeleted(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	tpl := h.template(nil)
 	d := h.definition("nightly", nil)
@@ -662,6 +690,7 @@ func TestRunRecordedBeforeJobDeleted(t *testing.T) {
 // A Job that fails and is deleted while the controller is
 // down is held by its finalizer until the next controller records it.
 func TestRunRecordedAfterControllerRestart(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	tpl := h.template(nil)
 	d := h.definition("nightly", nil)
@@ -688,6 +717,7 @@ func TestRunRecordedAfterControllerRestart(t *testing.T) {
 // Deleting a job removes its CronJob and Jobs (a Job held by the finalizer
 // is released first: its run has nowhere to be recorded) and then the row.
 func TestDeletingAJobRemovesItsObjectsAndRow(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -713,6 +743,7 @@ func TestDeletingAJobRemovesItsObjectsAndRow(t *testing.T) {
 // A job's runs mount its owner's home, so a job of someone with no app yet
 // gets the home made, as an app would.
 func TestAJobGivesItsOwnerAHome(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -725,6 +756,7 @@ func TestAJobGivesItsOwnerAHome(t *testing.T) {
 // A job from a template that gives an API token runs with its owner's token,
 // made once and kept in a Secret; deleting the job revokes it.
 func TestAJobFromATokenTemplateGetsItsOwnersToken(t *testing.T) {
+	t.Parallel()
 	tokens := &token.DBStore{}
 	h := newHarnessWith(t, func(r *Reconciler) {
 		tokens.Tokens = r.Store.Tokens()
@@ -800,6 +832,7 @@ func (h *harness) runsWith(j model.Job, outcome string) []model.Run {
 // A skip is recorded at the slot that was skipped (the latest cron time at or
 // before the event), not at the time the event happened.
 func TestJobAlreadyActiveEventIsASkippedRunAtTheSkippedSlot(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -817,6 +850,7 @@ func TestJobAlreadyActiveEventIsASkippedRunAtTheSkippedSlot(t *testing.T) {
 // The recorder folds repeats of one skip into one Event with a newer
 // lastTimestamp; that must stay one run.
 func TestRepeatedJobAlreadyActiveEventIsOneSkippedRun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -844,6 +878,7 @@ func TestRepeatedJobAlreadyActiveEventIsOneSkippedRun(t *testing.T) {
 }
 
 func TestMissScheduleEventIsAMissedRunAtTheScheduledTime(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -859,6 +894,7 @@ func TestMissScheduleEventIsAMissedRunAtTheScheduledTime(t *testing.T) {
 }
 
 func TestReconcilingTwiceWritesNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -899,6 +935,7 @@ func TestReconcilingTwiceWritesNothing(t *testing.T) {
 }
 
 func TestRunWhoseJobVanishedWhileRunningIsLost(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -928,6 +965,7 @@ func TestRunWhoseJobVanishedWhileRunningIsLost(t *testing.T) {
 // Once a run is recorded as final it stays as recorded, even if the pods that
 // explained it are gone before the Job is.
 func TestFinalRunSurvivesLossOfItsPods(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -954,6 +992,7 @@ func TestFinalRunSurvivesLossOfItsPods(t *testing.T) {
 // Cancelling a running run deletes its Job; the run ends Cancelled and the
 // Job, released from its finalizer, goes.
 func TestCancelStopsARunningJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -983,6 +1022,7 @@ func (h *harness) readyVerdict(j model.Job) verdict {
 }
 
 func TestCancelBeforeTheStartEndsTheRunWithoutAJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.stop()
 	d := h.definition("nightly", nil)
@@ -1009,6 +1049,7 @@ func TestCancelBeforeTheStartEndsTheRunWithoutAJob(t *testing.T) {
 }
 
 func TestRequestOnABlockedJobFailsWithTheBlockingReason(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.stop()
 	d := h.definition("nightly", nil)
@@ -1030,6 +1071,7 @@ func TestRequestOnABlockedJobFailsWithTheBlockingReason(t *testing.T) {
 // A parameter the job stopped declaring after the request was made fails the
 // run instead of retrying for ever.
 func TestRequestWithAnUndeclaredParameterFails(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.stop()
 	d := h.definition("nightly", nil)
@@ -1052,6 +1094,7 @@ func TestRequestWithAnUndeclaredParameterFails(t *testing.T) {
 // (a retry after a crash between creating the Job and recording it) finds the
 // Job it made and makes no second one.
 func TestRunRequestCreatesOneJob(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.stop()
 	d := h.definition("nightly", nil)
@@ -1083,6 +1126,7 @@ func TestRunRequestCreatesOneJob(t *testing.T) {
 // Only the newest keepRuns finished runs are kept; the cap is the job's own
 // setting, not a fixed list length.
 func TestPruneToKeepRuns(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Spec.History.KeepRuns = 2 })
@@ -1108,6 +1152,7 @@ func TestPruneToKeepRuns(t *testing.T) {
 // even above keepRuns: pruning one would make the next reconcile record it
 // again as a new run, newer than genuinely newer ones, and notify it again.
 func TestPruneKeepsRunsOfJobsThatStillExist(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	tpl := h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Spec.History.KeepRuns = 2 })
@@ -1144,6 +1189,7 @@ func TestPruneKeepsRunsOfJobsThatStillExist(t *testing.T) {
 // listed: pruning it would make every reconcile record it again from the
 // Event under a new id, and audit a prune nobody asked for each time.
 func TestPruneKeepsSkippedRunWhileItsEventIsListed(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	tpl := h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Spec.History.KeepRuns = 1 })
@@ -1202,6 +1248,7 @@ func TestPruneKeepsSkippedRunWhileItsEventIsListed(t *testing.T) {
 // The controller writes status and never the spec: an edit made through the
 // store keeps its version, and the status catches up with it.
 func TestStatusWriteKeepsSpecEdit(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -1233,6 +1280,7 @@ func (h *harness) runAsUser(j model.Job) int64 {
 // the owner has a uid it is Blocked with nothing scheduled, and it is
 // scheduled as soon as the uid is allocated.
 func TestJobsRunAsTheOwnersAllocatedUID(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.UIDMode = config.UIDModeAllocated })
 	h.template(nil)
 	person, err := h.db.People(store.IDRange{}).Ensure(bg, store.Claims{Issuer: "https://idp.example.com", Subject: "dora", Username: "dora"})
@@ -1259,6 +1307,7 @@ func TestJobsRunAsTheOwnersAllocatedUID(t *testing.T) {
 // labels and no gateway-only policy. It looks again later, so a namespace
 // labelled after the job was made is picked up.
 func TestJobsOnlyInManagedNamespaces(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.ManagedNamespacesOnly = true })
 	h.template(nil)
 	d := h.definition("nightly", nil)
@@ -1290,6 +1339,7 @@ func TestJobsOnlyInManagedNamespaces(t *testing.T) {
 // kept (a row removed while the controller was down must not
 // leave its CronJob firing).
 func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.stop()
 	tpl := h.template(nil)
@@ -1328,7 +1378,10 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.direct().Sweep(bg); err != nil {
+	// The sweep sees this test's namespace only: other tests' jobs have rows
+	// in other databases, so their objects would be orphans here.
+	sweeper := h.newReconciler(client.NewNamespacedClient(k8s, h.ns), k8s)
+	if err := sweeper.Sweep(bg); err != nil {
 		t.Fatal(err)
 	}
 	// Gone, not merely deleting: the finalizer is released and the pods go

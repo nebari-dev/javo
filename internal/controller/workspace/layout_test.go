@@ -17,6 +17,7 @@ func testLayout(uid int64) podstorage.Layout {
 }
 
 func TestBuildPodAppliesTheStorageLayout(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	folder := model.SharedFolder{
 		Spec:   model.SharedFolderSpec{Group: "research"},
@@ -48,6 +49,7 @@ func TestBuildPodAppliesTheStorageLayout(t *testing.T) {
 // supplemental one: containerd refuses a pod that sets runAsGroup without
 // runAsUser ("user group is specified without user") and never starts it.
 func TestUserImageRunsAsItsOwnUserInTheHomeGroup(t *testing.T) {
+	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.UserImage = true
 	ws.Image = "example.com/team/app:1"
@@ -63,6 +65,7 @@ func TestUserImageRunsAsItsOwnUserInTheHomeGroup(t *testing.T) {
 // A preview runs a pull request its owner has not reviewed: like the home,
 // the owner's group folders stay out of its pod.
 func TestPreviewPodMountsNoGroupFolder(t *testing.T) {
+	t.Parallel()
 	ws, tpl := sourceFixtures()
 	ws.ParentID, ws.PullNumber = "parent-1", 7
 	folder := model.SharedFolder{

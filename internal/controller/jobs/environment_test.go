@@ -44,6 +44,7 @@ func installs(p corev1.PodSpec) bool {
 }
 
 func TestRunsOfAJobInAnEnvironmentInstallIt(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.PixiImage = "example.com/pixi:1" })
 	h.template(nil)
 	d := h.inEnvironment("in-env")
@@ -64,6 +65,7 @@ func TestRunsOfAJobInAnEnvironmentInstallIt(t *testing.T) {
 // Without an image to install with, the job waits and says why rather than
 // run without its environment.
 func TestAJobInAnEnvironmentWithNoInstallImageIsBlocked(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, nil)
 	h.template(nil)
 	got := h.waitPhase(h.inEnvironment("no-image"), model.JobPhaseBlocked)
@@ -76,6 +78,7 @@ func TestAJobInAnEnvironmentWithNoInstallImageIsBlocked(t *testing.T) {
 // platform's pod files (pod-user.sh, the environments), when nothing is
 // picked; without an image to install with it waits like a picked one.
 func TestRunsOfAJobOnATemplateWithAnEnvironmentInstallIt(t *testing.T) {
+	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.PixiImage = "example.com/pixi:1" })
 	h.template(func(s *model.TemplateSpec) { s.Environment = "jobs-python" })
 	d := h.definition("tpl-env", nil)
