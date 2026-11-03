@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,9 +29,37 @@ import (
 	"github.com/nebari-dev/javo/internal/store"
 )
 
+// rekeys records which repositories the reconciler asked to move to their
+// namespace's password, failing with err when it is set.
+type rekeys struct {
+	mu    sync.Mutex
+	repos []string
+	err   error
+}
+
+func (k *rekeys) rekey(_ context.Context, ns, repo string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.repos = append(k.repos, ns+" "+repo)
+	return k.err
+}
+
+func (k *rekeys) asked() []string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.repos)
+}
+
 func backupReconciler(t *testing.T) *BackupReconciler {
 	t.Helper()
+	r, _ := backupReconcilerRekeys(t)
+	return r
+}
+
+func backupReconcilerRekeys(t *testing.T) (*BackupReconciler, *rekeys) {
+	t.Helper()
 	e := env(t)
+	k := &rekeys{}
 	r := &BackupReconciler{
 		Client: e.k8s, Reader: e.k8s, Rows: testRows(t), Image: testImage, UIDs: fixedUIDs(t),
 		Storage: podstorage.Resolver{Homes: e.db.Homes(), Folders: e.db.SharedFolders()},
@@ -38,11 +68,12 @@ func backupReconciler(t *testing.T) *BackupReconciler {
 				Endpoint: "https://s3.example.com", Bucket: "backups", Prefix: "javo", BucketLookup: "path",
 				AccessKeyID: "id", SecretAccessKey: "key", Password: "pw",
 			},
-			Keep: restic.Keep{Daily: 7, Weekly: 4, Monthly: 6},
+			Keep:  restic.Keep{Daily: 7, Weekly: 4, Monthly: 6},
+			Rekey: k.rekey,
 		},
 		Now: func() time.Time { return e.backupClock },
 	}
-	return r
+	return r, k
 }
 
 func reconcileBackup(t *testing.T, r *BackupReconciler, owner string) ctrl.Result {
@@ -104,12 +135,17 @@ func TestARunBacksTheHomeUpAsItsOwnerReadOnly(t *testing.T) {
 	askRun(t, "run-1")
 	// An app of the owner keeps running: a backup only reads.
 	appPod(t, owner, owner+"-lab")
-	r := backupReconciler(t)
+	r, keys := backupReconcilerRekeys(t)
 	reconcileBackup(t, r, owner)
 
 	jobs := jobsOf(t, owner, model.RoleHomeBackup)
 	if len(jobs) != 1 {
 		t.Fatalf("%d backup jobs, want 1", len(jobs))
+	}
+	// The repository is on the namespace's own password before the Job
+	// opens it with that.
+	if got, want := keys.asked(), []string{homeNS + " homes/" + homeNS + "/" + owner}; !slices.Equal(got, want) {
+		t.Errorf("rekeyed %v, want %v", got, want)
 	}
 	j := jobs[0]
 	if j.Labels[model.LabelHome] != getHome(t, owner).ID {
@@ -140,10 +176,12 @@ func TestARunBacksTheHomeUpAsItsOwnerReadOnly(t *testing.T) {
 			t.Errorf("%s is not read from a Secret: %+v", e, c.Env)
 		}
 	}
-	// The values are in the namespace's Secret, never in the Job.
+	// The values are in the namespace's Secret, never in the Job. Its
+	// password is the namespace's own, never the backup password, which
+	// opens the database's backups and every other namespace's.
 	var s corev1.Secret
 	must(t, env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: BackupSecretName}, &s))
-	if string(s.Data["RESTIC_PASSWORD"]) != "pw" || string(s.Data["AWS_SECRET_ACCESS_KEY"]) != "key" {
+	if string(s.Data["RESTIC_PASSWORD"]) != backup.NamespacePassword("pw", homeNS) || string(s.Data["AWS_SECRET_ACCESS_KEY"]) != "key" {
 		t.Errorf("secret keys = %v", slices.Collect(func(yield func(string) bool) {
 			for k := range s.Data {
 				if !yield(k) {
@@ -572,5 +610,22 @@ func TestAForeignVolumeWithNoAccountFailsItsStepAtOnce(t *testing.T) {
 	b := getHome(t, owner).Status.Backup
 	if b == nil || b.Run != "run-1" || b.Reason == "" || b.FailedAt == nil || b.Job != "" || len(b.Evidence) == 0 {
 		t.Fatalf("backup = %+v", b)
+	}
+}
+
+// A repository that cannot be moved to its namespace's password (the bucket
+// does not answer) gets no Job: it would not open with that password.
+func TestNoBackupJobStartsWhileItsRepositoryCannotBeRekeyed(t *testing.T) {
+	t.Parallel()
+	owner := uniqueOwner("rex")
+	readyHome(t, owner)
+	askRun(t, "run-1")
+	r, keys := backupReconcilerRekeys(t)
+	keys.err = errors.New("the bucket does not answer")
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: getHome(t, owner).ID}}); err == nil {
+		t.Fatal("reconcile succeeded")
+	}
+	if n := len(jobsOf(t, owner, model.RoleHomeBackup)); n != 0 {
+		t.Fatalf("%d backup jobs", n)
 	}
 }

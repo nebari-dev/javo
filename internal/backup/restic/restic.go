@@ -61,7 +61,7 @@ func (t Target) Repo(bin, sub string) Repo {
 	env := []string{
 		"AWS_ACCESS_KEY_ID=" + t.AccessKeyID,
 		"AWS_SECRET_ACCESS_KEY=" + t.SecretAccessKey,
-		"RESTIC_PASSWORD=" + t.Password,
+		passwordEnv + t.Password,
 	}
 	var args []string
 	if t.Region != "" {
@@ -166,11 +166,60 @@ func (e *Error) Error() string {
 
 // Ensure makes the repository unless it exists.
 func (r Repo) Ensure(ctx context.Context) error {
-	_, err := r.run(ctx, nil, "cat", "config")
+	err := r.Opens(ctx)
 	var re *Error
 	if errors.As(err, &re) && re.Code == reasons.BackupRepoMissing {
 		_, err = r.run(ctx, nil, "init")
 	}
+	return err
+}
+
+// Opens is nil when the repository exists and its password opens it; else
+// an *Error (BackupRepoMissing, BackupWrongPassword, ...).
+func (r Repo) Opens(ctx context.Context) error {
+	_, err := r.run(ctx, nil, "cat", "config")
+	return err
+}
+
+// passwordEnv is the variable restic reads the repository password from.
+const passwordEnv = "RESTIC_PASSWORD="
+
+// WithPassword is the same repository opened with another password.
+func (r Repo) WithPassword(password string) Repo {
+	env := slices.DeleteFunc(slices.Clone(r.Env), func(e string) bool { return strings.HasPrefix(e, passwordEnv) })
+	r.Env = append(env, passwordEnv+password)
+	return r
+}
+
+// ChangePassword makes password the repository's only way in: it adds a key
+// for password, then removes the key r's own password opened. The data and
+// its encryption key stay; restic re-encrypts only the key file.
+func (r Repo) ChangePassword(ctx context.Context, password string) error {
+	out, err := r.run(ctx, nil, "key", "list", "--json")
+	if err != nil {
+		return err
+	}
+	var keys []struct {
+		Current bool   `json:"current"`
+		ID      string `json:"id"`
+	}
+	current := ""
+	if err := json.Unmarshal(out, &keys); err != nil {
+		return &Error{Code: reasons.BackupFailed, Lines: []string{"restic key list: " + err.Error()}}
+	}
+	for _, k := range keys {
+		if k.Current {
+			current = k.ID
+		}
+	}
+	if current == "" {
+		return &Error{Code: reasons.BackupFailed, Lines: []string{"restic key list names no current key"}}
+	}
+	// The new password goes on standard input, never on the command line.
+	if _, err := r.run(ctx, strings.NewReader(password), "key", "add", "--host", Host, "--new-password-file", "/dev/stdin"); err != nil {
+		return err
+	}
+	_, err = r.WithPassword(password).run(ctx, nil, "key", "remove", current)
 	return err
 }
 

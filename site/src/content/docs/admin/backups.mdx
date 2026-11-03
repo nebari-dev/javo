@@ -87,7 +87,15 @@ A backup run covers the database, every home folder and every group folder, with
 | Each home folder, read by a Job that runs as its owner, on the node that holds the home, without stopping their apps; only what changed is uploaded | `<prefix>/homes/<namespace>/<person>` | `keepDaily` daily, `keepWeekly` weekly, `keepMonthly` monthly |
 | Each group folder, read by a Job that runs as a member of its group | `<prefix>/folders/<namespace>/<folder>` | as the home folders |
 
-Every snapshot carries the run's tag, so a run can be restored from the bucket alone. The run fails when any step failed; the Backups page says so in one line and shows each home folder and group folder behind Show. The job's own pod never holds the bucket's key nor reads a home: the run talks to the API with its owner's token, and the controller copies the access key and the password into the Secret `javo-backup` of each namespace with homes, for the step Jobs only.
+Every snapshot carries the run's tag, so a run can be restored from the bucket alone. The run fails when any step failed; the Backups page says so in one line and shows each home folder and group folder behind Show. The job's own pod never holds the bucket's key nor reads a home: the run talks to the API with its owner's token, and the controller copies the access key and that namespace's own password into the Secret `javo-backup` of each namespace with homes, for the step Jobs only.
+
+Each namespace's repositories (`homes/<namespace>/...` and `folders/<namespace>/...`) have a password of their own: an HMAC-SHA256 of the namespace name under the backup password. It is all `javo-backup` in that namespace holds, so someone who can read Secrets in one namespace cannot open another namespace's backups or the database's, which keep the backup password and live only in the release namespace. The bucket's access key is still the same in every namespace: with it someone can list, download (encrypted) or delete any repository in the bucket. Where the storage allows it, give the key a policy limited to the bucket's prefix, and keep versioning or object lock on the bucket so deleted backups can be recovered.
+
+Repositories made before namespaces had their own password are moved to it the first time the controller backs them up or restores them after the upgrade: it adds a key for the namespace's password (`restic key add`) and removes the one for the backup password (`restic key remove`). Nothing is uploaded again. Until then the Backups page and `javo backup snapshots` still list them with the backup password. With the backup password you can always work out a namespace's password, so a new cluster with the same backup password reads everything. To open a namespace's repository with restic by hand:
+
+```sh
+export RESTIC_PASSWORD=$(printf 'javo backup namespace v1\0%s' <namespace> | openssl dgst -sha256 -hmac "$(cat javo-backup-password.txt)" -r | cut -d' ' -f1)
+```
 
 The run's log (the job run's log viewer, or `kubectl logs` of its pod) has one timestamped line per event, as key=value fields: which step, who (display name, username, local or SSO), the home's id, claim and node, and what happens, with restic's own numbers. For example:
 

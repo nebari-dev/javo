@@ -33,8 +33,10 @@ import (
 )
 
 // BackupSecretName is the Secret, in each namespace with homes, that holds
-// the bucket's access key and the backup password for the backup and
-// restore Jobs there. The controller writes it from its own mounted copy.
+// the bucket's access key and that namespace's own repository password
+// (backup.NamespacePassword) for the backup and restore Jobs there. The
+// controller writes it from its own mounted copy; the backup password
+// itself stays in the release namespace.
 const BackupSecretName = model.ProductName + "-backup"
 
 // Keys of BackupSecretName.
@@ -65,6 +67,9 @@ type HomeBackups struct {
 	// CACert is the content of Target.CACertFile, given to the Jobs.
 	CACert []byte
 	Keep   restic.Keep
+	// Rekey moves the repository repo of namespace ns to the namespace's
+	// password (backup.Rekey) before a Job opens it with that password.
+	Rekey func(ctx context.Context, ns, repo string) error
 }
 
 // BackupReconciler backs every prepared home up to the bucket on schedule
@@ -586,10 +591,16 @@ func (r *BackupReconciler) backupArgs(v volume, run string) []string {
 		"--keep-monthly", strconv.Itoa(r.Backups.Keep.Monthly))
 }
 
-// startJob creates the volume's Job name unless it exists.
+// startJob creates the volume's Job name unless it exists. A Job that opens
+// the volume's repository gets it on the namespace's password first.
 func (r *BackupReconciler) startJob(ctx context.Context, v volume, name, role string, readOnly bool, args []string) error {
 	if err := r.ensureSecret(ctx, v.ns); err != nil {
 		return err
+	}
+	if v.repo != "" {
+		if err := r.Backups.Rekey(ctx, v.ns, v.repo); err != nil {
+			return fmt.Errorf("move %s to the namespace's backup password: %w", v.repo, err)
+		}
 	}
 	j := r.volumeJob(v, name, role, readOnly, args)
 	if err := r.Create(ctx, j); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -599,11 +610,12 @@ func (r *BackupReconciler) startJob(ctx context.Context, v volume, name, role st
 }
 
 // ensureSecret writes the namespace's copy of the bucket's key and the
-// backup password.
+// namespace's repository password.
 func (r *BackupReconciler) ensureSecret(ctx context.Context, ns string) error {
 	t := r.Backups.Target
 	want := map[string][]byte{
-		secretAccessKeyID: []byte(t.AccessKeyID), secretSecretAccessKey: []byte(t.SecretAccessKey), secretPassword: []byte(t.Password),
+		secretAccessKeyID: []byte(t.AccessKeyID), secretSecretAccessKey: []byte(t.SecretAccessKey),
+		secretPassword: []byte(backup.NamespacePassword(t.Password, ns)),
 	}
 	if len(r.Backups.CACert) > 0 {
 		want[secretCACert] = r.Backups.CACert
@@ -724,8 +736,8 @@ func (r *BackupReconciler) volumeJob(v volume, name, role string, readOnly bool,
 // SetupWithManager reconciles every home when it changes (a run or a
 // restore asked for), and on the requeues a running Job asks for.
 func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Store == nil || r.Reader == nil || r.UIDs == nil || r.Image.Ref == "" || r.Backups == nil || r.Storage.Homes == nil {
-		return errors.New("storage.BackupReconciler needs Store, Reader, UIDs, Image, Backups and Storage")
+	if r.Store == nil || r.Reader == nil || r.UIDs == nil || r.Image.Ref == "" || r.Backups == nil || r.Backups.Rekey == nil || r.Storage.Homes == nil {
+		return errors.New("storage.BackupReconciler needs Store, Reader, UIDs, Image, Backups (with Rekey) and Storage")
 	}
 	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-backup").
@@ -793,8 +805,8 @@ func (r *FolderBackupReconciler) step(ctx context.Context, f *model.SharedFolder
 
 // SetupWithManager reconciles every shared folder when it changes.
 func (r *FolderBackupReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Store == nil || r.Reader == nil || r.Image.Ref == "" || r.Backups == nil {
-		return errors.New("storage.FolderBackupReconciler needs Store, Reader, Image and Backups")
+	if r.Store == nil || r.Reader == nil || r.Image.Ref == "" || r.Backups == nil || r.Backups.Rekey == nil {
+		return errors.New("storage.FolderBackupReconciler needs Store, Reader, Image and Backups (with Rekey)")
 	}
 	all := func(ctx context.Context) ([]reconcile.Request, error) {
 		fs, err := r.Store.SharedFolders().List(ctx)

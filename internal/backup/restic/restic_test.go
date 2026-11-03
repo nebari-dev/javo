@@ -291,3 +291,31 @@ func TestBackupReportsProgressAndForgetSaysWhatItRemoved(t *testing.T) {
 		t.Fatalf("forget = %+v, %v", got, err)
 	}
 }
+
+// A repository's password is changed by adding a key for the new one and
+// removing the old one: the data stays, and only the new password opens it.
+func TestChangePasswordKeepsTheDataUnderTheNewPasswordOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	old := localRepo(t, "old-password")
+	src := filepath.Join(t.TempDir(), "src")
+	write(t, filepath.Join(src, "notes.txt"), "kept")
+	if _, err := old.BackupDir(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.ChangePassword(ctx, "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	var re *restic.Error
+	if err := old.Opens(ctx); !errors.As(err, &re) || re.Code != reasons.BackupWrongPassword {
+		t.Fatalf("the old password still opens it: %v", err)
+	}
+	renewed := old.WithPassword("new-password")
+	if err := renewed.Opens(ctx); err != nil {
+		t.Fatal(err)
+	}
+	snaps, err := renewed.Snapshots(ctx)
+	if err != nil || len(snaps) != 1 {
+		t.Fatalf("snapshots under the new password: %v, %v", snaps, err)
+	}
+}

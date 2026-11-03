@@ -25,7 +25,7 @@ func HomeRepo(ns, owner string) string { return "homes/" + ns + "/" + owner }
 // HomeSnapshots lists the backups of owner's home in namespace ns in the
 // bucket t, newest first, running the restic binary bin.
 func HomeSnapshots(ctx context.Context, t restic.Target, bin, ns, owner string) ([]restic.Snapshot, error) {
-	return t.Repo(bin, HomeRepo(ns, owner)).Snapshots(ctx, HomeTag)
+	return ListSnapshots(ctx, t.Repo(bin, HomeRepo(ns, owner)), NamespacePassword(t.Password, ns), HomeTag)
 }
 
 // FolderRepo is the repository of the shared folder name in namespace ns.
