@@ -24,19 +24,19 @@ func class(t *testing.T, name, provisioner string, isDefault bool, params map[st
 	if isDefault {
 		sc.Annotations = map[string]string{"storageclass.kubernetes.io/is-default-class": "true"}
 	}
-	must(t, k8s.Create(ctx, sc))
+	must(t, env(t).k8s.Create(ctx, sc))
 }
 
 func node(t *testing.T, name string) {
 	t.Helper()
-	must(t, k8s.Create(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+	must(t, env(t).k8s.Create(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}))
 }
 
 // perUserHome makes a perUser home; onOneNode marks it as made on a
 // one-node cluster, the way home creation does.
 func perUserHome(t *testing.T, owner string, onOneNode bool) {
 	t.Helper()
-	_, err := db.Homes().Ensure(ctx, "default", owner, nil)
+	_, err := env(t).db.Homes().Ensure(ctx, "default", owner, nil)
 	must(t, err)
 	editHome(t, "default", owner, func(h *model.Home) {
 		h.Status.Mode, h.Status.CreatedOnSingleNode = model.HomeModePerUser, onOneNode
@@ -52,8 +52,8 @@ func run(t *testing.T, r *ClusterReconciler) {
 
 func get(t *testing.T) *model.ClusterStorage { return storageNow(t) }
 
-func newReconciler() *ClusterReconciler {
-	return &ClusterReconciler{Client: k8s, Reader: k8s, Rows: testRows()}
+func newReconciler(t *testing.T) *ClusterReconciler {
+	return &ClusterReconciler{Client: env(t).k8s, Reader: env(t).k8s, Rows: testRows(t)}
 }
 
 func cond(t *testing.T, cs *model.ClusterStorage, typ string) *metav1.Condition {
@@ -66,11 +66,12 @@ func cond(t *testing.T, cs *model.ClusterStorage, typ string) *metav1.Condition 
 }
 
 func TestFillsClasses(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	class(t, "longhorn", "driver.longhorn.io", false, nil)
 	node(t, "n1")
-	run(t, newReconciler())
+	run(t, newReconciler(t))
 
 	cs := get(t)
 	if len(cs.Status.Classes) != 2 {
@@ -95,9 +96,10 @@ func TestFillsClasses(t *testing.T) {
 }
 
 func TestNoStorageClass(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	node(t, "n1")
-	run(t, newReconciler())
+	run(t, newReconciler(t))
 	c := cond(t, get(t), model.ConditionHomeStorageReady)
 	if c.Status != metav1.ConditionFalse || c.Reason != string(reasons.NoStorageClass) {
 		t.Errorf("HomeStorageReady = %+v, want False/%s", c, reasons.NoStorageClass)
@@ -105,9 +107,10 @@ func TestNoStorageClass(t *testing.T) {
 }
 
 func TestNoDefaultClassToChooseFrom(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "fast", "ebs.csi.aws.com", false, nil)
-	run(t, newReconciler())
+	run(t, newReconciler(t))
 	c := cond(t, get(t), model.ConditionHomeStorageReady)
 	if c.Status != metav1.ConditionFalse || c.Reason != string(reasons.NoDefaultStorageClass) {
 		t.Errorf("HomeStorageReady = %+v, want False/%s", c, string(reasons.NoDefaultStorageClass))
@@ -115,11 +118,12 @@ func TestNoDefaultClassToChooseFrom(t *testing.T) {
 }
 
 func TestSharedOverrideWithoutAnRWXClass(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
-	run(t, newReconciler())
-	cfg.Home.Mode = model.HomeModeShared
-	run(t, newReconciler())
+	run(t, newReconciler(t))
+	env(t).cfg.Home.Mode = model.HomeModeShared
+	run(t, newReconciler(t))
 
 	cs := get(t)
 	if cs.Status.Choice.Mode != model.HomeModeShared || cs.Status.Choice.Source != "override" {
@@ -132,13 +136,14 @@ func TestSharedOverrideWithoutAnRWXClass(t *testing.T) {
 }
 
 func TestSharedOverrideKeepsTheNamedClassThatCannotShare(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "hcloud-volumes", "csi.hetzner.cloud", true, nil)
 	class(t, "longhorn", "driver.longhorn.io", false, nil)
-	run(t, newReconciler())
-	cfg.Home.Mode = model.HomeModeShared
-	cfg.Home.StorageClassName = "hcloud-volumes"
-	run(t, newReconciler())
+	run(t, newReconciler(t))
+	env(t).cfg.Home.Mode = model.HomeModeShared
+	env(t).cfg.Home.StorageClassName = "hcloud-volumes"
+	run(t, newReconciler(t))
 
 	cs := get(t)
 	if cs.Status.Choice.HomeClass != "hcloud-volumes" {
@@ -154,10 +159,11 @@ func TestSharedOverrideKeepsTheNamedClassThatCannotShare(t *testing.T) {
 }
 
 func TestSecondNodeAfterPerUserHomesOnOneNode(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	node(t, "n1")
-	r := newReconciler()
+	r := newReconciler(t)
 	run(t, r)
 	cs := get(t)
 	if !cs.Status.Choice.SingleNode {
@@ -190,28 +196,30 @@ func TestSecondNodeAfterPerUserHomesOnOneNode(t *testing.T) {
 // joins before the first write, still raise the flag because the fact lives
 // on the homes.
 func TestSingleNodeAssumptionIsRebuiltFromHomesWithoutPreviousStatus(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	node(t, "n1")
 	node(t, "n2")
 	perUserHome(t, "alice", true)
-	run(t, newReconciler())
+	run(t, newReconciler(t))
 	c := cond(t, get(t), model.ConditionSingleNodeAssumption)
 	if c.Status != metav1.ConditionTrue || c.Reason != string(reasons.SecondNodeJoined) {
 		t.Fatalf("SingleNodeAssumption = %+v on first reconcile, want True/%s", c, reasons.SecondNodeJoined)
 	}
 
-	must(t, db.Storage().SetClusterStatus(ctx, model.ClusterStorageStatus{}))
-	run(t, newReconciler())
+	must(t, env(t).db.Storage().SetClusterStatus(ctx, model.ClusterStorageStatus{}))
+	run(t, newReconciler(t))
 	if c := cond(t, get(t), model.ConditionSingleNodeAssumption); c.Status != metav1.ConditionTrue {
 		t.Errorf("SingleNodeAssumption = %+v after the findings were dropped, want True", c)
 	}
 }
 
 func TestReasonsAndMessagesComeFromTheCatalog(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	node(t, "n1")
-	run(t, newReconciler())
+	run(t, newReconciler(t))
 	c := cond(t, get(t), model.ConditionHomeStorageReady)
 	r, ok := reasons.Lookup(reasons.NoStorageClass)
 	if !ok || c.Reason != string(reasons.NoStorageClass) || !strings.HasPrefix(c.Message, r.What) {
@@ -220,12 +228,13 @@ func TestReasonsAndMessagesComeFromTheCatalog(t *testing.T) {
 }
 
 func TestNamedStorageClassThatDoesNotExist(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	node(t, "n1")
-	run(t, newReconciler())
-	cfg.Home.StorageClassName = "foo"
-	run(t, newReconciler())
+	run(t, newReconciler(t))
+	env(t).cfg.Home.StorageClassName = "foo"
+	run(t, newReconciler(t))
 
 	c := cond(t, get(t), model.ConditionHomeStorageReady)
 	if c.Status != metav1.ConditionFalse || c.Reason != string(reasons.NamedStorageClassMissing) {
@@ -237,6 +246,7 @@ func TestNamedStorageClassThatDoesNotExist(t *testing.T) {
 }
 
 func TestOnlyNodeCreateDeleteAndLabelChangesTriggerAReconcile(t *testing.T) {
+	t.Parallel()
 	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"a": "b"}}}
 	statusOnly := n.DeepCopy()
 	statusOnly.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady}}
@@ -255,25 +265,27 @@ func TestOnlyNodeCreateDeleteAndLabelChangesTriggerAReconcile(t *testing.T) {
 }
 
 func TestMultiNodeClusterFromTheStartIsNotASingleNodeAssumption(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	node(t, "n1")
 	node(t, "n2")
 	perUserHome(t, "alice", false)
-	run(t, newReconciler())
+	run(t, newReconciler(t))
 	if c := cond(t, get(t), model.ConditionSingleNodeAssumption); c.Status != metav1.ConditionFalse {
 		t.Errorf("SingleNodeAssumption = %+v, want False", c)
 	}
 }
 
 func TestNoWriteWhenNothingChanged(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	node(t, "n1")
-	r := newReconciler()
+	r := newReconciler(t)
 	run(t, r)
 	observedAt := func() time.Time {
-		f, err := db.Facts().Get(ctx, "storage")
+		f, err := env(t).db.Facts().Get(ctx, "storage")
 		must(t, err)
 		return f.ObservedAt
 	}
@@ -289,10 +301,11 @@ func TestNoWriteWhenNothingChanged(t *testing.T) {
 // A home on a mode other than the chosen one is reported, and nothing about
 // it changes: moving it is the admin's decision (see migration_test.go).
 func TestHomesOnAnotherModeRaiseTheMismatchAndAreLeftAlone(t *testing.T) {
+	t.Parallel()
 	clean(t)
 	class(t, "standard", "rancher.io/local-path", true, nil)
 	node(t, "n1")
-	r := newReconciler()
+	r := newReconciler(t)
 	run(t, r)
 	if c := cond(t, get(t), model.ConditionHomeModeMismatch); c.Status != metav1.ConditionFalse {
 		t.Fatalf("HomeModeMismatch = %+v with no homes, want False", c)
@@ -300,7 +313,7 @@ func TestHomesOnAnotherModeRaiseTheMismatchAndAreLeftAlone(t *testing.T) {
 
 	perUserHome(t, "alice", false)
 	size := resource.MustParse("5Gi")
-	_, err := db.Homes().Ensure(ctx, "default", "bob", &size)
+	_, err := env(t).db.Homes().Ensure(ctx, "default", "bob", &size)
 	must(t, err)
 	editHome(t, "default", "bob", func(h *model.Home) { h.Status.Mode = model.HomeModeShared })
 	run(t, r)

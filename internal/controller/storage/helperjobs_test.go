@@ -39,6 +39,7 @@ func helperJobBuilders() map[string]func() *batchv1.Job {
 }
 
 func TestEveryJobThatSetsFSGroupMountsExactlyOneVolume(t *testing.T) {
+	t.Parallel()
 	sawFSGroup := false
 	for name, build := range helperJobBuilders() {
 		spec := build().Spec.Template.Spec

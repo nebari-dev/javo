@@ -3,7 +3,11 @@ package storage
 import (
 	"context"
 	"os"
+	goruntime "runtime"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -19,51 +23,116 @@ import (
 )
 
 var (
-	k8s        client.Client
-	restConfig *rest.Config
-	ctx        = context.Background()
-	// db is the database the tests' reconcilers read; cfg is the platform
-	// config's storage section they are given. clean gives a test fresh ones.
-	db  *store.Store
-	cfg model.ClusterStorageSpec
+	scheme = runtime.NewScheme()
+	ctx    = context.Background()
+	// Each test has an envtest API server to itself for its whole run, so
+	// the cluster-wide objects it makes (nodes, storage classes) are seen by
+	// no other test running beside it. idle holds the servers no test has;
+	// a test takes a token from starts to start another when none is idle.
+	idle   = make(chan *apiServer, maxServers)
+	starts = make(chan struct{}, maxServers)
+	// envs is each running test's state by test name; a subtest without
+	// its own uses its parent's.
+	envs sync.Map
 )
 
-func TestMain(m *testing.M) {
-	env := &envtest.Environment{}
-	var err error
-	restConfig, err = env.Start()
-	if err != nil {
-		panic(err)
+// maxServers caps the API servers running at once, and so the tests.
+var maxServers = max(1, min(6, goruntime.GOMAXPROCS(0)/2))
+
+// apiServer is one envtest control plane and a client of it.
+type apiServer struct {
+	env    *envtest.Environment
+	k8s    client.Client
+	config *rest.Config
+}
+
+// takeAPIServer gives t an idle API server, else starts one when fewer than
+// maxServers run, else waits for one to be given back.
+func takeAPIServer(t *testing.T) *apiServer {
+	t.Helper()
+	select {
+	case s := <-idle:
+		return s
+	default:
 	}
-	scheme := runtime.NewScheme()
+	select {
+	case s := <-idle:
+		return s
+	case starts <- struct{}{}:
+		s, err := startAPIServer()
+		if err != nil {
+			<-starts
+			t.Fatal(err)
+		}
+		return s
+	}
+}
+
+func startAPIServer() (*apiServer, error) {
+	env := &envtest.Environment{}
+	// Without the watch cache a list right after a write is answered by
+	// etcd at once, instead of waiting for the cache to catch up (about
+	// 100ms a list).
+	env.ControlPlane.GetAPIServer().Configure().Set("watch-cache", "false")
+	config, err := env.Start()
+	if err != nil {
+		return nil, err
+	}
+	k8s, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		_ = env.Stop()
+		return nil, err
+	}
+	return &apiServer{env: env, k8s: k8s, config: config}, nil
+}
+
+// testEnv is what one test works with: an API server it has to itself, its
+// own database, the platform config's storage section its reconcilers are
+// given, and the clocks of the reconcilers that take one.
+type testEnv struct {
+	name        string // the test's
+	k8s         client.Client
+	restConfig  *rest.Config
+	db          *store.Store
+	cfg         model.ClusterStorageSpec
+	clock       time.Time // the migration reconciler's
+	backupClock time.Time // the backup reconciler's: 10:00 UTC, backups at 01:00
+}
+
+func TestMain(m *testing.M) {
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		panic(err)
 	}
-	k8s, err = client.New(restConfig, client.Options{Scheme: scheme})
-	if err != nil {
-		panic(err)
-	}
-	dir, err := os.MkdirTemp("", "javo-storage-test")
-	if err != nil {
-		panic(err)
-	}
-	scfg, cleanup, err := storetest.FreshConfig(ctx, storetest.Engine(), os.Getenv("JAVO_TEST_PG_DSN"), dir)
-	if err != nil {
-		panic(err)
-	}
-	if db, err = store.Open(ctx, scfg); err != nil {
-		panic(err)
-	}
-	if err := db.Migrate(ctx); err != nil {
-		panic(err)
-	}
-	cfg = defaultSpec()
 	code := m.Run()
-	_ = db.Close()
-	cleanup()
-	_ = os.RemoveAll(dir)
-	_ = env.Stop()
+	var wg sync.WaitGroup
+	for range len(starts) {
+		wg.Go(func() { _ = (<-idle).env.Stop() }) // about 1s each, so all at once
+	}
+	wg.Wait()
 	os.Exit(code)
+}
+
+// env is the test's state: its own, else its nearest parent's, else a new
+// one made with clean.
+func env(t *testing.T) *testEnv {
+	t.Helper()
+	if e := envNamed(t.Name()); e != nil {
+		return e
+	}
+	return clean(t)
+}
+
+func envNamed(name string) *testEnv {
+	for {
+		if v, ok := envs.Load(name); ok {
+			return v.(*testEnv)
+		}
+		i := strings.LastIndex(name, "/")
+		if i < 0 {
+			return nil
+		}
+		name = name[:i]
+	}
 }
 
 // defaultSpec is the storage config with every default, as config.Load gives.
@@ -75,16 +144,43 @@ func defaultSpec() model.ClusterStorageSpec {
 
 // clean gives the test a fresh database and the default config, and removes
 // the cluster objects a test may have made, so tests do not see each other's
-// storage classes, nodes or homes.
-func clean(t *testing.T) {
+// storage classes, nodes or homes. A subtest keeps its parent's API server
+// and clocks; a top-level test takes an API server until it ends.
+func clean(t *testing.T) *testEnv {
 	t.Helper()
+	e := envNamed(t.Name())
+	if e == nil || e.name != t.Name() {
+		e = newEnv(t, e)
+	}
 	wipe := func() {
-		must(t, k8s.DeleteAllOf(ctx, &storagev1.StorageClass{}))
-		must(t, k8s.DeleteAllOf(ctx, &corev1.Node{}))
+		must(t, e.k8s.DeleteAllOf(ctx, &storagev1.StorageClass{}))
+		must(t, e.k8s.DeleteAllOf(ctx, &corev1.Node{}))
 	}
 	wipe()
 	t.Cleanup(wipe)
-	db, cfg = storetest.New(t), defaultSpec()
+	e.db, e.cfg = storetest.New(t), defaultSpec()
+	return e
+}
+
+// newEnv registers a state for t, sharing parent's API server and clocks
+// when there is a parent, else taking an API server of its own.
+func newEnv(t *testing.T, parent *testEnv) *testEnv {
+	t.Helper()
+	e := &testEnv{
+		name:        t.Name(),
+		clock:       time.Now().Truncate(time.Second),
+		backupClock: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC),
+	}
+	if parent != nil {
+		e.k8s, e.restConfig, e.clock, e.backupClock = parent.k8s, parent.restConfig, parent.clock, parent.backupClock
+	} else {
+		s := takeAPIServer(t)
+		t.Cleanup(func() { idle <- s })
+		e.k8s, e.restConfig = s.k8s, s.config
+	}
+	envs.Store(e.name, e)
+	t.Cleanup(func() { envs.Delete(e.name) })
+	return e
 }
 
 func must(t *testing.T, err error) {
@@ -94,20 +190,21 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// testRows is what a reconciler under test reads: db and cfg as they are now.
-func testRows() Rows { return Rows{Store: db, Config: cfg} }
+// testRows is what a reconciler under test reads: the test's db and cfg as
+// they are now.
+func testRows(t *testing.T) Rows { e := env(t); return Rows{Store: e.db, Config: e.cfg} }
 
 // setStatus stores the findings as the cluster and probe reconcilers would.
 func setStatus(t *testing.T, st model.ClusterStorageStatus) {
 	t.Helper()
-	must(t, db.Storage().SetClusterStatus(ctx, st))
-	must(t, db.Storage().SetProbeStatus(ctx, st.Probe, st.ProbeResults))
+	must(t, env(t).db.Storage().SetClusterStatus(ctx, st))
+	must(t, env(t).db.Storage().SetProbeStatus(ctx, st.Probe, st.ProbeResults))
 }
 
 // setRequests changes the admin's run-time requests.
 func setRequests(t *testing.T, fn func(*model.StorageRequests)) {
 	t.Helper()
-	must(t, db.Storage().UpdateRequests(ctx, model.Actor{Person: "admin"}, "storage.test", func(r *model.StorageRequests) error {
+	must(t, env(t).db.Storage().UpdateRequests(ctx, model.Actor{Person: "admin"}, "storage.test", func(r *model.StorageRequests) error {
 		fn(r)
 		return nil
 	}))
@@ -116,7 +213,7 @@ func setRequests(t *testing.T, fn func(*model.StorageRequests)) {
 // storageNow is the storage view the reconcilers see.
 func storageNow(t *testing.T) *model.ClusterStorage {
 	t.Helper()
-	cs, err := testRows().cluster(ctx)
+	cs, err := testRows(t).cluster(ctx)
 	must(t, err)
 	return cs
 }
@@ -124,7 +221,7 @@ func storageNow(t *testing.T) *model.ClusterStorage {
 // homeOf reads owner's home in namespace ns.
 func homeOf(t *testing.T, ns, owner string) *model.Home {
 	t.Helper()
-	h, err := db.Homes().ByOwner(ctx, ns, owner)
+	h, err := env(t).db.Homes().ByOwner(ctx, ns, owner)
 	must(t, err)
 	return &h
 }
@@ -134,7 +231,7 @@ func editHome(t *testing.T, ns, owner string, fn func(*model.Home)) {
 	t.Helper()
 	h := homeOf(t, ns, owner)
 	fn(h)
-	if _, err := db.Homes().Update(ctx, *h, h.Version); err != nil {
+	if _, err := env(t).db.Homes().Update(ctx, *h, h.Version); err != nil {
 		t.Fatal(err)
 	}
 }

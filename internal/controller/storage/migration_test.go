@@ -22,15 +22,13 @@ import (
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
-// clock is the migration reconciler's time in these tests.
-var clock = time.Now().Truncate(time.Second)
-
-func migrationReconciler(c client.Client) *MigrationReconciler {
+func migrationReconciler(t *testing.T, c client.Client) *MigrationReconciler {
+	e := env(t)
 	return &MigrationReconciler{
-		Client: c, Reader: c, Rows: testRows(), Image: testImage,
-		Backends: testBackends(), UIDs: fixedUIDs(),
-		Storage: podstorage.Resolver{Homes: db.Homes(), Folders: db.SharedFolders()},
-		Now:     func() time.Time { return clock },
+		Client: c, Reader: c, Rows: testRows(t), Image: testImage,
+		Backends: testBackends(), UIDs: fixedUIDs(t),
+		Storage: podstorage.Resolver{Homes: e.db.Homes(), Folders: e.db.SharedFolders()},
+		Now:     func() time.Time { return e.clock },
 	}
 }
 
@@ -48,7 +46,7 @@ func reconcileMigration(t *testing.T, r *MigrationReconciler, owner string) ctrl
 func movableHomes(t *testing.T, owners ...string) {
 	t.Helper()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3, expandable: true})
-	hr := homeReconciler(k8s)
+	hr := homeReconciler(t, env(t).k8s)
 	for _, o := range owners {
 		newHome(t, o, "10Gi")
 		settled(t, hr, o)
@@ -78,15 +76,15 @@ func appPod(t *testing.T, owner, name string) *corev1.Pod {
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: homeNS, Labels: map[string]string{model.LabelOwner: owner, model.LabelApp: name}},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "x"}}},
 	}
-	must(t, k8s.Create(ctx, p))
-	t.Cleanup(func() { _ = client.IgnoreNotFound(k8s.Delete(ctx, p, client.GracePeriodSeconds(0))) })
+	must(t, env(t).k8s.Create(ctx, p))
+	t.Cleanup(func() { _ = client.IgnoreNotFound(env(t).k8s.Delete(ctx, p, client.GracePeriodSeconds(0))) })
 	return p
 }
 
 func copyJobs(t *testing.T, owner string) []batchv1.Job {
 	t.Helper()
 	var l batchv1.JobList
-	must(t, k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{
+	must(t, env(t).k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{
 		model.LabelRole: model.RoleHomeMigrate, model.LabelOwner: owner}))
 	return l.Items
 }
@@ -109,14 +107,15 @@ func migrating(t *testing.T, owner string) *metav1.Condition {
 func claimGone(t *testing.T, name string) bool {
 	t.Helper()
 	c := &corev1.PersistentVolumeClaim{}
-	err := k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: name}, c)
+	err := env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: name}, c)
 	return apierrors.IsNotFound(err) || (err == nil && !c.DeletionTimestamp.IsZero())
 }
 
 func TestChangingTheModeAloneCreatesNoJobAndLeavesHomesReady(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("ann")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	reconcileMigration(t, r, owner)
 
 	h := getHome(t, owner)
@@ -135,6 +134,7 @@ func TestChangingTheModeAloneCreatesNoJobAndLeavesHomesReady(t *testing.T) {
 }
 
 func TestAFutureStartMarksOnlyTheHomesOnAnotherModeAsScheduled(t *testing.T) {
+	t.Parallel()
 	a, b, c := uniqueOwner("ann"), uniqueOwner("ben"), uniqueOwner("cy")
 	movableHomes(t, a, b)
 	// c is already on the chosen mode.
@@ -143,9 +143,9 @@ func TestAFutureStartMarksOnlyTheHomesOnAnotherModeAsScheduled(t *testing.T) {
 		hc.Status.Mode, hc.Status.ClaimName, hc.Status.Prepared = model.HomeModeShared, naming.HomeClaimNameGen(c, 1), true
 	})
 
-	start := clock.Add(2 * time.Hour)
+	start := env(t).clock.Add(2 * time.Hour)
 	scheduleAt(t, start)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	res := reconcileMigration(t, r, a)
 	reconcileMigration(t, r, b)
 	reconcileMigration(t, r, c)
@@ -175,11 +175,12 @@ func TestAFutureStartMarksOnlyTheHomesOnAnotherModeAsScheduled(t *testing.T) {
 }
 
 func TestARunningAppHoldsTheHomeWaitingUntilItStops(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("dan")
 	movableHomes(t, owner)
 	pod := appPod(t, owner, "lab-"+owner)
-	scheduleAt(t, clock.Add(-time.Minute))
-	r := migrationReconciler(k8s)
+	scheduleAt(t, env(t).clock.Add(-time.Minute))
+	r := migrationReconciler(t, env(t).k8s)
 
 	res := reconcileMigration(t, r, owner)
 	if phase(t, owner) != model.MigrationWaiting {
@@ -192,14 +193,14 @@ func TestARunningAppHoldsTheHomeWaitingUntilItStops(t *testing.T) {
 	if res.RequeueAfter == 0 {
 		t.Error("no requeue while waiting for the app to stop")
 	}
-	if _, err := getClaimErr(naming.HomeClaimNameGen(owner, 2)); !apierrors.IsNotFound(err) {
+	if _, err := getClaimErr(t, naming.HomeClaimNameGen(owner, 2)); !apierrors.IsNotFound(err) {
 		t.Fatalf("new claim made while an app still runs: %v", err)
 	}
 	if n := len(copyJobs(t, owner)); n != 0 {
 		t.Fatalf("%d copy jobs while an app runs", n)
 	}
 
-	must(t, k8s.Delete(ctx, pod, client.GracePeriodSeconds(0)))
+	must(t, env(t).k8s.Delete(ctx, pod, client.GracePeriodSeconds(0)))
 	reconcileMigration(t, r, owner)
 	if phase(t, owner) != model.MigrationCopying {
 		t.Fatalf("phase = %q after the app stopped, want Copying", phase(t, owner))
@@ -215,16 +216,16 @@ func TestARunningAppHoldsTheHomeWaitingUntilItStops(t *testing.T) {
 	}
 }
 
-func getClaimErr(name string) (*corev1.PersistentVolumeClaim, error) {
+func getClaimErr(t *testing.T, name string) (*corev1.PersistentVolumeClaim, error) {
 	c := &corev1.PersistentVolumeClaim{}
-	return c, k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: name}, c)
+	return c, env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: name}, c)
 }
 
 // copying takes one home to a running copy Job (the new claim is prepared by
 // its own Job first, which the test completes).
 func copying(t *testing.T, r *MigrationReconciler, owner string) batchv1.Job {
 	t.Helper()
-	scheduleAt(t, clock.Add(-time.Minute))
+	scheduleAt(t, env(t).clock.Add(-time.Minute))
 	reconcileMigration(t, r, owner) // Copying: new claim and its prepare Job
 	finishJob(t, prepareJobFor(t, owner, naming.HomeClaimNameGen(owner, 2)), true, "")
 	reconcileMigration(t, r, owner) // the copy Job
@@ -238,7 +239,7 @@ func copying(t *testing.T, r *MigrationReconciler, owner string) batchv1.Job {
 func prepareJobFor(t *testing.T, owner, claim string) batchv1.Job {
 	t.Helper()
 	j := batchv1.Job{}
-	must(t, k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: prepareJobNameFor(claim)}, &j))
+	must(t, env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: prepareJobNameFor(claim)}, &j))
 	if j.Labels[model.LabelRole] != model.RoleHomePrepare || j.Labels[model.LabelOwner] != owner {
 		t.Fatalf("job %s labels = %v", j.Name, j.Labels)
 	}
@@ -246,9 +247,10 @@ func prepareJobFor(t *testing.T, owner, claim string) batchv1.Job {
 }
 
 func TestTheCopyJobMountsOldReadOnlyAndNewAsTheOwnerWithoutFSGroup(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("eve")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 
 	spec := j.Spec.Template.Spec
@@ -301,6 +303,7 @@ func TestTheCopyJobMountsOldReadOnlyAndNewAsTheOwnerWithoutFSGroup(t *testing.T)
 // A partial copy, a mismatch or an eviction never moves the
 // home. It stays on its old claim, writable, with the evidence.
 func TestAFailedCopyKeepsTheHomeOnItsOldClaimWithTheEvidence(t *testing.T) {
+	t.Parallel()
 	for name, msg := range map[string]string{
 		"partial transfer": "copy failed: partial transfer\nsecret: open /old/secret: permission denied",
 		"verify mismatch":  "verify found differences\ncontent notes/draft.txt",
@@ -308,7 +311,7 @@ func TestAFailedCopyKeepsTheHomeOnItsOldClaimWithTheEvidence(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			owner := uniqueOwner("fay")
 			movableHomes(t, owner)
-			r := migrationReconciler(k8s)
+			r := migrationReconciler(t, env(t).k8s)
 			j := copying(t, r, owner)
 			finishJob(t, j, false, msg)
 			reconcileMigration(t, r, owner)
@@ -339,9 +342,10 @@ func TestAFailedCopyKeepsTheHomeOnItsOldClaimWithTheEvidence(t *testing.T) {
 }
 
 func TestAnEvictedOrTimedOutJobIsAFailureToo(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("gus")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 	started := metav1.NewTime(time.Now().Add(-time.Minute))
 	j.Status.StartTime = &started
@@ -350,7 +354,7 @@ func TestAnEvictedOrTimedOutJobIsAFailureToo(t *testing.T) {
 		{Type: batchv1.JobFailureTarget, Status: corev1.ConditionTrue, Reason: "DeadlineExceeded", Message: "Job was active longer than specified deadline"},
 		{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "DeadlineExceeded", Message: "Job was active longer than specified deadline"},
 	}
-	must(t, k8s.Status().Update(ctx, &j))
+	must(t, env(t).k8s.Status().Update(ctx, &j))
 	reconcileMigration(t, r, owner)
 	c := migrating(t, owner)
 	if phase(t, owner) != model.MigrationFailed || c == nil || !strings.Contains(c.Message, "DeadlineExceeded") {
@@ -359,9 +363,10 @@ func TestAnEvictedOrTimedOutJobIsAFailureToo(t *testing.T) {
 }
 
 func TestOnlyFailedHomesRetryWhenTheAttemptIsBumped(t *testing.T) {
+	t.Parallel()
 	a, b := uniqueOwner("hal"), uniqueOwner("ida")
 	movableHomes(t, a, b)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	ja := copying(t, r, a)
 	copying(t, r, b) // running; its Job stays active
 	finishJob(t, ja, false, "copy failed: partial transfer\nnotes: lstat /old/notes: no such file or directory")
@@ -394,9 +399,10 @@ func TestOnlyFailedHomesRetryWhenTheAttemptIsBumped(t *testing.T) {
 }
 
 func TestACompletedCopySwitchesTheHomeAndKeepsTheOldClaimLabelled(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("joy")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 	oldName := getHome(t, owner).Status.ClaimName
 	finishJob(t, j, true, "")
@@ -408,7 +414,7 @@ func TestACompletedCopySwitchesTheHomeAndKeepsTheOldClaimLabelled(t *testing.T) 
 		t.Fatalf("status = %+v", h.Status)
 	}
 	m := h.Status.Migration
-	retain := clock.Add(7 * 24 * time.Hour)
+	retain := env(t).clock.Add(7 * 24 * time.Hour)
 	if m.Phase != model.MigrationSwitched || m.OldClaim != oldName || m.RetainUntil == nil || !m.RetainUntil.Time.Equal(retain) {
 		t.Fatalf("migration = %+v, want Switched, old %s, retain until %s", m, oldName, retain)
 	}
@@ -426,8 +432,8 @@ func TestACompletedCopySwitchesTheHomeAndKeepsTheOldClaimLabelled(t *testing.T) 
 	}
 
 	// Once the grace period is over the old claim goes, and the home forgets it.
-	clock = clock.Add(7*24*time.Hour + time.Minute)
-	t.Cleanup(func() { clock = clock.Add(-(7*24*time.Hour + time.Minute)) })
+	env(t).clock = env(t).clock.Add(7*24*time.Hour + time.Minute)
+	t.Cleanup(func() { env(t).clock = env(t).clock.Add(-(7*24*time.Hour + time.Minute)) })
 	reconcileMigration(t, r, owner)
 	if !claimGone(t, oldName) {
 		t.Error("old claim kept past retain-until")
@@ -441,23 +447,24 @@ func TestACompletedCopySwitchesTheHomeAndKeepsTheOldClaimLabelled(t *testing.T) 
 }
 
 func TestTheOldClaimIsOnlyDeletedWhenItIsTheHomesOwnAndLabelled(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("kit")
 	movableHomes(t, owner)
 	// A claim that carries the name but not the labels the migration puts on.
 	foreign := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "someone-elses-claim", Namespace: homeNS},
+		ObjectMeta: metav1.ObjectMeta{Name: "someone-elses-claim-" + owner, Namespace: homeNS},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: *getHome(t, owner).Spec.Size}},
 		},
 	}
-	must(t, k8s.Create(ctx, foreign))
-	past := metav1.NewTime(clock.Add(-time.Hour))
+	must(t, env(t).k8s.Create(ctx, foreign))
+	past := metav1.NewTime(env(t).clock.Add(-time.Hour))
 	editHome(t, homeNS, owner, func(h *model.Home) {
 		h.Status.Migration = &model.HomeMigration{Phase: model.MigrationSwitched, OldClaim: foreign.Name, RetainUntil: &past}
 	})
 
-	reconcileMigration(t, migrationReconciler(k8s), owner)
+	reconcileMigration(t, migrationReconciler(t, env(t).k8s), owner)
 	if claimGone(t, foreign.Name) {
 		t.Fatal("a claim without the retain-until label was deleted")
 	}
@@ -469,16 +476,17 @@ func TestTheOldClaimIsOnlyDeletedWhenItIsTheHomesOwnAndLabelled(t *testing.T) {
 		h.Status.Migration = &model.HomeMigration{Phase: model.MigrationSwitched, OldClaim: h.Status.ClaimName, RetainUntil: &past}
 	})
 	h := getHome(t, owner)
-	reconcileMigration(t, migrationReconciler(k8s), owner)
+	reconcileMigration(t, migrationReconciler(t, env(t).k8s), owner)
 	if claimGone(t, h.Status.ClaimName) {
 		t.Fatal("the live claim was deleted as the old one")
 	}
 }
 
 func TestChangingTheModeBackCancelsAScheduledMove(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("lee")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 	_ = j
 	setChoiceMode(t, model.HomeModePerUser)
@@ -503,9 +511,10 @@ func setChoiceMode(t *testing.T, mode model.HomeMode) {
 // anything: the old start time is in the past, and an admin has not scheduled
 // a new move.
 func TestAFinishedRoundsScheduleDoesNotMoveHomesWhenTheModeChangesLater(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("ned")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 	finishJob(t, j, true, "")
 	reconcileMigration(t, r, owner)
@@ -514,8 +523,8 @@ func TestAFinishedRoundsScheduleDoesNotMoveHomesWhenTheModeChangesLater(t *testi
 	}
 
 	setChoiceMode(t, model.HomeModePerUser) // the admin changes the mode back
-	clock = clock.Add(7*24*time.Hour + time.Minute)
-	t.Cleanup(func() { clock = clock.Add(-(7*24*time.Hour + time.Minute)) })
+	env(t).clock = env(t).clock.Add(7*24*time.Hour + time.Minute)
+	t.Cleanup(func() { env(t).clock = env(t).clock.Add(-(7*24*time.Hour + time.Minute)) })
 	reconcileMigration(t, r, owner) // the retention ends
 	reconcileMigration(t, r, owner)
 	reconcileMigration(t, r, owner)
@@ -535,9 +544,10 @@ func TestAFinishedRoundsScheduleDoesNotMoveHomesWhenTheModeChangesLater(t *testi
 // A pod that appears after the wait must not write to the old
 // claim during the copy and have those writes dropped at the switch.
 func TestAnAppPodThatAppearsDuringTheCopyBlocksTheSwitch(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("oli")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 	appPod(t, owner, "late-"+owner)
 	finishJob(t, j, true, "")
@@ -554,10 +564,11 @@ func TestAnAppPodThatAppearsDuringTheCopyBlocksTheSwitch(t *testing.T) {
 }
 
 func TestNoCopyJobStartsWhileAnAppPodExists(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("pam")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
-	scheduleAt(t, clock.Add(-time.Minute))
+	r := migrationReconciler(t, env(t).k8s)
+	scheduleAt(t, env(t).clock.Add(-time.Minute))
 	reconcileMigration(t, r, owner) // Copying: the new claim and its prepare Job
 	finishJob(t, prepareJobFor(t, owner, naming.HomeClaimNameGen(owner, 2)), true, "")
 	pod := appPod(t, owner, "late-"+owner) // made by a pass that read the Home before the hold
@@ -570,7 +581,7 @@ func TestNoCopyJobStartsWhileAnAppPodExists(t *testing.T) {
 		t.Fatalf("Migrating = %+v, want the hold kept", c)
 	}
 
-	must(t, k8s.Delete(ctx, pod, client.GracePeriodSeconds(0)))
+	must(t, env(t).k8s.Delete(ctx, pod, client.GracePeriodSeconds(0)))
 	reconcileMigration(t, r, owner)
 	if n := len(copyJobs(t, owner)); n != 1 {
 		t.Fatalf("%d copy jobs after the pod went, want 1", n)
@@ -588,6 +599,7 @@ func (m memberOf) Groups(_ context.Context, owner string) ([]string, error) { re
 // The copy runs as the owner with the owner's folder gids as supplemental
 // groups: the copy cannot set a group the process is not a member of.
 func TestTheCopyJobCarriesTheOwnersFolderGidsAsSupplementalGroups(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("quin")
 	group := "team-" + owner
 	movableHomes(t, owner)
@@ -596,9 +608,9 @@ func TestTheCopyJobCarriesTheOwnersFolderGidsAsSupplementalGroups(t *testing.T) 
 		ClaimName: "folder-claim", GID: 2345, Prepared: true,
 		Conditions: []metav1.Condition{{Type: model.ConditionReady, Status: metav1.ConditionTrue, Reason: "Ready", LastTransitionTime: metav1.Now()}},
 	}
-	_, err := db.SharedFolders().Update(ctx, *f, f.Version)
+	_, err := env(t).db.SharedFolders().Update(ctx, *f, f.Version)
 	must(t, err)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	r.Storage.Groups = memberOf{owner: {group}}
 	j := copying(t, r, owner)
 
@@ -612,18 +624,19 @@ func TestTheCopyJobCarriesTheOwnersFolderGidsAsSupplementalGroups(t *testing.T) 
 // switched-to claim, not on the old one kept for the grace period or on a
 // new empty one.
 func TestARecreatedSwitchedHomeAdoptsTheLiveClaimNotTheRetainedOne(t *testing.T) {
+	t.Parallel()
 	for name, after := range map[string]time.Duration{"inside the retention": time.Hour, "after the old claim went": 8 * 24 * time.Hour} {
 		t.Run(name, func(t *testing.T) {
 			owner := uniqueOwner("kim")
 			movableHomes(t, owner)
-			r := migrationReconciler(k8s)
+			r := migrationReconciler(t, env(t).k8s)
 			j := copying(t, r, owner)
 			finishJob(t, j, true, "")
 			reconcileMigration(t, r, owner)
 			oldName, liveName := naming.HomeClaimNameGen(owner, 1), naming.HomeClaimNameGen(owner, 2)
 
-			clock = clock.Add(after)
-			t.Cleanup(func() { clock = clock.Add(-after) })
+			env(t).clock = env(t).clock.Add(after)
+			t.Cleanup(func() { env(t).clock = env(t).clock.Add(-after) })
 			if after > 7*24*time.Hour {
 				reconcileMigration(t, r, owner)
 				if !claimGone(t, oldName) {
@@ -632,7 +645,7 @@ func TestARecreatedSwitchedHomeAdoptsTheLiveClaimNotTheRetainedOne(t *testing.T)
 			}
 			editHome(t, homeNS, owner, func(h *model.Home) { h.Status = model.HomeStatus{} })
 
-			reconcileHome(t, homeReconciler(k8s), owner)
+			reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
 			got := getHome(t, owner).Status
 			if got.ClaimName != liveName || got.Mode != model.HomeModeShared {
 				t.Fatalf("recreated home status = %+v, want claim %s on shared", got, liveName)
@@ -650,9 +663,10 @@ func TestARecreatedSwitchedHomeAdoptsTheLiveClaimNotTheRetainedOne(t *testing.T)
 // kept: the home moves again, and the claim kept from the first round goes
 // with the second round's retention.
 func TestASwitchedHomeMovesAgainWhenAnotherModeIsScheduledDuringRetention(t *testing.T) {
+	t.Parallel()
 	owner := uniqueOwner("lee")
 	movableHomes(t, owner)
-	r := migrationReconciler(k8s)
+	r := migrationReconciler(t, env(t).k8s)
 	j := copying(t, r, owner)
 	finishJob(t, j, true, "")
 	reconcileMigration(t, r, owner)
@@ -661,7 +675,7 @@ func TestASwitchedHomeMovesAgainWhenAnotherModeIsScheduledDuringRetention(t *tes
 	}
 
 	setChoiceMode(t, model.HomeModePerUser)
-	scheduleAt(t, clock.Add(-time.Minute))
+	scheduleAt(t, env(t).clock.Add(-time.Minute))
 	bumpAttempt(t)
 	gen3 := naming.HomeClaimNameGen(owner, 3)
 	reconcileMigration(t, r, owner)
@@ -677,8 +691,8 @@ func TestASwitchedHomeMovesAgainWhenAnotherModeIsScheduledDuringRetention(t *tes
 		t.Fatalf("status = %+v, want %s on perUser", h.Status, gen3)
 	}
 
-	clock = clock.Add(8 * 24 * time.Hour)
-	t.Cleanup(func() { clock = clock.Add(-8 * 24 * time.Hour) })
+	env(t).clock = env(t).clock.Add(8 * 24 * time.Hour)
+	t.Cleanup(func() { env(t).clock = env(t).clock.Add(-8 * 24 * time.Hour) })
 	reconcileMigration(t, r, owner)
 	for _, n := range []string{naming.HomeClaimNameGen(owner, 1), naming.HomeClaimNameGen(owner, 2)} {
 		if !claimGone(t, n) {

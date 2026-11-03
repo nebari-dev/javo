@@ -22,17 +22,18 @@ import (
 // the app reconciler gets its claim, and findings written later reach the
 // homes that waited for them, with no cluster object to watch.
 func TestTheHomeReconcilerRunsOnTheChangeFeed(t *testing.T) {
+	t.Parallel()
 	clean(t)
-	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
-		Scheme: k8s.Scheme(), Metrics: metricsserver.Options{BindAddress: "0"},
+	mgr, err := ctrl.NewManager(env(t).restConfig, ctrl.Options{
+		Scheme: env(t).k8s.Scheme(), Metrics: metricsserver.Options{BindAddress: "0"},
 		Controller: ctrlconfig.Controller{SkipNameValidation: ptr.To(true)},
 	})
 	must(t, err)
-	feed := dbsource.NewFeed(db.Changes())
-	r := homeReconciler(k8s)
+	feed := dbsource.NewFeed(env(t).db.Changes())
+	r := homeReconciler(t, env(t).k8s)
 	must(t, r.SetupWithManager(mgr, feed))
 	runCtx, cancel := context.WithCancel(ctx)
-	must(t, db.StartFeed(runCtx))
+	must(t, env(t).db.StartFeed(runCtx))
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); feed.Run(runCtx) }()
@@ -53,7 +54,7 @@ func TestTheHomeReconcilerRunsOnTheChangeFeed(t *testing.T) {
 	})
 	waitFor(t, "the claim", func() bool {
 		c := &corev1.PersistentVolumeClaim{}
-		return k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: naming.HomeClaimName(owner)}, c) == nil
+		return env(t).k8s.Get(ctx, types.NamespacedName{Namespace: homeNS, Name: naming.HomeClaimName(owner)}, c) == nil
 	})
 }
 

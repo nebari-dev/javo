@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,18 +30,18 @@ func (g gids) GID(_ context.Context, group string) (int64, bool, error) {
 	return v, ok, nil
 }
 
-func folderReconciler(c client.Client, g gids) *SharedFolderReconciler {
+func folderReconciler(t *testing.T, c client.Client, g gids) *SharedFolderReconciler {
 	return &SharedFolderReconciler{
-		Client: c, Reader: c, Rows: testRows(), Image: testImage, GIDs: g, Backends: testBackends(),
+		Client: c, Reader: c, Rows: testRows(t), Image: testImage, GIDs: g, Backends: testBackends(),
 	}
 }
 
-var folderSeq int
+var folderSeq atomic.Int32
 
 // createFolder stores f as an admin would.
 func createFolder(t *testing.T, f *model.SharedFolder) *model.SharedFolder {
 	t.Helper()
-	got, err := db.SharedFolders().Create(ctx, model.Actor{Person: "admin"}, *f)
+	got, err := env(t).db.SharedFolders().Create(ctx, model.Actor{Person: "admin"}, *f)
 	must(t, err)
 	return &got
 }
@@ -48,9 +50,8 @@ func createFolder(t *testing.T, f *model.SharedFolder) *model.SharedFolder {
 // are never really removed.
 func newFolder(t *testing.T, group string, mutate func(*model.SharedFolder)) *model.SharedFolder {
 	t.Helper()
-	folderSeq++
 	f := &model.SharedFolder{
-		Name: naming.GroupDir(group) + "-" + string(rune('a'+folderSeq)), Namespace: homeNS,
+		Name: fmt.Sprintf("%s-%d", naming.GroupDir(group), folderSeq.Add(1)), Namespace: homeNS,
 		Spec: model.SharedFolderSpec{Group: group},
 	}
 	if mutate != nil {
@@ -68,7 +69,7 @@ func reconcileFolder(t *testing.T, r *SharedFolderReconciler, f *model.SharedFol
 
 func getFolder(t *testing.T, f *model.SharedFolder) *model.SharedFolder {
 	t.Helper()
-	out, err := db.SharedFolders().Get(ctx, f.ID)
+	out, err := env(t).db.SharedFolders().Get(ctx, f.ID)
 	must(t, err)
 	return &out
 }
@@ -85,7 +86,7 @@ func folderReady(t *testing.T, f *model.SharedFolder) *metav1.Condition {
 func folderJobs(t *testing.T, f *model.SharedFolder) []batchv1.Job {
 	t.Helper()
 	var l batchv1.JobList
-	must(t, k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{
+	must(t, env(t).k8s.List(ctx, &l, client.InNamespace(homeNS), client.MatchingLabels{
 		model.LabelRole: model.RoleFolderPrepare, model.LabelGroupFolder: f.Name}))
 	return l.Items
 }
@@ -99,14 +100,15 @@ func folderStorage(t *testing.T, mode model.HomeMode, nodes int32, sharedClass s
 	setStatus(t, cs.Status)
 	if mutate != nil {
 		mutate(cs)
-		cfg = cs.Spec
+		env(t).cfg = cs.Spec
 	}
 }
 
 func TestAFolderGetsASharedClaimAndOnePrepareJobThatMountsOnlyIt(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/data-science", nil)
-	r := folderReconciler(k8s, gids{"/org/data-science": 2001})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/data-science": 2001})
 	reconcileFolder(t, r, f)
 	reconcileFolder(t, r, f) // a second pass must not make a second Job
 
@@ -153,9 +155,10 @@ func TestAFolderGetsASharedClaimAndOnePrepareJobThatMountsOnlyIt(t *testing.T) {
 }
 
 func TestAFolderIsReadyOnceItsPrepareJobSucceeds(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/research", nil)
-	r := folderReconciler(k8s, gids{"/org/research": 2002})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/research": 2002})
 	reconcileFolder(t, r, f)
 	finishJob(t, folderJobs(t, f)[0], true, "")
 	reconcileFolder(t, r, f)
@@ -170,16 +173,17 @@ func TestAFolderIsReadyOnceItsPrepareJobSucceeds(t *testing.T) {
 }
 
 func TestAFolderWhoseGroupHasNoGidWaitsForIt(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/new-group", nil)
-	r := folderReconciler(k8s, gids{})
+	r := folderReconciler(t, env(t).k8s, gids{})
 	reconcileFolder(t, r, f)
 
 	if c := folderReady(t, f); c.Status != metav1.ConditionFalse || c.Reason != string(reasons.GroupHasNoId) {
 		t.Fatalf("Ready = %+v", c)
 	}
 	var claims corev1.PersistentVolumeClaimList
-	must(t, k8s.List(ctx, &claims, client.InNamespace(homeNS), client.MatchingLabels{model.LabelGroupFolder: f.Name}))
+	must(t, env(t).k8s.List(ctx, &claims, client.InNamespace(homeNS), client.MatchingLabels{model.LabelGroupFolder: f.Name}))
 	if len(claims.Items) != 0 || len(folderJobs(t, f)) != 0 {
 		t.Fatalf("made %d claims and %d jobs without a gid", len(claims.Items), len(folderJobs(t, f)))
 	}
@@ -205,6 +209,7 @@ func addClasses(t *testing.T, rwx map[string]bool) {
 }
 
 func TestFolderClassComesFromTheFolderThenTheAdminThenTheChoice(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		folderCls string
@@ -221,7 +226,7 @@ func TestFolderClassComesFromTheFolderThenTheAdminThenTheChoice(t *testing.T) {
 			})
 			addClasses(t, map[string]bool{"own": true, "admin": true})
 			f := newFolder(t, "/org/classes", func(f *model.SharedFolder) { f.Spec.StorageClassName = tc.folderCls })
-			reconcileFolder(t, folderReconciler(k8s, gids{"/org/classes": 2004}), f)
+			reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/classes": 2004}), f)
 			claim := getClaim(t, getFolder(t, f).Status.ClaimName)
 			if got := *claim.Spec.StorageClassName; got != tc.want {
 				t.Fatalf("class = %s, want %s", got, tc.want)
@@ -231,10 +236,11 @@ func TestFolderClassComesFromTheFolderThenTheAdminThenTheChoice(t *testing.T) {
 }
 
 func TestFoldersOnAPerUserClusterNeedAnSharedClassUnlessThereIsOneNode(t *testing.T) {
+	t.Parallel()
 	t.Run("many nodes, no shared class: nothing is made", func(t *testing.T) {
 		folderStorage(t, model.HomeModePerUser, 3, "", nil)
 		f := newFolder(t, "/org/many", nil)
-		reconcileFolder(t, folderReconciler(k8s, gids{"/org/many": 2005}), f)
+		reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/many": 2005}), f)
 		if c := folderReady(t, f); c.Status != metav1.ConditionFalse || c.Reason != string(reasons.SharedFoldersUnavailable) {
 			t.Fatalf("Ready = %+v", c)
 		}
@@ -245,7 +251,7 @@ func TestFoldersOnAPerUserClusterNeedAnSharedClassUnlessThereIsOneNode(t *testin
 	t.Run("one node: a ReadWriteOnce claim on the home class", func(t *testing.T) {
 		folderStorage(t, model.HomeModePerUser, 1, "", nil)
 		f := newFolder(t, "/org/single", nil)
-		reconcileFolder(t, folderReconciler(k8s, gids{"/org/single": 2006}), f)
+		reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/single": 2006}), f)
 		claim := getClaim(t, getFolder(t, f).Status.ClaimName)
 		if claim.Spec.AccessModes[0] != corev1.ReadWriteOnce || *claim.Spec.StorageClassName != "fast" {
 			t.Fatalf("claim = %+v", claim.Spec)
@@ -254,9 +260,10 @@ func TestFoldersOnAPerUserClusterNeedAnSharedClassUnlessThereIsOneNode(t *testin
 }
 
 func TestAFailedPrepareJobShowsTheStatResultAsFolderPermissionsUnsupported(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/denied", nil)
-	r := folderReconciler(k8s, gids{"/org/denied": 2001})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/denied": 2001})
 	reconcileFolder(t, r, f)
 	finishJob(t, folderJobs(t, f)[0], false, "group 0, want 2001")
 	reconcileFolder(t, r, f)
@@ -271,9 +278,10 @@ func TestAFailedPrepareJobShowsTheStatResultAsFolderPermissionsUnsupported(t *te
 }
 
 func TestFoldersAreNotOfferedAcrossPerUserNamespaces(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/spanning", nil)
-	r := folderReconciler(k8s, gids{"/org/spanning": 2007})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/spanning": 2007})
 	r.PerUserNamespaces = true
 	reconcileFolder(t, r, f)
 
@@ -287,6 +295,7 @@ func TestFoldersAreNotOfferedAcrossPerUserNamespaces(t *testing.T) {
 }
 
 func TestAFolderClaimNameTakenByAnotherObjectIsNotUsed(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/taken", nil)
 	stranger := &corev1.PersistentVolumeClaim{
@@ -296,8 +305,8 @@ func TestAFolderClaimNameTakenByAnotherObjectIsNotUsed(t *testing.T) {
 			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
 		},
 	}
-	must(t, k8s.Create(ctx, stranger))
-	reconcileFolder(t, folderReconciler(k8s, gids{"/org/taken": 2008}), f)
+	must(t, env(t).k8s.Create(ctx, stranger))
+	reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/taken": 2008}), f)
 
 	if got := getFolder(t, f); got.Status.ClaimName != "" || len(folderJobs(t, f)) != 0 {
 		t.Fatalf("used a claim not labelled for this folder: %+v", got.Status)
@@ -308,10 +317,11 @@ func TestAFolderClaimNameTakenByAnotherObjectIsNotUsed(t *testing.T) {
 }
 
 func TestAFolderClassThatCannotBeSharedIsNotMadeOnSeveralNodes(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	addClasses(t, map[string]bool{"block": false})
 	f := newFolder(t, "/org/block", func(f *model.SharedFolder) { f.Spec.StorageClassName = "block" })
-	reconcileFolder(t, folderReconciler(k8s, gids{"/org/block": 2010}), f)
+	reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/block": 2010}), f)
 
 	if c := folderReady(t, f); c.Reason != string(reasons.SharedFoldersUnavailable) {
 		t.Fatalf("Ready = %+v", c)
@@ -322,12 +332,13 @@ func TestAFolderClassThatCannotBeSharedIsNotMadeOnSeveralNodes(t *testing.T) {
 }
 
 func TestAFolderWithTheLongestNameGetsAPrepareJob(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := createFolder(t, &model.SharedFolder{
 		Name: strings.Repeat("l", 55) + "z", Namespace: homeNS,
 		Spec: model.SharedFolderSpec{Group: "/org/long"},
 	})
-	reconcileFolder(t, folderReconciler(k8s, gids{"/org/long": 2011}), f)
+	reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/long": 2011}), f)
 
 	if c := folderReady(t, f); c.Reason != string(reasons.FolderPreparing) {
 		t.Fatalf("Ready = %+v", c)
@@ -341,9 +352,10 @@ func TestAFolderWithTheLongestNameGetsAPrepareJob(t *testing.T) {
 // A setup that can never work is not retried for ever: after the last
 // attempt the Job stays as the evidence and no new one is made.
 func TestAFolderWhosePrepareKeepsFailingStopsGettingNewJobs(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/stuck", nil)
-	r := folderReconciler(k8s, gids{"/org/stuck": 2012})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/stuck": 2012})
 	for i := 0; i < maxPrepareAttempts; i++ {
 		reconcileFolder(t, r, f)
 		j := folderJobs(t, f)[0]
@@ -354,7 +366,7 @@ func TestAFolderWhosePrepareKeepsFailingStopsGettingNewJobs(t *testing.T) {
 		finishJob(t, j, false, said)
 		reconcileFolder(t, r, f)
 		if i < maxPrepareAttempts-1 {
-			must(t, k8s.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))) // what the TTL does
+			must(t, env(t).k8s.Delete(ctx, &j, client.PropagationPolicy(metav1.DeletePropagationBackground))) // what the TTL does
 		}
 	}
 	last := folderJobs(t, f)[0]
@@ -373,9 +385,10 @@ func TestAFolderWhosePrepareKeepsFailingStopsGettingNewJobs(t *testing.T) {
 }
 
 func TestAFolderJobThatNeverRanIsNotBlamedOnPermissions(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/neverran", nil)
-	r := folderReconciler(k8s, gids{"/org/neverran": 2013})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/neverran": 2013})
 	reconcileFolder(t, r, f)
 	finishJob(t, folderJobs(t, f)[0], false, "") // deadline hit, no container report
 	reconcileFolder(t, r, f)
@@ -386,20 +399,21 @@ func TestAFolderJobThatNeverRanIsNotBlamedOnPermissions(t *testing.T) {
 }
 
 func TestAFolderClaimLeftByAnotherGroupIsNotTakenOver(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	mk := func(group string) *model.SharedFolder {
 		return createFolder(t, &model.SharedFolder{Name: "reborn", Namespace: homeNS, Spec: model.SharedFolderSpec{Group: group}})
 	}
 	first := mk("/org/reborn-a")
-	reconcileFolder(t, folderReconciler(k8s, gids{"/org/reborn-a": 2101}), first)
+	reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/reborn-a": 2101}), first)
 	if got := getFolder(t, first); got.Status.ClaimName == "" {
 		t.Fatalf("first folder got no claim: %+v", got.Status)
 	}
 	jobsBefore := len(folderJobs(t, first))
-	must(t, db.SharedFolders().Delete(ctx, model.Actor{Person: "admin"}, first.ID)) // the claim outlives the folder
+	must(t, env(t).db.SharedFolders().Delete(ctx, model.Actor{Person: "admin"}, first.ID)) // the claim outlives the folder
 
 	second := mk("/org/reborn-b")
-	reconcileFolder(t, folderReconciler(k8s, gids{"/org/reborn-b": 2102}), second)
+	reconcileFolder(t, folderReconciler(t, env(t).k8s, gids{"/org/reborn-b": 2102}), second)
 
 	if got := getFolder(t, second); got.Status.ClaimName != "" || len(folderJobs(t, second)) != jobsBefore {
 		t.Fatalf("took over another group's claim: %+v", got.Status)
@@ -410,13 +424,14 @@ func TestAFolderClaimLeftByAnotherGroupIsNotTakenOver(t *testing.T) {
 }
 
 func TestAFolderWhoseClaimIsGoneIsNotReady(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/lost-claim", nil)
-	r := folderReconciler(k8s, gids{"/org/lost-claim": 2103})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/lost-claim": 2103})
 	reconcileFolder(t, r, f)
 	got := getFolder(t, f)
 	got.Status.ClaimName, got.Status.Prepared = "folder-missing", true
-	_, err := db.SharedFolders().Update(ctx, *got, got.Version)
+	_, err := env(t).db.SharedFolders().Update(ctx, *got, got.Version)
 	must(t, err)
 
 	reconcileFolder(t, r, f)
@@ -427,13 +442,14 @@ func TestAFolderWhoseClaimIsGoneIsNotReady(t *testing.T) {
 }
 
 func TestTwoFoldersWithTheSameMountDirectoryDoNotBothGetOne(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	mk := func(name, group string) *model.SharedFolder {
 		return createFolder(t, &model.SharedFolder{Name: name, Namespace: homeNS, Spec: model.SharedFolderSpec{Group: group}})
 
 	}
 	a, b := mk("dup-a", "/a/dup-dir"), mk("dup-b", "/b/dup-dir")
-	r := folderReconciler(k8s, gids{"/a/dup-dir": 2104, "/b/dup-dir": 2105})
+	r := folderReconciler(t, env(t).k8s, gids{"/a/dup-dir": 2104, "/b/dup-dir": 2105})
 	reconcileFolder(t, r, a)
 	reconcileFolder(t, r, b)
 
@@ -450,9 +466,10 @@ func TestTwoFoldersWithTheSameMountDirectoryDoNotBothGetOne(t *testing.T) {
 // A folder whose volume never mounts fails with the kubelet's words instead of
 // staying "setting up".
 func TestAFolderWhoseVolumeKeepsFailingToMountFails(t *testing.T) {
+	t.Parallel()
 	folderStorage(t, model.HomeModeShared, 3, "nfs", nil)
 	f := newFolder(t, "/org/nomount", nil)
-	r := folderReconciler(k8s, gids{"/org/nomount": 2014})
+	r := folderReconciler(t, env(t).k8s, gids{"/org/nomount": 2014})
 	reconcileFolder(t, r, f)
 	podWarning(t, jobPod(t, folderJobs(t, f)[0]), "FailedMount", noNFSHelper, time.Now().Add(-5*time.Minute))
 	reconcileFolder(t, r, f)
