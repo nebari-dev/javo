@@ -218,7 +218,8 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .lv-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
 .lv-count{font-size:var(--fs-2xs);color:var(--text-2);white-space:nowrap;font-variant-numeric:tabular-nums}
 .lv-actions{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
-.lv-body{max-height:26em;overflow:auto;overscroll-behavior:contain;outline:none;border-radius:0 0 calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px)}
+/* position:relative keeps the lines' absolutely placed screen-reader labels inside the scroll box; without it they stretch the page by the log's full length. */
+.lv-body{position:relative;max-height:26em;overflow:auto;overscroll-behavior:contain;outline:none;border-radius:0 0 calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px)}
 .lv.compact .lv-body{max-height:16em}
 .lv-body[data-wrap="off"] .log{width:max-content}
 .lv-body[data-wrap="off"] .log-line{white-space:pre;overflow-wrap:normal}
