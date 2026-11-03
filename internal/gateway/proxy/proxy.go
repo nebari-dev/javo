@@ -58,6 +58,10 @@ type Config struct {
 	// cannot be reached yet (an app can turn Ready a moment before its
 	// network policy admits the gateway). Zero means 10 seconds.
 	DialWait time.Duration
+	// RecheckEvery is how often an open websocket is decided again, as a new
+	// request would be; it is closed once the answer is no. Zero means 30
+	// seconds.
+	RecheckEvery time.Duration
 	// Activity records every request and open websocket an app is allowed,
 	// for "Stop when idle". Required: New panics without it.
 	Activity *activity.Tracker
@@ -137,6 +141,9 @@ func New(cfg Config) http.Handler {
 	if cfg.DialWait == 0 {
 		cfg.DialWait = 10 * time.Second
 	}
+	if cfg.RecheckEvery == 0 {
+		cfg.RecheckEvery = 30 * time.Second
+	}
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DialContext = retryDial(cfg.DialWait)
 	return &proxy{cfg: cfg, apps: &AppLookup{DB: cfg.Store}, transport: t, adminSeen: map[string]time.Time{}}
@@ -212,17 +219,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Every request is decided afresh from the session, the app and its
 	// template as they are now, so a revoked share or ended session stops the
-	// very next request, a websocket upgrade included.
-	app, tpl := p.apps.load(r.Context(), t)
-	sess, uiID, signedIn := p.session(r, app)
-	who := authz.Principal{Anonymous: true}
-	if signedIn {
-		who = sess.Principal
-	}
-	var d authz.Decision
-	if app != nil {
-		d = authz.Decide(who, authz.RolesOf(who, p.cfg.Roles), authz.ActOpenApp, authz.Object{App: app, Template: tpl})
-	}
+	// very next request. An open websocket is decided again every
+	// RecheckEvery (see activityWriter).
+	a := p.access(r, t)
+	app, tpl, who, signedIn, d := a.app, a.tpl, a.who, a.signedIn, a.decision
 	if !d.Allowed {
 		// Missing, private and not-shared look the same to someone who is not
 		// signed in: they are sent to sign in. A Public app that is capped
@@ -234,15 +234,15 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	if code, refused := p.sharedOriginRefusal(app, d); refused {
-		writePage(w, http.StatusForbidden, page{Title: reasons.Msg(code), Link: "/apps", LinkText: "See your apps"})
+	if a.refused {
+		writePage(w, http.StatusForbidden, page{Title: reasons.Msg(a.refusal), Link: "/apps", LinkText: "See your apps"})
 		return
 	}
 	if d.Via == "platform-admin" {
 		p.recordAdminOpen(r.Context(), who.ID, app)
 	}
 	if signedIn {
-		p.cfg.NebiTokens.Touch(r.Context(), app, tpl, who.ID, p.idToken(uiID))
+		p.cfg.NebiTokens.Touch(r.Context(), app, tpl, who.ID, p.idToken(a.uiID))
 	}
 	backend, err := p.cfg.Resolve(r.Context(), app, tpl)
 	if err != nil {
@@ -285,11 +285,55 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ModifyResponse: sanitizeResponse,
 		ErrorHandler:   func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
 	}
-	aw := &activityWriter{ResponseWriter: w, activity: p.cfg.Activity, app: app.ID}
+	aw := &activityWriter{ResponseWriter: w, activity: p.cfg.Activity, app: app.ID,
+		recheckEvery: p.cfg.RecheckEvery, allowed: func() bool {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), recheckTimeout)
+			defer cancel()
+			return p.access(r.WithContext(ctx), t).opens()
+		}}
 	if tpl != nil && tpl.Spec.Activity == model.ActivityJupyter {
 		aw.probe = jupyterProbe(&http.Client{Transport: p.transport}, backend, time.Now)
 	}
 	rp.ServeHTTP(aw, r)
+}
+
+// access is what ServeHTTP decides a request on: the app, the person and
+// whether they may open it.
+type access struct {
+	app      *model.App
+	tpl      *model.Template
+	who      authz.Principal
+	uiID     string
+	signedIn bool
+	decision authz.Decision
+	// refusal is set (refused true) when authz allows the open but the
+	// apps' shared origin does not (sharedOriginRefusal).
+	refusal reasons.MessageCode
+	refused bool
+}
+
+// opens is true when the request may reach the app.
+func (a access) opens() bool { return a.decision.Allowed && !a.refused }
+
+// access decides r for the app t names, from the session, the app and its
+// template as they are now.
+func (p *proxy) access(r *http.Request, t exposure.Target) access {
+	var a access
+	a.app, a.tpl = p.apps.load(r.Context(), t)
+	var sess session.Session
+	sess, a.uiID, a.signedIn = p.session(r, a.app)
+	a.who = authz.Principal{Anonymous: true}
+	if a.signedIn {
+		a.who = sess.Principal
+	}
+	if a.app == nil {
+		return a
+	}
+	a.decision = authz.Decide(a.who, authz.RolesOf(a.who, p.cfg.Roles), authz.ActOpenApp, authz.Object{App: a.app, Template: a.tpl})
+	if a.decision.Allowed {
+		a.refusal, a.refused = p.sharedOriginRefusal(a.app, a.decision)
+	}
+	return a
 }
 
 // sharedOriginRefusal refuses what must not open while an app shares its
@@ -499,13 +543,21 @@ func badGateway(w http.ResponseWriter, workspace string) {
 
 // activityWriter wraps the ResponseWriter so that an upgraded (websocket)
 // connection counts as use for as long as it is open, or, with a probe, has
-// the app asked about its use for as long as it is open.
+// the app asked about its use for as long as it is open. Every recheckEvery
+// it asks allowed whether the request would still open the app, and closes
+// the connection when not.
 type activityWriter struct {
 	http.ResponseWriter
-	activity *activity.Tracker
-	app      string
-	probe    activity.Probe
+	activity     *activity.Tracker
+	app          string
+	probe        activity.Probe
+	recheckEvery time.Duration
+	allowed      func() bool
 }
+
+// recheckTimeout bounds one recheck of an open websocket: a check that cannot
+// finish in time (the database is unreachable) counts as a no.
+const recheckTimeout = 10 * time.Second
 
 func (a *activityWriter) Unwrap() http.ResponseWriter { return a.ResponseWriter }
 
@@ -514,10 +566,14 @@ func (a *activityWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	c := &activityConn{Conn: conn, done: make(chan struct{})}
 	if a.probe != nil {
-		return &activityConn{Conn: conn, closed: a.activity.Watch(a.app, a.probe)}, rw, nil
+		c.closed = a.activity.Watch(a.app, a.probe)
+	} else {
+		c.closed = a.activity.Open(a.app)
 	}
-	return &activityConn{Conn: conn, closed: a.activity.Open(a.app)}, rw, nil
+	go c.recheck(a.recheckEvery, a.allowed)
+	return c, rw, nil
 }
 
 // activityConn ends its use when it is closed (the reverse proxy closes both
@@ -525,9 +581,31 @@ func (a *activityWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 type activityConn struct {
 	net.Conn
 	closed func()
+	done   chan struct{}
+	once   sync.Once
 }
 
 func (c *activityConn) Close() error {
+	c.once.Do(func() { close(c.done) })
 	c.closed()
 	return c.Conn.Close()
+}
+
+// recheck closes the connection the first time allowed says no, asking every
+// interval until the connection is closed. Closing it ends the reverse
+// proxy's copy, which then closes the app's side too.
+func (c *activityConn) recheck(every time.Duration, allowed func() bool) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-tick.C:
+			if !allowed() {
+				_ = c.Close()
+				return
+			}
+		}
+	}
 }
