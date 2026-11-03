@@ -77,6 +77,7 @@ func sizesFileOf(t *testing.T, manifest, deployment string) string {
 // Both components read the same sizes file, and the default values give
 // Small (the default), Medium and Large.
 func TestDefaultSizesReachControllerAndGateway(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
@@ -106,6 +107,7 @@ func TestDefaultSizesReachControllerAndGateway(t *testing.T) {
 // Custom amounts reach the sizes file: by default only platform admins may
 // ask for one, with no limit but the largest machine.
 func TestCustomSizesReachTheSizesFile(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
@@ -133,6 +135,7 @@ func TestCustomSizesReachTheSizesFile(t *testing.T) {
 
 // Editing the sizes rolls every Deployment, which read the file at start.
 func TestChangingSizesRollsThePods(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		before, err := render(t, engineArgs(engine)...)
 		if err != nil {

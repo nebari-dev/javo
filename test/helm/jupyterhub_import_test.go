@@ -52,6 +52,7 @@ func importGrants(t *testing.T, manifest, ns string) (inNS, cluster []rbacv1.Pol
 // grants that only when jupyterhubImport.namespace names the namespace, and
 // tells the import which image its Jobs run.
 func TestJupyterHubImportAccessIsOnlyGrantedWhenAsked(t *testing.T) {
+	t.Parallel()
 	out, err := render(t)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)

@@ -14,6 +14,7 @@ import (
 // A platform admin sees every person's apps, and can narrow them to one
 // owner; a deleted app is not listed.
 func TestAdminListsEveryonesApps(t *testing.T) {
+	t.Parallel()
 	gone := gatewaytest.App(apitest.MemberID, "gone")
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("t", "streamlit"),
 		gatewaytest.App(apitest.AliceID, "plots"), gatewaytest.App(apitest.MemberID, "notes"), gone)
@@ -44,6 +45,7 @@ func TestAdminListsEveryonesApps(t *testing.T) {
 // the internal identity name: a local account has no display name, and a
 // person deleted since keeps only the readable part of their identity name.
 func TestAdminAppsLabelOwnersByName(t *testing.T) {
+	t.Parallel()
 	DaveID := apitest.PersonID("dave")
 	f := apitest.New(t, apitest.Options{People: []apitest.TestPerson{apitest.SignedIn("alice", time.Time{}), apitest.SignedInNoName("carol")}},
 		gatewaytest.Template("t", "streamlit"), gatewaytest.App(apitest.PersonID("alice"), "plots"), gatewaytest.App(apitest.PersonID("carol"), "notes"), gatewaytest.App(DaveID, "old"))
@@ -66,6 +68,7 @@ func TestAdminAppsLabelOwnersByName(t *testing.T) {
 
 // A restored app waits for an admin: its owner cannot start it.
 func TestHeldAppCannotBeStarted(t *testing.T) {
+	t.Parallel()
 	held := gatewaytest.App(apitest.AliceID, "plots")
 	held.RestoreHold, held.Paused = "r1", true
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("t", "streamlit"), held)
@@ -79,6 +82,7 @@ func TestHeldAppCannotBeStarted(t *testing.T) {
 // the owner is told why; the owner's own stop does not, and starting the
 // app clears it.
 func TestAdminStopIsRecordedForTheOwner(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("t", "streamlit"), gatewaytest.App(apitest.AliceID, "plots"), gatewaytest.App(apitest.AliceID, "notes"))
 	admin := f.Session(apitest.AdminID, "javo-admins")
 	alice := f.Session(apitest.AliceID)

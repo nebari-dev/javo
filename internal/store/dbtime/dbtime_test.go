@@ -9,6 +9,7 @@ import (
 )
 
 func TestValueIsUnixMillis(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 31, 12, 0, 0, 123_456_789, time.UTC)
 	v, err := dbtime.From(at).Value()
 	if err != nil {
@@ -20,6 +21,7 @@ func TestValueIsUnixMillis(t *testing.T) {
 }
 
 func TestScanRestoresMillisecondInstantInUTC(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 31, 12, 0, 0, 123_000_000, time.FixedZone("x", 3600))
 	var got dbtime.Time
 	if err := got.Scan(at.UnixMilli()); err != nil {
@@ -34,6 +36,7 @@ func TestScanRestoresMillisecondInstantInUTC(t *testing.T) {
 }
 
 func TestScanRejectsNonIntegers(t *testing.T) {
+	t.Parallel()
 	var got dbtime.Time
 	if err := got.Scan("2026-10-31"); err == nil {
 		t.Fatal("Scan(string) succeeded, want an error")
@@ -41,6 +44,7 @@ func TestScanRejectsNonIntegers(t *testing.T) {
 }
 
 func TestZeroTimeRoundTrips(t *testing.T) {
+	t.Parallel()
 	v, _ := dbtime.Time{}.Value()
 	var got dbtime.Time
 	if err := got.Scan(v); err != nil {
@@ -52,6 +56,7 @@ func TestZeroTimeRoundTrips(t *testing.T) {
 }
 
 func TestNullTime(t *testing.T) {
+	t.Parallel()
 	var n dbtime.NullTime
 	if err := n.Scan(nil); err != nil || n.Valid {
 		t.Fatalf("Scan(nil): err=%v valid=%v", err, n.Valid)

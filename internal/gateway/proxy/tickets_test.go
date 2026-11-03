@@ -12,6 +12,7 @@ import (
 
 // The proxy finds an app in its owner's namespace from the address alone.
 func TestAppLookupFindsPerUserApp(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("report", aliceID, "Report")
 	ws.Namespace = "javo-" + aliceID
 	db := storetest.New(t)
@@ -30,6 +31,7 @@ func TestAppLookupFindsPerUserApp(t *testing.T) {
 // An app being deleted is not served, though its row is still there until
 // the controller has removed its Pod.
 func TestAppLookupSkipsAnAppBeingDeleted(t *testing.T) {
+	t.Parallel()
 	db := storetest.New(t)
 	gatewaytest.Seed(t, db, []any{gatewaytest.Workspace("report", aliceID, "Report")})
 	app, err := db.Apps().GetByOwnerName(context.Background(), aliceID, "report")
@@ -53,6 +55,7 @@ func TestAppLookupSkipsAnAppBeingDeleted(t *testing.T) {
 // finds the one app that carries it, whatever namespace it is in and however
 // many other people have an app of the same short name.
 func TestLookupWithoutOwnerFindsTheAppByObjectName(t *testing.T) {
+	t.Parallel()
 	objs := []any{}
 	for _, owner := range []string{"carol-3c4d5e6f", "dave-4d5e6f7a", aliceID, "erin-5e6f7a8b"} {
 		ws := gatewaytest.Workspace("report", owner, "Report")

@@ -27,6 +27,7 @@ func createSecret(t *testing.T, s *store.Store, owner, name string) model.Secret
 }
 
 func TestCreateSecretSealsForTheNewRowAndListsWithoutValues(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sec := createSecret(t, s, "alice", "OPENAI_KEY")
 	if sec.ID == "" || sec.Version != 1 || sec.Owner != "alice" || sec.Note != "a note" {
@@ -58,6 +59,7 @@ func TestCreateSecretSealsForTheNewRowAndListsWithoutValues(t *testing.T) {
 }
 
 func TestNewValueMovesTheVersionAndAnnouncesTheAppsThatUseIt(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	sec := createSecret(t, s, "alice", "DB_PASSWORD")
 	app := createApp(t, s, "alice", "lab")
@@ -86,6 +88,7 @@ func TestNewValueMovesTheVersionAndAnnouncesTheAppsThatUseIt(t *testing.T) {
 }
 
 func TestBindingsResolveOnlyTheAppOwnersSecrets(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "bob", "BOB_ONLY")
 	createSecret(t, s, "alice", "API_KEY")
@@ -116,6 +119,7 @@ func TestBindingsResolveOnlyTheAppOwnersSecrets(t *testing.T) {
 }
 
 func TestDeletingASecretAnAppUsesIsRefused(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "TOKEN")
 	app := createApp(t, s, "alice", "lab")
@@ -146,6 +150,7 @@ func TestDeletingASecretAnAppUsesIsRefused(t *testing.T) {
 }
 
 func TestPurgedAppTakesItsBindings(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "TOKEN")
 	app := createApp(t, s, "alice", "lab")
@@ -164,6 +169,7 @@ func TestPurgedAppTakesItsBindings(t *testing.T) {
 }
 
 func TestCreateAppWithSecretsIsOneTransaction(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "TOKEN")
 	app, err := s.Apps().CreateWith(ctx, alice, newApp("alice", "lab"), store.AppExtras{Secrets: []model.SecretBinding{{Env: "MY_TOKEN", Secret: "TOKEN"}}})
@@ -183,6 +189,7 @@ func TestCreateAppWithSecretsIsOneTransaction(t *testing.T) {
 }
 
 func TestSealedValuesForAnApp(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sec := createSecret(t, s, "alice", "TOKEN")
 	app := createApp(t, s, "alice", "lab")
@@ -200,6 +207,7 @@ func TestSealedValuesForAnApp(t *testing.T) {
 }
 
 func TestResealKeepsTheVersionAndLosesToANewValue(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sec := createSecret(t, s, "alice", "TOKEN")
 	old, _ := s.Secrets().Sealed(ctx, sec.ID)
@@ -225,6 +233,7 @@ func TestResealKeepsTheVersionAndLosesToANewValue(t *testing.T) {
 }
 
 func TestDeleteForOwnerRemovesOnlyTheirSecrets(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "A")
 	createSecret(t, s, "bob", "B")
@@ -237,6 +246,7 @@ func TestDeleteForOwnerRemovesOnlyTheirSecrets(t *testing.T) {
 }
 
 func TestKeysetIsWrittenOnce(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if _, found, err := s.SecretKeys().Get(ctx); err != nil || found {
 		t.Fatalf("empty: %v, %v", found, err)
@@ -261,6 +271,7 @@ func TestKeysetIsWrittenOnce(t *testing.T) {
 }
 
 func TestJobBindingsResolveOnlyTheJobOwnersSecrets(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "bob", "BOB_ONLY")
 	createSecret(t, s, "alice", "API_KEY")
@@ -292,6 +303,7 @@ func TestJobBindingsResolveOnlyTheJobOwnersSecrets(t *testing.T) {
 }
 
 func TestCreateJobWithSecretsIsOneTransaction(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "TOKEN")
 	job, err := s.Jobs().CreateWith(ctx, alice, newJob("alice", "nightly"), store.JobExtras{Secrets: []model.SecretBinding{{Env: "MY_TOKEN", Secret: "TOKEN"}}})
@@ -310,6 +322,7 @@ func TestCreateJobWithSecretsIsOneTransaction(t *testing.T) {
 }
 
 func TestNewValueAnnouncesTheJobsThatUseIt(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	createSecret(t, s, "alice", "DB_PASSWORD")
 	job := createJob(t, s, "alice", "nightly")
@@ -335,6 +348,7 @@ func TestNewValueAnnouncesTheJobsThatUseIt(t *testing.T) {
 }
 
 func TestDeletingASecretAJobUsesIsRefused(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "TOKEN")
 	job := createJob(t, s, "alice", "nightly")
@@ -368,6 +382,7 @@ func TestDeletingASecretAJobUsesIsRefused(t *testing.T) {
 }
 
 func TestSealedValuesForAJob(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sec := createSecret(t, s, "alice", "TOKEN")
 	job := createJob(t, s, "alice", "nightly")

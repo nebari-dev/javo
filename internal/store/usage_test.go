@@ -11,6 +11,7 @@ import (
 // Since returns the intervals that overlap the window: still running, or
 // stopped after its start. One that ended before the window is left out.
 func TestUsageSinceKeepsOverlappingIntervals(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	u := s.Usage()
 	base := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)

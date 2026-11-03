@@ -11,6 +11,7 @@ import (
 // Each New is a migrated database of its own: a table made in one is not in
 // the next, however New prepares them.
 func TestNewGivesEachCallItsOwnMigratedDatabase(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	first := storetest.New(t)
 	if err := first.Ready(ctx); err != nil {

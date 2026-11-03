@@ -19,6 +19,7 @@ import (
 // the OpenAPI document, so routes added later are covered without a change
 // here; one stub route is registered so the walk is never empty.
 func TestEveryAdminRouteRejectsMembers(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	var roles config.Roles
 	roles.PlatformAdmin.Groups = []string{"javo-admins"}

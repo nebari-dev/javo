@@ -8,6 +8,7 @@ import (
 )
 
 func TestSaveErrorMapsModelScheduleErrorsToScheduleFields(t *testing.T) {
+	t.Parallel()
 	s := &API{}
 	b := &jobBody{Schedule: &JobScheduleBody{Cron: "0 25 * * *", TimeZone: "Mars/Base"}}
 	for _, c := range []struct{ model, location string }{

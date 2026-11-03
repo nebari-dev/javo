@@ -14,6 +14,7 @@ import (
 // A job made without a size is stored at the default size (so a later change
 // of the default does not change its runs); one made with a size keeps it.
 func TestCreateJobStoresTheChosenOrDefaultSize(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{Sizes: apitest.TestCatalog(t)})
 	alice := f.Session(apitest.AliceID)
 	w := f.Do("POST", "/api/jobs", fmt.Sprintf(apitest.NewJob, ""), alice)
@@ -36,6 +37,7 @@ func TestCreateJobStoresTheChosenOrDefaultSize(t *testing.T) {
 // one no machine can hold, and a custom amount the person may not ask for
 // are refused and nothing is made.
 func TestCreateJobRefusesSizesAppsCannotUse(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{Sizes: apitest.FitCatalog(t, "small")}, apitest.SingleNode())
 	alice := f.Session(apitest.AliceID)
 	for _, tc := range []struct {
@@ -64,6 +66,7 @@ func TestCreateJobRefusesSizesAppsCannotUse(t *testing.T) {
 // Change size moves a job to another size or a custom amount from its next
 // run on; the job's other settings and its edits keep the size.
 func TestChangeJobSize(t *testing.T) {
+	t.Parallel()
 	j := apitest.JobObj(apitest.AliceID, "nightly-sales")
 	j.Size = "small"
 	f := apitest.JobFixture(t, apitest.Options{Sizes: apitest.CustomCatalog(t)}, apitest.SingleNode(), j)
@@ -106,6 +109,7 @@ func TestChangeJobSize(t *testing.T) {
 // A job stored without a size (made before jobs had one) shows the default
 // its runs get.
 func TestJobWithoutSizeShowsTheDefault(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, apitest.JobObj(apitest.AliceID, "nightly-sales"))
 	w := f.Do("GET", "/api/jobs/nightly-sales", "", f.Session(apitest.AliceID))
 	if w.Code != http.StatusOK || apitest.Decode[apitest.JobSizeJSON](t, w).Size != "small" {

@@ -14,6 +14,7 @@ import (
 )
 
 func TestAIOffAnswersWithTheCatalogAndBuildsNothing(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	c := f.Session(apitest.PlanOwner)
 	st := apitest.Decode[struct {
@@ -33,6 +34,7 @@ func TestAIOffAnswersWithTheCatalogAndBuildsNothing(t *testing.T) {
 }
 
 func TestExplainKeepsOnlyWhatThePersonMayDo(t *testing.T) {
+	t.Parallel()
 	p := aitest.New(aitest.Reply{JSON: apitest.RestartAnswer})
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{}`, f.Session(apitest.PlanOwner))
@@ -55,6 +57,7 @@ func TestExplainKeepsOnlyWhatThePersonMayDo(t *testing.T) {
 }
 
 func TestExplainPreviewCallsNoModel(t *testing.T) {
+	t.Parallel()
 	p := aitest.New()
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	r := apitest.Decode[apitest.ExplainJSON](t, f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{"preview":true}`, f.Session(apitest.PlanOwner)))
@@ -64,6 +67,7 @@ func TestExplainPreviewCallsNoModel(t *testing.T) {
 }
 
 func TestExplainOfAHealthyAppIsRefused(t *testing.T) {
+	t.Parallel()
 	p := aitest.New()
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.RunningSales(), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{}`, f.Session(apitest.PlanOwner))
@@ -73,6 +77,7 @@ func TestExplainOfAHealthyAppIsRefused(t *testing.T) {
 }
 
 func TestExplainOfAnotherPersonsAppIsNotFound(t *testing.T) {
+	t.Parallel()
 	p := aitest.New()
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	if w := f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{}`, f.Session("bob-bbbbbbbb")); w.Code != http.StatusNotFound || p.Calls() != 0 {
@@ -81,6 +86,7 @@ func TestExplainOfAnotherPersonsAppIsNotFound(t *testing.T) {
 }
 
 func TestBusyProviderSetsRetryAfter(t *testing.T) {
+	t.Parallel()
 	p := aitest.New(aitest.Reply{Err: &provider.RateLimitedError{RetryAfter: 20 * time.Second}})
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/workspaces/sales/diagnosis/explain", `{}`, f.Session(apitest.PlanOwner))
@@ -93,6 +99,7 @@ func TestBusyProviderSetsRetryAfter(t *testing.T) {
 }
 
 func TestAIStatusWhenOn(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(aitest.New())}, gatewaytest.Template("streamlit", "streamlit"))
 	st := apitest.Decode[struct {
 		Enabled  bool
@@ -105,6 +112,7 @@ func TestAIStatusWhenOn(t *testing.T) {
 }
 
 func TestFeedbackIsAccepted(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(aitest.New())}, gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("POST", "/api/ai/feedback", `{"feature":"explain","ref":"sales","right":false}`, f.Session(apitest.PlanOwner))
 	if w.Code != http.StatusNoContent {
@@ -113,6 +121,7 @@ func TestFeedbackIsAccepted(t *testing.T) {
 }
 
 func TestDraftFillsTheFormAndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	p := aitest.New(aitest.Reply{JSON: `{"displayName":"Sales","template":"streamlit","file":"e2e/hello.py"}`})
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Template("secret", "streamlit", "admins-only"))
 	w := f.Do("POST", "/api/ai/draft", `{"text":"A Streamlit app from e2e/hello.py called Sales","kind":"app"}`, f.Session(apitest.PlanOwner))
@@ -132,6 +141,7 @@ func TestDraftFillsTheFormAndCreatesNothing(t *testing.T) {
 }
 
 func TestDraftAndCreateGiveTheSameFieldErrors(t *testing.T) {
+	t.Parallel()
 	answer := `{"displayName":"Sales","template":"streamlit","file":"../etc/passwd"}`
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(aitest.New(aitest.Reply{JSON: answer}))}, gatewaytest.Template("streamlit", "streamlit"))
 	c := f.Session(apitest.PlanOwner)
@@ -146,6 +156,7 @@ func TestDraftAndCreateGiveTheSameFieldErrors(t *testing.T) {
 }
 
 func TestDraftWithAIOff(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	d := apitest.Decode[apitest.DraftJSON](t, f.Do("POST", "/api/ai/draft", `{"text":"x","kind":"app"}`, f.Session(apitest.PlanOwner)))
 	if d.Message != reasons.Msg(reasons.MsgAIOff) {
@@ -154,6 +165,7 @@ func TestDraftWithAIOff(t *testing.T) {
 }
 
 func TestCommandTurnsProposalsIntoPlansAndChangesNothing(t *testing.T) {
+	t.Parallel()
 	answer := `{"reply":"Stopping Sales.","actions":[{"action":"stop","target":"sales","size":""},{"action":"stop","target":"other","size":""}],"create":false}`
 	p := aitest.New(aitest.Reply{JSON: answer})
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, apitest.RunningSales(), apitest.RunningSalesOf("bob-bbbbbbbb"), gatewaytest.Template("streamlit", "streamlit"))
@@ -177,6 +189,7 @@ func TestCommandTurnsProposalsIntoPlansAndChangesNothing(t *testing.T) {
 }
 
 func TestCommandForANewAppAnswersWithADraftAndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	p := aitest.New(
 		aitest.Reply{JSON: `{"reply":"Here is a Streamlit app to review.","actions":[],"create":true}`},
 		aitest.Reply{JSON: `{"displayName":"Sales dashboard","template":"streamlit","file":"sales/app.py"}`},
@@ -199,6 +212,7 @@ func TestCommandForANewAppAnswersWithADraftAndCreatesNothing(t *testing.T) {
 }
 
 func TestCommandDraftCarriesTheFieldErrorsCreateWouldGive(t *testing.T) {
+	t.Parallel()
 	p := aitest.New(
 		aitest.Reply{JSON: `{"reply":"A new app.","actions":[],"create":true}`},
 		aitest.Reply{JSON: `{"displayName":"Sales","template":"streamlit","file":"../etc/passwd"}`},
@@ -211,6 +225,7 @@ func TestCommandDraftCarriesTheFieldErrorsCreateWouldGive(t *testing.T) {
 }
 
 func TestAdminReportAndAskAreForAdminsOnly(t *testing.T) {
+	t.Parallel()
 	failed := apitest.CrashedApp()
 	p := aitest.New(aitest.Reply{JSON: `{"answer":"One app crashed.","refs":["failures/AppCrashed"]}`})
 	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p)}, failed, gatewaytest.Template("streamlit", "streamlit"))

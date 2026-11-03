@@ -19,6 +19,7 @@ import (
 )
 
 func TestBrowserCallbackSignInEndsThePreviousSession(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{&apitest.RedirectProvider{}}})
 	old := f.LoginAlice()
 
@@ -36,6 +37,7 @@ func TestBrowserCallbackSignInEndsThePreviousSession(t *testing.T) {
 
 // The avatar URL the provider sends at sign-in is shown on /api/me.
 func TestBrowserSignInKeepsTheProvidersPicture(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{&apitest.RedirectProvider{}}})
 	w := httptest.NewRecorder()
 	f.Srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/auth/redirect/callback", nil))
@@ -58,6 +60,7 @@ func TestBrowserSignInKeepsTheProvidersPicture(t *testing.T) {
 }
 
 func TestLogoutPointsAtTheProvidersEndSessionURL(t *testing.T) {
+	t.Parallel()
 	const end = "https://idp.example.com/logout?client_id=javo"
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{&apitest.RedirectProvider{LogoutTo: end}}})
 	tok, err := f.Store.Create(context.Background(), session.Session{
@@ -82,6 +85,7 @@ func TestLogoutPointsAtTheProvidersEndSessionURL(t *testing.T) {
 }
 
 func TestLogoutWithoutAnEndSessionEndpointSaysSignedOutLocallyOnly(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{&apitest.RedirectProvider{}}})
 	tok, err := f.Store.Create(context.Background(), session.Session{
 		Provider: "redirect", Kind: session.KindUI, RevalidateAt: time.Now().Add(time.Hour),
@@ -97,6 +101,7 @@ func TestLogoutWithoutAnEndSessionEndpointSaysSignedOutLocallyOnly(t *testing.T)
 }
 
 func TestParallelRevalidationsDoNotReuseTheRefreshToken(t *testing.T) {
+	t.Parallel()
 	rp := &apitest.RotatingProvider{Current: "refresh-1"}
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{rp}})
 	tok, err := f.Store.Create(context.Background(), session.Session{
@@ -134,6 +139,7 @@ func TestParallelRevalidationsDoNotReuseTheRefreshToken(t *testing.T) {
 // With the identity provider down at startup the gateway still serves, lists
 // the OIDC option as disabled with its reason, and signs local accounts in.
 func TestGatewayServesLocalLoginWhileTheIdentityProviderIsDown(t *testing.T) {
+	t.Parallel()
 	oidc := authoidc.New(config.OIDC{
 		Issuer: "http://idp.test:8080/auth/realms/javo", ClientID: "javo",
 		Dial: map[string]string{"idp.test:8080": "127.0.0.1:1"}, // nothing listens there
@@ -161,6 +167,7 @@ func TestGatewayServesLocalLoginWhileTheIdentityProviderIsDown(t *testing.T) {
 // Requests queued behind one revalidation of a session whose provider hangs
 // reuse its outcome instead of each waiting out the timeout again.
 func TestParallelRevalidationsShareAnOutage(t *testing.T) {
+	t.Parallel()
 	hp := &apitest.HangingProvider{Hang: 300 * time.Millisecond}
 	f := apitest.New(t, apitest.Options{Extra: []authprovider.Provider{hp}})
 	tok, err := f.Store.Create(context.Background(), session.Session{

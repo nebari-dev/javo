@@ -13,6 +13,7 @@ import (
 )
 
 func TestCreateWithATypedCommand(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CustomTemplate())
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Clock","template":"custom","command":"  python app.py --port={{.Port}}  "}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusCreated {
@@ -27,6 +28,7 @@ func TestCreateWithATypedCommand(t *testing.T) {
 }
 
 func TestCreateRefusesABadCommandAndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		template, command, want string
 	}{
@@ -59,6 +61,7 @@ func TestCreateRefusesABadCommandAndCreatesNothing(t *testing.T) {
 
 // The command of a syntax error says where the parser stopped.
 func TestBadCommandMessageQuotesTheParser(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CustomTemplate())
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Clock","template":"custom","command":"python \"app.py"}`, f.Session("alice-aaaaaaaa"))
 	msg, _ := apitest.Decode[apitest.Problem](t, w).FieldMessage("body.command")
@@ -69,6 +72,7 @@ func TestBadCommandMessageQuotesTheParser(t *testing.T) {
 
 // Both ways to start a sample give it the template's sample command.
 func TestSampleRunsWithTheSampleCommand(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CustomTemplate())
 	alice := f.Session("alice-aaaaaaaa")
 	if w := f.Do("POST", "/api/workspaces", `{"displayName":"Demo","template":"custom","sample":true}`, alice); w.Code != http.StatusCreated {
@@ -94,6 +98,7 @@ func TestSampleRunsWithTheSampleCommand(t *testing.T) {
 // An image sample starts the sample's image, port and command, both from the
 // one-click card and from New app; there are no sample files to copy.
 func TestImageSampleRunsTheSampleImage(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ContainerSample())
 	alice := f.Session("alice-aaaaaaaa")
 	if w := f.Do("POST", "/api/samples/container", "", alice); w.Code != http.StatusCreated {
@@ -120,6 +125,7 @@ func TestImageSampleRunsTheSampleImage(t *testing.T) {
 
 // The sample image meets the same registry check as a typed one.
 func TestImageSampleFromAForbiddenRegistryIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Images: config.ContainerImagesCfg{AllowedRegistries: []string{"registry.example.org"}}}, apitest.ContainerSample())
 	w := f.Do("POST", "/api/samples/container", "", f.Session("alice-aaaaaaaa"))
 	want := reasons.Msg(reasons.MsgImageRegistryNotAllowed, "example.com", "registry.example.org")
@@ -134,6 +140,7 @@ func TestImageSampleFromAForbiddenRegistryIsRefused(t *testing.T) {
 // New app fills the image fields from an image sample, so the view names its
 // image and the port it serves on (the template's when the sample names none).
 func TestImageSampleViewNamesImageAndPort(t *testing.T) {
+	t.Parallel()
 	noPort := apitest.ContainerSample()
 	noPort.Name = "box"
 	noPort.Spec.Sample.Port = 0
@@ -161,6 +168,7 @@ func TestImageSampleViewNamesImageAndPort(t *testing.T) {
 }
 
 func TestCreateFromAnImage(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ContainerTemplate())
 	alice := f.Session("alice-aaaaaaaa")
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Web","template":"container","image":" nginxinc/nginx-unprivileged:1.27-alpine "}`, alice)
@@ -185,6 +193,7 @@ func TestCreateFromAnImage(t *testing.T) {
 }
 
 func TestCreateRefusesABadImageAndCreatesNothing(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		images      config.ContainerImagesCfg
 		body, field string
@@ -216,6 +225,7 @@ func TestCreateRefusesABadImageAndCreatesNothing(t *testing.T) {
 }
 
 func TestTemplatesSayWhatAppsTake(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CustomTemplate(), apitest.ContainerTemplate())
 	w := f.Do("GET", "/api/templates", "", f.Session("alice-aaaaaaaa"))
 	type tplJSON struct {
@@ -238,6 +248,7 @@ func TestTemplatesSayWhatAppsTake(t *testing.T) {
 }
 
 func TestChangeWhatAnAppRuns(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CustomTemplate(), apitest.ContainerTemplate())
 	alice := f.Session("alice-aaaaaaaa")
 	f.Do("POST", "/api/workspaces", `{"displayName":"Clock","template":"custom","command":"python a.py"}`, alice)

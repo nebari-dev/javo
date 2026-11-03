@@ -18,6 +18,7 @@ func aiKeyEnv(d corev1.Container) *corev1.EnvVar {
 // The model API key reaches only the gateway, only from the Secret named in
 // ai.apiKeySecret, and only when AI is on.
 func TestAIKeyComesFromItsSecretOnlyWhenAIIsOn(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		base := engineArgs(engine)
 		out, err := render(t, base...)

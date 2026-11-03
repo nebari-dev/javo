@@ -35,6 +35,7 @@ func putPreview(t *testing.T, s *store.Store, parent model.App, number int32, sh
 }
 
 func TestPutRefusesARowWithoutAParent(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if _, err := s.Previews().Put(ctx, newApp("alice", "plain")); !errors.Is(err, store.ErrNotPreview) {
 		t.Fatalf("Put without parent = %v, want ErrNotPreview", err)
@@ -49,6 +50,7 @@ func TestPutRefusesARowWithoutAParent(t *testing.T) {
 }
 
 func TestPutKeepsOneRowPerPullRequestAndBumpsOnANewSHA(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	parent := createApp(t, s, "alice", "site")
 	first := putPreview(t, s, parent, 12, "aaaa")
@@ -86,6 +88,7 @@ func TestPutKeepsOneRowPerPullRequestAndBumpsOnANewSHA(t *testing.T) {
 }
 
 func TestPutAuditsAsTheController(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	parent := createApp(t, s, "alice", "site")
 	putPreview(t, s, parent, 1, "aaaa")
@@ -96,6 +99,7 @@ func TestPutAuditsAsTheController(t *testing.T) {
 }
 
 func TestRemoveMarksOnlyPreviewRows(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	parent := createApp(t, s, "alice", "site")
 	child := putPreview(t, s, parent, 3, "aaaa")
@@ -121,6 +125,7 @@ func TestRemoveMarksOnlyPreviewRows(t *testing.T) {
 }
 
 func TestRecordSyncIsNotAnnouncedAndIsBounded(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	parent := createApp(t, s, "alice", "site")
 	drain(s)
@@ -161,6 +166,7 @@ func TestRecordSyncIsNotAnnouncedAndIsBounded(t *testing.T) {
 }
 
 func TestWebhookHookSecretAndPoke(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	parent := createApp(t, s, "alice", "site")
 	if _, _, err := s.Previews().ByHook(ctx, "unknown"); !errors.Is(err, store.ErrNotFound) {
@@ -237,6 +243,7 @@ func TestWebhookHookSecretAndPoke(t *testing.T) {
 // in one transaction: a refused app leaves no hook behind, and the address
 // resolves only once the app exists.
 func TestCreateFromRepoStoresTheWebhookWithTheApp(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	hookID, secret, err := store.NewHook()
 	if err != nil || len(hookID) != 22 || len(secret) != 43 {
@@ -271,6 +278,7 @@ func TestCreateFromRepoStoresTheWebhookWithTheApp(t *testing.T) {
 }
 
 func TestPurgingTheParentRemovesItsPreviewTables(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	parent := createApp(t, s, "alice", "site")
 	hookID, _, err := s.Previews().SetHook(ctx, alice, parent.ID)
@@ -289,6 +297,7 @@ func TestPurgingTheParentRemovesItsPreviewTables(t *testing.T) {
 }
 
 func TestPutRacingTheParentsDeletionLeavesNoLivePreview(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for i := 0; i < 40; i++ {
 		parent := createApp(t, s, "alice", fmt.Sprintf("site-%d", i))

@@ -19,6 +19,7 @@ func claims(n int) store.Claims {
 }
 
 func TestEnsureAllocatesUniqueUIDs(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	const n = 50
@@ -51,6 +52,7 @@ func TestEnsureAllocatesUniqueUIDs(t *testing.T) {
 }
 
 func TestEnsureSamePersonConcurrentlyCreatesOne(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	const n = 10
@@ -80,6 +82,7 @@ func TestEnsureSamePersonConcurrentlyCreatesOne(t *testing.T) {
 }
 
 func TestEnsureKeepsNameAndUIDAndRefreshesLogin(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	first, err := people.Ensure(ctx, claims(1))
@@ -108,6 +111,7 @@ func TestEnsureKeepsNameAndUIDAndRefreshesLogin(t *testing.T) {
 }
 
 func TestEnsureWithoutRangeAllocatesNoUID(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	p, err := s.People(store.IDRange{}).Ensure(ctx, claims(1))
 	if err != nil || p.UID != 0 {
@@ -116,6 +120,7 @@ func TestEnsureWithoutRangeAllocatesNoUID(t *testing.T) {
 }
 
 func TestEnsureFailsWhenRangeIsUsedUp(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(store.IDRange{First: 500, Last: 501})
 	for i := range 2 {
@@ -132,6 +137,7 @@ func TestEnsureFailsWhenRangeIsUsedUp(t *testing.T) {
 }
 
 func TestSearchMatchesUsernameOrEmailPrefixIgnoringCase(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	for _, c := range []store.Claims{
@@ -156,6 +162,7 @@ func TestSearchMatchesUsernameOrEmailPrefixIgnoringCase(t *testing.T) {
 }
 
 func TestEnsureGroupAllocatesStableUniqueGIDs(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	r := store.IDRange{First: 200000, Last: 299999}
 	groups := s.Groups(r)
@@ -197,6 +204,7 @@ func TestEnsureGroupAllocatesStableUniqueGIDs(t *testing.T) {
 // Rows written by another path (an import) may already hold uids in range:
 // the next first login must skip them instead of failing for good.
 func TestEnsureSkipsUIDsAlreadyInUse(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for i, uid := range []int64{uidRange.First, uidRange.First + 1} {
 		_, err := s.DB().ExecContext(ctx, `INSERT INTO people (id, name, issuer, subject, username, email, display_name,
@@ -220,6 +228,7 @@ func TestEnsureSkipsUIDsAlreadyInUse(t *testing.T) {
 }
 
 func TestGroupsEnsureSkipsGIDsAlreadyInUse(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	gids := store.IDRange{First: 200000, Last: 200100}
 	if _, err := s.DB().ExecContext(ctx, `INSERT INTO groups (name, gid) VALUES ('imported', $1)`, gids.First); err != nil {
@@ -232,6 +241,7 @@ func TestGroupsEnsureSkipsGIDsAlreadyInUse(t *testing.T) {
 }
 
 func TestEnsureSeparatesIssuers(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	a, err := people.Ensure(ctx, store.Claims{Issuer: "https://kc.example.com", Subject: "s1", Username: "alice"})
@@ -248,6 +258,7 @@ func TestEnsureSeparatesIssuers(t *testing.T) {
 }
 
 func TestEnsureTruncatesTheGroupsSnapshot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	c := claims(1)
 	for i := range 205 {
@@ -263,6 +274,7 @@ func TestEnsureTruncatesTheGroupsSnapshot(t *testing.T) {
 }
 
 func TestByIDFindsThePersonTheChangeNamed(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	p, err := people.Ensure(ctx, claims(1))
@@ -279,6 +291,7 @@ func TestByIDFindsThePersonTheChangeNamed(t *testing.T) {
 }
 
 func TestIDsListsEveryPerson(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	want := map[string]bool{}
@@ -303,6 +316,7 @@ func TestIDsListsEveryPerson(t *testing.T) {
 // ByLogin finds the people whose username or email is the value, ignoring
 // case, whatever its length; BySubject finds one by provider account.
 func TestByLoginAndBySubject(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	a, err := people.Ensure(ctx, store.Claims{Issuer: "https://idp.example.com", Subject: "s-a", Username: "Alice", Email: "alice@example.com"})
@@ -333,6 +347,7 @@ func TestByLoginAndBySubject(t *testing.T) {
 // first sign-in, replaced at each later one, and capped so a long list
 // cannot fail a sign-in. A scheduled run reads this snapshot.
 func TestEnsureKeepsTheProviderRolesSnapshot(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	people := s.People(uidRange)
 	c := claims(1)

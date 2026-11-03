@@ -18,6 +18,7 @@ import (
 )
 
 func TestMCPNeedsABearerToken(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	r, _ := http.NewRequest("POST", f.url+"/mcp", body)
@@ -43,6 +44,7 @@ func TestMCPNeedsABearerToken(t *testing.T) {
 }
 
 func TestMCPRefusesOtherOrigins(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	tok := f.NewToken(f.alice, `{"name":"agent","scope":"read-write"}`).Token
 	r, _ := http.NewRequest("POST", f.url+"/mcp", strings.NewReader(`{}`))
@@ -60,6 +62,7 @@ func TestMCPRefusesOtherOrigins(t *testing.T) {
 }
 
 func TestToolsComeFromTheAPIDocument(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	cs := f.connect(t, f.NewToken(f.alice, `{"name":"agent","scope":"read-write"}`).Token)
 	list, err := cs.ListTools(context.Background(), nil)
@@ -87,6 +90,7 @@ func TestToolsComeFromTheAPIDocument(t *testing.T) {
 }
 
 func TestMutatingToolNeverApplies(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	cs := f.connect(t, f.NewToken(f.alice, `{"name":"agent","scope":"read-write"}`).Token)
 	res, text := callTool(t, cs, "stop_workspace", map[string]any{"name": "sales"})
@@ -125,6 +129,7 @@ func TestMutatingToolNeverApplies(t *testing.T) {
 }
 
 func TestAnotherPersonsTokenSeesNothingOfAlices(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	aliceCS := f.connect(t, f.NewToken(f.alice, `{"name":"agent","scope":"read-write"}`).Token)
 	_, text := callTool(t, aliceCS, "stop_workspace", map[string]any{"name": "sales"})
@@ -142,6 +147,7 @@ func TestAnotherPersonsTokenSeesNothingOfAlices(t *testing.T) {
 }
 
 func TestReadTokenCannotPropose(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	cs := f.connect(t, f.NewToken(f.alice, `{"name":"agent","scope":"read"}`).Token)
 	if res, text := callTool(t, cs, "stop_workspace", map[string]any{"name": "sales"}); !res.IsError || text != reasons.Msg(reasons.MsgTokenReadOnly) {
@@ -150,6 +156,7 @@ func TestReadTokenCannotPropose(t *testing.T) {
 }
 
 func TestDiagnosisToolMatchesTheAPI(t *testing.T) {
+	t.Parallel()
 	f := newMCPFixture(t)
 	tok := f.NewToken(f.alice, `{"name":"agent","scope":"read"}`).Token
 	_, text := callTool(t, f.connect(t, tok), "get_diagnosis", map[string]any{"name": "sales"})

@@ -25,6 +25,7 @@ func controllerArg(d appsv1.Deployment, name string) string {
 // uninstall and upgrade, and mounted only where the controller runs: the
 // gateway, which takes values from people, never holds it.
 func TestSecretsKeyIsGeneratedKeptAndOnlyTheControllerHasIt(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
@@ -57,6 +58,7 @@ func TestSecretsKeyIsGeneratedKeptAndOnlyTheControllerHasIt(t *testing.T) {
 // An admin who keeps the key elsewhere (a GitOps tool that cannot look up the
 // live Secret, or one made by hand) names it; the chart then makes none.
 func TestSecretsKeyFromAnExistingSecret(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, "--set", "secrets.existingKeySecret=my-kek")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -74,6 +76,7 @@ func TestSecretsKeyFromAnExistingSecret(t *testing.T) {
 // (kubelet gives that group read on the file). Without it the controller
 // cannot start.
 func TestControllerCanReadTheSecretsKey(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {

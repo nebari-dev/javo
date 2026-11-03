@@ -26,6 +26,7 @@ import (
 )
 
 func TestStorageOnAKindLikeClusterIsOneMachineAndUnsized(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage(), apitest.HomeOf(apitest.AliceID, func(h *model.Home) { h.Status.SizeEnforced = false }))
 	v := apitest.GetStorage(t, f, f.Session(apitest.AliceID), "")
 	if v.Mode != "perUser" || v.ModeLabel != reasons.Msg(reasons.MsgHomeLabelPerUser) {
@@ -50,6 +51,7 @@ func TestStorageOnAKindLikeClusterIsOneMachineAndUnsized(t *testing.T) {
 // Per-person disks on several machines is how the cluster works, not news:
 // an app that cannot fit says so on its own page.
 func TestStorageOnSeveralMachinesWithoutSharedStorageSaysNothing(t *testing.T) {
+	t.Parallel()
 	cs := apitest.ClusterStorage(func(cs *model.ClusterStorage) { cs.Status.Nodes, cs.Status.Choice.SingleNode = 3, false })
 	f := apitest.New(t, apitest.Options{}, cs, apitest.HomeOf(apitest.AliceID))
 	if codes := apitest.GetStorage(t, f, f.Session(apitest.AliceID), "").Codes(); slices.Contains(codes, "ModePerUserMultiNode") {
@@ -58,6 +60,7 @@ func TestStorageOnSeveralMachinesWithoutSharedStorageSaysNothing(t *testing.T) {
 }
 
 func TestStorageOnSharedStorageSaysAppsRunAnywhere(t *testing.T) {
+	t.Parallel()
 	cs := apitest.ClusterStorage(func(cs *model.ClusterStorage) { cs.Status.Choice.Mode = model.HomeModeShared })
 	h := apitest.HomeOf(apitest.AliceID, func(h *model.Home) { h.Status.Mode, h.Status.SizeEnforced = model.HomeModeShared, true })
 	f := apitest.New(t, apitest.Options{}, cs, h)
@@ -68,6 +71,7 @@ func TestStorageOnSharedStorageSaysAppsRunAnywhere(t *testing.T) {
 }
 
 func TestStorageBeforeTheFirstHomeUsesTheClustersChoice(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage())
 	v := apitest.GetStorage(t, f, f.Session(apitest.AliceID), "")
 	if v.Mode != "perUser" || v.ModeLabel == "" {
@@ -76,6 +80,7 @@ func TestStorageBeforeTheFirstHomeUsesTheClustersChoice(t *testing.T) {
 }
 
 func TestStorageWithoutAnInspectedClusterStillAnswers(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	if w := f.Do("GET", "/api/storage", "", f.Session(apitest.AliceID)); w.Code != http.StatusOK {
 		t.Fatalf("got %d %s", w.Code, w.Body)
@@ -83,6 +88,7 @@ func TestStorageWithoutAnInspectedClusterStillAnswers(t *testing.T) {
 }
 
 func TestAScheduledMoveShowsItsDateFromTheMomentItIsSet(t *testing.T) {
+	t.Parallel()
 	at := metav1.Date(2026, 11, 2, 22, 0, 0, 0, time.UTC)
 	cs := apitest.ClusterStorage(func(cs *model.ClusterStorage) {
 		cs.Status.Choice.Mode = model.HomeModeShared
@@ -107,6 +113,7 @@ func TestAScheduledMoveShowsItsDateFromTheMomentItIsSet(t *testing.T) {
 }
 
 func TestAScheduleForAnotherModeIsNotShown(t *testing.T) {
+	t.Parallel()
 	at := metav1.Date(2026, 11, 2, 22, 0, 0, 0, time.UTC)
 	cs := apitest.ClusterStorage(func(cs *model.ClusterStorage) {
 		cs.Spec.Migration = model.MigrationSpec{StartAt: &at, To: model.HomeModeShared} // cluster chose perUser since
@@ -118,6 +125,7 @@ func TestAScheduleForAnotherModeIsNotShown(t *testing.T) {
 }
 
 func TestARunningAndAFailedMoveHaveTheirOwnBanner(t *testing.T) {
+	t.Parallel()
 	for phase, want := range map[model.MigrationPhase]reasons.NoticeCode{
 		model.MigrationWaiting: reasons.MigrationRunning,
 		model.MigrationCopying: reasons.MigrationRunning,
@@ -132,6 +140,7 @@ func TestARunningAndAFailedMoveHaveTheirOwnBanner(t *testing.T) {
 }
 
 func TestUsageIsFetchedOnlyWhenAskedForAndOnlyWhereTheSizeIsEnforced(t *testing.T) {
+	t.Parallel()
 	enforced := apitest.HomeOf(apitest.AliceID, func(h *model.Home) { h.Status.SizeEnforced = true })
 	u := &apitest.StubUsage{Got: files.HomeUsage{Enforced: true, Used: 13 << 30, Total: 20 << 30}}
 	f := apitest.New(t, apitest.Options{Usage: u}, apitest.ClusterStorage(), enforced)
@@ -147,6 +156,7 @@ func TestUsageIsFetchedOnlyWhenAskedForAndOnlyWhereTheSizeIsEnforced(t *testing.
 }
 
 func TestUsageThatCannotBeReadYetIsLeftOut(t *testing.T) {
+	t.Parallel()
 	enforced := apitest.HomeOf(apitest.AliceID, func(h *model.Home) { h.Status.SizeEnforced = true })
 	u := &apitest.StubUsage{Got: files.HomeUsage{}}
 	f := apitest.New(t, apitest.Options{Usage: &apitest.FailingUsage{StubUsage: u, Err: files.ErrHomeStarting}}, apitest.ClusterStorage(), enforced)
@@ -157,6 +167,7 @@ func TestUsageThatCannotBeReadYetIsLeftOut(t *testing.T) {
 }
 
 func TestUsageIsReadInTheCallersNamespace(t *testing.T) {
+	t.Parallel()
 	ns := "javo-" + apitest.AliceID
 	home := apitest.HomeOf(apitest.AliceID, func(h *model.Home) { h.Status.SizeEnforced = true })
 	home.Namespace = ns
@@ -198,6 +209,7 @@ func TestUsageErrorsAreLoggedUnlessTheHomeIsJustStarting(t *testing.T) {
 // hold apps: the gateway is not granted to read pods anywhere else, so a pod
 // of another workload on the node is not counted (the figure is approximate).
 func TestPlacementListsOnlyThePodsOfTheOwnersNodeInAppNamespaces(t *testing.T) {
+	t.Parallel()
 	var unscoped, clusterWide int
 	funcs := &interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
 		if _, ok := l.(*corev1.PodList); ok {
@@ -231,6 +243,7 @@ func TestPlacementListsOnlyThePodsOfTheOwnersNodeInAppNamespaces(t *testing.T) {
 // With one namespace per person, bob's pods in his namespace hold requests on
 // the node; a pod in a namespace javo does not manage is not read.
 func TestPlacementCountsEveryAppNamespaceWhenEachPersonHasOne(t *testing.T) {
+	t.Parallel()
 	aliceNS, bobNS := "javo-"+apitest.AliceID, "javo-"+apitest.BobID
 	var objs []any
 	for _, o := range apitest.PlacementObjs(model.HomeModePerUser, 2) {
@@ -259,6 +272,7 @@ func TestPlacementCountsEveryAppNamespaceWhenEachPersonHasOne(t *testing.T) {
 }
 
 func TestStorageListsTheCallersGroupFoldersAndWhyOneIsNotReady(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Groups: apitest.StubGroups{"/org/data-science", "/org/ml"}}, apitest.ClusterStorage(), apitest.HomeOf(apitest.AliceID),
 		apitest.Folder("/org/data-science", "ds", true, ""),
 		apitest.Folder("/org/ml", "ml", false, reasons.GroupHasNoId),
@@ -279,6 +293,7 @@ func TestStorageListsTheCallersGroupFoldersAndWhyOneIsNotReady(t *testing.T) {
 // --- admin ---
 
 func TestTheAdminReportIsRefusedToEveryoneElse(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage(apitest.HetznerLike))
 	if w := f.Do("GET", "/api/admin/storage", "", f.Session(apitest.BobID)); w.Code != http.StatusForbidden {
 		t.Errorf("GET /api/admin/storage as bob: %d, want 403", w.Code)
@@ -286,6 +301,7 @@ func TestTheAdminReportIsRefusedToEveryoneElse(t *testing.T) {
 }
 
 func TestTheAdminReportListsFactsWithProvenanceAttentionFirst(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage(apitest.HetznerLike, func(cs *model.ClusterStorage) {
 		cs.Status.Probe = &model.ProbeStatus{StorageClassName: "longhorn", Result: model.ProbeFailed, FailedStep: "check"}
 	}))
@@ -313,6 +329,7 @@ func TestTheAdminReportListsFactsWithProvenanceAttentionFirst(t *testing.T) {
 // --- placement ---
 
 func TestPlacementIgnoresTheOwnersPodsInOtherNamespaces(t *testing.T) {
+	t.Parallel()
 	objs := apitest.PlacementObjs(model.HomeModePerUser, 2)
 	other := apitest.AppPod("p0", "node-b", apitest.AliceID, "elsewhere", "1")
 	other.Namespace = "aaa-other-team"
@@ -324,6 +341,7 @@ func TestPlacementIgnoresTheOwnersPodsInOtherNamespaces(t *testing.T) {
 }
 
 func TestPlacementSaysWhereAnAppWouldRunNextToTheOthers(t *testing.T) {
+	t.Parallel()
 	f := apitest.PlacementFixture(t, apitest.Options{}, apitest.PlacementObjs(model.HomeModePerUser, 2)...)
 	_, v := apitest.GetPlacement(t, f, "?template=small")
 	if !v.CoLocated || v.Node != "node-a" || !v.Fits || v.FreeCPU != 5 {
@@ -338,6 +356,7 @@ func TestPlacementSaysWhereAnAppWouldRunNextToTheOthers(t *testing.T) {
 }
 
 func TestPlacementIsOnlyMeaningfulForPerUserHomesOnSeveralMachines(t *testing.T) {
+	t.Parallel()
 	for name, objs := range map[string][]any{
 		"shared storage": apitest.PlacementObjs(model.HomeModeShared, 2),
 		"one machine":    apitest.PlacementObjs(model.HomeModePerUser, 1),
@@ -350,6 +369,7 @@ func TestPlacementIsOnlyMeaningfulForPerUserHomesOnSeveralMachines(t *testing.T)
 }
 
 func TestPlacementUsesTheSizeWhenOneIsPicked(t *testing.T) {
+	t.Parallel()
 	// The size catalog is empty in this fixture, so an unknown size is refused.
 	f := apitest.PlacementFixture(t, apitest.Options{}, apitest.PlacementObjs(model.HomeModePerUser, 2)...)
 	if w := f.Do("GET", "/api/storage/placement?template=small&size=nope", "", f.Session(apitest.AliceID)); w.Code != http.StatusUnprocessableEntity {
@@ -361,6 +381,7 @@ func TestPlacementUsesTheSizeWhenOneIsPicked(t *testing.T) {
 }
 
 func TestTheAdminReportStartsWithWhereFilesAre(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage())
 	v := apitest.Decode[apitest.AdminView](t, f.Do("GET", "/api/admin/storage", "", apitest.AdminSession(f)))
 	if !strings.Contains(v.Summary, "this machine's disk") || !strings.Contains(v.Summary, "Nothing needs attention") {
@@ -371,6 +392,7 @@ func TestTheAdminReportStartsWithWhereFilesAre(t *testing.T) {
 // Storage is set when the platform is deployed; the page only reports it.
 // Tests and moves run from the javo CLI.
 func TestTheStoragePageCannotChangeStorage(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage(apitest.HetznerLike))
 	for _, path := range []string{"/api/admin/storage/probe", "/api/admin/storage/migration", "/api/admin/storage/migration/retry"} {
 		w := f.Do("POST", path, `{"storageClassName":"longhorn"}`, apitest.AdminSession(f))
@@ -384,6 +406,7 @@ func TestTheStoragePageCannotChangeStorage(t *testing.T) {
 }
 
 func TestAScheduledMoveIsTheFirstNoticeEvenOnSeveralMachines(t *testing.T) {
+	t.Parallel()
 	at := metav1.Date(2026, 11, 2, 22, 0, 0, 0, time.UTC)
 	cs := apitest.ClusterStorage(func(cs *model.ClusterStorage) {
 		cs.Status.Nodes, cs.Status.Choice.SingleNode = 3, false
@@ -398,6 +421,7 @@ func TestAScheduledMoveIsTheFirstNoticeEvenOnSeveralMachines(t *testing.T) {
 }
 
 func TestPlacementCarriesTheCatalogNoticeForFitsAndWaits(t *testing.T) {
+	t.Parallel()
 	f := apitest.PlacementFixture(t, apitest.Options{}, apitest.PlacementObjs(model.HomeModePerUser, 2)...)
 	_, fits := apitest.GetPlacement(t, f, "?template=small")
 	if fits.Notice == nil || fits.Notice.Code != string(reasons.PlacementFits) || fits.Notice.Tone != reasons.ToneInfo {
@@ -415,6 +439,7 @@ func TestPlacementCarriesTheCatalogNoticeForFitsAndWaits(t *testing.T) {
 }
 
 func TestPlacementHasNoNoticeWhenAppsAreFreeToRunAnywhere(t *testing.T) {
+	t.Parallel()
 	f := apitest.PlacementFixture(t, apitest.Options{}, apitest.PlacementObjs(model.HomeModeShared, 2)...)
 	if _, v := apitest.GetPlacement(t, f, "?template=small"); v.Notice != nil {
 		t.Fatalf("notice = %+v", v.Notice)
@@ -423,6 +448,7 @@ func TestPlacementHasNoNoticeWhenAppsAreFreeToRunAnywhere(t *testing.T) {
 
 // A home the machines failed to mount reaches the admin page.
 func TestTheAdminReportShowsHomesThatCannotBeMounted(t *testing.T) {
+	t.Parallel()
 	home := &model.Home{Namespace: gatewaytest.Namespace, Spec: model.HomeSpec{Owner: apitest.AliceID}, Status: model.HomeStatus{Conditions: []metav1.Condition{{
 		Type: model.ConditionReady, Status: metav1.ConditionFalse, Reason: string(reasons.HomeMountFailed),
 		Message: "FailedMount p: mount: bad option; you might need a /sbin/mount.<type> helper program.",

@@ -16,6 +16,7 @@ import (
 )
 
 func TestWebhookSetupShowsTheSecretOnceAndReplacesIt(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	alice := f.Session(apitest.AliceID)
 	if !strings.Contains(f.Site.URL, "/hooks/github/") || len(f.Site.Secret) < 32 || f.Site.Notice != reasons.Msg(reasons.MsgWebhookSecretOnce) {
@@ -49,6 +50,7 @@ func TestWebhookSetupShowsTheSecretOnceAndReplacesIt(t *testing.T) {
 }
 
 func TestWebhookSetupIsRefusedWhereItCannotWork(t *testing.T) {
+	t.Parallel()
 	home := gatewaytest.Workspace("plain", apitest.AliceID, "Plain")
 	f := apitest.New(t, apitest.Options{CodeHosts: apitest.GithubHosts()}, append(apitest.RepoTemplates(), apitest.RepoApp("site"), home)...)
 	alice := f.Session(apitest.AliceID)
@@ -67,6 +69,7 @@ func TestWebhookSetupIsRefusedWhereItCannotWork(t *testing.T) {
 // pasted into GitHub first: the address answers once the app is created with
 // it, and the app starts with previews on.
 func TestWebhookMadeBeforeTheAppWorksOnceItIsCreated(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{CodeHosts: apitest.GithubHosts(), Previews: true}, apitest.RepoTemplates()...)
 	alice := f.Session(apitest.AliceID)
 	w := f.Do("POST", "/api/previews/webhook", `{"url":"https://github.com/example-org/site"}`, alice)
@@ -106,6 +109,7 @@ func TestWebhookMadeBeforeTheAppWorksOnceItIsCreated(t *testing.T) {
 // What the form needs to offer previews: whether the platform has them, the
 // most an app may ask for and the words next to the forks switch.
 func TestPreviewOptionsAreThePlatforms(t *testing.T) {
+	t.Parallel()
 	for _, on := range []bool{true, false} {
 		f := apitest.New(t, apitest.Options{CodeHosts: apitest.GithubHosts(), Previews: on, PreviewsMax: 3})
 		got := apitest.Decode[struct {
@@ -120,6 +124,7 @@ func TestPreviewOptionsAreThePlatforms(t *testing.T) {
 }
 
 func TestPreviewsAndWebhookAtCreateAreRefusedWhereTheyCannotWork(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{CodeHosts: apitest.GithubHosts(), Previews: true}, apitest.RepoTemplates()...)
 	alice := f.Session(apitest.AliceID)
 	if w := f.Do("POST", "/api/previews/webhook", `{"url":"https://git.example.org/example-org/site"}`, alice); w.Code != http.StatusUnprocessableEntity {
@@ -146,6 +151,7 @@ func TestPreviewsAndWebhookAtCreateAreRefusedWhereTheyCannotWork(t *testing.T) {
 }
 
 func TestWebhookSignedWithAnotherAppsSecretIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	before := f.PokedAt("docs")
 	w := f.Deliver(apitest.HookPath(t, f.Docs), "pull_request", apitest.PullRequestEvent, f.Site.Secret)
@@ -158,6 +164,7 @@ func TestWebhookSignedWithAnotherAppsSecretIsRefused(t *testing.T) {
 }
 
 func TestWebhookWithoutOrWithBadSignatureIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	for name, secret := range map[string]string{"missing": "", "wrong": "not-the-secret"} {
 		w := f.Deliver(apitest.HookPath(t, f.Site), "pull_request", apitest.PullRequestEvent, secret)
@@ -171,6 +178,7 @@ func TestWebhookWithoutOrWithBadSignatureIsRefused(t *testing.T) {
 }
 
 func TestWebhookUnknownAddressIsNotFound(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	if w := f.Deliver("/hooks/github/unknown", "ping", "{}", f.Site.Secret); w.Code != http.StatusNotFound {
 		t.Fatalf("unknown id: %d %s", w.Code, w.Body)
@@ -181,6 +189,7 @@ func TestWebhookUnknownAddressIsNotFound(t *testing.T) {
 }
 
 func TestWebhookSignedPullRequestPokesOnceAndAnnouncesIt(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	// On Postgres announcements travel through the server, which needs the feed.
 	ctx, stop := context.WithCancel(context.Background())
@@ -223,6 +232,7 @@ func TestWebhookSignedPullRequestPokesOnceAndAnnouncesIt(t *testing.T) {
 }
 
 func TestWebhookPingPokesAndOtherEventsAreIgnored(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	if w := f.Deliver(apitest.HookPath(t, f.Site), "push", "{}", f.Site.Secret); w.Code != http.StatusNoContent || !f.PokedAt("site").IsZero() {
 		t.Fatalf("push: %d %s, poked %v", w.Code, w.Body, f.PokedAt("site"))
@@ -233,6 +243,7 @@ func TestWebhookPingPokesAndOtherEventsAreIgnored(t *testing.T) {
 }
 
 func TestWebhookBodyOverOneMiBIsTooLarge(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	body := `{"pad":"` + strings.Repeat("x", 2<<20) + `"}`
 	// Signed correctly: the size check must come first, not the signature.
@@ -259,6 +270,7 @@ func TestWebhookBodyOverOneMiBIsTooLarge(t *testing.T) {
 }
 
 func TestWebhookIsRateLimitedPerClientAddress(t *testing.T) {
+	t.Parallel()
 	f := apitest.NewHookFixture(t)
 	post := func(ip string) int {
 		r := httptest.NewRequest("POST", "/hooks/github/unknown", strings.NewReader("{}"))

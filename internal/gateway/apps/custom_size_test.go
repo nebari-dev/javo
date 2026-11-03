@@ -14,6 +14,7 @@ import (
 // Each person sees the sizes they may use and their own custom allowance,
 // capped at the largest machine (8 CPU, about 15.6 GB here).
 func TestSizesListIsPerPerson(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.CustomCatalog(t)}, apitest.SingleNode())
 	machineMem := resource.MustParse("16365140Ki")
 
@@ -42,6 +43,7 @@ func TestSizesListIsPerPerson(t *testing.T) {
 }
 
 func TestCreateWithCustomAmount(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.CustomCatalog(t)}, apitest.SingleNode(), gatewaytest.Template("lab", "jupyterlab"))
 	admin := f.Session("root-rrrrrrrr", "javo-admins")
 
@@ -68,6 +70,7 @@ func TestCreateWithCustomAmount(t *testing.T) {
 
 // Every way a custom amount or a size can be refused, each with its own words.
 func TestCustomAmountRefusals(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Sizes: apitest.CustomCatalog(t)}, apitest.SingleNode(), gatewaytest.Template("lab", "jupyterlab"))
 	create := func(body string, id string, groups ...string) (int, apitest.Problem) {
 		w := f.Do("POST", "/api/workspaces", `{"displayName":"X","template":"lab",`+body+`}`, f.Session(id, groups...))
@@ -121,6 +124,7 @@ func TestCustomAmountRefusals(t *testing.T) {
 
 // Change size moves an app between a named size and a custom amount.
 func TestChangeToAndFromCustomAmount(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("sales-app", "root-rrrrrrrr", "Sales app")
 	ws.Size = "small"
 	f := apitest.New(t, apitest.Options{Sizes: apitest.CustomCatalog(t)}, apitest.SingleNode(), ws, gatewaytest.Template("streamlit", "streamlit"))

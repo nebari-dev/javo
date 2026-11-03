@@ -14,6 +14,7 @@ import (
 )
 
 func TestDocsOffByDefault(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{UiDir: docsUI(t)})
 	for _, p := range []string{"/api/docs", "/api/docs/", "/api/docs/swagger-ui-bundle.js", "/api/docs/init.js"} {
 		w := f.Do("GET", p, "", f.Session(apitest.LocalAlice()))
@@ -24,6 +25,7 @@ func TestDocsOffByDefault(t *testing.T) {
 }
 
 func TestDocsServedWithCSP(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{UiDir: docsUI(t), ApiDocs: true})
 	if w := f.Do("GET", "/api/docs", "", nil); w.Code != http.StatusMovedPermanently || w.Header().Get("Location") != "/api/docs/" {
 		t.Fatalf("/api/docs: %d %v", w.Code, w.Header())
@@ -72,6 +74,7 @@ func TestDocsServedWithCSP(t *testing.T) {
 }
 
 func TestDocumentOffersBearerAuthorization(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	doc := apitest.Decode[struct {
 		Components struct {

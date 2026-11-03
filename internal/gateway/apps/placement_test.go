@@ -19,6 +19,7 @@ import (
 )
 
 func TestPerUserAppLandsInThePersonsNamespace(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerUserFixture(t)
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
 
@@ -50,6 +51,7 @@ func TestPerUserAppLandsInThePersonsNamespace(t *testing.T) {
 }
 
 func TestPerUserDeleteRemovesFromThePersonsNamespace(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerUserFixture(t)
 	alice := f.Session(apitest.AliceID)
 	f.Do("POST", "/api/workspaces", apitest.NewApp, alice)
@@ -62,6 +64,7 @@ func TestPerUserDeleteRemovesFromThePersonsNamespace(t *testing.T) {
 }
 
 func TestPerTeamCreateAsksForATeamWhenThereAreSeveral(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerTeamFixture(t)
 	alice := f.Session(apitest.AliceID, "/org/ds", "/org/ml")
 
@@ -84,6 +87,7 @@ func TestPerTeamCreateAsksForATeamWhenThereAreSeveral(t *testing.T) {
 }
 
 func TestPerTeamSingleTeamNeedsNoChoice(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerTeamFixture(t)
 	if w := f.Do("POST", "/api/workspaces", apitest.NewApp, f.Session(apitest.AliceID, "/org/ds")); w.Code != http.StatusCreated {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
@@ -92,6 +96,7 @@ func TestPerTeamSingleTeamNeedsNoChoice(t *testing.T) {
 }
 
 func TestPerTeamRefusals(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerTeamFixture(t)
 	cases := []struct {
 		name, body string
@@ -118,6 +123,7 @@ func TestPerTeamRefusals(t *testing.T) {
 // The URL names owner and app only, so one person cannot have the same name
 // in two teams.
 func TestPerTeamNameIsUniqueAcrossTheirTeams(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerTeamFixture(t)
 	alice := f.Session(apitest.AliceID, "/org/ds", "/org/ml")
 	f.Do("POST", "/api/workspaces", `{"displayName":"Sales","template":"lab","team":"ds"}`, alice)
@@ -134,6 +140,7 @@ func TestPerTeamNameIsUniqueAcrossTheirTeams(t *testing.T) {
 // An app shared with bob sits in alice's namespace; bob's list finds it
 // whatever namespace it is in.
 func TestPerUserSharedListFindsAppsInOtherNamespaces(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("report", apitest.AliceID, "Report")
 	ws.Namespace = "javo-" + apitest.AliceID
 	ws.Sharing = model.Sharing{Access: model.AccessRestricted, Users: []string{apitest.BobID}}
@@ -154,6 +161,7 @@ func TestPerUserSharedListFindsAppsInOtherNamespaces(t *testing.T) {
 // Apps shared with bob by several owners, each in their own namespace, are
 // all in his shared list.
 func TestPerUserSharedListFindsEveryOwnersApp(t *testing.T) {
+	t.Parallel()
 	tpl := gatewaytest.Template("streamlit", "streamlit")
 	tpl.Spec.MaxSharing = model.AccessSignedIn
 	objs := []any{tpl}
@@ -182,6 +190,7 @@ func TestPerUserSharedListFindsEveryOwnersApp(t *testing.T) {
 // then left ds for ml. She still lists, stops and deletes it, and cannot make
 // a second "sales" in ml that the address could not tell apart.
 func TestPerTeamOwnerKeepsTheirAppAfterChangingTeam(t *testing.T) {
+	t.Parallel()
 	f := apitest.PerTeamFixture(t)
 	if w := f.Do("POST", "/api/workspaces", apitest.NewApp, f.Session(apitest.AliceID, "/org/ds")); w.Code != http.StatusCreated {
 		t.Fatalf("create in ds: %d %s", w.Code, w.Body)
@@ -212,6 +221,7 @@ func TestPerTeamOwnerKeepsTheirAppAfterChangingTeam(t *testing.T) {
 // the Identity appears, possibly after the managed-namespace list was cached.
 // The create still lands, and the app reads back at once.
 func TestPerUserNamespaceLabelledAfterTheCacheFilled(t *testing.T) {
+	t.Parallel()
 	pl := placementperuser.New(config.Namespaces{Prefix: "javo"})
 	f := apitest.New(t, apitest.Options{Placement: pl}, gatewaytest.Template("lab", "jupyterlab"))
 	alice := f.Session(apitest.AliceID)
@@ -235,6 +245,7 @@ func TestPerUserNamespaceLabelledAfterTheCacheFilled(t *testing.T) {
 // Before the controller has made or labelled the namespace, a create is
 // refused with a reason that says to retry, and nothing is written.
 func TestPerUserCreateBeforeTheNamespaceIsReadyIsRetryable(t *testing.T) {
+	t.Parallel()
 	unlabelled := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-" + apitest.BobID}}
 	pl := placementperuser.New(config.Namespaces{Prefix: "javo"})
 	f := apitest.New(t, apitest.Options{Placement: pl}, gatewaytest.Template("lab", "jupyterlab"), unlabelled)

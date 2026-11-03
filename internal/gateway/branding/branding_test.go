@@ -36,6 +36,7 @@ type view struct {
 }
 
 func TestBrandingWithoutConfigIsJavoAndPublic(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	w := f.Do("GET", "/api/branding", "", nil)
 	if w.Code != http.StatusOK {
@@ -50,6 +51,7 @@ func TestBrandingWithoutConfigIsJavoAndPublic(t *testing.T) {
 }
 
 func TestConfiguredBrandingIsServedWithoutSignIn(t *testing.T) {
+	t.Parallel()
 	var c config.BrandingCfg
 	c.Name, c.Accent = "Acme Lab", "#0a7d55"
 	c.Logo.Light.File = file(t, "logo.svg", []byte(svgLogo))
@@ -94,6 +96,7 @@ func TestConfiguredBrandingIsServedWithoutSignIn(t *testing.T) {
 }
 
 func TestLoadRefusesFilesThatAreNotSmallImages(t *testing.T) {
+	t.Parallel()
 	for name, data := range map[string][]byte{
 		"oversized": append([]byte(svgLogo), bytes.Repeat([]byte(" "), branding.MaxImageBytes)...),
 		"html":      []byte("<!doctype html><html><script>alert(1)</script></html>"),
@@ -116,6 +119,7 @@ func TestLoadRefusesFilesThatAreNotSmallImages(t *testing.T) {
 }
 
 func TestImageOriginsAreTheURLImagesHosts(t *testing.T) {
+	t.Parallel()
 	var c config.BrandingCfg
 	c.Logo.Light.URL = "https://cdn.example.com/a/logo.svg"
 	c.Logo.Dark.URL = "https://cdn.example.com/b/logo.svg"

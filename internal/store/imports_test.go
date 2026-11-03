@@ -13,6 +13,7 @@ import (
 // internal/store is the only code that touches SQL: nothing else imports
 // database/sql, a database driver, goose or sqlc output.
 func TestOnlyStoreImportsSQL(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join("..", "..")
 	storeDir := filepath.Join(root, "internal", "store")
 	forbidden := []string{

@@ -13,6 +13,7 @@ import (
 // Usage adds up how long apps ran in the last days, per person, from the
 // intervals the controller recorded.
 func TestAdminUsagePerPerson(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }})
 	u := f.Db.Usage()

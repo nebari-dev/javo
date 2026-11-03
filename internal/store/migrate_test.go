@@ -10,6 +10,7 @@ import (
 )
 
 func TestOpenMigratesEmpty(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.Open(t, storetest.Config(t))
 	if err := s.Ready(ctx); err == nil {
@@ -24,6 +25,7 @@ func TestOpenMigratesEmpty(t *testing.T) {
 }
 
 func TestMigrateTwiceIsNoop(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	if err := s.SetMeta(ctx, "k", "v"); err != nil {
@@ -38,6 +40,7 @@ func TestMigrateTwiceIsNoop(t *testing.T) {
 }
 
 func TestConcurrentMigrateOneWins(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := storetest.Config(t)
 	// Postgres replicas are separate processes with their own connections; a

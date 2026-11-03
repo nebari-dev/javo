@@ -14,6 +14,7 @@ import (
 )
 
 func TestAppRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "lab")
 	in.Command, in.Image, in.Port, in.File, in.Sample = "run --x", "registry.example.com/app:1", 8080, "a.py", true
@@ -53,6 +54,7 @@ func TestAppRoundTrip(t *testing.T) {
 // A custom CPU and memory is kept exactly, and an app moves between it and
 // a named size.
 func TestAppCustomResourcesRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "custom")
 	in.Size = ""
@@ -84,6 +86,7 @@ func TestAppCustomResourcesRoundTrip(t *testing.T) {
 }
 
 func TestCreateAppRejectsInvalidAndDuplicate(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	bad := newApp("alice", "lab")
 	bad.Template = ""
@@ -99,6 +102,7 @@ func TestCreateAppRejectsInvalidAndDuplicate(t *testing.T) {
 
 // Two people may each have an app of the same short name, also in one namespace.
 func TestTwoOwnersMayUseTheSameAppName(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a := createApp(t, s, "alice", "lab")
 	b := createApp(t, s, "bob", "lab")
@@ -112,6 +116,7 @@ func TestTwoOwnersMayUseTheSameAppName(t *testing.T) {
 }
 
 func TestUpdateSpecConflict(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	var wg sync.WaitGroup
@@ -148,6 +153,7 @@ func TestUpdateSpecConflict(t *testing.T) {
 }
 
 func TestUpdateSpecStaleVersionAndCallbackError(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	if _, err := s.Apps().UpdateSpec(ctx, alice, app.ID, app.Version+5, func(*model.App) error { return nil }); !errors.Is(err, store.ErrConflict) {
@@ -174,6 +180,7 @@ func TestUpdateSpecStaleVersionAndCallbackError(t *testing.T) {
 }
 
 func TestSetStatusKeepsSpec(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	edited, err := s.Apps().UpdateSpec(ctx, alice, app.ID, app.Version, func(a *model.App) error {
@@ -202,6 +209,7 @@ func TestSetStatusKeepsSpec(t *testing.T) {
 }
 
 func TestListOwnerNewestFirstWithoutDeleted(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a := createApp(t, s, "alice", "first")
 	createApp(t, s, "alice", "second")
@@ -224,6 +232,7 @@ func TestListOwnerNewestFirstWithoutDeleted(t *testing.T) {
 }
 
 func TestAppSourceRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "site")
 	in.File = "app.py"
@@ -261,6 +270,7 @@ func TestAppSourceRoundTrip(t *testing.T) {
 // A preview is an app row that points at its parent; the owner's lists do not
 // show it unless asked, the controller's resync always does.
 func TestListsHidePreviewRowsUnlessAsked(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	parent := createApp(t, s, "alice", "site")
 	child := putPreview(t, s, parent, 7, "aaaa")
@@ -291,6 +301,7 @@ func TestListsHidePreviewRowsUnlessAsked(t *testing.T) {
 }
 
 func TestMarkDeletedOnAParentMarksItsPreviewsInTheSameTransaction(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	parent := createApp(t, s, "alice", "site")
 	c1 := putPreview(t, s, parent, 1, "aaaa")
@@ -348,6 +359,7 @@ func names(apps []model.App) []string {
 }
 
 func TestListSharedByGroup(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	share := func(name string, sh model.Sharing) {
 		app := createApp(t, s, "alice", name)
@@ -389,6 +401,7 @@ func TestListSharedByGroup(t *testing.T) {
 }
 
 func TestPurgeNeedsMarkedDeleted(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	if err := s.Apps().Purge(ctx, alice, app.ID); !errors.Is(err, store.ErrNotFound) {
@@ -420,6 +433,7 @@ func TestPurgeNeedsMarkedDeleted(t *testing.T) {
 // An app is found by the name its Pod and Service carry, which is what an
 // app's own host spells.
 func TestAppIsFoundByItsObjectName(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a := createApp(t, s, "alice", "lab")
 	b := createApp(t, s, "bob", "lab")
@@ -438,6 +452,7 @@ func TestAppIsFoundByItsObjectName(t *testing.T) {
 // Revoking an app's API token leaves the id on the app row and wakes the
 // controller; it changes neither the spec nor the version.
 func TestRevokedAppTokenIsRecordedAndAnnounced(t *testing.T) {
+	t.Parallel()
 	s, _ := startedStore(t)
 	app := createApp(t, s, "alice", "lab")
 	drain(s)
@@ -466,6 +481,7 @@ func TestRevokedAppTokenIsRecordedAndAnnounced(t *testing.T) {
 }
 
 func TestSetStatusOpensAndClosesUsageIntervals(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "lab")
 	set := func(phase string) {

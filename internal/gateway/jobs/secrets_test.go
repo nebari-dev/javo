@@ -88,6 +88,7 @@ func TestJobSecretValueIsWriteOnly(t *testing.T) {
 // cannot bind into it or bind someone else's, and a platform admin, who
 // manages every job, cannot choose its secrets either.
 func TestJobSecretsArePrivateToTheirOwner(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.AliceID, "alices"), apitest.JobObj(apitest.BobID, "bobs"))
 	f.WithSecretKeys()
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
@@ -134,6 +135,7 @@ func TestJobSecretsArePrivateToTheirOwner(t *testing.T) {
 }
 
 func TestJobBindingChecksTheVariableNames(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.AliceID, "nightly"))
 	f.WithSecretKeys()
 	alice := f.Session(apitest.AliceID)
@@ -170,6 +172,7 @@ func TestJobBindingChecksTheVariableNames(t *testing.T) {
 }
 
 func TestDeletingASecretAJobUsesIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.AliceID, "nightly"))
 	f.WithSecretKeys()
 	alice := f.Session(apitest.AliceID)
@@ -191,6 +194,7 @@ func TestDeletingASecretAJobUsesIsRefused(t *testing.T) {
 
 // An app's own API token cannot give its owner's secrets to a job either.
 func TestAppTokensCannotGiveJobsSecrets(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	f := apitest.JobFixture(t, apitest.Options{}, apitest.AgentTemplate(), ws, apitest.JobObj(apitest.LocalAlice(), "nightly"))

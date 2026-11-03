@@ -15,6 +15,7 @@ import (
 )
 
 func TestDiagnosisFindsTheCauseInTheLog(t *testing.T) {
+	t.Parallel()
 	pod := apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "sales", "uid-live"), 3)
 	pod.Spec.Containers = []corev1.Container{{Name: "app", Env: []corev1.EnvVar{{Name: "DB_PASSWORD", Value: "s3cret-env-value"}}}}
 	logs := &apitest.RunLogs{
@@ -60,6 +61,7 @@ func TestDiagnosisFindsTheCauseInTheLog(t *testing.T) {
 }
 
 func TestDiagnosisReadsThePreviousRunOnlyAfterARestart(t *testing.T) {
+	t.Parallel()
 	logs := &apitest.RunLogs{Cur: "2026-10-30T12:01:00Z hello\n"}
 	f := apitest.New(t, apitest.Options{Logs: logs}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"),
 		apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "sales", "uid-live"), 0))
@@ -74,6 +76,7 @@ func TestDiagnosisReadsThePreviousRunOnlyAfterARestart(t *testing.T) {
 }
 
 func TestDiagnosisWithoutAPodStillAnswers(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Logs: &apitest.RunLogs{}}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("GET", "/api/workspaces/sales/diagnosis", "", f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusOK {
@@ -85,6 +88,7 @@ func TestDiagnosisWithoutAPodStillAnswers(t *testing.T) {
 }
 
 func TestDiagnosisOfARunningAppHasNoProposals(t *testing.T) {
+	t.Parallel()
 	app := gatewaytest.Workspace("sales", "alice-aaaaaaaa", "Sales")
 	app.Status.Phase = "Running"
 	f := apitest.New(t, apitest.Options{Logs: &apitest.RunLogs{}}, app, gatewaytest.Template("streamlit", "streamlit"))
@@ -95,6 +99,7 @@ func TestDiagnosisOfARunningAppHasNoProposals(t *testing.T) {
 }
 
 func TestDiagnosisOfAnotherPersonsAppIsNotFound(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Logs: &apitest.RunLogs{}}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"))
 	w := f.Do("GET", "/api/workspaces/sales/diagnosis", "", f.Session("bob-bbbbbbbb"))
 	if w.Code != http.StatusNotFound || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgAppNotFound) {
@@ -103,6 +108,7 @@ func TestDiagnosisOfAnotherPersonsAppIsNotFound(t *testing.T) {
 }
 
 func TestRestartAsksTheControllerAndDoesNotTouchThePod(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.CrashedApp(), gatewaytest.Template("streamlit", "streamlit"),
 		apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "sales", "uid-live"), 1))
 	before := f.GetWorkspace("alice-aaaaaaaa", "sales")

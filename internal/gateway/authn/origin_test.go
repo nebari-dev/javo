@@ -10,6 +10,7 @@ import (
 )
 
 func TestSameOrigin(t *testing.T) {
+	t.Parallel()
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	h := authn.SameOrigin(ok)
 	cases := []struct {
@@ -44,6 +45,7 @@ func TestSameOrigin(t *testing.T) {
 }
 
 func TestServerAppliesSameOriginToAPI(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	r := httptest.NewRequest("POST", "/api/auth/login", nil)
 	r.Header.Set("Sec-Fetch-Site", "cross-site")

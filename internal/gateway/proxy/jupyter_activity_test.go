@@ -19,6 +19,7 @@ import (
 // while one of its kernels runs code. The kernels are listed without
 // counting as use (no_track_activity), and status never counts.
 func TestJupyterProbeReadsTheServersOwnLastUse(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	state := "idle"
 	var tracked []string
@@ -64,6 +65,7 @@ func TestJupyterProbeReadsTheServersOwnLastUse(t *testing.T) {
 // account of use is not use by itself: each flush writes what the server
 // reports.
 func TestJupyterAppsOpenWebsocketIsNotUseByItself(t *testing.T) {
+	t.Parallel()
 	reported := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

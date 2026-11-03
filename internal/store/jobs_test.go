@@ -16,6 +16,7 @@ import (
 )
 
 func TestJobRoundTripAndSpecUpdate(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newJob("alice", "nightly")
 	in.Spec.Schedule = &model.JobSchedule{Cron: "0 2 * * *", TimeZone: "UTC", Concurrency: "Forbid"}
@@ -57,6 +58,7 @@ func TestJobRoundTripAndSpecUpdate(t *testing.T) {
 // A job keeps the size its runs use: a named size, or a custom CPU and
 // memory, and moves between the two.
 func TestJobSizeRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newJob("alice", "nightly")
 	in.Resources = &model.AppResources{CPU: resource.MustParse("2500m"), Memory: resource.MustParse("6Gi")}
@@ -90,6 +92,7 @@ func TestJobSizeRoundTrip(t *testing.T) {
 }
 
 func TestJobSetStatusKeepsSpec(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	if _, err := s.Jobs().UpdateSpec(ctx, alice, j.ID, 1, func(j *model.Job) error {
@@ -110,6 +113,7 @@ func TestJobSetStatusKeepsSpec(t *testing.T) {
 }
 
 func TestRequestRunAndCancel(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	run, err := s.Jobs().RequestRun(ctx, alice, j.ID, map[string]string{"n": "5"})
@@ -144,6 +148,7 @@ func TestRequestRunAndCancel(t *testing.T) {
 }
 
 func TestRecordRunCreatesScheduledRun(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	run, err := s.Jobs().RecordRun(ctx, model.Run{
@@ -163,6 +168,7 @@ func TestRecordRunCreatesScheduledRun(t *testing.T) {
 }
 
 func TestPruneRunsKeepsNewest(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	other := createJob(t, s, "alice", "other")
@@ -204,6 +210,7 @@ func TestPruneRunsKeepsNewest(t *testing.T) {
 // A run whose Kubernetes Job still exists stays, even beyond keep: the
 // controller would otherwise record that Job again as a new run.
 func TestPruneRunsKeepsRunsOfLiveJobs(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	for _, k := range []string{"j-1", "j-2", "j-3", "j-4"} {
@@ -229,6 +236,7 @@ func TestPruneRunsKeepsRunsOfLiveJobs(t *testing.T) {
 // "Newest" is by when the run was scheduled or started, not by when its row
 // was inserted: a re-recorded old run must not push a newer one out.
 func TestPruneRunsOrdersByRunTimeNotInsertOrder(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	for i, k := range []string{"new", "old"} { // inserted newest first
@@ -248,6 +256,7 @@ func TestPruneRunsOrdersByRunTimeNotInsertOrder(t *testing.T) {
 }
 
 func TestPurgeJobRemovesRuns(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	run, _ := s.Jobs().RequestRun(ctx, alice, j.ID, nil)
@@ -269,6 +278,7 @@ func TestPurgeJobRemovesRuns(t *testing.T) {
 // A resync, a finalizer retry or a reconcile that runs twice records the same
 // Kubernetes Job again: it must stay one run.
 func TestRecordRunTwiceForTheSameK8sJobKeepsOneRun(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	first, err := s.Jobs().RecordRun(ctx, model.Run{
@@ -299,6 +309,7 @@ func TestRecordRunTwiceForTheSameK8sJobKeepsOneRun(t *testing.T) {
 }
 
 func TestRecordRunAgainKeepsNotifiedTimeOutputsAndTimes(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	first, err := s.Jobs().RecordRun(ctx, model.Run{
@@ -333,6 +344,7 @@ func TestRecordRunAgainKeepsNotifiedTimeOutputsAndTimes(t *testing.T) {
 }
 
 func TestPruneRunsIsAudited(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	for range 3 {
@@ -360,6 +372,7 @@ func TestPruneRunsIsAudited(t *testing.T) {
 
 // Two people may each have a job of the same short name, also in one namespace.
 func TestTwoOwnersMayUseTheSameJobName(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	a := createJob(t, s, "alice", "nightly")
 	b := createJob(t, s, "bob", "nightly")
@@ -373,6 +386,7 @@ func TestTwoOwnersMayUseTheSameJobName(t *testing.T) {
 }
 
 func TestUnnotifiedFailedRunsListsOnlyFailuresNotYetTold(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	record := func(k8sJob, outcome string) model.Run {
@@ -415,6 +429,7 @@ func notifiedFalse(version int64) metav1.Condition {
 // The reconciler read the row before the notifier set Notified=False; its
 // write must not drop the condition.
 func TestSetStatusKeepsStoredNotifiedCondition(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	if err := s.Jobs().SetCondition(ctx, j.ID, notifiedFalse(1)); err != nil {
@@ -433,6 +448,7 @@ func TestSetStatusKeepsStoredNotifiedCondition(t *testing.T) {
 // The notifier read the row before the reconciler wrote a new phase; adding
 // the condition must not bring back the old phase or observed version.
 func TestSetConditionKeepsNewerPhase(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	if err := s.Jobs().SetStatus(ctx, j.ID, 1, model.JobStatus{Phase: model.JobPhaseBlocked}); err != nil {

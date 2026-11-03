@@ -12,6 +12,7 @@ import (
 )
 
 func TestFilesAnswersARepeatOpenFromTheCacheAndRefreshesIt(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "a.py"}}}
 	f, clk := apitest.NewListingFixture(t, l)
 	alice := f.Session("alice")
@@ -40,6 +41,7 @@ func TestFilesAnswersARepeatOpenFromTheCacheAndRefreshesIt(t *testing.T) {
 }
 
 func TestFilesNeverAnswersOneUserWithAnothersListing(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "alice-notes.md"}}}
 	f, _ := apitest.NewListingFixture(t, l)
 	if b := apitest.DecodeListing(t, f.Do(http.MethodGet, "/api/files?path=", "", f.Session("alice"))); apitest.Names(b)[0] != "alice-notes.md" {
@@ -53,6 +55,7 @@ func TestFilesNeverAnswersOneUserWithAnothersListing(t *testing.T) {
 }
 
 func TestFilesForgetsTheListingsOfAUserWhoseHomeAnAppIsAboutToChange(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "app.py"}}}
 	clk := &apitest.TestClock{T: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	f := apitest.New(t, apitest.Options{Files: l, Now: clk.Now}, gatewaytest.Template("streamlit", "streamlit"))
@@ -71,6 +74,7 @@ func TestFilesForgetsTheListingsOfAUserWhoseHomeAnAppIsAboutToChange(t *testing.
 }
 
 func TestFilesDropsAListingThatCannotBeReadAnyMore(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "a.py"}}}
 	f, clk := apitest.NewListingFixture(t, l)
 	alice := f.Session("alice")
@@ -84,6 +88,7 @@ func TestFilesDropsAListingThatCannotBeReadAnyMore(t *testing.T) {
 }
 
 func TestFilesFillsTheCacheOnceAStartingHomeOpens(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Err: files.ErrHomeStarting}
 	f, _ := apitest.NewListingFixture(t, l)
 	alice := f.Session("alice")
@@ -102,6 +107,7 @@ func TestFilesFillsTheCacheOnceAStartingHomeOpens(t *testing.T) {
 }
 
 func TestWarmListsTheHomeFolderAheadOfThePickerAtMostOnceInAWhile(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "a.py"}}}
 	f, clk := apitest.NewListingFixture(t, l)
 	alice := f.Session("alice")
@@ -129,6 +135,7 @@ func TestWarmListsTheHomeFolderAheadOfThePickerAtMostOnceInAWhile(t *testing.T) 
 }
 
 func TestWarmRequiresSignIn(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{}
 	f, _ := apitest.NewListingFixture(t, l)
 	if rec := f.Do(http.MethodPost, "/api/files/warm", "", nil); rec.Code != http.StatusUnauthorized {
@@ -137,6 +144,7 @@ func TestWarmRequiresSignIn(t *testing.T) {
 }
 
 func TestUsingTheAPIKeepsTheUsersHomeOpen(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{}
 	f, _ := apitest.NewListingFixture(t, l)
 	if rec := f.Do(http.MethodGet, "/api/workspaces", "", f.Session("alice")); rec.Code != http.StatusOK {
@@ -153,6 +161,7 @@ func TestUsingTheAPIKeepsTheUsersHomeOpen(t *testing.T) {
 }
 
 func TestFilesAnswersAColdOpenAsSoonAsTheHomeOpens(t *testing.T) {
+	t.Parallel()
 	// The file pod is ready on the third time the gateway asks.
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "a.py"}}, StartingFor: 2}
 	f, _ := apitest.NewListingFixture(t, l)
@@ -164,6 +173,7 @@ func TestFilesAnswersAColdOpenAsSoonAsTheHomeOpens(t *testing.T) {
 }
 
 func TestWarmAfterAnAppTookTheHomeIsNotHeldBack(t *testing.T) {
+	t.Parallel()
 	l := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "app.py"}}}
 	clk := &apitest.TestClock{T: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	f := apitest.New(t, apitest.Options{Files: l, Now: clk.Now}, gatewaytest.Template("streamlit", "streamlit"))

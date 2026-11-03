@@ -19,6 +19,7 @@ func labTemplate(source string) model.Template {
 }
 
 func TestTemplatesPutCreatesThenUpdatesByVersion(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	sync := model.Actor{System: "system:sync"}
 	tpl := labTemplate("builtin")
@@ -53,6 +54,7 @@ func TestTemplatesPutCreatesThenUpdatesByVersion(t *testing.T) {
 // Two admins edit the same template: the second save, made against the
 // version both read, must not overwrite the first.
 func TestTemplatesPutRejectsStaleVersion(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	created, err := s.Templates().Put(ctx, alice, labTemplate("admin"), 0)
 	if err != nil {
@@ -75,6 +77,7 @@ func TestTemplatesPutRejectsStaleVersion(t *testing.T) {
 }
 
 func TestTemplatesPutCreateOnlyAndMissing(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if _, err := s.Templates().Put(ctx, alice, labTemplate("admin"), 3); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("update of a missing template = %v, want ErrNotFound", err)
@@ -89,6 +92,7 @@ func TestTemplatesPutCreateOnlyAndMissing(t *testing.T) {
 
 // The chart sync must not take over a template an admin made with the same name.
 func TestTemplatesBuiltinPutDoesNotOverwriteAdminTemplate(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	adminTpl, err := s.Templates().Put(ctx, alice, labTemplate("admin"), 0)
 	if err != nil {
@@ -110,6 +114,7 @@ func TestTemplatesBuiltinPutDoesNotOverwriteAdminTemplate(t *testing.T) {
 }
 
 func TestTemplatesPutRejectsUnknownSource(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for _, src := range []string{"", "chart"} {
 		if _, err := s.Templates().Put(ctx, alice, labTemplate(src), 0); err == nil {
@@ -119,6 +124,7 @@ func TestTemplatesPutRejectsUnknownSource(t *testing.T) {
 }
 
 func TestLocalAccounts(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	acc := s.LocalAccounts()
 	if err := acc.Put(ctx, alice, store.LocalAccount{Username: "alice", Hash: "h1", Groups: []string{"admin"}}); err != nil {
@@ -150,6 +156,7 @@ func TestLocalAccounts(t *testing.T) {
 }
 
 func TestUsageStopClosesOnlyOpenIntervals(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	u := s.Usage()
 	if err := u.Start(ctx, store.UsageInterval{AppID: "a1", Owner: "alice", Template: "jupyterlab", Size: "small", StartedAt: t0}); err != nil {
@@ -174,6 +181,7 @@ func TestUsageStopClosesOnlyOpenIntervals(t *testing.T) {
 }
 
 func TestFactsKeepTheLatestValue(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	f := s.Facts()
 	if _, err := f.Get(ctx, "netpol"); !errors.Is(err, store.ErrNotFound) {

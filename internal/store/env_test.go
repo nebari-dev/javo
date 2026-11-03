@@ -12,6 +12,7 @@ import (
 )
 
 func TestAppKeepsItsPlainVariables(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	in := newApp("alice", "lab")
 	in.Env = []model.EnvVar{{Name: "LOG_LEVEL", Value: "debug"}, {Name: "EMPTY"}}
@@ -28,6 +29,7 @@ func TestAppKeepsItsPlainVariables(t *testing.T) {
 // Plain values and secrets change together: a refused secret leaves both as
 // they were, and a change moves the version (the app restarts).
 func TestSetAppEnvIsOneChange(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "API_KEY")
 	app := createApp(t, s, "alice", "lab")
@@ -61,6 +63,7 @@ func TestSetAppEnvIsOneChange(t *testing.T) {
 }
 
 func TestSetJobEnvIsOneChange(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	createSecret(t, s, "alice", "API_KEY")
 	job := createJob(t, s, "alice", "nightly")

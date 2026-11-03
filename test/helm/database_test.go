@@ -70,6 +70,7 @@ func kindsOf(t *testing.T, out string) map[string][]string {
 }
 
 func TestSQLiteRendersOneDeploymentWithRecreateAndAKeptClaim(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, sqliteArgs...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -110,6 +111,7 @@ func TestSQLiteRendersOneDeploymentWithRecreateAndAKeptClaim(t *testing.T) {
 }
 
 func TestPostgresRendersTwoDeploymentsAndNoClaim(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, append(postgresArgs, "--set", "gateway.replicas=3", "--set", "controller.replicas=2")...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -147,6 +149,7 @@ func hasVolumeFromSecret(d appsv1.Deployment, secret string) bool {
 }
 
 func TestSQLiteRefusesMoreThanOneReplica(t *testing.T) {
+	t.Parallel()
 	for _, arg := range []string{"gateway.replicas=2", "controller.replicas=2"} {
 		out, err := render(t, append(sqliteArgs, "--set", arg)...)
 		if err == nil {
@@ -159,6 +162,7 @@ func TestSQLiteRefusesMoreThanOneReplica(t *testing.T) {
 }
 
 func TestPostgresNeedsItsConnectionSecret(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, "--set", "database.engine=postgres")
 	if err == nil || !strings.Contains(out, "database.postgres.dsnSecret") {
 		t.Fatalf("render = %v\n%s; want a message naming database.postgres.dsnSecret", err, out)
@@ -172,6 +176,7 @@ func TestPostgresNeedsItsConnectionSecret(t *testing.T) {
 // The chart ships no custom resource definitions or resources: the data is in
 // the database.
 func TestNoCustomResourcesAreRendered(t *testing.T) {
+	t.Parallel()
 	if _, err := os.Stat(filepath.Join(chart, "crds")); err == nil {
 		t.Error("the chart has a crds directory")
 	}
@@ -192,6 +197,7 @@ func TestNoCustomResourcesAreRendered(t *testing.T) {
 // one pod with SQLite, the controller pods with Postgres (the gateway pods
 // wait for it through /readyz).
 func TestUpgradeRunsBeforeTheComponentsStart(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
@@ -217,6 +223,7 @@ func TestUpgradeRunsBeforeTheComponentsStart(t *testing.T) {
 
 // The gateway installs the built-in templates from the files the chart mounts.
 func TestBuiltInTemplatesAreMountedWhereTheGatewayReadsThem(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {

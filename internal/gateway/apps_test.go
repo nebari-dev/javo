@@ -45,6 +45,7 @@ import (
 )
 
 func TestTicketRefusesTargetsThatAreNotOurAppUrls(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	bobTok := f.ui(bob())
 	for name, to := range map[string]string{
@@ -68,6 +69,7 @@ func TestTicketRefusesTargetsThatAreNotOurAppUrls(t *testing.T) {
 }
 
 func TestTicketNeedsASession(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	w := f.ticketFor("", salesURL)
 	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "/login?next=") {
@@ -76,6 +78,7 @@ func TestTicketNeedsASession(t *testing.T) {
 }
 
 func TestTicketFlowGivesAnAppCookieAndTheApp(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	aliceTok := f.ui(alice())
 	to := salesURL + "lab?x=1"
@@ -116,6 +119,7 @@ func TestTicketFlowGivesAnAppCookieAndTheApp(t *testing.T) {
 }
 
 func TestTicketWorksOnceAndOnlyForSixtySeconds(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	aliceTok := f.ui(alice())
 	mint := func() string { return f.ticketFor(aliceTok, salesURL).Header().Get("Location") }
@@ -139,6 +143,7 @@ func TestTicketWorksOnceAndOnlyForSixtySeconds(t *testing.T) {
 }
 
 func TestTicketForOneAppIsRefusedAtAnother(t *testing.T) {
+	t.Parallel()
 	other := gatewaytest.App(apitest.AliceID, "other-app")
 	other.Template = "streamlit"
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil), other)
@@ -150,6 +155,7 @@ func TestTicketForOneAppIsRefusedAtAnother(t *testing.T) {
 }
 
 func TestRemovingTheGroupFromTheShareEndsAccessOnTheNextRequest(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	bobTok := f.ui(bob())
 	cookie := f.open(bobTok, salesURL)
@@ -164,6 +170,7 @@ func TestRemovingTheGroupFromTheShareEndsAccessOnTheNextRequest(t *testing.T) {
 }
 
 func TestEndingTheUISessionSendsTheNextRequestToTheTicketFlow(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	bobTok := f.ui(bob())
 	cookie := f.open(bobTok, salesURL)
@@ -181,6 +188,7 @@ func TestEndingTheUISessionSendsTheNextRequestToTheTicketFlow(t *testing.T) {
 }
 
 func TestLosingTheGroupAtTheProviderReachesRunningApps(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	cookie := f.open(f.ui(bob()), salesURL)
 	if w := f.serve(f.srv, "GET", salesURL, cookie); w.Code != 200 || f.idp.calls != 0 {
@@ -201,6 +209,7 @@ func TestLosingTheGroupAtTheProviderReachesRunningApps(t *testing.T) {
 }
 
 func TestAPersonTheProviderRevokedLosesTheirAppSession(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	bobTok := f.ui(bob())
 	cookie := f.open(bobTok, salesURL)
@@ -219,6 +228,7 @@ func TestAPersonTheProviderRevokedLosesTheirAppSession(t *testing.T) {
 }
 
 func TestTicketIsNotMintedForAPersonWhoLostTheGroupAtTheProvider(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	bobTok := f.ui(bob())
 	f.now = f.now.Add(2 * time.Hour)
@@ -234,6 +244,7 @@ func TestTicketIsNotMintedForAPersonWhoLostTheGroupAtTheProvider(t *testing.T) {
 }
 
 func TestPublicAppIsProxiedToAnonymousWithoutCookies(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessPublic, salesApp(&model.Sharing{Access: model.AccessPublic}))
 	w := f.serve(f.srv, "GET", salesURL, &http.Cookie{Name: model.AppCookieName, Value: "stale"}, &http.Cookie{Name: "app_pref", Value: "x"})
 	if w.Code != 200 || w.Body.String() != "hello app" {
@@ -258,6 +269,7 @@ func TestPublicAppIsProxiedToAnonymousWithoutCookies(t *testing.T) {
 }
 
 func TestPrivateAndMissingAppsLookTheSameToAnonymous(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	private := f.serve(f.srv, "GET", salesURL)
 	missing := f.serve(f.srv, "GET", "https://"+appsHost+"/u/"+apitest.AliceID+"/nope/")
@@ -269,6 +281,7 @@ func TestPrivateAndMissingAppsLookTheSameToAnonymous(t *testing.T) {
 }
 
 func TestViewerWebsocketUpgradePassesAndRecordsActivity(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessSignedIn, salesApp(&model.Sharing{Access: model.AccessSignedIn}))
 	cookie := f.open(f.ui(bob()), salesURL)
 	srv := httptest.NewServer(f.srv)
@@ -300,6 +313,7 @@ func TestViewerWebsocketUpgradePassesAndRecordsActivity(t *testing.T) {
 }
 
 func TestUpgradeIsRefusedOnceTheShareIsGone(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	cookie := f.open(f.ui(bob()), salesURL)
 	f.setSharing(nil)
@@ -316,6 +330,7 @@ func TestUpgradeIsRefusedOnceTheShareIsGone(t *testing.T) {
 }
 
 func TestSubdomainFlow(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	base := "https://" + sales + "." + appsHost + "/"
 	cookie := f.open(f.ui(bob()), base+"lab")
@@ -337,6 +352,7 @@ func TestSubdomainFlow(t *testing.T) {
 // used, with the browser's Host and Origin. ttyd (the coding agent templates,
 // --check-origin) refuses a websocket whose Origin does not match its Host.
 func TestSubdomainWebsocketKeepsHostAndOrigin(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	host := sales + "." + appsHost
 	cookie := f.open(f.ui(bob()), "https://"+host+"/")
@@ -361,6 +377,7 @@ func TestSubdomainWebsocketKeepsHostAndOrigin(t *testing.T) {
 }
 
 func TestTheUIHostIsNotAnAppsHost(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	if w := f.serve(f.srv, "GET", "https://"+uiHost+"/healthz"); w.Code != 200 {
 		t.Fatalf("ui host healthz: %d", w.Code)
@@ -375,6 +392,7 @@ func TestTheUIHostIsNotAnAppsHost(t *testing.T) {
 
 // A kubelet probe sends the pod's address as Host, not either configured host.
 func TestHealthzAnswersWhateverHostTheProbeSends(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	for _, host := range []string{"10.42.0.7:8080", "10.42.0.7", appsHost} {
 		for _, path := range []string{"/healthz", "/readyz"} {
@@ -390,6 +408,7 @@ func TestHealthzAnswersWhateverHostTheProbeSends(t *testing.T) {
 }
 
 func TestAnAppAddressWithoutItsTrailingSlashOpens(t *testing.T) {
+	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
 	jar, _ := cookiejar.New(nil)
 	ui, _ := url.Parse("https://" + uiHost + "/")
@@ -409,6 +428,7 @@ func TestAnAppAddressWithoutItsTrailingSlashOpens(t *testing.T) {
 }
 
 func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
+	t.Parallel()
 	f := newOneHost(t, salesApp(nil))
 	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
 	w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(admin)))
@@ -434,6 +454,7 @@ func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
 }
 
 func TestOneHostViewerWithTheUISessionOpensASharedApp(t *testing.T) {
+	t.Parallel()
 	f := newOneHost(t, salesApp(sharedWithDS()))
 	if w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(bob()))); w.Code != 200 {
 		t.Fatalf("shared viewer: %d", w.Code)

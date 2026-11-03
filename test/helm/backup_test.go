@@ -19,6 +19,7 @@ var (
 // A fresh install backs its database up every night: SQLite in the server,
 // Postgres with the CronJob.
 func TestDatabaseIsBackedUpNightlyByDefault(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, sqliteArgs...)
 	if err != nil {
 		t.Fatalf("sqlite: %v\n%s", err, out)
@@ -58,6 +59,7 @@ func TestDatabaseIsBackedUpNightlyByDefault(t *testing.T) {
 
 // An empty schedule turns backups off, for a managed Postgres with its own.
 func TestEmptyScheduleTurnsBackupsOff(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, append(slices.Clone(engineArgs(engine)), "--set", "database.backup.schedule=")...)
 		if err != nil {
@@ -74,6 +76,7 @@ func TestEmptyScheduleTurnsBackupsOff(t *testing.T) {
 }
 
 func TestSQLiteBackupsRunInTheServerIntoTheirOwnKeptClaim(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, sqliteBackupArgs...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -126,6 +129,7 @@ func TestSQLiteBackupsRunInTheServerIntoTheirOwnKeptClaim(t *testing.T) {
 }
 
 func TestPostgresBackupsAreACronJobWithThePinnedImage(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, postgresBackupArgs...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -181,6 +185,7 @@ func TestPostgresBackupsAreACronJobWithThePinnedImage(t *testing.T) {
 // controller makes the claim instead (and never deletes it); the chart only
 // names it.
 func TestPostgresBackupClaimIsMadeByTheControllerNotTheRelease(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, append(slices.Clone(postgresBackupArgs), "--set", "database.backup.size=9Gi", "--set", "database.backup.storageClass=fast")...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -205,6 +210,7 @@ func TestPostgresBackupClaimIsMadeByTheControllerNotTheRelease(t *testing.T) {
 // With a bucket every dump is copied off the cluster, so the CronJob only
 // needs scratch space for it: no claim at all.
 func TestPostgresBackupsToABucketUseScratchSpace(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, bucketArgs("postgres")...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -228,6 +234,7 @@ func TestPostgresBackupsToABucketUseScratchSpace(t *testing.T) {
 // SQLite: the server mounts the claim, so it binds at install; the chart
 // keeps rendering it and the controller makes nothing.
 func TestSQLiteBackupClaimStaysInTheRelease(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, sqliteBackupArgs...)
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -276,6 +283,7 @@ func releaseRoleGrants(t *testing.T, out, name, resource, verb string) bool {
 }
 
 func TestBackupKeepMustBePositive(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		args := append(slices.Clone(engineArgs(engine)), "--set", "database.backup.schedule=0 3 * * *", "--set", "database.backup.keep=0")
 		out, err := render(t, args...)

@@ -38,6 +38,7 @@ func loadConfig(t *testing.T, out string) config.Platform {
 }
 
 func TestBucketIsOffByDefault(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, engineArgs(engine)...)
 		if err != nil {
@@ -56,6 +57,7 @@ func TestBucketIsOffByDefault(t *testing.T) {
 // and every component that runs restic or starts backup Jobs has the key and
 // the password mounted where the config says.
 func TestBucketIsConfiguredAndItsSecretsMounted(t *testing.T) {
+	t.Parallel()
 	for _, engine := range engines {
 		out, err := render(t, bucketArgs(engine)...)
 		if err != nil {
@@ -89,6 +91,7 @@ func TestBucketIsConfiguredAndItsSecretsMounted(t *testing.T) {
 // Postgres: the backup CronJob copies each dump to the bucket with the javo
 // image, after pg_dump wrote it.
 func TestPostgresBackupCronJobCopiesTheDumpToTheBucket(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, bucketArgs("postgres")...)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -111,6 +114,7 @@ func TestPostgresBackupCronJobCopiesTheDumpToTheBucket(t *testing.T) {
 }
 
 func TestBucketNeedsItsKey(t *testing.T) {
+	t.Parallel()
 	args := append(slices.Clone(sqliteArgs), "--set", "backupTarget.enabled=true", "--set", "backupTarget.endpoint=https://s3.example.com", "--set", "backupTarget.bucket=b")
 	if out, err := render(t, args...); err == nil || !strings.Contains(out+err.Error(), "backupTarget.existingSecret") {
 		t.Fatalf("render without the key: %v", err)
@@ -121,6 +125,7 @@ func TestBucketNeedsItsKey(t *testing.T) {
 // (it carries restic and the javo binary), an API token for its runs, and
 // only platform admins may use it. Without a bucket there is none.
 func TestBackupJobTemplateComesWithTheBucketForAdminsOnly(t *testing.T) {
+	t.Parallel()
 	out, err := render(t, append(bucketArgs("sqlite"), "--set", "config.roles.platformAdmin.groups={/javo-admins}", "--set", "image.tag=9.9.9")...)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)

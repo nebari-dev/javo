@@ -16,6 +16,7 @@ import (
 // The admin sees the database backups, newest first, and their health; a
 // schedule with a recent backup is healthy, and Back up now adds one.
 func TestAdminListsAndTakesDatabaseBackups(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	dir := t.TempDir()
 	apitest.BackupOf(t, dir, now.Add(-30*time.Hour))
@@ -45,6 +46,7 @@ func TestAdminListsAndTakesDatabaseBackups(t *testing.T) {
 // Without a schedule, or with backups older than two scheduled runs, the
 // status says so; with Postgres the backups are the CronJob's.
 func TestDatabaseBackupStatus(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	stale := t.TempDir()
 	apitest.BackupOf(t, stale, now.Add(-72*time.Hour))
@@ -70,6 +72,7 @@ func TestDatabaseBackupStatus(t *testing.T) {
 // comes back, one that exists is left alone, one whose owner or template is
 // gone cannot come back. Restore brings back only the first, held.
 func TestRestorePreviewAndRestore(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	dir := t.TempDir()
 	alice := apitest.PersonID("alice")
@@ -121,6 +124,7 @@ func TestRestorePreviewAndRestore(t *testing.T) {
 
 // Only a listed backup can be read: a name with a path in it is not found.
 func TestRestorePreviewNeedsAListedBackup(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Backups: apitest.SqliteBackups(t.TempDir())})
 	admin := f.Session(apitest.AdminID, "javo-admins")
 	for _, n := range []string{"javo-20260101T000000Z.db", "..%2Fjavo.db"} {
@@ -133,6 +137,7 @@ func TestRestorePreviewNeedsAListedBackup(t *testing.T) {
 // The Backups page says whether home folders are backed up: without a
 // backup bucket they are in no backup; with one, the bucket's part tells.
 func TestAdminBackupsSayHomeFoldersNeedTheBucket(t *testing.T) {
+	t.Parallel()
 	type homesJSON struct {
 		HomeFolders *struct {
 			Reason  string `json:"reason"`

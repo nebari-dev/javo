@@ -98,6 +98,7 @@ func TestSecretValueIsWriteOnly(t *testing.T) {
 }
 
 func TestSecretsArePrivateToTheirOwner(t *testing.T) {
+	t.Parallel()
 	bobs := gatewaytest.Workspace("bobs", "bob-bbbbbbbb", "Bobs")
 	alices := gatewaytest.Workspace("dash", "alice-aaaaaaaa", "Dash")
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), bobs, alices)
@@ -140,6 +141,7 @@ func TestSecretsArePrivateToTheirOwner(t *testing.T) {
 }
 
 func TestBindingChecksTheVariableNames(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Workspace("dash", "alice-aaaaaaaa", "Dash"))
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")
@@ -187,6 +189,7 @@ func TestBindingChecksTheVariableNames(t *testing.T) {
 }
 
 func TestPreviewsGetNoSecrets(t *testing.T) {
+	t.Parallel()
 	parent := gatewaytest.Workspace("site", "alice-aaaaaaaa", "Site")
 	parent.Source = &model.Source{URL: "https://github.com/example-org/site"}
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), parent)
@@ -201,6 +204,7 @@ func TestPreviewsGetNoSecrets(t *testing.T) {
 }
 
 func TestDeletingASecretAnAppUsesIsRefused(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Workspace("dash", "alice-aaaaaaaa", "Dash"))
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")
@@ -221,6 +225,7 @@ func TestDeletingASecretAnAppUsesIsRefused(t *testing.T) {
 }
 
 func TestSecretFieldsAreChecked(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")
@@ -246,6 +251,7 @@ func TestSecretFieldsAreChecked(t *testing.T) {
 // An import binds the importer's own secrets of the names the file gives; a
 // name they have no secret for refuses that app.
 func TestImportBindsSecretsByName(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	f.WithSecretKeys()
 	alice := f.Session("alice-aaaaaaaa")
@@ -270,6 +276,7 @@ func TestImportBindsSecretsByName(t *testing.T) {
 }
 
 func TestSecretsNeedTheKeyset(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
 	w := f.Do("POST", "/api/secrets", `{"name":"K","value":"v"}`, f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusServiceUnavailable || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsUnavailable) {
@@ -280,6 +287,7 @@ func TestSecretsNeedTheKeyset(t *testing.T) {
 // An app's own API token reaches every person the app is shared with, so it
 // cannot touch secrets: it could otherwise give itself all of its owner's.
 func TestAppTokensCannotUseSecrets(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	f := apitest.New(t, apitest.Options{}, apitest.AgentTemplate(), ws)

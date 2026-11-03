@@ -9,6 +9,7 @@ import (
 )
 
 func TestCreateWithIdleStop(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()}, gatewaytest.Template("lab", "jupyterlab"))
 	bob := f.Session("bob-bbbbbbbb")
 	for _, c := range []struct {
@@ -32,6 +33,7 @@ func TestCreateWithIdleStop(t *testing.T) {
 }
 
 func TestCreateRefusesAnIdleStopThePolicyForbids(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()}, gatewaytest.Template("lab", "jupyterlab"))
 	bob := f.Session("bob-bbbbbbbb")
 	for _, c := range []struct{ minutes, want string }{
@@ -54,6 +56,7 @@ func TestCreateRefusesAnIdleStopThePolicyForbids(t *testing.T) {
 
 // Platform admins may turn the stop off even when people may not.
 func TestAdminMayTurnIdleStopOff(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()}, gatewaytest.Template("lab", "jupyterlab"))
 	admin := f.Session("alice-aaaaaaaa", "javo-admins")
 	w := f.Do("POST", "/api/workspaces", `{"displayName":"Lab","template":"lab","idleStopMinutes":0}`, admin)
@@ -63,6 +66,7 @@ func TestAdminMayTurnIdleStopOff(t *testing.T) {
 }
 
 func TestChangingIdleStop(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("lab", "bob-bbbbbbbb", "Lab")
 	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()}, gatewaytest.Template("streamlit", "streamlit"), ws)
 	bob := f.Session("bob-bbbbbbbb")
@@ -84,6 +88,7 @@ func TestChangingIdleStop(t *testing.T) {
 
 // The UI reads the policy as it applies to the caller.
 func TestIdleStopPolicy(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()})
 	type policyJSON struct {
 		DefaultMinutes, MinMinutes, MaxMinutes int32
@@ -101,6 +106,7 @@ func TestIdleStopPolicy(t *testing.T) {
 
 // An app the idle check stopped says so until it is started again.
 func TestStartClearsTheIdleStop(t *testing.T) {
+	t.Parallel()
 	ws := gatewaytest.Workspace("lab", "bob-bbbbbbbb", "Lab")
 	ws.Paused, ws.IdleStopMinutes, ws.StoppedIdleAfter = true, 60, 60
 	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()}, gatewaytest.Template("streamlit", "streamlit"), ws)

@@ -7,6 +7,7 @@ import (
 )
 
 func TestClientIP(t *testing.T) {
+	t.Parallel()
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.42.0.1/32"), netip.MustParsePrefix("10.43.0.0/16")}
 	cases := []struct {
 		name    string

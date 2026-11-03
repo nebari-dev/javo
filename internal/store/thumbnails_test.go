@@ -11,6 +11,7 @@ import (
 )
 
 func TestThumbnailSetGetReplaceRemove(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	app := createApp(t, s, "alice", "dash")
 
@@ -63,6 +64,7 @@ func TestThumbnailSetGetReplaceRemove(t *testing.T) {
 }
 
 func TestThumbnailRefusedForMissingOrDeletedApp(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if err := s.Thumbnails().Set(ctx, alice, "no-such-app", "image/png", []byte("x")); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Set on a missing app = %v, want ErrNotFound", err)

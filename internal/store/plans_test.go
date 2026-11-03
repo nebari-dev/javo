@@ -17,6 +17,7 @@ func plan(id, owner string, expires time.Time) store.Plan {
 }
 
 func TestPlanIsDecidedOnceUnderRace(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	if err := s.Plans().Create(ctx, plan("p1", "alice-a", t0.Add(time.Hour))); err != nil {
 		t.Fatal(err)
@@ -50,6 +51,7 @@ func TestPlanIsDecidedOnceUnderRace(t *testing.T) {
 }
 
 func TestPlanDecisionIsAuditedWithItsSource(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	p := plan("p1", "alice-a", t0.Add(time.Hour))
 	p.Source = "mcp:claude-code"
@@ -77,6 +79,7 @@ func TestPlanDecisionIsAuditedWithItsSource(t *testing.T) {
 }
 
 func TestSweepDeletesOnlyExpiredPlans(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	for _, p := range []store.Plan{plan("old", "a", t0.Add(-time.Minute)), plan("new", "a", t0.Add(time.Minute))} {
 		if err := s.Plans().Create(ctx, p); err != nil {
@@ -96,6 +99,7 @@ func TestSweepDeletesOnlyExpiredPlans(t *testing.T) {
 }
 
 func TestAIUsageHoldsTheLimitAcrossCallers(t *testing.T) {
+	t.Parallel()
 	s := storetest.New(t)
 	u := s.AIUsage()
 	var wg sync.WaitGroup

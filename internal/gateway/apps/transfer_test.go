@@ -14,6 +14,7 @@ import (
 
 // Export holds the caller's own apps and nobody else's, also for an admin.
 func TestExportOnlyCallersApps(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"),
 		gatewaytest.Workspace("plots", apitest.AliceID, "Plots"), gatewaytest.Workspace("notes", apitest.AliceID, "Notes"), gatewaytest.Workspace("secret", apitest.MemberID, "Secret"))
 	w := f.Do(http.MethodGet, "/api/workspaces/export", "", f.Session(apitest.AliceID, "javo-admins"))
@@ -32,6 +33,7 @@ func TestExportOnlyCallersApps(t *testing.T) {
 // Export, delete one app, import: the preview says which app comes back and
 // which already exists; the import creates it stopped and owned by the caller.
 func TestExportImportRoundTrip(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"),
 		apitest.WithFile(gatewaytest.Workspace("plots", apitest.AliceID, "Plots")), apitest.WithFile(gatewaytest.Workspace("notes", apitest.AliceID, "Notes")))
 	alice := f.Session(apitest.AliceID)
@@ -84,6 +86,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 
 // Whatever owner a file names, the import belongs to the caller.
 func TestImportForcesCallerAsOwner(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	withOwner := strings.Replace(apitest.StreamlitApp(apitest.MemberID, "Theirs"), "file: app.py}", "file: app.py, owner: "+apitest.MemberID+"}", 1)
 	w := f.Do(http.MethodPost, "/api/workspaces/import", apitest.ImportBody(apitest.StreamlitApp(apitest.MemberID, "Plots")+withOwner, "skip"), f.Session(apitest.AliceID))
@@ -102,6 +105,7 @@ func TestImportForcesCallerAsOwner(t *testing.T) {
 // A file that is too big, has too many apps, or is not YAML is refused with
 // catalog text; an entry that is not a valid app is a row of its own.
 func TestImportRejectsOversizeAndBadFiles(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session(apitest.AliceID)
 

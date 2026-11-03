@@ -14,6 +14,7 @@ import (
 )
 
 func TestWithoutAnEnvironmentManagerNoEnvironmentsAreOffered(t *testing.T) {
+	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session("alice-aaaaaaaa")
 	got := apitest.Decode[apitest.EnvListJSON](t, f.Do("GET", "/api/environments", "", alice))
@@ -27,6 +28,7 @@ func TestWithoutAnEnvironmentManagerNoEnvironmentsAreOffered(t *testing.T) {
 }
 
 func TestEnvironmentsAreListedAsThePerson(t *testing.T) {
+	t.Parallel()
 	fresh := apitest.IdTokenAt("alice", time.Now().Add(time.Hour))
 	src := &apitest.FakeSource{Want: fresh}
 	f := apitest.New(t, apitest.Options{Environments: src, Extra: []authprovider.Provider{apitest.RefreshingProvider{}}})
@@ -39,6 +41,7 @@ func TestEnvironmentsAreListedAsThePerson(t *testing.T) {
 // An ID token about to expire is refreshed with the identity provider first,
 // so the manager is never handed one it will refuse.
 func TestAnExpiredIDTokenIsRefreshedBeforeItIsUsed(t *testing.T) {
+	t.Parallel()
 	renewed := apitest.IdTokenAt("alice-renewed", time.Now().Add(time.Hour))
 	src := &apitest.FakeSource{Want: renewed}
 	f := apitest.New(t, apitest.Options{Environments: src, Extra: []authprovider.Provider{apitest.RefreshingProvider{Token: renewed}}})
@@ -56,6 +59,7 @@ func TestAnExpiredIDTokenIsRefreshedBeforeItIsUsed(t *testing.T) {
 // A local account has no ID token: the manager is not asked, and the person
 // is told why the list is empty.
 func TestALocalAccountIsToldToSignInWithTheIdentityProvider(t *testing.T) {
+	t.Parallel()
 	src := &apitest.FakeSource{Want: "never"}
 	f := apitest.New(t, apitest.Options{Environments: src})
 	got := apitest.Decode[apitest.EnvListJSON](t, f.Do("GET", "/api/environments", "", f.LoginAlice()))
@@ -68,6 +72,7 @@ func TestALocalAccountIsToldToSignInWithTheIdentityProvider(t *testing.T) {
 }
 
 func TestAnAppCreatedInAnEnvironmentKeepsItsFiles(t *testing.T) {
+	t.Parallel()
 	fresh := apitest.IdTokenAt("alice", time.Now().Add(time.Hour))
 	f := apitest.New(t, apitest.Options{Environments: &apitest.FakeSource{Want: fresh}, Extra: []authprovider.Provider{apitest.RefreshingProvider{}}},
 		gatewaytest.Template("streamlit", "streamlit"))
@@ -92,6 +97,7 @@ func TestAnAppCreatedInAnEnvironmentKeepsItsFiles(t *testing.T) {
 }
 
 func TestAJobCreatedInAnEnvironmentKeepsItAcrossEdits(t *testing.T) {
+	t.Parallel()
 	fresh := apitest.IdTokenAt("alice", time.Now().Add(time.Hour))
 	f := apitest.JobFixture(t, apitest.Options{Environments: &apitest.FakeSource{Want: fresh}, Extra: []authprovider.Provider{apitest.RefreshingProvider{}}})
 	c := f.OidcSession(fresh)
