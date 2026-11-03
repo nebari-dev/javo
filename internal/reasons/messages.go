@@ -58,12 +58,18 @@ const (
 	MsgFolderNotFound        MessageCode = "FolderNotFound"
 	MsgFolderListFailed      MessageCode = "FolderListFailed"
 	MsgFileNotFound          MessageCode = "FileNotFound"
-	MsgNoSample              MessageCode = "NoSample" // arg: template display name
-	MsgSampleNameTaken       MessageCode = "SampleNameTaken"
-	MsgInvalidRequest        MessageCode = "InvalidRequest"
-	MsgNoSuchAddress         MessageCode = "NoSuchAddress"
-	MsgMethodNotAllowed      MessageCode = "MethodNotAllowed"
-	MsgServerError           MessageCode = "ServerError"
+	// Saving a file from the editor (PUT /api/files/raw).
+	MsgFileChanged        MessageCode = "FileChanged"
+	MsgFileExists         MessageCode = "FileExists"
+	MsgFileNotText        MessageCode = "FileNotText"
+	MsgFileTooLargeToEdit MessageCode = "FileTooLargeToEdit"
+	MsgFileVersionNeeded  MessageCode = "FileVersionNeeded"
+	MsgNoSample           MessageCode = "NoSample" // arg: template display name
+	MsgSampleNameTaken    MessageCode = "SampleNameTaken"
+	MsgInvalidRequest     MessageCode = "InvalidRequest"
+	MsgNoSuchAddress      MessageCode = "NoSuchAddress"
+	MsgMethodNotAllowed   MessageCode = "MethodNotAllowed"
+	MsgServerError        MessageCode = "ServerError"
 
 	MsgJobNotFound                MessageCode = "JobNotFound"
 	MsgRunNotFound                MessageCode = "RunNotFound"
@@ -301,6 +307,11 @@ var messages = map[MessageCode]string{
 	MsgFolderNotFound:        "That folder does not exist",
 	MsgFolderListFailed:      "Your home folder could not be listed",
 	MsgFileNotFound:          "That file does not exist",
+	MsgFileChanged:           "This file changed since you opened it. Reload it to see the new version, then make your edit again.",
+	MsgFileExists:            "A file or folder of that name is already here. Pick another name.",
+	MsgFileNotText:           "Only text files can be edited here.",
+	MsgFileTooLargeToEdit:    "This file is too large to edit here (2 MiB at most). Open it in an app.",
+	MsgFileVersionNeeded:     "Say which version of the file this replaces (If-Match), or that it is new (If-None-Match: *).",
 	MsgNoSample:              "%s has no sample to start.",
 	MsgSampleNameTaken:       "You already have many samples of this kind. Delete one, then try again.",
 	MsgInvalidRequest:        "Something in this form is not valid. Check it and try again.",

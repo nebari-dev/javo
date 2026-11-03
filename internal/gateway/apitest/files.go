@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nebari-dev/javo/internal/files"
 )
@@ -37,6 +38,24 @@ type StubFilesLister struct {
 	Opened  []string
 	// Body, when set, replaces the content reader.
 	Body io.ReadCloser
+	// ModTime is the opened file's modification time.
+	ModTime time.Time
+
+	// Save records each call as "user:path:version:data" and answers
+	// SaveErr, or the saved file with SavedAt as its modification time.
+	Saved   []string
+	SaveErr error
+	SavedAt time.Time
+}
+
+func (f *StubFilesLister) Save(_ context.Context, userID, path string, data []byte, version string) (files.FileInfo, error) {
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
+	f.Saved = append(f.Saved, userID+":"+path+":"+version+":"+string(data))
+	if f.SaveErr != nil {
+		return files.FileInfo{}, f.SaveErr
+	}
+	return files.FileInfo{Name: pathpkg.Base(path), Size: int64(len(data)), ModTime: f.SavedAt}, nil
 }
 
 func (f *StubFilesLister) Open(_ context.Context, userID, path string) (io.ReadCloser, files.FileInfo, error) {
@@ -50,10 +69,11 @@ func (f *StubFilesLister) Open(_ context.Context, userID, path string) (io.ReadC
 	if size == 0 {
 		size = int64(len(f.Content))
 	}
+	info := files.FileInfo{Name: pathpkg.Base(path), Size: size, ModTime: f.ModTime}
 	if f.Body != nil {
-		return f.Body, files.FileInfo{Name: pathpkg.Base(path), Size: size}, nil
+		return f.Body, info, nil
 	}
-	return io.NopCloser(strings.NewReader(f.Content)), files.FileInfo{Name: pathpkg.Base(path), Size: size}, nil
+	return io.NopCloser(strings.NewReader(f.Content)), info, nil
 }
 
 func (f *StubFilesLister) Release(_ context.Context, userID string) error {

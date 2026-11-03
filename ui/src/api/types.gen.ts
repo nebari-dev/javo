@@ -1222,6 +1222,13 @@ export type RunView = {
     trigger: 'schedule' | 'manual';
 };
 
+export type SavedFile = {
+    etag: string;
+    modified: string;
+    path: string;
+    size: number;
+};
+
 export type ScheduleView = {
     concurrency: 'Allow' | 'Forbid' | 'Replace';
     cron: string;
@@ -2875,6 +2882,82 @@ export type GetRawFileResponses = {
      */
     200: unknown;
 };
+
+export type SaveRawFileData = {
+    body?: Blob | File;
+    headers?: {
+        /**
+         * The ETag of the version this replaces, from GET /api/files/raw
+         */
+        'If-Match'?: string;
+        /**
+         * * to create a new file
+         */
+        'If-None-Match'?: string;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Team whose home the file is in; needed only when namespaces are per team and the user is in several
+         */
+        team?: string;
+        /**
+         * File relative to the home folder
+         */
+        path?: string;
+    };
+    url: '/api/files/raw';
+};
+
+export type SaveRawFileErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorModel;
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Request Entity Too Large
+     */
+    413: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Precondition Required
+     */
+    428: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorModel;
+};
+
+export type SaveRawFileError = SaveRawFileErrors[keyof SaveRawFileErrors];
+
+export type SaveRawFileResponses = {
+    /**
+     * OK
+     */
+    200: SavedFile;
+};
+
+export type SaveRawFileResponse = SaveRawFileResponses[keyof SaveRawFileResponses];
 
 export type WarmFilesData = {
     body?: never;

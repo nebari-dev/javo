@@ -233,3 +233,13 @@ func (h *Listings) Release(ctx context.Context, user string) error {
 	h.forget(user)
 	return h.Homes.Release(ctx, user)
 }
+
+// Save writes the file, then forgets user's listings: the folder's would
+// show the file's old size and time.
+func (h *Listings) Save(ctx context.Context, user, rel string, data []byte, version string) (files.FileInfo, error) {
+	info, err := h.Homes.Save(ctx, user, rel, data, version)
+	if err == nil {
+		h.forget(user)
+	}
+	return info, err
+}

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -23,6 +24,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/reasons"
+	"github.com/nebari-dev/javo/internal/store"
 )
 
 // Places GET /api/files can list.
@@ -40,6 +42,9 @@ type Homes interface {
 	// caller has been checked to belong to.
 	ListGroup(ctx context.Context, userID, dir, path string) (files.Listing, error)
 	Open(ctx context.Context, userID, path string) (io.ReadCloser, files.FileInfo, error)
+	// Save writes a text file: over version (FileInfo.Version) of it, or as
+	// a new file when version is "".
+	Save(ctx context.Context, userID, path string, data []byte, version string) (files.FileInfo, error)
 	Release(ctx context.Context, userID string) error
 	Touch(userID string)
 }
@@ -86,6 +91,7 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 		lister = listings
 	}
 	registerRawFile(api, lister, nss)
+	registerSaveFile(api, lister, nss, st)
 	registerWarm(api, listings, nss)
 	huma.Register(api, huma.Operation{
 		OperationID: "listFiles", Method: http.MethodGet, Path: "/api/files",
@@ -295,6 +301,7 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
 			hc.SetHeader("X-Content-Type-Options", "nosniff")
 			hc.SetHeader("Cross-Origin-Resource-Policy", "same-origin")
 			hc.SetHeader("Cache-Control", "private, no-store")
+			hc.SetHeader("ETag", etag(info))
 			hc.SetHeader("Content-Length", strconv.FormatInt(info.Size, 10))
 			hc.SetStatus(http.StatusOK)
 			// The status line is already sent, so a broken stream can only be logged.
@@ -303,4 +310,118 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
 			}
 		}}, nil
 	})
+}
+
+// etag is the ETag of info: its version, quoted. A save sends it back in
+// If-Match.
+func etag(info files.FileInfo) string { return strconv.Quote(info.Version()) }
+
+type saveInput struct {
+	Team        string `query:"team" maxLength:"63" doc:"Team whose home the file is in; needed only when namespaces are per team and the user is in several"`
+	Path        string `query:"path" maxLength:"4096" doc:"File relative to the home folder"`
+	IfMatch     string `header:"If-Match" maxLength:"128" doc:"The ETag of the version this replaces, from GET /api/files/raw"`
+	IfNoneMatch string `header:"If-None-Match" maxLength:"8" doc:"* to create a new file"`
+	RawBody     []byte `contentType:"text/plain" doc:"The file's new content: UTF-8 text without NUL bytes"`
+}
+
+// SavedFile is a file as a save left it.
+type SavedFile struct {
+	Path     string    `json:"path"`
+	Size     int64     `json:"size"`
+	Modified time.Time `json:"modified"`
+	// ETag names this version, for the next save's If-Match.
+	ETag string `json:"etag"`
+}
+
+type saveOutput struct {
+	Status int
+	ETag   string `header:"ETag"`
+	Body   SavedFile
+}
+
+// registerSaveFile adds PUT /api/files/raw?path=, which writes a text file
+// of the signed-in user's home from the file editor. It must name the
+// version it replaces (If-Match with the ETag GET /api/files/raw sent) or
+// ask for a new file (If-None-Match: *), so a save never overwrites a
+// change it has not seen.
+func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API) {
+	huma.Register(api, huma.Operation{
+		OperationID: "saveRawFile", Method: http.MethodPut, Path: "/api/files/raw",
+		Summary: "Save a text file of the user's home", Tags: []string{"files"},
+		Description: "Writes the body as the file. Send If-Match with the ETag from GET /api/files/raw to replace " +
+			"that version (409 if the file changed since), or If-None-Match: * to create a new file (409 if the " +
+			"name is taken). Only UTF-8 text of at most 2 MiB; never through a symlink.",
+		DefaultStatus: http.StatusOK,
+		MaxBodyBytes:  files.MaxEditBytes,
+		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict,
+			http.StatusRequestEntityTooLarge, http.StatusPreconditionRequired, http.StatusUnprocessableEntity,
+			http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *saveInput) (*saveOutput, error) {
+		if lister == nil {
+			return nil, problem.Internal("save home file", errors.New("no home folder lister configured"))
+		}
+		rel, err := files.CleanPath(in.Path)
+		if err != nil {
+			return nil, problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgFolderOutsideHome))
+		}
+		if rel == "" {
+			return nil, problem.New(http.StatusNotFound, reasons.Msg(reasons.MsgFileNotFound))
+		}
+		var version string
+		create := in.IfNoneMatch == "*" && in.IfMatch == ""
+		if !create {
+			v, err := strconv.Unquote(in.IfMatch)
+			if err != nil || v == "" || in.IfNoneMatch != "" {
+				return nil, problem.New(http.StatusPreconditionRequired, reasons.Msg(reasons.MsgFileVersionNeeded))
+			}
+			version = v
+		}
+		who := authn.User(ctx)
+		ns, err := homeNamespace(nss, who, in.Team)
+		if err != nil {
+			return nil, err
+		}
+		info, err := lister.Save(files.WithNamespace(ctx, ns), who.ID, rel, in.RawBody, version)
+		switch {
+		case errors.Is(err, files.ErrChanged):
+			return nil, problem.New(http.StatusConflict, reasons.Msg(reasons.MsgFileChanged))
+		case errors.Is(err, files.ErrExists):
+			return nil, problem.New(http.StatusConflict, reasons.Msg(reasons.MsgFileExists))
+		case errors.Is(err, files.ErrNotText):
+			return nil, problem.New(http.StatusUnprocessableEntity, reasons.Msg(reasons.MsgFileNotText))
+		case errors.Is(err, files.ErrTooLarge):
+			return nil, problem.New(http.StatusRequestEntityTooLarge, reasons.Msg(reasons.MsgFileTooLargeToEdit))
+		case err != nil:
+			return nil, HomeError(err, who.ID, "save home file", rel, reasons.MsgFileNotFound, reasons.MsgServerError)
+		}
+		action, status := "file.save", http.StatusOK
+		if create {
+			action, status = "file.create", http.StatusCreated
+		}
+		st.audit(ctx, action, rel, ns, len(in.RawBody))
+		tag := etag(info)
+		return &saveOutput{Status: status, ETag: tag, Body: SavedFile{Path: rel, Size: info.Size, Modified: info.ModTime, ETag: tag}}, nil
+	})
+	// huma requires a RawBody, but an empty file is a file: a new one, or
+	// one emptied in the editor. The request body is shared with the
+	// registered handler, so this lets an empty body through.
+	api.OpenAPI().Paths["/api/files/raw"].Put.RequestBody.Required = false
+}
+
+// audit records that the caller wrote the file rel of their home. The file
+// is already written, so a failure to record it is logged, not answered.
+func (s *API) audit(ctx context.Context, action, rel, ns string, size int) {
+	actor := authn.Actor(ctx)
+	via := "session"
+	if actor.Token != "" {
+		via = "token:" + actor.Token
+	}
+	detail, _ := json.Marshal(map[string]int{"bytes": size})
+	err := s.DB.Audit().Append(ctx, store.AuditEvent{
+		Actor: actor.Person, Via: via, Action: action, ObjectKind: "file", ObjectName: rel,
+		ObjectNamespace: ns, ObjectOwner: actor.Person, Allowed: true, Detail: detail,
+	})
+	if err != nil {
+		slog.Error("audit file save", "user", actor.Person, "path", rel, "err", err)
+	}
 }
