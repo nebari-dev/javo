@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { groupPlace, HOME_PLACE, type HomeEntry } from '../../lib/files'
+import { formatSize, groupPlace, HOME_PLACE, type HomeEntry } from '../../lib/files'
 import { ApiError, problemText } from '../../lib/http'
 import { useHomeFolder, useMe, useStorage } from '../../lib/queries'
 import { readStored, writeStored } from '../../lib/storage'
@@ -9,18 +9,6 @@ import { FilePicker, type PickerEntry } from './FilePicker'
 
 function join(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name
-}
-
-function formatSize(n: number): string {
-  if (n < 1024) return `${n} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let v = n / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v < 10 ? v.toFixed(1).replace(/\.0$/, '') : Math.round(v)} ${units[i]}`
 }
 
 function formatDate(iso: string): string {

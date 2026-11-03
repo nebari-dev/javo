@@ -5,24 +5,13 @@ import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { EmptyState } from '../../components/EmptyState'
 import { Switch } from '../../components/Switch'
+import { formatSize } from '../../lib/files'
 import { problemText } from '../../lib/http'
 import { useHomeFolder, useWarmHome } from '../../lib/queries'
 import { saveHomeFile } from './fileApi'
 import { folderCrumbs } from './FileView'
 
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
-
-function formatSize(n: number): string {
-  if (n < 1024) return `${n} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let v = n / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v < 10 ? v.toFixed(1).replace(/\.0$/, '') : Math.round(v)} ${units[i]}`
-}
 
 /** A form for a new, empty file in dir; it opens the file once made. */
 function NewFile({ dir, onDone }: { dir: string; onDone: () => void }) {

@@ -56,9 +56,9 @@ func (s *Store) mutate(ctx context.Context, actor model.Actor, fn func(*sqlcgen.
 	})
 }
 
-// actorStrings is how an Actor reads on an audit row: the name, and how they
+// ActorStrings is how an Actor reads on an audit row: the name, and how they
 // acted (a token, a browser session, or a system component).
-func actorStrings(a model.Actor) (actor, via string) {
+func ActorStrings(a model.Actor) (actor, via string) {
 	switch {
 	case a.System != "":
 		return a.System, "system"
@@ -69,7 +69,7 @@ func actorStrings(a model.Actor) (actor, via string) {
 }
 
 func recordAudit(ctx context.Context, q *sqlcgen.Queries, actor model.Actor, r auditRow) error {
-	who, via := actorStrings(actor)
+	who, via := ActorStrings(actor)
 	detail, err := marshal(r.detail, "{}")
 	if err != nil {
 		return err

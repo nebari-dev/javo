@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
-import { rawFileUrl } from '../../lib/files'
+import { formatSize, rawFileUrl } from '../../lib/files'
 import { ApiError, problemText } from '../../lib/http'
 import { readHomeFile, saveHomeFile, type FileRead } from './fileApi'
 import { fileKind, languageOf, type Language } from './fileKind'
@@ -256,10 +256,6 @@ function DownloadBar({ path, name }: { path: string; name: string }) {
   )
 }
 
-function formatBytes(n: number): string {
-  return n < 1 << 20 ? `${Math.ceil(n / 1024)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
-}
-
 /** One file of the home: text shown (and edited) here, pictures and PDFs in the browser's own viewer, anything else as a download. */
 export function FileView() {
   const [params] = useSearchParams()
@@ -304,7 +300,7 @@ export function FileView() {
   } else if (read.data.kind === 'binary') {
     body = <DownloadOnly path={path} name={name} why="This file is not text, so it cannot be shown here." />
   } else if (read.data.kind === 'large') {
-    body = <DownloadOnly path={path} name={name} why={`This file is too large to show here (${formatBytes(read.data.size)}; up to 2 MB is shown).`} />
+    body = <DownloadOnly path={path} name={name} why={`This file is too large to show here (${formatSize(read.data.size)}; up to 2 MB is shown).`} />
   } else {
     body = <TextFile path={path} name={name} read={read.data} />
   }

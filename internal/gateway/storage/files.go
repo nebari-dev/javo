@@ -415,17 +415,13 @@ func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *AP
 // audit records that the caller wrote the file rel of their home. The file
 // is already written, so a failure to record it is logged, not answered.
 func (s *API) audit(ctx context.Context, action, rel, ns string, size int) {
-	actor := authn.Actor(ctx)
-	via := "session"
-	if actor.Token != "" {
-		via = "token:" + actor.Token
-	}
+	who, via := store.ActorStrings(authn.Actor(ctx))
 	detail, _ := json.Marshal(map[string]int{"bytes": size})
 	err := s.DB.Audit().Append(ctx, store.AuditEvent{
-		Actor: actor.Person, Via: via, Action: action, ObjectKind: "file", ObjectName: rel,
-		ObjectNamespace: ns, ObjectOwner: actor.Person, Allowed: true, Detail: detail,
+		Actor: who, Via: via, Action: action, ObjectKind: "file", ObjectName: rel,
+		ObjectNamespace: ns, ObjectOwner: who, Allowed: true, Detail: detail,
 	})
 	if err != nil {
-		slog.Error("audit file save", "user", actor.Person, "path", rel, "err", err)
+		slog.Error("audit file save", "user", who, "path", rel, "err", err)
 	}
 }
