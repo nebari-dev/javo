@@ -430,7 +430,8 @@ func TestAnAppAddressWithoutItsTrailingSlashOpens(t *testing.T) {
 
 func TestPlatformAdminOpeningAnotherPersonsAppIsRecorded(t *testing.T) {
 	t.Parallel()
-	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
+	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(nil))
+	salesURL := "https://" + sales + "." + appsHost + "/"
 	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
 	adminApp := f.open(f.ui(admin), salesURL)
 	if w := f.serve(f.srv, "GET", salesURL, adminApp); w.Code != 200 {
@@ -479,6 +480,35 @@ func TestOneHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
 	}
 	refused(alice(), "/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgForkPreviewNeedsAppsHost)
 	if w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(alice()))); w.Code != 200 {
+		t.Fatalf("owner: %d", w.Code)
+	}
+}
+
+// With an apps host in path mode every app shares one origin, so an app's
+// page can script another app the visitor opens: the proxy applies the same
+// refusals as on one host.
+func TestPathModeWithAppsHostRefusesAdminOpensAndForkPreviews(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
+	fork := gatewaytest.App(apitest.AliceID, "sales-app-pr-7")
+	fork.Template, fork.PullNumber = "streamlit", 7
+	fork.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "abc123", Fork: true}
+	fork.ParentID = f.getWorkspaceIn(apitest.AliceID, "sales-app").ID
+	gatewaytest.Seed(t, f.db, []any{fork})
+	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
+	refused := func(who authz.Principal, appURL string, code reasons.MessageCode) {
+		t.Helper()
+		w := f.serve(f.srv, "GET", appURL, f.open(f.ui(who), appURL))
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), html.EscapeString(reasons.Msg(code))) {
+			t.Fatalf("%s %s: %d %s", who.Username, appURL, w.Code, w.Body)
+		}
+	}
+	refused(admin, salesURL, reasons.MsgAdminOpenNeedsAppsHost)
+	if n := len(f.adminOpens()); n != 0 {
+		t.Fatalf("%d admin opens recorded", n)
+	}
+	refused(alice(), "https://"+appsHost+"/u/"+apitest.AliceID+"/sales-app-pr-7/", reasons.MsgForkPreviewNeedsAppsHost)
+	if w := f.serve(f.srv, "GET", salesURL, f.open(f.ui(alice()), salesURL)); w.Code != 200 {
 		t.Fatalf("owner: %d", w.Code)
 	}
 }

@@ -30,7 +30,7 @@ An app runs code its owner chose. When apps share the web UI's host, a page in a
 
 Javo refuses state-changing API calls from other sites: the web UI marks each call with an `X-Javo-Request` header that another site cannot add, and calls whose `Sec-Fetch-Site`, `Origin` or `Referer` point at another site or at a page under `/u/` are refused too. Clients with an API token (`Authorization: Bearer`) need no header. None of this stops a page served under `/u/` on the UI's own host. So while apps share the UI's host:
 
-- a platform admin cannot open other people's apps (they get "Platform admins cannot open other people's apps while apps share the platform's address");
+- a platform admin cannot open other people's apps (they get "Platform admins cannot open other people's apps while apps share one address");
 - nobody can open a preview of a pull request from a fork;
 - **sharing beyond Private is refused.** Serve apps on an apps host or on subdomains and sharing works. To allow sharing on one host anyway, knowing the risk, set:
 

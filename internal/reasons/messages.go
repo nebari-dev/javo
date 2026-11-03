@@ -17,7 +17,8 @@ const (
 	MsgCredentialsMissing MessageCode = "CredentialsMissing"
 	MsgTooManyAttempts    MessageCode = "TooManyAttempts"
 	MsgNotAllowedFromApp  MessageCode = "NotAllowedFromApp"
-	// The proxy on one host, where an app's page shares the UI's origin.
+	// The proxy while apps share an origin: with the UI (one host) or with
+	// each other (path mode with an apps host).
 	MsgAdminOpenNeedsAppsHost   MessageCode = "AdminOpenNeedsAppsHost"
 	MsgForkPreviewNeedsAppsHost MessageCode = "ForkPreviewNeedsAppsHost"
 	MsgAppNotFound              MessageCode = "AppNotFound"
@@ -260,10 +261,10 @@ var messages = map[MessageCode]string{
 	MsgCredentialsMissing: "Enter your username and password.",
 	MsgTooManyAttempts:    "Too many sign-in attempts. Wait a minute, then try again.",
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
-	MsgAdminOpenNeedsAppsHost: "Platform admins cannot open other people's apps while apps share the platform's address, because the app's page could act as you. " +
-		"Ask the owner to show you, or set an apps host (urls.appsHost or urls.appsDomain).",
-	MsgForkPreviewNeedsAppsHost: "Previews of pull requests from forks do not open while apps share the platform's address, because a stranger's code could act as you. " +
-		"Ask your platform admin to set an apps host (urls.appsHost or urls.appsDomain).",
+	MsgAdminOpenNeedsAppsHost: "Platform admins cannot open other people's apps while apps share one address, because the app's page could act as you. " +
+		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
+	MsgForkPreviewNeedsAppsHost: "Previews of pull requests from forks do not open while apps share one address, because a stranger's code could act as you. " +
+		"Ask your platform admin to give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgAppNotFound:           "No app with that name.",
 	MsgAppChanged:            "The app changed while you were working on it. Reload and try again.",
 	MsgTemplateChanged:       "The template changed while you were working on it. Reload and try again.",
