@@ -67,13 +67,13 @@ describe('Job page size', () => {
     const api = base({ 'PUT /api/jobs/weekly-report/size': { body: { ...weeklyDetail, size: 'medium' } } })
     renderApp('/jobs/weekly-report')
     expect(await screen.findByText('Small · 1 CPU · 2 GB')).toBeTruthy()
-    await userEvent.click(screen.getByRole('button', { name: 'Change size' }))
+    expect(await screen.findByRole('radiogroup', { name: 'Size' })).toBeTruthy()
     expect(screen.getByText('The next run gets the new size; a run already going keeps its size.')).toBeTruthy()
     await userEvent.click(screen.getByRole('radio', { name: /Medium/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Save size' }))
     expect(await screen.findByText('Medium · 4 CPU · 8 GB')).toBeTruthy()
     expect(api.calls.find((c) => c.method === 'PUT')?.body).toEqual({ size: 'medium' })
-    expect(screen.queryByRole('radiogroup', { name: 'Size' })).toBeNull()
+    expect((screen.getByRole('radio', { name: /Medium/ }) as HTMLInputElement).checked).toBe(true)
   })
 
   it('shows the GPUs of a GPU size', async () => {

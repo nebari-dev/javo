@@ -15,18 +15,18 @@ interface SizeSettingProps {
   note: string
   /** Saves a new size or amount. */
   save: UseMutationResult<unknown, Error, SizeChoice>
-  /** Whether Change size is offered. */
+  /** Whether the sizes to move to are shown. */
   canChange: boolean
-  /** The size being chosen, null while closed; the page holds it so a failure card's Change size can open it too. */
+  /** The size being chosen, null while it is the current one; the page holds it so a failure card's Change size can set it too. */
   picked: SizeChoice | null
   setPicked: (s: SizeChoice | null) => void
-  /** Counts the times something else on the page opened it, to bring it into view. */
+  /** Counts the times something else on the page pointed at it, to bring it into view. */
   reveal: number
 }
 
 /**
- * The size an app or a job runs at, as rows of a key-value list, and behind
- * Change size the sizes to move it to.
+ * The size an app or a job runs at, as rows of a key-value list, and under
+ * it the sizes to move it to; a new pick takes effect on Save size.
  */
 export function SizeSetting({ now, note, save, canChange, picked, setPicked, reveal }: SizeSettingProps) {
   const sizes = useSizes().data ?? []
@@ -40,6 +40,8 @@ export function SizeSetting({ now, note, save, canChange, picked, setPicked, rev
   const current = 'size' in now ? sizes.find((s) => s.name === now.size) : undefined
   const fields = save.isError ? fieldErrors(save.error).fields : {}
   const err = save.isError && !fields.resources ? (fields.size ?? problemText(save.error)) : undefined
+  const choice = picked ?? now
+  const changed = !sameChoice(choice, now)
   return (
     <>
       <dt id={ids.head}>
@@ -49,16 +51,11 @@ export function SizeSetting({ now, note, save, canChange, picked, setPicked, rev
       <dd>{'resources' in now ? customLabel(now.resources) : current ? sizeLabel(current) : now.size}</dd>
       {sizes.length > 0 && canChange && (
         <dd className="size-change">
-          {picked === null ? (
-            <Button size="sm" onClick={() => setPicked(now)}>
-              Change size
-            </Button>
-          ) : (
             <div className="stack" ref={choices}>
               <SizePicker
                 sizes={sizes}
                 custom={allowance}
-                value={picked}
+                value={choice}
                 onChange={setPicked}
                 labelledBy={ids.head}
                 describedBy={err ? ids.err : undefined}
@@ -74,23 +71,24 @@ export function SizeSetting({ now, note, save, canChange, picked, setPicked, rev
                 <Button
                   size="sm"
                   variant="primary"
-                  disabled={save.isPending || sameChoice(picked, now) || !choiceReady(allowance, picked)}
-                  onClick={() => save.mutate(picked, { onSuccess: () => setPicked(null) })}
+                  disabled={save.isPending || !changed || !choiceReady(allowance, choice)}
+                  onClick={() => save.mutate(choice, { onSuccess: () => setPicked(null) })}
                 >
                   Save size
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    save.reset()
-                    setPicked(null)
-                  }}
-                >
-                  Cancel
-                </Button>
+                {changed && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      save.reset()
+                      setPicked(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
               </div>
             </div>
-          )}
         </dd>
       )}
     </>

@@ -60,7 +60,8 @@ async function pickStreamlit() {
 
 // The code and size cards start as one row each when they hold a default.
 const openCode = async () => userEvent.click(await screen.findByRole('button', { name: /^Code: / }))
-const openSize = async () => userEvent.click(await screen.findByRole('button', { name: /^Size: / }))
+// The sizes show open, once they have loaded.
+const sizesLoaded = async () => screen.findByRole('radiogroup', { name: 'Size' })
 
 describe('New app', () => {
   it('keeps keyboard focus inside the file picker and returns it on Escape', async () => {
@@ -566,7 +567,7 @@ describe('New app sizes', () => {
     const api = withSizes()
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     const small = await screen.findByRole('radio', { name: /Small/ })
     expect((small as HTMLInputElement).checked).toBe(true)
     expect(screen.getByText('4 CPU · 8 GB')).toBeTruthy()
@@ -579,7 +580,7 @@ describe('New app sizes', () => {
     const api = withSizes()
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     await userEvent.click(await screen.findByRole('radio', { name: /Large/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     await waitFor(() => expect(location()).toBe('/apps/streamlit-app'))
@@ -590,7 +591,7 @@ describe('New app sizes', () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: singleNodeSizes } } })
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     const large = (await screen.findByRole('radio', { name: /Large/ })) as HTMLInputElement
     expect(large.disabled).toBe(true)
     expect(document.getElementById(large.getAttribute('aria-describedby')!)?.textContent).toBe(TOO_BIG)
@@ -609,7 +610,7 @@ describe('New app sizes', () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: [...sizes, training] } } })
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     const card = (await screen.findByRole('radio', { name: /Training/ })).closest('label')!
     expect(within(card).getByText('2 GPUs')).toBeTruthy()
     expect(screen.getAllByText(/GPU/)).toHaveLength(1)
@@ -623,7 +624,7 @@ describe('New app sizes', () => {
     withSizes()
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     await screen.findByRole('radio', { name: /Small/ })
     expect(screen.queryByRole('radio', { name: /Custom/ })).toBeNull()
   })
@@ -632,7 +633,7 @@ describe('New app sizes', () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: sizes, custom: allowance } } })
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     await userEvent.click(await screen.findByRole('radio', { name: /Custom/ }))
     const cpu = screen.getByRole('spinbutton', { name: 'CPU' }) as HTMLInputElement
     const mem = screen.getByRole('spinbutton', { name: 'Memory' }) as HTMLInputElement
@@ -658,7 +659,7 @@ describe('New app sizes', () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: sizes, custom: allowance } } })
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     await userEvent.click(await screen.findByRole('radio', { name: /Custom/ }))
     const cpu = screen.getByRole('spinbutton', { name: 'CPU' }) as HTMLInputElement
     const mem = screen.getByRole('spinbutton', { name: 'Memory' }) as HTMLInputElement
@@ -692,7 +693,7 @@ describe('New app sizes', () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: sizes, custom: allowance } } })
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     await userEvent.click(await screen.findByRole('radio', { name: /Custom/ }))
     const cpu = screen.getByRole('spinbutton', { name: 'CPU' })
     await userEvent.clear(cpu)
@@ -707,7 +708,7 @@ describe('New app sizes', () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: sizes, custom: allowance } } })
     renderApp('/apps/new')
     await pickStreamlit()
-    await openSize()
+    await sizesLoaded()
     await userEvent.click(await screen.findByRole('radio', { name: /Custom/ }))
     await userEvent.click(screen.getByRole('radio', { name: /Medium/ }))
     expect(screen.queryByRole('spinbutton', { name: 'CPU' })).toBeNull()
@@ -1258,7 +1259,7 @@ describe('New app folded cards', () => {
   const codeGroup = () => screen.queryByRole('radiogroup', { name: 'Where is the code?' })
   const sizeGroup = () => screen.queryByRole('radiogroup', { name: 'Size' })
 
-  it('shows the code and size as one row each when they hold a default', async () => {
+  it('shows the code as one row when it holds a default, and the sizes open', async () => {
     setup()
     renderApp('/apps/new')
     await pickStreamlit()
@@ -1266,8 +1267,9 @@ describe('New app folded cards', () => {
     expect(codeRow()?.textContent).toContain('Sales explorer')
     expect(codeGroup()).toBeNull()
     expect(screen.queryByText(/^Sample:/)).toBeNull()
-    expect((await screen.findByRole('button', { name: 'Size: Small · 1 CPU · 2 GB, change' })).textContent).toContain('Change')
-    expect(sizeGroup()).toBeNull()
+    const group = await screen.findByRole('radiogroup', { name: 'Size' })
+    expect((within(group).getByRole('radio', { name: /Small/ }) as HTMLInputElement).checked).toBe(true)
+    expect(sizeRow()).toBeNull()
   })
 
   it('Change opens the code card with the current choice focused', async () => {
@@ -1291,15 +1293,11 @@ describe('New app folded cards', () => {
     expect(codeGroup()).not.toBeNull()
   })
 
-  it('Change opens the size card with the current size focused, and a new size is sent', async () => {
+  it('sends a size picked from the open sizes', async () => {
     const api = setup()
     renderApp('/apps/new')
     await pickStreamlit()
-    await userEvent.click(await screen.findByRole('button', { name: /^Size: / }))
-    expect(sizeRow()).toBeNull()
-    const small = within(sizeGroup()!).getByRole('radio', { name: /Small/ }) as HTMLInputElement
-    expect(small.checked).toBe(true)
-    expect(document.activeElement).toBe(small)
+    await sizesLoaded()
     await userEvent.click(screen.getByRole('radio', { name: /Large/ }))
     expect(sizeGroup()).not.toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
@@ -1340,7 +1338,7 @@ describe('New app folded cards', () => {
     })
     renderApp('/apps/new')
     await pickStreamlit()
-    await screen.findByRole('button', { name: /^Size: / })
+    await sizesLoaded()
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     expect(await screen.findByText('The sample is gone.')).toBeTruthy()
     expect(codeRow()).toBeNull()
@@ -1353,7 +1351,7 @@ describe('New app folded cards', () => {
     const api = setup()
     renderApp('/apps/new')
     await pickStreamlit()
-    await screen.findByRole('button', { name: /^Size: / })
+    await sizesLoaded()
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     await waitFor(() => expect(location()).toBe('/apps/streamlit-app'))
     expect(api.calls.find((c) => c.method === 'POST')?.body).toEqual({ displayName: 'Streamlit app', template: 'streamlit', sample: true, size: 'small' })

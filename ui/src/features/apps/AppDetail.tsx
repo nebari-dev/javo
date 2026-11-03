@@ -336,7 +336,7 @@ function LogsCard({ name }: { name: string }) {
 // Failures whose fix is another size: their card offers Change size.
 const SIZE_FIXES = new Set(['SizeTooBig', 'SizeUnknown'])
 
-/** The app's size, and behind Change size the sizes to move it to (SizeSetting). */
+/** The app's size, and under it the sizes to move it to (SizeSetting). */
 function SizeRow({ ws, managed, picked, setPicked, reveal }: { ws: Workspace; managed: boolean; picked: SizeChoice | null; setPicked: (s: SizeChoice | null) => void; reveal: number }) {
   const set = useSetSize(ws.name)
   return (

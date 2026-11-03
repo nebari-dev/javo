@@ -1,10 +1,9 @@
-import { Minus, Plus, Server } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 import { Section, useSectionHeading } from '../../components/Section'
 import { useId, useState } from 'react'
 import type { Amount, CustomAllowance, Size } from '../../api'
-import { amountProblems, sizeLabel, sizeSpecs, type SizeChoice } from '../../lib/sizes'
+import { amountProblems, sizeSpecs, type SizeChoice } from '../../lib/sizes'
 import { Card } from '../../components/Card'
-import { Folded } from '../../components/Folded'
 import { IconButton } from '../../components/IconButton'
 import { CUSTOM, SizeChoices } from './SizeChoices'
 
@@ -25,43 +24,21 @@ interface SizePickerProps {
 
 type SizeCardProps = Omit<SizePickerProps, 'labelledBy' | 'describedBy' | 'customError'> & {
   errors: Record<string, string>
-  /** Shows a size that can be picked as one row until Change; off, the card is always open. */
-  foldable?: boolean
 }
 
 /**
  * The Size card of a form that makes an app or a job: the sizes, and the
  * API's error on the size field under them.
  */
-export function SizeCard({ foldable = false, ...props }: SizeCardProps) {
-  const { sizes, value, errors } = props
-  const picked = 'size' in value ? sizes.find((s) => s.name === value.size) : undefined
-  if (!foldable)
-    return (
-      <Section part="size" title="Size">
-        <OpenSizeCard {...props} />
-      </Section>
-    )
+export function SizeCard({ sizes, custom, value, onChange, errors }: SizeCardProps) {
   return (
     <Section part="size" title="Size">
-    <Folded
-      foldable={!!picked?.fits}
-      attention={!!(errors.size || errors.resources)}
-      icon={
-        <span className="logo" aria-hidden="true">
-          <Server size={20} />
-        </span>
-      }
-      title="Size"
-      value={picked ? sizeLabel(picked) : ''}
-    >
-      <OpenSizeCard {...props} />
-    </Folded>
+      <SizeCardBody sizes={sizes} custom={custom} value={value} onChange={onChange} errors={errors} />
     </Section>
   )
 }
 
-function OpenSizeCard({ sizes, custom, value, onChange, errors }: Omit<SizeCardProps, 'foldable'>) {
+function SizeCardBody({ sizes, custom, value, onChange, errors }: SizeCardProps) {
   const ids = { err: useId() }
   const head = useSectionHeading()
   return (

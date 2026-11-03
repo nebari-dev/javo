@@ -379,17 +379,29 @@ describe('App size', () => {
     const api = withSizes({ body: { ...running, size: 'medium' } })
     renderApp('/apps/sales-app')
     expect(await screen.findByText('Small · 1 CPU · 2 GB')).toBeTruthy()
-    expect(screen.queryByRole('radiogroup', { name: 'Size' })).toBeNull()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change size' }))
+    // The sizes show without a click; saving waits for Save size.
+    expect(await screen.findByRole('radiogroup', { name: 'Size' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Change size' })).toBeNull()
     expect(screen.getByText(/restarts/)).toBeTruthy()
     expect((screen.getByRole('radio', { name: /Small/ }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('button', { name: 'Save size' }) as HTMLButtonElement).disabled).toBe(true)
     await userEvent.click(screen.getByRole('radio', { name: /Medium/ }))
+    expect(api.calls.find((c) => c.method === 'PUT')).toBeUndefined()
     await userEvent.click(screen.getByRole('button', { name: 'Save size' }))
 
     expect(await screen.findByText('Medium · 4 CPU · 8 GB')).toBeTruthy()
     expect(api.calls.find((c) => c.method === 'PUT')?.body).toEqual({ size: 'medium' })
-    expect(screen.queryByRole('radiogroup', { name: 'Size' })).toBeNull()
+    expect((screen.getByRole('radio', { name: /Medium/ }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('puts the sizes back to the current one on Cancel', async () => {
+    withSizes({ body: running })
+    renderApp('/apps/sales-app')
+    await userEvent.click(await screen.findByRole('radio', { name: /Large/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect((screen.getByRole('radio', { name: /Small/ }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
   })
 
   it('keeps the choice open and shows why when the change is refused', async () => {
@@ -398,8 +410,7 @@ describe('App size', () => {
       body: { status: 422, title: 'Invalid', errors: [{ location: 'body.size', message: 'Pick one of the sizes on the list.' }] },
     })
     renderApp('/apps/sales-app')
-    await userEvent.click(await screen.findByRole('button', { name: 'Change size' }))
-    await userEvent.click(screen.getByRole('radio', { name: /Large/ }))
+    await userEvent.click(await screen.findByRole('radio', { name: /Large/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Save size' }))
     expect(await screen.findByText('Pick one of the sizes on the list.')).toBeTruthy()
     expect(screen.getByRole('radiogroup', { name: 'Size' })).toBeTruthy()
@@ -448,8 +459,7 @@ describe('App at a custom amount', () => {
     const api = withCustom()
     renderApp('/apps/sales-app')
     expect(await screen.findByText('Custom · 2.5 CPU · 6 GB')).toBeTruthy()
-    await userEvent.click(await screen.findByRole('button', { name: 'Change size' }))
-    const cpu = screen.getByRole('spinbutton', { name: 'CPU' }) as HTMLInputElement
+    const cpu = (await screen.findByRole('spinbutton', { name: 'CPU' })) as HTMLInputElement
     expect(cpu.value).toBe('2.5')
     await userEvent.clear(cpu)
     await userEvent.type(cpu, '3')
@@ -460,8 +470,7 @@ describe('App at a custom amount', () => {
   it('moves back to a size from the list', async () => {
     const api = withCustom()
     renderApp('/apps/sales-app')
-    await userEvent.click(await screen.findByRole('button', { name: 'Change size' }))
-    expect((screen.getByRole('radio', { name: /Custom/ }) as HTMLInputElement).checked).toBe(true)
+    expect(((await screen.findByRole('radio', { name: /Custom/ })) as HTMLInputElement).checked).toBe(true)
     await userEvent.click(screen.getByRole('radio', { name: /Medium/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Save size' }))
     await waitFor(() => expect(api.calls.find((c) => c.method === 'PUT')?.body).toEqual({ size: 'medium' }))
@@ -591,7 +600,7 @@ describe('App page of an app from Git', () => {
     expect(screen.getByText(/pull request #12/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Redeploy' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Change size' })).toBeNull()
+    expect(screen.queryByRole('radiogroup', { name: 'Size' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Change API access' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'Sharing' })).toBeNull()
     expect(screen.queryByRole('switch', { name: 'Preview open pull requests' })).toBeNull()

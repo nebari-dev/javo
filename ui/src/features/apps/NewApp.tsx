@@ -647,7 +647,7 @@ export function NewApp() {
           )}
           {tpl && !takesImage && <EnvironmentCard what="app" value={environment} onChange={setEnvironment} error={errs.fields.environment} />}
           {tpl && sizes.length > 0 && (
-            <SizeCard foldable sizes={sizes} custom={allowance} value={size} onChange={setPickedSize} errors={errs.fields} />
+            <SizeCard sizes={sizes} custom={allowance} value={size} onChange={setPickedSize} errors={errs.fields} />
           )}
           {tpl && placement?.coLocated && placement.notice && <NoticeBanner n={placement.notice} />}
           {tpl && (
