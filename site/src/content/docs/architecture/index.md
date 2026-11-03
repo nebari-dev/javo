@@ -43,6 +43,8 @@ Solid arrows are always there; dotted ones only when that feature is on.
 
 Apps have no login of their own. The NetworkPolicy the controller keeps in every apps namespace lets in only the gateway's pods, so the proxy is the only way in. Every 6 hours (and at start) the controller starts two small probe pods to check that the cluster really enforces it.
 
+A second policy, `limit-egress`, keeps app and job pods off the cloud metadata addresses (and, if `networkPolicy.egress.allowCIDRs` is set, off everything not listed). On Kubernetes 1.30+ ValidatingAdmissionPolicies let the controller's account bind roles and change labels only in the namespaces it manages (see [Configuration](/admin/configuration/#security-defaults-to-keep)).
+
 ## How an app is created
 
 ![Creating an app: the API call saves a row, the controller readies the home and creates the pod, the pod runs its init steps, the readiness probe passes, the UI shows each step with live logs, and the gateway proxy serves the app](../../../../diagrams/app-deploy.png)
@@ -78,7 +80,7 @@ A job is a row like an app. The controller renders each scheduled job into a Cro
 | What is running | Kubernetes only; the controller can rebuild every pod, Service and CronJob from the database |
 | Backups | the claim `javo-backups` and, with a bucket, the S3 bucket |
 
-Namespaces: by default every app runs in `javo-apps`. `config.namespaces.mode` can give each person (`per-user`) or each team (`per-team`) a namespace; the controller creates them, labels them for Pod Security "restricted", adds the NetworkPolicy and never deletes them, since they hold home volumes.
+Namespaces: by default every app runs in `javo-apps`. `config.namespaces.mode` can give each person (`per-user`) or each team (`per-team`) a namespace; the controller creates them, labels them for Pod Security "restricted", adds the NetworkPolicies and never deletes them, since they hold home volumes.
 
 ## Sign-in
 
