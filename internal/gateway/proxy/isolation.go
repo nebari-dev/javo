@@ -19,12 +19,13 @@ import (
 // It refuses:
 //   - embedding the app (a frame, iframe, embed or object) from any page but
 //     its own, on any site;
-//   - a same-origin request that is not a top-level navigation, when the
-//     Referer is a page of another app, or is missing. A missing Referer
-//     cannot be told apart from a page that suppressed it, and nothing else
-//     a same-origin request carries says which page sent it (the app's
-//     cookie goes with every request to the app's path, whoever starts it).
-//     Browsers send the full Referer to the same origin by default.
+//   - a same-origin request that is not a top-level navigation, unless its
+//     Referer is a page of the app itself. A missing Referer, or one cut to
+//     the origin, cannot be told apart from a page that asked for that, and
+//     nothing else a same-origin request carries says which page sent it
+//     (the app's cookie goes with every request to the app's path, whoever
+//     starts it). Browsers send the full Referer to the same origin by
+//     default. The web UI on one host makes no such requests to apps.
 //
 // It lets through:
 //   - requests without Sec-Fetch headers: clients other than browsers, which
@@ -48,10 +49,7 @@ func fromAnotherApp(r *http.Request, base string) bool {
 	if mode == "navigate" || mode == "websocket" || site != "same-origin" {
 		return false
 	}
-	if !hasRef {
-		return true
-	}
-	return strings.HasPrefix(ref.Path, "/u/") && !inApp(ref.Path, base)
+	return !ownPage
 }
 
 // referer is the request's Referer, when it has one that parses as an
