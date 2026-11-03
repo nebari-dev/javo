@@ -28,10 +28,13 @@ const reports: Reply = {
   },
 }
 
+// The job template without its sample job, so a new job starts blank.
+const plainJobTemplate = { ...jobTemplate, jobs: { ...jobTemplate.jobs!, sample: undefined } }
+
 function base(extra: Record<string, unknown> = {}) {
   return mockApi({
     'GET /api/me': { body: me },
-    'GET /api/templates': { body: { items: [...templates, jobTemplate] } },
+    'GET /api/templates': { body: { items: [...templates, plainJobTemplate] } },
     'GET /api/engines': { body: { items: engines } },
     'GET /api/workspaces': { body: { items: [] } },
     'GET /api/jobs': { body: { items: [weeklyView] } },
@@ -742,5 +745,38 @@ describe('Home', () => {
     const section = (await screen.findByRole('heading', { name: 'Needs your attention' })).closest('section')!
     const link = await within(section).findByRole('link', { name: /Weekly report/ })
     expect(link.getAttribute('href')).toBe('/jobs/weekly-report')
+  })
+})
+
+describe('New job from a template with a sample job', () => {
+  it("starts from the template's sample job, so Create job is all it takes", async () => {
+    const api = base({
+      'GET /api/templates': { body: { items: [...templates, jobTemplate] } },
+      'GET /api/jobs': { body: { items: [{ ...weeklyView, name: 'print-the-time', displayName: 'Print the time' }] } },
+      'POST /api/jobs': { status: 201, body: printTimeDetail },
+      'POST /api/jobs/print-the-time/run': { status: 201, body: { ...weeklyDetail.lastRun, id: 'run-1', outcome: 'Running' } },
+      'GET /api/jobs/print-the-time': { body: printTimeDetail },
+    })
+    renderApp('/jobs/new')
+    expect(((await screen.findByLabelText('Command')) as HTMLInputElement).value).toBe('bash /opt/javo/samples/jobs/print-time.sh')
+    await waitFor(() => expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Print the time 2'))
+    await userEvent.click(screen.getByRole('button', { name: 'Create job' }))
+    await waitFor(() => expect(api.count('POST', '/api/jobs')).toBe(1))
+    expect(api.calls.find((c) => c.method === 'POST' && c.path === '/api/jobs')?.body).toMatchObject({
+      displayName: 'Print the time 2',
+      template: 'python-jobs',
+      engine: 'command',
+      command: 'bash /opt/javo/samples/jobs/print-time.sh',
+      parameters: [{ name: 'greeting', type: 'string', default: 'hello' }],
+    })
+  })
+
+  it('leaves the sample for a file once File is picked', async () => {
+    base({ 'GET /api/templates': { body: { items: [...templates, jobTemplate] } } })
+    renderApp('/jobs/new')
+    await screen.findByLabelText('Command')
+    await userEvent.click(screen.getByRole('radio', { name: 'File' }))
+    expect(screen.queryByLabelText('Command')).toBeNull()
+    expect(screen.queryByLabelText('Parameter 1 name')).toBeNull()
   })
 })

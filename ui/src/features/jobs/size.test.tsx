@@ -14,7 +14,8 @@ const reports: Reply = { body: { path: 'reports', entries: [{ name: 'sales.ipynb
 function base(extra: Record<string, unknown> = {}) {
   return mockApi({
     'GET /api/me': { body: me },
-    'GET /api/templates': { body: { items: [...templates, jobTemplate] } },
+    // Without its sample job, so a new job starts blank.
+    'GET /api/templates': { body: { items: [...templates, { ...jobTemplate, jobs: { ...jobTemplate.jobs!, sample: undefined } }] } },
     'GET /api/engines': { body: { items: engines } },
     'GET /api/workspaces': { body: { items: [] } },
     'GET /api/sizes': { body: { items: sizes } },

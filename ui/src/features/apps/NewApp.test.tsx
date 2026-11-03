@@ -792,17 +792,18 @@ describe('New app commands and images', () => {
   const setupImageSample = () =>
     base({ 'POST /api/workspaces': { status: 201, body: created }, 'GET /api/workspaces/new-app': { body: created } }, [...templates, imageSample])
 
-  it('offers the image sample and "Use the sample" fills image, port and command', async () => {
+  it('starts from the image sample, and "Use the sample" brings it back', async () => {
     const api = setupImageSample()
     renderApp('/apps/new')
     await userEvent.click(await screen.findByRole('radio', { name: /Container image/ }))
     const image = screen.getByLabelText('Image') as HTMLInputElement
-    expect(image.value).toBe('')
-    await userEvent.click(screen.getByRole('button', { name: /Use the sample/ }))
     expect(image.value).toBe('example.com/toolbox:1')
     expect((screen.getByLabelText('Port') as HTMLInputElement).value).toBe('9000')
     expect(command().value).toBe('serve --port={{.Port}}')
     expect(screen.queryByRole('button', { name: /Use the sample/ })).toBeNull()
+    await userEvent.clear(image)
+    await userEvent.click(screen.getByRole('button', { name: /Use the sample/ }))
+    expect(image.value).toBe('example.com/toolbox:1')
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     await waitFor(() => expect(location()).toBe('/apps/new-app'))
     expect(createBody(api)).toEqual({
@@ -1365,5 +1366,39 @@ describe('New app folded cards', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Streamlit, change' }))
     await userEvent.click(screen.getByRole('radio', { name: /JupyterLab/ }))
     expect(codeRow()?.textContent).toContain('Notebook tour')
+  })
+})
+
+describe('New app template default size', () => {
+  const created = ws('streamlit-app', 'Streamlit app', 'Pending', stepsAt(0, 'Starting'))
+  const MiB = 2 ** 20
+  const setup = (defaultResources: { cpu: number; memory: number }, custom?: typeof allowance) =>
+    base(
+      {
+        'GET /api/sizes': { body: { items: sizes, ...(custom ? { custom } : {}) } },
+        'POST /api/workspaces': { status: 201, body: created },
+        'GET /api/workspaces/streamlit-app': { body: created },
+      },
+      templates.map((t) => (t.name === 'streamlit' ? { ...t, defaultResources } : t)),
+    )
+  const createBody = (api: ReturnType<typeof base>) => api.calls.find((c) => c.method === 'POST')?.body as Record<string, unknown>
+
+  it("starts at the template's default amount for someone who may ask for one", async () => {
+    const api = setup({ cpu: 0.25, memory: 512 * MiB }, allowance)
+    renderApp('/apps/new')
+    await pickStreamlit()
+    await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
+    await waitFor(() => expect(location()).toBe('/apps/streamlit-app'))
+    expect(createBody(api).resources).toEqual({ cpu: 0.25, memory: 512 * MiB })
+    expect(createBody(api).size).toBeUndefined()
+  })
+
+  it('starts at the smallest size that holds the default for everyone else', async () => {
+    const api = setup({ cpu: 2, memory: 4 * 2 ** 30 })
+    renderApp('/apps/new')
+    await pickStreamlit()
+    await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
+    await waitFor(() => expect(location()).toBe('/apps/streamlit-app'))
+    expect(createBody(api).size).toBe('medium')
   })
 })

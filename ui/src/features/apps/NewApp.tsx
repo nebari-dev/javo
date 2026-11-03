@@ -37,7 +37,7 @@ import {
   useWarmHome,
   useWorkspaces,
 } from '../../lib/queries'
-import { choiceReady, type SizeChoice } from '../../lib/sizes'
+import { choiceReady, startingChoice, type SizeChoice } from '../../lib/sizes'
 
 // Request fields the form has a place for; errors on any other field go to the top banner.
 const FORM_FIELDS = new Set([
@@ -246,7 +246,7 @@ export function NewApp() {
   const hook = useNewWebhook()
   const sizes = useSizes().data ?? []
   const allowance = useCustomAllowance()
-  const size: SizeChoice = pickedSize ?? { size: sizes.find((s) => s.default)?.name ?? '' }
+  const size: SizeChoice = pickedSize ?? startingChoice(templates.data?.find((t) => t.name === templateName)?.defaultResources, sizes, allowance)
   // A custom amount has no size name; the preview then uses the template's requests.
   const placement = usePlacement(templateName, 'size' in size ? size.size : '').data
   const ids = { name: useId(), nameErr: useId(), fileErr: useId(), tplErr: useId(), srcErr: useId(), tplHead: useId(), prevErr: useId() }
@@ -306,6 +306,8 @@ export function NewApp() {
       setRepo(emptyRepo)
       setPreviews({ enabled: false, max: null, forks: false })
       hook.reset()
+      // An image template starts from its sample, as the others do.
+      if (t.userImage && t.sample) fillImageSample(t.sample)
     }
     setTemplateName(t.name)
   }
@@ -367,6 +369,11 @@ export function NewApp() {
       setOwnCode(noSample)
     }
     if (t?.userImage && t.sample && wantsSample) fillImageSample(t.sample)
+    if (t?.userImage && noSample) {
+      setImage('')
+      setTypedPort(null)
+      setTypedCommand(null)
+    }
     // pickTemplate is recreated every render; rerun only when the request or the list changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted, wantsSample, noSample, list.length])

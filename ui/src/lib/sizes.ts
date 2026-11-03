@@ -53,3 +53,20 @@ export function sameChoice(a: SizeChoice, b: SizeChoice): boolean {
   if ('resources' in a && 'resources' in b) return a.resources.cpu === b.resources.cpu && a.resources.memory === b.resources.memory
   return false
 }
+
+/**
+ * What a new app or job starts at: its template's default amount where the
+ * person may ask for that one, else the smallest size that holds it (least
+ * memory, then CPU; never a GPU size), else the default size. The gateway
+ * picks the same for a create that names no size.
+ */
+export function startingChoice(def: Amount | undefined, sizes: Size[], c: CustomAllowance | undefined): SizeChoice {
+  const fallback = { size: sizes.find((s) => s.default)?.name ?? '' }
+  if (!def) return fallback
+  const within = (v: number, min: number, max: number) => v >= min && (max === 0 || v <= max)
+  if (c?.allowed && within(def.cpu, c.minCPU, c.maxCPU) && within(def.memory, c.minMemory, c.maxMemory)) return { resources: def }
+  const holds = sizes
+    .filter((s) => s.fits && !s.gpu && s.cpu >= def.cpu && s.memory >= def.memory)
+    .sort((a, b) => a.memory - b.memory || a.cpu - b.cpu)
+  return holds.length > 0 ? { size: holds[0].name } : fallback
+}

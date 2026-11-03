@@ -18,7 +18,7 @@ import { SizeCard } from '../sizes/SizePicker'
 import { fieldErrors, problemText } from '../../lib/http'
 import { firstFreeName } from '../../lib/names'
 import { useCustomAllowance, useSecrets, useSizes, useTemplates, useWarmHome } from '../../lib/queries'
-import { choiceReady, type SizeChoice } from '../../lib/sizes'
+import { choiceReady, startingChoice, type SizeChoice } from '../../lib/sizes'
 import { useStartFirstRun } from './firstRun'
 import { engineForFile, templateEngines } from './format'
 import { useEngines, useJob, useJobs, useSaveJob, useSchedulePreview } from './queries'
@@ -82,29 +82,35 @@ function FieldError({ id, msg }: { id: string; msg?: string }) {
 interface FormProps {
   /** The job being edited; absent when making a new one. */
   job?: JobDetail
-  /** The template whose sample job a new job starts from; absent for a blank form. */
+  /** The template a new job starts on, for its sample job; absent for the first template. */
   sampleOf?: Template
-  /** The sample's name, numbered when the person already has a job with it. */
-  sampleName?: string
+  /** The names of the person's jobs, which a sample's name is numbered past. */
+  jobNames?: string[]
   templates: Template[]
 }
 
-function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
+function JobForm({ job, sampleOf, jobNames = [], templates }: FormProps) {
   const navigate = useNavigate()
   const engines = useEngines().data ?? []
   const save = useSaveJob(job?.name)
   const startFirstRun = useStartFirstRun()
   const ids = { name: useId(), nameErr: useId(), cron: useId(), zone: useId(), kernel: useId(), tpl: useId() }
 
-  const sample = sampleOf?.jobs?.sample
   const [templateName, setTemplateName] = useState(job?.template ?? sampleOf?.name ?? templates[0]?.name ?? '')
-  const [typedName, setTypedName] = useState<string | null>(job?.displayName ?? sampleName ?? sample?.title ?? null)
+  // A new job starts from its template's sample job, when it has one: the
+  // fields below are null until the person changes them, and the sample's
+  // values show meanwhile.
+  const sample = job ? undefined : templates.find((t) => t.name === templateName)?.jobs?.sample
+  const [typedName, setTypedName] = useState<string | null>(job?.displayName ?? null)
   const [source, setSource] = useState(job?.source ?? '')
-  const [what, setWhat] = useState<'file' | 'command'>(typed(job?.engine) || sample ? 'command' : 'file')
-  const [command, setCommand] = useState(job?.command ?? sample?.command ?? '')
+  const [pickedWhat, setWhat] = useState<'file' | 'command' | null>(job ? (typed(job.engine) ? 'command' : 'file') : null)
+  const what = pickedWhat ?? (sample ? 'command' : 'file')
+  const [typedCommand, setCommand] = useState<string | null>(job?.command ?? null)
+  const command = typedCommand ?? sample?.command ?? ''
   const [picking, setPicking] = useState(false)
   const [kernel, setKernel] = useState(job?.kernel ?? '')
-  const [params, setParams] = useState<JobParam[]>(job?.parameters ?? sample?.parameters ?? [])
+  const [typedParams, setParams] = useState<JobParam[] | null>(job?.parameters ?? null)
+  const params = typedParams ?? (what === 'command' ? sample?.parameters : undefined) ?? []
   // Only a new job takes variables here; the job page changes them.
   const [envRows, setEnvRows] = useState<EnvRow[]>([])
   // The id of the picked environment; empty for none. Set only on create.
@@ -114,7 +120,7 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
   const sizes = useSizes().data ?? []
   const allowance = useCustomAllowance()
   const [pickedSize, setPickedSize] = useState<SizeChoice | null>(null)
-  const size: SizeChoice = pickedSize ?? { size: sizes.find((s) => s.default)?.name ?? '' }
+  const size: SizeChoice = pickedSize ?? startingChoice(templates.find((t) => t.name === templateName)?.defaultResources, sizes, allowance)
   const [mode, setMode] = useState<'once' | 'schedule'>(job ? (job.schedule ? 'schedule' : 'once') : 'once')
   const [sched, setSched] = useState<Schedule>(job?.schedule ? fromCron(job.schedule.cron) : { kind: 'daily', hour: 9, minute: 0 })
   const cron = toCron(sched)
@@ -136,7 +142,8 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
   const kernels = tpl?.jobs?.kernels ?? []
   const wantsKernel = engine?.id === 'papermill'
   const kernelValue = wantsKernel ? (kernel || kernels[0] || '') : ''
-  const name = typedName ?? (runs === 'file' && source ? stem(source) : '')
+  const name =
+    typedName ?? (runs === 'file' && source ? stem(source) : runs === 'command' && sample ? firstFreeName(sample.title, jobNames) : '')
 
   const preview = useSchedulePreview(mode === 'schedule' ? previewCron : '', zone)
   const previewErrs = preview.isError ? fieldErrors(preview.error) : { fields: {} as Record<string, string>, other: [] as string[] }
@@ -491,11 +498,9 @@ export function NewJob() {
   const [search] = useSearchParams()
   if (t.isError) return <Banner tone="err" title={problemText(t.error)} />
   const sampleOf = t.jobTemplates.find((x) => x.name === search.get('sample') && x.jobs?.sample)
-  // A sample names the job once, so wait for the jobs it must not clash with.
+  // A sample names the job, so wait for the jobs it must not clash with.
   if (t.isPending || (search.get('sample') && jobs.isPending)) return <div className="muted">Loading</div>
-  const title = sampleOf?.jobs?.sample?.title
-  const sampleName = title ? firstFreeName(title, (jobs.data ?? []).map((j) => j.displayName)) : undefined
-  return <JobForm key={sampleOf?.name} sampleOf={sampleOf} sampleName={sampleName} templates={t.jobTemplates} />
+  return <JobForm key={sampleOf?.name} sampleOf={sampleOf} jobNames={(jobs.data ?? []).map((j) => j.displayName)} templates={t.jobTemplates} />
 }
 
 export function EditJob() {
