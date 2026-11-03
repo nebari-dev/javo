@@ -15,6 +15,7 @@ import (
 )
 
 func TestEvidenceLandsInFailingConditionMessage(t *testing.T) {
+	t.Parallel()
 	ws, _ := fixtures()
 	pod := &corev1.Pod{Status: corev1.PodStatus{
 		Phase: corev1.PodRunning,
@@ -37,6 +38,7 @@ func TestEvidenceLandsInFailingConditionMessage(t *testing.T) {
 }
 
 func TestEvidenceIsCapped(t *testing.T) {
+	t.Parallel()
 	var ev []string
 	for i := 0; i < 25; i++ {
 		ev = append(ev, strings.Repeat("x", 500))
@@ -54,6 +56,7 @@ func TestEvidenceIsCapped(t *testing.T) {
 }
 
 func TestNoEvidenceKeepsTitle(t *testing.T) {
+	t.Parallel()
 	conds := status.WithEvidence([]metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Message: "title"}}, nil)
 	if conds[0].Message != "title" {
 		t.Fatalf("message = %q", conds[0].Message)
@@ -63,6 +66,7 @@ func TestNoEvidenceKeepsTitle(t *testing.T) {
 // Evidence is often app output; a cut must never split a multi-byte
 // character, or the status patch carries invalid UTF-8.
 func TestEvidenceCutKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
 	line := strings.Repeat("é", 400)
 	conds := status.WithEvidence([]metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse}}, []string{line})
 	got := conds[0].Message

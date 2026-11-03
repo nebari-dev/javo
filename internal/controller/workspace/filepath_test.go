@@ -9,6 +9,7 @@ import (
 // The file an app opens, as a path inside its container: under the home
 // folder, or under the folder of the clone for an app that runs from Git.
 func TestFilePathIsTheAbsolutePathInTheApp(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		app  model.App

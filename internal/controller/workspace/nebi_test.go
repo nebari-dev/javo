@@ -27,10 +27,12 @@ func volumeOf(pod *corev1.Pod, name string) *corev1.Volume {
 // the gateway writes it when the owner opens the app, so the pod does not
 // wait for it.
 func TestAnAppWithNebiAccessGetsTheTokenFileAndTheCLI(t *testing.T) {
-	newTemplate(t, "lab-nebi1", func(s *model.TemplateSpec) { s.NebiToken = true })
-	app := newApp(t, "ws-nebi1", "alice", "lab-nebi1")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-nebi1", func(s *model.TemplateSpec) { s.NebiToken = true })
+	app := fx.newApp(t, "ws-nebi1", "alice", "lab-nebi1")
 	var pod *corev1.Pod
-	eventually(t, "a pod", func() bool { pod = podOf(app); return pod != nil })
+	eventually(t, "a pod", func() bool { pod = fx.podOf(app); return pod != nil })
 	v := volumeOf(pod, nebiVolume)
 	if v == nil || v.Secret == nil || v.Secret.SecretName != NebiTokenSecretName(app.ObjectName()) || v.Secret.Optional == nil || !*v.Secret.Optional {
 		t.Fatalf("token volume: %+v", v)
@@ -69,27 +71,29 @@ func TestAnAppWithNebiAccessGetsTheTokenFileAndTheCLI(t *testing.T) {
 
 // Without the template asking, and for a preview, nothing about Nebi.
 func TestNoNebiTokenUnlessTheTemplateAsksAndNeverForAPreview(t *testing.T) {
-	newTemplate(t, "lab-nebi2")
-	newTemplate(t, "lab-nebi3", func(s *model.TemplateSpec) { s.NebiToken = true })
-	plain := newApp(t, "ws-nebi2", "alice", "lab-nebi2")
-	parent := newApp(t, "ws-nebi3", "alice", "lab-nebi3")
-	child, err := db.Previews().Put(bg, &model.App{Namespace: testNS, Name: "ws-nebi3-pr-1", Owner: "alice", Template: "lab-nebi3", ParentID: parent.ID, PullNumber: 1,
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-nebi2")
+	fx.newTemplate(t, "lab-nebi3", func(s *model.TemplateSpec) { s.NebiToken = true })
+	plain := fx.newApp(t, "ws-nebi2", "alice", "lab-nebi2")
+	parent := fx.newApp(t, "ws-nebi3", "alice", "lab-nebi3")
+	child, err := fx.db.Previews().Put(bg, &model.App{Namespace: fx.ns, Name: "ws-nebi3-pr-1", Owner: "alice", Template: "lab-nebi3", ParentID: parent.ID, PullNumber: 1,
 		Source: &model.Source{URL: "https://github.com/example-org/site", Ref: "main"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range []model.App{plain, child} {
 		var pod *corev1.Pod
-		eventually(t, "a pod for "+a.Name, func() bool { pod = podOf(a); return pod != nil })
+		eventually(t, "a pod for "+a.Name, func() bool { pod = fx.podOf(a); return pod != nil })
 		if volumeOf(pod, nebiVolume) != nil {
 			t.Fatalf("%s got the Nebi token", a.Name)
 		}
 	}
 }
 
-func putNebiToken(t *testing.T, app model.App, token string, expires time.Time) {
+func (fx *env) putNebiToken(t *testing.T, app model.App, token string, expires time.Time) {
 	t.Helper()
-	ks, _, err := db.SecretKeys().Get(bg)
+	ks, _, err := fx.db.SecretKeys().Get(bg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +105,7 @@ func putNebiToken(t *testing.T, app model.App, token string, expires time.Time) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.NebiTokens().Put(bg, app.ID, sealed, expires); err != nil {
+	if err := fx.db.NebiTokens().Put(bg, app.ID, sealed, expires); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -109,24 +113,26 @@ func putNebiToken(t *testing.T, app model.App, token string, expires time.Time) 
 // The token the gateway stored (sealed) is opened and written to the app's
 // Secret, and a renewal replaces it there without restarting the app.
 func TestTheStoredNebiTokenReachesTheAppsSecretAndIsRenewedInPlace(t *testing.T) {
-	newTemplate(t, "lab-nebi4", func(s *model.TemplateSpec) { s.NebiToken = true })
-	app := newApp(t, "ws-nebi4", "alice", "lab-nebi4")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-nebi4", func(s *model.TemplateSpec) { s.NebiToken = true })
+	app := fx.newApp(t, "ws-nebi4", "alice", "lab-nebi4")
 	var pod *corev1.Pod
-	eventually(t, "a pod", func() bool { pod = podOf(app); return pod != nil })
+	eventually(t, "a pod", func() bool { pod = fx.podOf(app); return pod != nil })
 	exp := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Millisecond)
-	putNebiToken(t, app, "nebi-jwt-1", exp)
+	fx.putNebiToken(t, app, "nebi-jwt-1", exp)
 	sec := &corev1.Secret{}
 	eventually(t, "the token in the app's Secret", func() bool {
-		return exists(sec, NebiTokenSecretName(app.ObjectName())) && string(sec.Data[NebiTokenKey]) == "nebi-jwt-1"
+		return fx.exists(sec, NebiTokenSecretName(app.ObjectName())) && string(sec.Data[NebiTokenKey]) == "nebi-jwt-1"
 	})
 	if sec.Labels[model.LabelApp] != app.ID {
 		t.Fatalf("labels %v", sec.Labels)
 	}
-	putNebiToken(t, app, "nebi-jwt-2", exp.Add(time.Hour))
+	fx.putNebiToken(t, app, "nebi-jwt-2", exp.Add(time.Hour))
 	eventually(t, "the renewed token", func() bool {
-		return exists(sec, NebiTokenSecretName(app.ObjectName())) && string(sec.Data[NebiTokenKey]) == "nebi-jwt-2"
+		return fx.exists(sec, NebiTokenSecretName(app.ObjectName())) && string(sec.Data[NebiTokenKey]) == "nebi-jwt-2"
 	})
-	if now := podOf(app); now == nil || now.UID != pod.UID {
+	if now := fx.podOf(app); now == nil || now.UID != pod.UID {
 		t.Fatal("a renewal restarted the app")
 	}
 }

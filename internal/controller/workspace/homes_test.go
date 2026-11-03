@@ -115,15 +115,15 @@ func primeHome(t *testing.T, s *store.Store, owner, ns string) {
 }
 
 // setHome changes owner's home in the test namespace through the store.
-func setHome(t *testing.T, owner string, fn func(*model.Home)) {
+func (fx *env) setHome(t *testing.T, owner string, fn func(*model.Home)) {
 	t.Helper()
 	for range 5 {
-		h, err := db.Homes().ByOwner(bg, testNS, owner)
+		h, err := fx.db.Homes().ByOwner(bg, fx.ns, owner)
 		if err != nil {
 			t.Fatal(err)
 		}
 		fn(&h)
-		if _, err = db.Homes().Update(bg, h, h.Version); !errors.Is(err, store.ErrConflict) {
+		if _, err = fx.db.Homes().Update(bg, h, h.Version); !errors.Is(err, store.ErrConflict) {
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,11 +134,11 @@ func setHome(t *testing.T, owner string, fn func(*model.Home)) {
 }
 
 // stuckHome makes a home the stand-in leaves alone, with Ready as given.
-func stuckHome(t *testing.T, owner string, ready metav1.Condition) {
+func (fx *env) stuckHome(t *testing.T, owner string, ready metav1.Condition) {
 	t.Helper()
-	if _, err := db.Homes().Ensure(bg, testNS, owner, nil); err != nil {
+	if _, err := fx.db.Homes().Ensure(bg, fx.ns, owner, nil); err != nil {
 		t.Fatal(err)
 	}
 	ready.Type, ready.LastTransitionTime = model.ConditionReady, metav1.Now()
-	setHome(t, owner, func(h *model.Home) { h.Status.Conditions = []metav1.Condition{ready} })
+	fx.setHome(t, owner, func(h *model.Home) { h.Status.Conditions = []metav1.Condition{ready} })
 }

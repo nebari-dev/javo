@@ -21,41 +21,41 @@ import (
 const pastedToken = "ghp_testtoken123"
 
 // newPrivateApp stores a source app with a pasted token, as the gateway does.
-func newPrivateApp(t *testing.T, name, owner, tpl string, tune ...func(*model.App)) model.App {
+func (fx *env) newPrivateApp(t *testing.T, name, owner, tpl string, tune ...func(*model.App)) model.App {
 	t.Helper()
 	a := &model.App{
-		Namespace: testNS, Name: name, Owner: owner, Template: tpl, File: "app.py",
+		Namespace: fx.ns, Name: name, Owner: owner, Template: tpl, File: "app.py",
 		Source: &model.Source{URL: "https://github.com/example-org/private-site", Ref: "main"},
 	}
 	for _, f := range tune {
 		f(a)
 	}
-	app, err := db.Apps().CreateFromRepo(bg, model.Actor{Person: owner}, a, store.RepoSecrets{Token: pastedToken})
+	app, err := fx.db.Apps().CreateFromRepo(bg, model.Actor{Person: owner}, a, store.RepoSecrets{Token: pastedToken})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return app
 }
 
-func gitSecret(app model.App) *corev1.Secret {
+func (fx *env) gitSecret(app model.App) *corev1.Secret {
 	sec := &corev1.Secret{}
-	if !exists(sec, GitTokenSecretName(app.ObjectName())) {
+	if !fx.exists(sec, GitTokenSecretName(app.ObjectName())) {
 		return nil
 	}
 	return sec
 }
 
-func podOf(app model.App) *corev1.Pod {
+func (fx *env) podOf(app model.App) *corev1.Pod {
 	pod := &corev1.Pod{}
-	if !exists(pod, app.ObjectName()) {
+	if !fx.exists(pod, app.ObjectName()) {
 		return nil
 	}
 	return pod
 }
 
-func tokenRow(t *testing.T, id string) (token string, gen int64, has bool) {
+func (fx *env) tokenRow(t *testing.T, id string) (token string, gen int64, has bool) {
 	t.Helper()
-	token, gen, has, err := db.GitTokens().Pending(bg, id)
+	token, gen, has, err := fx.db.GitTokens().Pending(bg, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,28 +64,30 @@ func tokenRow(t *testing.T, id string) (token string, gen int64, has bool) {
 
 // newSourceApp stores an app from a repository whose token is the owner's
 // secret called secret.
-func newSourceApp(t *testing.T, name, owner, tpl, secret string, tune ...func(*model.App)) model.App {
+func (fx *env) newSourceApp(t *testing.T, name, owner, tpl, secret string, tune ...func(*model.App)) model.App {
 	t.Helper()
-	app := newApp(t, name, owner, tpl, append([]func(*model.App){func(a *model.App) {
+	app := fx.newApp(t, name, owner, tpl, append([]func(*model.App){func(a *model.App) {
 		a.File = "app.py"
 		a.Source = &model.Source{URL: "https://github.com/example-org/private-site", Ref: "main"}
 	}}, tune...)...)
-	if err := db.Secrets().SetGitToken(bg, model.Actor{Person: owner}, app, secret); err != nil {
+	if err := fx.db.Secrets().SetGitToken(bg, model.Actor{Person: owner}, app, secret); err != nil {
 		t.Fatal(err)
 	}
 	return app
 }
 
 func TestTokenFromASecretReachesTheCloneAsAFile(t *testing.T) {
-	newTemplate(t, "lab-gt1")
-	putSecret(t, "alice", "GT1_TOKEN", pastedToken)
-	app := newSourceApp(t, "ws-gt1", "alice", "lab-gt1", "GT1_TOKEN")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-gt1")
+	fx.putSecret(t, "alice", "GT1_TOKEN", pastedToken)
+	app := fx.newSourceApp(t, "ws-gt1", "alice", "lab-gt1", "GT1_TOKEN")
 	var pod *corev1.Pod
 	eventually(t, "a pod that clones with the token", func() bool {
-		pod = podOf(app)
+		pod = fx.podOf(app)
 		return pod != nil && strings.HasPrefix(pod.Annotations[model.AnnotationGitToken], "secret-")
 	})
-	sec := gitSecret(app)
+	sec := fx.gitSecret(app)
 	if sec == nil || string(sec.Data["token"]) != pastedToken || sec.Labels[model.LabelApp] != app.ID ||
 		sec.Annotations[model.AnnotationGitToken] != pod.Annotations[model.AnnotationGitToken] {
 		t.Fatalf("secret = %+v", sec)
@@ -96,77 +98,83 @@ func TestTokenFromASecretReachesTheCloneAsAFile(t *testing.T) {
 		t.Fatalf("the clone reads no token file: %v", initNames(pod))
 	}
 	raw, _ := json.Marshal(pod)
-	st, _ := json.Marshal(getApp(t, app.ID).Status)
+	st, _ := json.Marshal(fx.getApp(t, app.ID).Status)
 	if strings.Contains(string(raw), pastedToken) || strings.Contains(string(st), pastedToken) {
 		t.Fatal("the token is in the pod spec or the app status")
 	}
 }
 
 func TestNewTokenValueReplacesThePodOnce(t *testing.T) {
-	newTemplate(t, "lab-gt2")
-	putSecret(t, "alice", "GT2_TOKEN", pastedToken)
-	app := newSourceApp(t, "ws-gt2", "alice", "lab-gt2", "GT2_TOKEN")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-gt2")
+	fx.putSecret(t, "alice", "GT2_TOKEN", pastedToken)
+	app := fx.newSourceApp(t, "ws-gt2", "alice", "lab-gt2", "GT2_TOKEN")
 	var old *corev1.Pod
-	eventually(t, "first pod with token", func() bool { old = podOf(app); return old != nil && gitSecret(app) != nil })
+	eventually(t, "first pod with token", func() bool { old = fx.podOf(app); return old != nil && fx.gitSecret(app) != nil })
 
-	putSecret(t, "alice", "GT2_TOKEN", "ghp_second")
+	fx.putSecret(t, "alice", "GT2_TOKEN", "ghp_second")
 	var fresh *corev1.Pod
 	eventually(t, "a new pod for the new value", func() bool {
-		fresh = podOf(app)
-		sec := gitSecret(app)
+		fresh = fx.podOf(app)
+		sec := fx.gitSecret(app)
 		return fresh != nil && fresh.UID != old.UID && sec != nil && string(sec.Data["token"]) == "ghp_second"
 	})
 	for range 3 {
-		reconcileNow(t, rec, app.ID)
+		reconcileNow(t, fx.rec, app.ID)
 	}
-	if cur := podOf(app); cur == nil || cur.UID != fresh.UID {
+	if cur := fx.podOf(app); cur == nil || cur.UID != fresh.UID {
 		t.Fatal("the pod was replaced again without a new value")
 	}
 }
 
 func TestRemovingTheTokenDeletesTheSecretAndReplacesThePod(t *testing.T) {
-	newTemplate(t, "lab-gt3")
-	putSecret(t, "alice", "GT3_TOKEN", pastedToken)
-	app := newSourceApp(t, "ws-gt3", "alice", "lab-gt3", "GT3_TOKEN")
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-gt3")
+	fx.putSecret(t, "alice", "GT3_TOKEN", pastedToken)
+	app := fx.newSourceApp(t, "ws-gt3", "alice", "lab-gt3", "GT3_TOKEN")
 	var old *corev1.Pod
 	eventually(t, "pod with token", func() bool {
-		old = podOf(app)
-		return old != nil && old.Annotations[model.AnnotationGitToken] != "" && gitSecret(app) != nil
+		old = fx.podOf(app)
+		return old != nil && old.Annotations[model.AnnotationGitToken] != "" && fx.gitSecret(app) != nil
 	})
-	if err := db.Secrets().SetGitToken(bg, model.Actor{Person: "alice"}, app, ""); err != nil {
+	if err := fx.db.Secrets().SetGitToken(bg, model.Actor{Person: "alice"}, app, ""); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "secret gone and pod rebuilt without the token", func() bool {
-		p := podOf(app)
+		p := fx.podOf(app)
 		if p == nil || p.UID == old.UID {
 			return false
 		}
 		_, annotated := p.Annotations[model.AnnotationGitToken]
-		return gitSecret(app) == nil && !annotated
+		return fx.gitSecret(app) == nil && !annotated
 	})
 }
 
 // A token pasted before tokens came from secrets keeps working: it moves into a secret of
 // the owner, and the app's clone then reads it from there.
 func TestPastedTokenMovesIntoASecret(t *testing.T) {
-	newTemplate(t, "lab-gt6")
-	app := newPrivateApp(t, "ws-gt6", "alice", "lab-gt6", func(a *model.App) { a.Paused = true })
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-gt6")
+	app := fx.newPrivateApp(t, "ws-gt6", "alice", "lab-gt6", func(a *model.App) { a.Paused = true })
 	eventually(t, "the token adopted", func() bool {
-		name, err := db.Secrets().GitTokenSecret(bg, app.ID)
+		name, err := fx.db.Secrets().GitTokenSecret(bg, app.ID)
 		return err == nil && name == "GIT_TOKEN_WS_GT6"
 	})
-	if _, _, has := tokenRow(t, app.ID); has {
+	if _, _, has := fx.tokenRow(t, app.ID); has {
 		t.Fatal("the pasted copy is still the app's token")
 	}
-	if tok, _, _ := tokenRow(t, app.ID); tok != "" {
+	if tok, _, _ := fx.tokenRow(t, app.ID); tok != "" {
 		t.Fatal("the row still holds the token")
 	}
-	sec, err := db.Secrets().Get(bg, "alice", "GIT_TOKEN_WS_GT6")
+	sec, err := fx.db.Secrets().Get(bg, "alice", "GIT_TOKEN_WS_GT6")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealed, _ := db.Secrets().Sealed(bg, sec.ID)
-	opener, err := testKeys.Opener(bg)
+	sealed, _ := fx.db.Secrets().Sealed(bg, sec.ID)
+	opener, err := fx.keys.Opener(bg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +182,7 @@ func TestPastedTokenMovesIntoASecret(t *testing.T) {
 		t.Fatalf("the adopted secret opens to %q (%v)", v, err)
 	}
 	eventually(t, "the Secret from the adopted secret", func() bool {
-		s := gitSecret(app)
+		s := fx.gitSecret(app)
 		return s != nil && string(s.Data["token"]) == pastedToken && strings.HasPrefix(s.Annotations[model.AnnotationGitToken], "secret-")
 	})
 }
@@ -182,9 +190,11 @@ func TestPastedTokenMovesIntoASecret(t *testing.T) {
 // A controller without the secrets key still hands a pasted token to the
 // clone, as before tokens came from secrets.
 func TestPastedTokenWorksWithoutTheSecretsKey(t *testing.T) {
+	t.Parallel()
+	alloc := newNamespace(t, "javo-alloc", nil)
 	s := storetest.New(t)
 	putTemplateIn(t, s, "lab-gt7")
-	a := &model.App{Namespace: allocNS, Name: "ws-gt7", Owner: "alice", Template: "lab-gt7", File: "app.py",
+	a := &model.App{Namespace: alloc, Name: "ws-gt7", Owner: "alice", Template: "lab-gt7", File: "app.py",
 		Source: &model.Source{URL: "https://github.com/example-org/private-site", Ref: "main"}}
 	app, err := s.Apps().CreateFromRepo(bg, model.Actor{Person: "alice"}, a, store.RepoSecrets{Token: pastedToken})
 	if err != nil {
@@ -193,7 +203,7 @@ func TestPastedTokenWorksWithoutTheSecretsKey(t *testing.T) {
 	r := newRec(s, func(r *Reconciler) { r.Secrets = k8s })
 	reconcileNow(t, r, app.ID)
 	sec := &corev1.Secret{}
-	if err := k8s.Get(bg, client.ObjectKey{Namespace: allocNS, Name: GitTokenSecretName(app.ObjectName())}, sec); err != nil {
+	if err := k8s.Get(bg, client.ObjectKey{Namespace: alloc, Name: GitTokenSecretName(app.ObjectName())}, sec); err != nil {
 		t.Fatal(err)
 	}
 	if string(sec.Data["token"]) != pastedToken || sec.Annotations[model.AnnotationGitToken] != "1" {
@@ -205,30 +215,34 @@ func TestPastedTokenWorksWithoutTheSecretsKey(t *testing.T) {
 }
 
 func TestDeletingTheAppDeletesTheTokenSecret(t *testing.T) {
-	newTemplate(t, "lab-gt4")
-	app := newPrivateApp(t, "ws-gt4", "alice", "lab-gt4")
-	eventually(t, "secret", func() bool { return gitSecret(app) != nil })
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-gt4")
+	app := fx.newPrivateApp(t, "ws-gt4", "alice", "lab-gt4")
+	eventually(t, "secret", func() bool { return fx.gitSecret(app) != nil })
 
-	if err := db.Apps().MarkDeleted(bg, model.Actor{Person: "alice"}, app.ID); err != nil {
+	if err := fx.db.Apps().MarkDeleted(bg, model.Actor{Person: "alice"}, app.ID); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "row purged", func() bool {
-		_, err := db.Apps().Get(bg, app.ID)
+		_, err := fx.db.Apps().Get(bg, app.ID)
 		return errors.Is(err, store.ErrNotFound)
 	})
-	eventually(t, "secret gone", func() bool { return gitSecret(app) == nil })
+	eventually(t, "secret gone", func() bool { return fx.gitSecret(app) == nil })
 }
 
 func TestAppWithoutATokenMakesNoSecretAndAPodWithoutOne(t *testing.T) {
-	newTemplate(t, "lab-gt5")
-	app := newApp(t, "ws-gt5", "alice", "lab-gt5", func(a *model.App) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-gt5")
+	app := fx.newApp(t, "ws-gt5", "alice", "lab-gt5", func(a *model.App) {
 		a.File = "app.py"
 		a.Source = &model.Source{URL: "https://github.com/example-org/site"}
 	})
 	var pod *corev1.Pod
-	eventually(t, "pod", func() bool { pod = podOf(app); return pod != nil })
-	if _, ok := pod.Annotations[model.AnnotationGitToken]; ok || gitSecret(app) != nil {
-		t.Fatalf("annotations %v, secret %v", pod.Annotations, gitSecret(app))
+	eventually(t, "pod", func() bool { pod = fx.podOf(app); return pod != nil })
+	if _, ok := pod.Annotations[model.AnnotationGitToken]; ok || fx.gitSecret(app) != nil {
+		t.Fatalf("annotations %v, secret %v", pod.Annotations, fx.gitSecret(app))
 	}
 	for _, c := range pod.Spec.InitContainers {
 		for _, a := range c.Args {
@@ -240,13 +254,15 @@ func TestAppWithoutATokenMakesNoSecretAndAPodWithoutOne(t *testing.T) {
 }
 
 func TestSourceCommitReachesTheStatus(t *testing.T) {
-	newTemplate(t, "lab-commit")
-	app := newApp(t, "ws-commit", "alice", "lab-commit", func(a *model.App) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-commit")
+	app := fx.newApp(t, "ws-commit", "alice", "lab-commit", func(a *model.App) {
 		a.File = "app.py"
 		a.Source = &model.Source{URL: "https://github.com/example-org/site"}
 	})
 	var pod *corev1.Pod
-	eventually(t, "pod", func() bool { pod = podOf(app); return pod != nil })
+	eventually(t, "pod", func() bool { pod = fx.podOf(app); return pod != nil })
 	pod.Status.InitContainerStatuses = []corev1.ContainerStatus{
 		{Name: "clone", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}},
 		{Name: "source-check", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Message: "commit=" + exampleSHA}}},
@@ -257,21 +273,23 @@ func TestSourceCommitReachesTheStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "the commit in status", func() bool {
-		reconcileNow(t, newRec(db), app.ID)
-		return getApp(t, app.ID).Status.Commit == exampleSHA
+		reconcileNow(t, newRec(fx.db), app.ID)
+		return fx.getApp(t, app.ID).Status.Commit == exampleSHA
 	})
 }
 
 // A replaced pod has not cloned yet, so the old pod's commit must not stay in
 // the status next to the new run (or its failure).
 func TestRestartClearsTheDeployedCommit(t *testing.T) {
-	newTemplate(t, "lab-commit-clear")
-	app := newApp(t, "ws-commit-clear", "alice", "lab-commit-clear", func(a *model.App) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-commit-clear")
+	app := fx.newApp(t, "ws-commit-clear", "alice", "lab-commit-clear", func(a *model.App) {
 		a.File = "app.py"
 		a.Source = &model.Source{URL: "https://github.com/example-org/site"}
 	})
 	var pod *corev1.Pod
-	eventually(t, "pod", func() bool { pod = podOf(app); return pod != nil })
+	eventually(t, "pod", func() bool { pod = fx.podOf(app); return pod != nil })
 	pod.Status.InitContainerStatuses = []corev1.ContainerStatus{
 		{Name: "clone", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}},
 		{Name: "source-check", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Message: "commit=" + exampleSHA}}},
@@ -282,42 +300,44 @@ func TestRestartClearsTheDeployedCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "the commit in status", func() bool {
-		reconcileNow(t, newRec(db), app.ID)
-		return getApp(t, app.ID).Status.Commit == exampleSHA
+		reconcileNow(t, newRec(fx.db), app.ID)
+		return fx.getApp(t, app.ID).Status.Commit == exampleSHA
 	})
 
-	editApp(t, db, app.ID, func(a *model.App) { a.RestartRequestedAt = time.Now() })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.RestartRequestedAt = time.Now() })
 	eventually(t, "the commit cleared", func() bool {
-		reconcileNow(t, newRec(db), app.ID)
-		return getApp(t, app.ID).Status.Commit == ""
+		reconcileNow(t, newRec(fx.db), app.ID)
+		return fx.getApp(t, app.ID).Status.Commit == ""
 	})
 }
 
 // Redeploy is the restart request every app carries: a new pod clones again.
 func TestRestartRequestReplacesASourceAppsPodOnce(t *testing.T) {
-	newTemplate(t, "lab-redeploy")
-	app := newApp(t, "ws-redeploy", "alice", "lab-redeploy", func(a *model.App) {
+	t.Parallel()
+	fx := newEnv(t)
+	fx.newTemplate(t, "lab-redeploy")
+	app := fx.newApp(t, "ws-redeploy", "alice", "lab-redeploy", func(a *model.App) {
 		a.File = "app.py"
 		a.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "main"}
 	})
 	var old *corev1.Pod
-	eventually(t, "pod", func() bool { old = podOf(app); return old != nil })
+	eventually(t, "pod", func() bool { old = fx.podOf(app); return old != nil })
 
-	editApp(t, db, app.ID, func(a *model.App) { a.RestartRequestedAt = time.Now() })
+	editApp(t, fx.db, app.ID, func(a *model.App) { a.RestartRequestedAt = time.Now() })
 	var fresh *corev1.Pod
-	eventually(t, "a new pod", func() bool { fresh = podOf(app); return fresh != nil && fresh.UID != old.UID })
+	eventually(t, "a new pod", func() bool { fresh = fx.podOf(app); return fresh != nil && fresh.UID != old.UID })
 	if len(fresh.Spec.InitContainers) < 2 || fresh.Annotations[model.AnnotationRestart] == "" {
 		t.Fatalf("the new pod does not clone again: %v %v", initNames(fresh), fresh.Annotations)
 	}
 	eventually(t, "the cache sees the new pod", func() bool {
 		p := &corev1.Pod{}
-		return rec.Get(bg, key(app.ObjectName()), p) == nil && p.UID == fresh.UID
+		return fx.rec.Get(bg, fx.key(app.ObjectName()), p) == nil && p.UID == fresh.UID
 	})
 	for range 3 {
-		reconcileNow(t, rec, app.ID)
+		reconcileNow(t, fx.rec, app.ID)
 	}
 	time.Sleep(300 * time.Millisecond)
-	if cur := podOf(app); cur == nil || cur.UID != fresh.UID {
+	if cur := fx.podOf(app); cur == nil || cur.UID != fresh.UID {
 		t.Fatal("the pod was replaced again without a new request")
 	}
 }
