@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,5 +99,25 @@ func TestJupyterAppsOpenWebsocketIsNotUseByItself(t *testing.T) {
 	gatewaytest.Flushed(t, f.activity) // the upgrade request itself
 	if got := gatewaytest.Flushed(t, f.activity)[id]; !got.Equal(reported) {
 		t.Fatalf("open Jupyter websocket flushed %v, want the server's last use %v", got, reported)
+	}
+}
+
+// The app owner runs the server the probe asks, so a reply too big for a
+// kernel list is an error, not something the gateway reads whole.
+func TestJupyterProbeRejectsAnOversizedReply(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/u/alice/lab/api/status" {
+			w.Write([]byte(`{"last_activity":"2026-11-02T11:40:05Z"}`))
+			return
+		}
+		w.Write([]byte("["))
+		w.Write([]byte(strings.Repeat(" ", 8<<20)))
+		w.Write([]byte("]"))
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	probe := jupyterProbe(srv.Client(), Backend{URL: u, Prefix: "/u/alice/lab"}, time.Now)
+	if _, err := probe(context.Background()); err == nil {
+		t.Fatal("want an error from an oversized kernel list")
 	}
 }

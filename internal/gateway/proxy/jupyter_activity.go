@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -16,6 +17,10 @@ import (
 // hours. Neither request counts as use to Jupyter (status never does; the
 // kernel list is asked with no_track_activity). An open but unused
 // JupyterLab tab only polls, and stops polling when hidden.
+// probeReplyLimit bounds what the probe reads from the app's server, which
+// its owner controls; a kernel list or status is far smaller.
+const probeReplyLimit = 1 << 20
+
 func jupyterProbe(client *http.Client, b Backend, now func() time.Time) activity.Probe {
 	api := *b.URL
 	if !b.StripPrefix {
@@ -38,7 +43,14 @@ func jupyterProbe(client *http.Client, b Backend, now func() time.Time) activity
 		if res.StatusCode != http.StatusOK {
 			return fmt.Errorf("GET %s: %s", req.URL.Path, res.Status)
 		}
-		return json.NewDecoder(res.Body).Decode(into)
+		body, err := io.ReadAll(io.LimitReader(res.Body, probeReplyLimit+1))
+		if err != nil {
+			return err
+		}
+		if len(body) > probeReplyLimit {
+			return fmt.Errorf("GET %s: reply over %d bytes", req.URL.Path, probeReplyLimit)
+		}
+		return json.Unmarshal(body, into)
 	}
 	return func(ctx context.Context) (time.Time, error) {
 		var kernels []struct {

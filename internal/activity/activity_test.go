@@ -104,6 +104,22 @@ func TestFailedFlushKeepsActivity(t *testing.T) {
 	}
 }
 
+// An app reporting a last use in the future counts as used now, so its
+// owner cannot keep it from ever going idle.
+func TestWatchedAppsFutureLastUseCountsAsNow(t *testing.T) {
+	tr, c := newTracker()
+	rec := &recorder{}
+	future := c.t.Add(100 * 365 * 24 * time.Hour)
+	done := tr.Watch("lab", func(context.Context) (time.Time, error) { return future, nil })
+	defer done()
+	if err := tr.Flush(context.Background(), rec); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.last()["lab"]; !got.Equal(c.t) {
+		t.Fatalf("future report flushed %v, want now %v", got, c.t)
+	}
+}
+
 // A connection to an app that keeps its own account of use (Jupyter) is not
 // use by itself: while it is open each flush writes what the app reports,
 // and a report that fails counts as use, as an open connection did.

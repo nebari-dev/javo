@@ -111,8 +111,8 @@ func (t *Tracker) Watch(app string, probe Probe) (closed func()) {
 	}
 }
 
-// probeAll asks every watched app at once; an app that does not answer
-// counts as used at now.
+// probeAll asks every watched app at once; an app that does not answer, or
+// reports a use after now, counts as used at now.
 func probeAll(ctx context.Context, probes map[string]Probe, now time.Time) map[string]time.Time {
 	var (
 		mu  sync.Mutex
@@ -126,6 +126,9 @@ func probeAll(ctx context.Context, probes map[string]Probe, now time.Time) map[s
 			at, err := probe(pctx)
 			if err != nil {
 				slog.Debug("app activity probe", "app", app, "err", err)
+				at = now
+			}
+			if at.After(now) {
 				at = now
 			}
 			mu.Lock()
