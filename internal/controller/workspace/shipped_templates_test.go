@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/sizes"
+	"github.com/nebari-dev/javo/internal/source"
 	"github.com/nebari-dev/javo/internal/templates"
 )
 
@@ -308,7 +310,7 @@ func TestShippedStaticSite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(initNames(pod), ","); got != "clone,source-check,build,site-copy,site-config" {
+	if got := strings.Join(initNames(pod), ","); got != "clone,source-check,build,site-copy,site-config,javo-files,pod-user" {
 		t.Fatalf("init containers = %s", got)
 	}
 
@@ -317,7 +319,7 @@ func TestShippedStaticSite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(initNames(pod), ","); got != "site-copy,site-config" {
+	if got := strings.Join(initNames(pod), ","); got != "javo-files,pod-user,site-copy,site-config" {
 		t.Fatalf("init containers = %s", got)
 	}
 	if got := initNamed(t, pod, "site-copy").Command; !slices.Equal(got, []string{"cp", "/home/user/art/page.html", "/usr/share/nginx/html/index.html"}) {
@@ -448,3 +450,104 @@ func TestShippedTemplateDescriptionsAreOneShortLine(t *testing.T) {
 // maxCardDescription is what one line of the narrowest template card holds
 // (220px, in the New app form).
 const maxCardDescription = 20
+
+// adminTemplates are shipped templates only platform admins use; they have no
+// sample to try.
+var adminTemplates = map[string]bool{"backup": true}
+
+// podFile is the repository path of a pod file the pods see under
+// model.PodFilesDir (pod/files is copied there).
+func podFile(t *testing.T, inPod string) string {
+	t.Helper()
+	rel, ok := strings.CutPrefix(inPod, model.PodFilesDir+"/")
+	if !ok {
+		t.Fatalf("%q is not under %s", inPod, model.PodFilesDir)
+	}
+	return filepath.Join("..", "..", "..", "pod", "files", rel)
+}
+
+// Every shipped template a person picks ships a sample that just runs: an
+// app template names a sample folder of the pod files (and the file it
+// opens) or, taking any image, an image pinned by digest; a job template
+// names a sample job whose scripts are pod files. Picking the template and
+// pressing Create then needs no code of the person's own.
+func TestEveryShippedTemplateHasARunnableSample(t *testing.T) {
+	t.Parallel()
+	entries, err := os.ReadDir(filepath.Join("..", "..", "..", "deploy", "helm", "javo", "files", "templates"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".yaml")
+		if !ok || adminTemplates[name] {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			tpl := shippedTemplate(t, name)
+			if tpl.Spec.JobOnly {
+				sm := tpl.Spec.Jobs.Sample
+				if sm == nil {
+					t.Fatal("no sample job (spec.jobs.sample)")
+				}
+				for _, w := range strings.Fields(sm.Command) {
+					if strings.HasPrefix(w, model.PodFilesDir+"/") {
+						if _, err := os.Stat(podFile(t, w)); err != nil {
+							t.Errorf("the sample job runs %s: %v", w, err)
+						}
+					}
+				}
+				return
+			}
+			sm := tpl.Spec.Sample
+			switch {
+			case sm == nil:
+				t.Fatal("no sample (spec.sample)")
+			case tpl.Spec.UserImage:
+				if !strings.Contains(sm.Image, "@sha256:") {
+					t.Errorf("sample image %q is not pinned by digest", sm.Image)
+				}
+			default:
+				dir := podFile(t, sm.Path)
+				if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+					t.Fatalf("sample folder %s: %v", dir, err)
+				}
+				if sm.Open != "" {
+					if _, err := os.Stat(filepath.Join(dir, sm.Open)); err != nil {
+						t.Errorf("sample opens %s: %v", sm.Open, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+// A static site from the sample serves the sample's page: the pod files
+// arrive, the sample is copied into the home, and only then is its page
+// copied to the folder nginx serves.
+func TestStaticSiteSampleIsCopiedBeforeItIsServed(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "static-site")
+	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "site", Owner: "alice", Template: tpl.Name, File: SampleFileOf(tpl), Sample: true}
+	pod, err := BuildPod(ws, tpl, "/u/a/site/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range pod.Spec.InitContainers {
+		names = append(names, c.Name)
+	}
+	at := func(n string) int {
+		i := slices.Index(names, n)
+		if i < 0 {
+			t.Fatalf("no init container %s in %q", n, names)
+		}
+		return i
+	}
+	if !(at(podfiles.CopyContainer) < at(model.SampleCopyContainer) && at(model.SampleCopyContainer) < at(source.SiteCopyContainer)) {
+		t.Fatalf("init containers run in the order %q", names)
+	}
+	site := pod.Spec.InitContainers[at(source.SiteCopyContainer)]
+	if got := site.Command[1]; got != "/home/user/samples/static-site/index.html" {
+		t.Fatalf("the site copy reads %q", got)
+	}
+}

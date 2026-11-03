@@ -199,8 +199,16 @@ func TestBuildPodSampleCopiesIntoHomeBeforeStart(t *testing.T) {
 	if cp.Image != tpl.Spec.Image {
 		t.Fatalf("image = %s", cp.Image)
 	}
-	if got := strings.Join(cp.Command, "|"); got != "cp|-rn|/opt/javo/samples/streamlit/.|/home/user/samples/streamlit" {
+	// -T copies the folder as the target, which BusyBox cp (nginx images)
+	// does too; its -n skips a target "/." that exists, so the sample-dir
+	// step makes only the parent.
+	if got := strings.Join(cp.Command, "|"); got != "cp|-rnT|/opt/javo/samples/streamlit|/home/user/samples/streamlit" {
 		t.Fatalf("argv = %q", got)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == "sample-dir" && strings.Join(c.Command, "|") != "mkdir|-p|/home/user/samples" {
+			t.Fatalf("sample-dir argv = %q", c.Command)
+		}
 	}
 	if len(cp.VolumeMounts) != 1 || cp.VolumeMounts[0].MountPath != "/home/user" {
 		t.Fatalf("mounts = %+v", cp.VolumeMounts)

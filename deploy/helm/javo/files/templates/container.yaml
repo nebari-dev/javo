@@ -20,3 +20,9 @@ spec:
   # under a path and on its own subdomain.
   basePath: Strip
   appLogin: Disabled
+  # nginx-unprivileged runs as its own non-root user, serves its welcome page
+  # at / on 8080 and is pinned by digest (DEPENDENCIES.md); the same image
+  # serves the static-site template.
+  sample:
+    image: nginxinc/nginx-unprivileged:1.31.6-alpine-slim@sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4
+    title: nginx welcome page

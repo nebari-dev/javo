@@ -28,3 +28,10 @@ spec:
     limits: {memory: 1Gi}
   jobs:
     engines: [bash]
+    # Offered on the Jobs page as "Try a sample job": a bash one-liner that
+    # greets its name parameter and prints the time and the host.
+    sample:
+      title: Say hello
+      command: echo "Hello, ${JAVO_PARAM_NAME:-world}. It is $(date -u '+%H:%M') UTC on $(hostname)."
+      parameters:
+        - {name: name, type: string, default: javo}

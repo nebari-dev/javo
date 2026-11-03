@@ -17,6 +17,9 @@ spec:
   kind: static
   maxSharing: Public
   fromRepo: Optional
+  # The pods get the platform's files, so the sample (one page of
+  # pod/files/samples/static-site) can be copied into the home.
+  podFiles: true
   # nginx-unprivileged serves the files; its default command is kept, with a
   # server config the pod writes (build.serverConfig): the image's own answers
   # a folder without its trailing slash with an absolute redirect (http, the
@@ -53,3 +56,8 @@ spec:
   resources:
     requests: {cpu: 50m, memory: 32Mi}
     limits: {memory: 256Mi}
+  # One HTML page with its CSS inline (pod/files/samples/static-site).
+  sample:
+    path: /opt/javo/samples/static-site
+    open: index.html
+    title: Welcome page

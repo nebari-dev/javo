@@ -221,7 +221,10 @@ func SampleFileOf(t *model.Template) string {
 // sampleInitContainers copies the template's sample into the home before the
 // app starts. The copy never overwrites a file, so the user's edits survive a
 // restart. cp does not create parent folders, so the first container makes
-// the target. Both run as the app does, with the home mounted and nothing else.
+// the target's parent; cp -T copies the folder as the target, the same in GNU
+// and BusyBox cp (whose -n skips a whole folder that exists, so a restart
+// there adds nothing). Both run as the app does, with the home mounted and
+// nothing else.
 func sampleInitContainers(t *model.Template, image string) []corev1.Container {
 	dest := sampleHome(t)
 	step := func(name string, argv ...string) corev1.Container {
@@ -236,12 +239,12 @@ func sampleInitContainers(t *model.Template, image string) []corev1.Container {
 			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 		}
 	}
-	cp := step(model.SampleCopyContainer, "cp", "-rn", strings.TrimSuffix(t.Spec.Sample.Path, "/")+"/.", dest)
+	cp := step(model.SampleCopyContainer, "cp", "-rnT", strings.TrimSuffix(t.Spec.Sample.Path, "/"), dest)
 	if t.Spec.UsesPodFiles() {
 		// The samples are pod files, not part of the image.
 		cp.VolumeMounts = append(cp.VolumeMounts, podfiles.Mount())
 	}
-	return []corev1.Container{step("sample-dir", "mkdir", "-p", dest), cp}
+	return []corev1.Container{step("sample-dir", "mkdir", "-p", path.Dir(dest)), cp}
 }
 
 // FixedUID is the uid workspaces run as when uids are not allocated.
@@ -284,7 +287,9 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 		}
 		data.File = FilePath(ws)
 	}
-	var inits []corev1.Container
+	// inits run first; site, the copy of a home page a site serves, runs
+	// after the pod files and the sample, which may be that page.
+	var inits, site []corev1.Container
 	if ws.Source != nil {
 		var err error
 		if inits, err = sourceInitContainers(ws, t, baseURL, img); err != nil {
@@ -292,7 +297,7 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 		}
 	} else if t.Spec.Build != nil && data.File != "" {
 		var err error
-		if inits, err = withSiteConfig(append(inits, siteFromHome(t, data.File)), t); err != nil {
+		if site, err = withSiteConfig([]corev1.Container{siteFromHome(t, data.File)}, t); err != nil {
 			return nil, err
 		}
 	}
@@ -344,7 +349,7 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 	if t.Spec.UsesPodFiles() {
 		podfiles.Apply(spec, img.Runner)
 	}
-	spec.InitContainers = append(spec.InitContainers, samples...)
+	spec.InitContainers = append(append(spec.InitContainers, samples...), site...)
 	app := &spec.Containers[0]
 	if ws.ParentID != "" {
 		layout = layout.WithoutFolders()

@@ -33,3 +33,10 @@ spec:
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 1Gi}
+  # A plain http server with no packages (pod/files/samples/backend-node)
+  # that shows the server time.
+  sample:
+    path: /opt/javo/samples/backend-node
+    open: server.js
+    title: Server time
+    command: node server.js

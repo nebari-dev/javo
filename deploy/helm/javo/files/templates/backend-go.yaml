@@ -35,3 +35,10 @@ spec:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+  # A standard-library server (pod/files/samples/backend-go) that shows the
+  # server time; go run builds it in the home's cache on the first start.
+  sample:
+    path: /opt/javo/samples/backend-go
+    open: main.go
+    title: Server time
+    command: go run main.go

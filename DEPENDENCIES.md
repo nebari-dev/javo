@@ -167,6 +167,8 @@ Checked 2026-11-01. `git-sync` is started by Javo in app pods (config key `sourc
 
 Checked 2026-11-01 (templates). The `static-site` template references the node and nginx-unprivileged digests above, unchanged. (The `backend-node` and `backend-go` templates run in pixi environments since 2026-11-02.)
 
+Checked 2026-11-03 (template samples). The `container` template's sample runs the nginx-unprivileged digest above, unchanged: Docker Hub still serves tag `1.31.6-alpine-slim` at `sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4` (multi-arch index, all platforms pushed 2026-10-12 by `csnginxbot`, 22 days old; namespace `nginxinc`). The other new samples (Go, Node.js, static page, bash, Julia and R jobs) use only what their environments already pin.
+
 Checked 2026-11-02 (Go back-end). The `backend-go` template first ran the golang image pinned under Container base images; it now runs the pixi image with the `backend-go` environment (go 1.27.3 from conda-forge).
 
 ### JupyterLab extensions

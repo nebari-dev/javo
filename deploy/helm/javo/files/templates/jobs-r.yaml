@@ -4,9 +4,9 @@ metadata:
   name: jobs-r
 spec:
   # Job-only: runs R notebooks and scripts in the background. It is marked
-  # jobOnly, so it is not offered as an app and has no sample; the fields below
-  # that only an app needs (kind, port, command) are placeholders the schema
-  # requires.
+  # jobOnly, so it is not offered as an app and has no app sample (it has a
+  # sample job, below); the fields below that only an app needs (kind, port,
+  # command) are placeholders the schema requires.
   jobOnly: true
   displayName: R jobs
   description: R jobs
@@ -28,3 +28,10 @@ spec:
   jobs:
     engines: [papermill, command]
     kernels: [ir]
+    # Offered on the Jobs page as "Try a sample job": a script of the pod
+    # files (pod/files/samples/jobs-r) that greets its name parameter.
+    sample:
+      title: Say hello in R
+      command: Rscript /opt/javo/samples/jobs-r/hello.R
+      parameters:
+        - {name: name, type: string, default: javo}
