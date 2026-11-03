@@ -104,7 +104,7 @@ Then open `http://localhost:8080`. For plain HTTP, set `config.urls.scheme: http
 - Namespace `javo-system` (the release) and `javo-apps`, where apps and their pods run. `javo-apps` is labelled for Pod Security "restricted" and kept on uninstall.
 - With SQLite: one Deployment `javo` and the volume `javo-data`, kept on uninstall. With Postgres: Deployments `javo-gateway` and `javo-controller`.
 - Service `javo-gateway` (port 80).
-- Secret `javo-secrets-key`, the key that protects people's secrets. It is made once and kept on upgrade and uninstall. [Back it up](/admin/secrets-and-keys/).
+- Secret `javo-secrets-key`, the key that protects people's secrets. The controller makes it on its first start (the chart does not render it) and never changes it; upgrades and uninstall keep it. [Back it up](/admin/secrets-and-keys/).
 - The built-in templates, loaded into the database at start.
 
 ## Next steps

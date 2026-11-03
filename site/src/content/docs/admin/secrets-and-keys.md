@@ -13,14 +13,14 @@ Values are encrypted with [Google Tink](https://developers.google.com/tink) (`gi
 
 - Each value is sealed with HPKE (RFC 9180: X25519, HKDF-SHA256, AES-256-GCM) under a key made for that value alone. The ciphertext is bound to its row (the secret's id, owner and name), so a ciphertext copied onto another row does not open.
 - The data keyset is in the database table `secret_keysets`: its public half in clear (it can only seal) and its private half encrypted with AES-256-GCM by the **key-encryption key** (KEK).
-- The KEK never goes into the database. It is 32 random bytes in the Kubernetes Secret `javo-secrets-key`, mounted only in the controller. The gateway, which takes values from people, seals with the public half and holds no key that opens anything.
+- The KEK never goes into the database. It is 32 random bytes in the Kubernetes Secret `javo-secrets-key`, which only the controller reads. The gateway, which takes values from people, seals with the public half and holds no key that opens anything.
 - The controller opens an app's secrets and writes them to a Secret `<app>-javo-secrets` in the app's namespace (owned by the app's Service, so it goes with the app). The pod reads them by reference (`env.valueFrom.secretKeyRef`); values are never in the pod spec or the database status. A new value, or a change to which secrets an app gets, restarts the app. Previews of pull requests never get secrets.
 - A private repository's token is the value of the secret picked for it. The controller opens it into the app's `<app>-javo-git-token` Secret, which the clone reads as a file; a new value replaces the pod once. A token pasted before tokens came from secrets keeps working: a controller with the key moves it into a secret of the owner called `GIT_TOKEN_<APP>` (or `GIT_TOKEN_<APP>_2` and so on when that name is taken) and drops the pasted copy.
 - Job runs read their values the same way, by reference, never from the CronJob or Job spec. Scheduled runs read `<job>-javo-secrets`, owned by the job's CronJob and rewritten when a value or binding changes, so the next run gets the change. A run started by hand gets `<run Job>-javo-secrets`, written with the values at its start and owned by its Job, so it goes when the run's Job does (an hour after it ends). Deleting the job deletes both at once. A run already going keeps what it started with.
 
 ## Back up the key
 
-The chart makes the KEK once and keeps it: upgrades look up the live Secret, uninstall leaves it (`helm.sh/resource-policy: keep`), and it is immutable, so a render that cannot look it up fails to apply instead of replacing it.
+The controller makes the KEK on its first start, when the Secret `javo-secrets-key` does not exist, and uses the one it finds on every start after. The chart does not render it, so `helm template` and Argo CD need no special handling and see no change between renders. The Secret is immutable, has no owner, and is annotated `helm.sh/resource-policy: keep` and `argocd.argoproj.io/sync-options: Prune=false,Delete=false`: an upgrade, an uninstall or a prune leaves it.
 
 :::caution
 Without the KEK every stored secret is unreadable, and people would have to enter their values again. Back it up **apart from the database backups**: a copy of both opens everything.
@@ -30,9 +30,18 @@ Without the KEK every stored secret is unreadable, and people would have to ente
 kubectl -n javo-system get secret javo-secrets-key -o jsonpath='{.data.kek}' > javo-secrets-key.b64
 ```
 
+### Upgrading from a chart that rendered the key
+
+Earlier charts rendered `javo-secrets-key` themselves. An upgrade keeps that Secret (it carries `helm.sh/resource-policy: keep` and Argo CD's `Prune=false,Delete=false`), and the controller finds it and uses its key. With Argo CD, drop the `ignoreDifferences` block for the Secret from the Application, and remove Argo CD's tracking from the old Secret so it is no longer counted as part of the Application (metadata can change on an immutable Secret; its key cannot):
+
+```sh
+kubectl -n javo-system label secret javo-secrets-key app.kubernetes.io/instance-
+kubectl -n javo-system annotate secret javo-secrets-key argocd.argoproj.io/tracking-id-
+```
+
 ## Bring your own key
 
-Tools that render the chart without the cluster (`helm template`, Argo CD) cannot look the key up and would make a new one each time. Make the Secret yourself and name it:
+To use a key made elsewhere (a copy restored from a backup, or one from your own secret store), make the Secret before installing and name it. The controller then only reads it and never makes one; it does not start while the Secret is missing.
 
 ```sh
 head -c 32 /dev/urandom > kek
@@ -45,18 +54,18 @@ secrets:
   existingKeySecret: my-javo-kek
 ```
 
-A controller whose KEK does not open the stored keyset never replaces it. It logs the mismatch at start; apps that get secrets stay stopped and jobs that get secrets are blocked, with the reason "Secrets could not be read", until the right key is mounted. Other apps and jobs run as usual.
+A controller whose KEK does not open the stored keyset never replaces it. It logs the mismatch at start; apps that get secrets stay stopped and jobs that get secrets are blocked, with the reason "Secrets could not be read", until the right key is in place. Other apps and jobs run as usual.
 
 ## Rotate the data key
 
 ```sh
-kubectl -n javo-system exec deploy/javo -- /javo secrets rotate --key-file /etc/javo-secrets-key/kek
+kubectl -n javo-system exec deploy/javo -- /javo secrets rotate --key-secret javo-secrets-key
 ```
 
 With Postgres, run it in the controller:
 
 ```sh
-kubectl -n javo-system exec deploy/javo-controller -- /javo secrets rotate --key-file /etc/javo-secrets-key/kek \
+kubectl -n javo-system exec deploy/javo-controller -- /javo secrets rotate --key-secret javo-secrets-key \
   --database-engine=postgres --database-dsn-file=/etc/javo-db/dsn
 ```
 
