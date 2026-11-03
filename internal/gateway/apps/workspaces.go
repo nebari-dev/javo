@@ -754,6 +754,10 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 	if phase == "Running" && !app.Paused && app.Version > app.Status.ObservedVersion {
 		phase = "Starting"
 	}
+	// A started app is Starting until the controller has seen the start.
+	if !app.Paused && phase == "Stopped" && app.Version > app.Status.ObservedVersion {
+		phase = "Starting"
+	}
 	// A stopped app is Stopping until its pod is gone.
 	// A held restored app is Pending whether it was running or not.
 	if app.Paused && phase != "Stopped" && phase != "Failed" && !app.Held(time.Now()) {

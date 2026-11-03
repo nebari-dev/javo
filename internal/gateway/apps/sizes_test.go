@@ -181,6 +181,23 @@ func TestPausedAppStillRunningShowsStopping(t *testing.T) {
 	}
 }
 
+// Starting a stopped app answers Starting at once, before the controller has
+// made its pod, so the page shows the start and keeps polling.
+func TestStartingAStoppedAppShowsStarting(t *testing.T) {
+	t.Parallel()
+	ws := gatewaytest.Workspace("sales-app", "alice-aaaaaaaa", "Sales app")
+	ws.Paused, ws.Status.Phase = true, "Stopped"
+	f := apitest.New(t, apitest.Options{Sizes: apitest.TestCatalog(t)}, ws)
+	w := f.Do("POST", "/api/workspaces/sales-app/start", "", f.Session("alice-aaaaaaaa"))
+	if got := apitest.Decode[apitest.WorkspaceJSON](t, w).Phase; got != "Starting" {
+		t.Fatalf("start answered phase %q, want Starting: %s", got, w.Body)
+	}
+	w = f.Do("GET", "/api/workspaces/sales-app", "", f.Session("alice-aaaaaaaa"))
+	if got := apitest.Decode[apitest.WorkspaceJSON](t, w).Phase; got != "Starting" {
+		t.Fatalf("phase %q, want Starting: %s", got, w.Body)
+	}
+}
+
 // Each size says whether some machine can hold it, and why not when none can.
 func TestListSizesMarksSizesNoMachineCanHold(t *testing.T) {
 	t.Parallel()
