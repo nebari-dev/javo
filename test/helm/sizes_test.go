@@ -91,7 +91,7 @@ func TestDefaultSizesReachControllerAndGateway(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rendered sizes do not parse: %v\n%s", err, data)
 		}
-		want := []struct{ name, cpu, mem string }{{"small", "1", "2Gi"}, {"medium", "4", "8Gi"}, {"large", "8", "32Gi"}}
+		want := []struct{ name, cpu, mem string }{{"small", "1", "2Gi"}, {"medium", "2", "4Gi"}, {"large", "4", "16Gi"}}
 		got := c.List()
 		if len(got) != len(want) || c.Default() != "small" {
 			t.Fatalf("sizes = %+v, default %q", got, c.Default())

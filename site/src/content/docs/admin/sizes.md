@@ -10,8 +10,8 @@ People pick a **size** for each app and job. The app's container gets the size's
 ```yaml
 sizes:
   - {name: small, displayName: Small, cpu: "1", memory: 2Gi}
-  - {name: medium, displayName: Medium, cpu: "4", memory: 8Gi}
-  - {name: large, displayName: Large, cpu: "8", memory: 32Gi}
+  - {name: medium, displayName: Medium, cpu: "2", memory: 4Gi}
+  - {name: large, displayName: Large, cpu: "4", memory: 16Gi}
 defaultSize: small
 ```
 

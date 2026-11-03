@@ -154,11 +154,12 @@ publicHost: ""
 # A size bigger than every node's allocatable CPU or memory is shown
 # disabled and refused, and an app already at it fails as SizeTooBig. Set
 # allowUnschedulable: true on a size an autoscaler can add a node for, so it
-# is offered and waits for that node instead.
+# is offered and waits for that node instead. The defaults fit common worker
+# nodes: medium a 4 vCPU / 8 GiB node, large an 8 vCPU / 32 GiB node.
 sizes:
   - {name: small, displayName: Small, cpu: "1", memory: 2Gi}
-  - {name: medium, displayName: Medium, cpu: "4", memory: 8Gi}
-  - {name: large, displayName: Large, cpu: "8", memory: 32Gi}
+  - {name: medium, displayName: Medium, cpu: "2", memory: 4Gi}
+  - {name: large, displayName: Large, cpu: "4", memory: 16Gi}
 # The size new apps get when the user does not pick one; one of the names
 # above (empty when sizes is empty).
 defaultSize: small

@@ -378,7 +378,7 @@ func TestDeriveRefusesLoginlessAppWithoutEnforcedNetworkPolicy(t *testing.T) {
 	}
 }
 
-// bigPod asks for 8 CPU and 32Gi, like the shipped Large size.
+// bigPod asks for 8 CPU and 32Gi.
 func bigPod() *corev1.Pod {
 	p := pod(corev1.PodPending, false, false)
 	p.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
