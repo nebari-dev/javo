@@ -1,10 +1,11 @@
-import { Server } from 'lucide-react'
+import { Minus, Plus, Server } from 'lucide-react'
 import { Section, useSectionHeading } from '../../components/Section'
 import { useId, useState } from 'react'
 import type { Amount, CustomAllowance, Size } from '../../api'
 import { amountProblems, sizeLabel, sizeSpecs, type SizeChoice } from '../../lib/sizes'
 import { Card } from '../../components/Card'
 import { Folded } from '../../components/Folded'
+import { IconButton } from '../../components/IconButton'
 import { CUSTOM, SizeChoices } from './SizeChoices'
 
 const GiB = 2 ** 30
@@ -93,6 +94,20 @@ function snap(n: number, step: number, min: number, max: number) {
 }
 
 /**
+ * The value one step from n in direction dir (1 up, -1 down), between min
+ * and max (max 0 is no limit): off the step, the next step that way.
+ * Empty (NaN), it starts at min.
+ */
+function stepFrom(n: number, dir: 1 | -1, step: number, min: number, max: number) {
+  if (!Number.isFinite(n)) return min
+  // Rounded so 0.30000000000000004 / 0.1 counts as on the step.
+  const at = Number((n / step).toFixed(6))
+  const next = (dir > 0 ? Math.floor(at) + 1 : Math.ceil(at) - 1) * step
+  const top = max > 0 ? Math.floor(Number((max / step).toFixed(6))) * step : Infinity
+  return Math.max(min, Math.min(next, top))
+}
+
+/**
  * The sizes as one radio group: the admin's sizes and, for people the admin
  * allows, a Custom card. Picking Custom opens CPU and memory fields below,
  * starting from the size picked before; picking a size again closes them.
@@ -144,9 +159,9 @@ function CustomAmount({ allowance: c, value, onChange, error }: { allowance: Cus
   }
   const memStep = c.memoryStep / GiB
   const fields = [
-    { label: 'CPU', unit: 'CPU', value: cpu, step: c.cpuStep, min: c.minCPU, max: c.maxCPU, problem: problems.cpu,
+    { label: 'CPU', unit: 'CPU', less: 'Less CPU', more: 'More CPU', value: cpu, step: c.cpuStep, min: c.minCPU, max: c.maxCPU, problem: problems.cpu,
       change: (v: string) => set(v, mem), snap: () => Number.isFinite(value.cpu) && set(text(snap(value.cpu, c.cpuStep, 0, 0)), mem) },
-    { label: 'Memory', unit: 'GB', value: mem, step: memStep, min: c.minMemory / GiB, max: Math.floor(c.maxMemory / c.memoryStep) * memStep, problem: problems.memory,
+    { label: 'Memory', unit: 'GB', less: 'Less memory', more: 'More memory', value: mem, step: memStep, min: c.minMemory / GiB, max: Math.floor(c.maxMemory / c.memoryStep) * memStep, problem: problems.memory,
       change: (v: string) => set(cpu, v), snap: () => Number.isFinite(value.memory) && set(cpu, text(snap(value.memory, c.memoryStep, 0, 0) / GiB)) },
   ]
   const shown = error ?? problems.cpu ?? problems.memory
@@ -180,6 +195,9 @@ function CustomAmount({ allowance: c, value, onChange, error }: { allowance: Cus
 function CustomField(f: {
   label: string
   unit: string
+  /** The minus and plus keys' names. */
+  less: string
+  more: string
   value: string
   step: number
   min: number
@@ -191,10 +209,14 @@ function CustomField(f: {
   errId?: string
 }) {
   const id = useId()
+  const n = f.value.trim() === '' ? NaN : Number(f.value)
+  const step = (dir: 1 | -1) => f.change(text(stepFrom(n, dir, f.step, f.min, f.max)))
   return (
     <div className="field tight">
       <label htmlFor={id}>{f.label}</label>
-      <span className="unit-input">
+      <span className="stepper">
+        <IconButton icon={Minus} label={f.less} disabled={n <= f.min} onClick={() => step(-1)} />
+        <span className="unit-input">
         <input
           id={id}
           type="number"
@@ -205,6 +227,11 @@ function CustomField(f: {
           min={f.min}
           max={f.max > 0 ? f.max : undefined}
           onChange={(e) => f.change(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+            e.preventDefault()
+            step(e.key === 'ArrowUp' ? 1 : -1)
+          }}
           onBlur={f.snap}
           aria-invalid={f.problem ? true : undefined}
           aria-describedby={f.problem && f.errId ? `${f.hintId} ${f.errId}` : f.hintId}
@@ -212,6 +239,8 @@ function CustomField(f: {
         <span className="unit" aria-hidden="true">
           {f.unit}
         </span>
+        </span>
+        <IconButton icon={Plus} label={f.more} disabled={f.max > 0 && n >= f.max} onClick={() => step(1)} />
       </span>
     </div>
   )

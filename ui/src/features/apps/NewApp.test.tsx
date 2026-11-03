@@ -654,6 +654,40 @@ describe('New app sizes', () => {
     expect(body.size).toBeUndefined()
   })
 
+  it('steps the custom amount with the minus and plus keys, within the allowance', async () => {
+    const api = withSizes({ 'GET /api/sizes': { body: { items: sizes, custom: allowance } } })
+    renderApp('/apps/new')
+    await pickStreamlit()
+    await openSize()
+    await userEvent.click(await screen.findByRole('radio', { name: /Custom/ }))
+    const cpu = screen.getByRole('spinbutton', { name: 'CPU' }) as HTMLInputElement
+    const mem = screen.getByRole('spinbutton', { name: 'Memory' }) as HTMLInputElement
+    await userEvent.click(screen.getByRole('button', { name: 'More CPU' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More CPU' }))
+    expect(cpu.value).toBe('1.2')
+    await userEvent.click(screen.getByRole('button', { name: 'Less memory' }))
+    expect(mem.value).toBe('1.75')
+    // Off the step, a key moves to the next step in its direction.
+    await userEvent.clear(cpu)
+    await userEvent.type(cpu, '0.15')
+    await userEvent.click(screen.getByRole('button', { name: 'Less CPU' }))
+    expect(cpu.value).toBe('0.1')
+    // At the minimum, minus stops.
+    expect((screen.getByRole('button', { name: 'Less CPU' }) as HTMLButtonElement).disabled).toBe(true)
+    // Arrow keys step too.
+    await userEvent.type(cpu, '{ArrowUp}{ArrowUp}{ArrowUp}{ArrowDown}')
+    expect(cpu.value).toBe('0.3')
+    // At the maximum, plus stops.
+    await userEvent.clear(cpu)
+    await userEvent.type(cpu, '8')
+    expect((screen.getByRole('button', { name: 'More CPU' }) as HTMLButtonElement).disabled).toBe(true)
+    await userEvent.type(cpu, '{ArrowUp}')
+    expect(cpu.value).toBe('8')
+    await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
+    await waitFor(() => expect(location()).toBe('/apps/streamlit-app'))
+    expect((createBody(api) as Record<string, unknown>).resources).toEqual({ cpu: 8, memory: 1.75 * 2 ** 30 })
+  })
+
   it('explains an amount over the limit where it is typed and sends nothing', async () => {
     const api = withSizes({ 'GET /api/sizes': { body: { items: sizes, custom: allowance } } })
     renderApp('/apps/new')

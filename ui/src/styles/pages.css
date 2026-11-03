@@ -175,6 +175,14 @@ a.btn{text-decoration:none}
 .unit-input{position:relative;display:block}
 .unit-input .input{padding-right:56px;font-variant-numeric:tabular-nums}
 .unit-input .unit{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-2);font-size:var(--fs-sm);pointer-events:none}
+/* Custom amount: minus and plus keys beside the field, which hides the browser's spinner. */
+.stepper{display:flex;align-items:stretch;gap:6px}
+.stepper .unit-input{flex:1;min-width:0}
+.stepper .input{appearance:textfield;-moz-appearance:textfield}
+.stepper .input::-webkit-inner-spin-button,.stepper .input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.stepper .icon-btn{width:auto;height:auto;aspect-ratio:1;align-self:stretch;border-radius:10px;border-color:var(--border-strong);background:var(--surface);color:var(--text);box-shadow:inset 0 1px 0 var(--key-hi),0 1px 0 var(--key-edge)}
+.stepper .icon-btn:hover{background:var(--surface-2)}
+.stepper .icon-btn:disabled{background:var(--surface);border-color:var(--border-strong);box-shadow:none}
 @media (max-width:520px){.custom-fields{grid-template-columns:minmax(0,1fr)}}
 .sample-card{border:1.5px solid var(--border)}
 .sample-card:hover{border-color:var(--border-strong)}
