@@ -123,6 +123,17 @@ func TestForkChildIsMarkedAndHasNoToken(t *testing.T) {
 	}
 }
 
+// A fork's pull request is a stranger's code: its preview opens for the
+// owner only, whoever the parent is shared with.
+func TestForkChildIsPrivate(t *testing.T) {
+	parent := parentApp()
+	parent.Sharing = model.Sharing{Access: model.AccessPublic, Users: []string{"bob"}, Groups: []string{"team"}}
+	child := Child(&parent, codehost.PullRequest{Number: 5, HeadSHA: "f00", Fork: true})
+	if child.Sharing.Access != model.AccessPrivate || len(child.Sharing.Users) != 0 || len(child.Sharing.Groups) != 0 {
+		t.Fatalf("fork preview sharing = %+v", child.Sharing)
+	}
+}
+
 func TestSameRepoChildHasTheTokenButNoHome(t *testing.T) {
 	parent := parentApp()
 	child := Child(&parent, codehost.PullRequest{Number: 6, HeadSHA: "beef"})

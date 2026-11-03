@@ -12,7 +12,8 @@ import (
 // pull request's head commit. It has no previews of its own and no API
 // access, whatever the template defaults to, because it runs code the owner
 // has not necessarily written. A fork's child is marked so its pod gets no
-// repository token.
+// repository token, and opens for the owner only: the parent's audience did
+// not agree to run a stranger's code.
 func Child(parent *model.App, pr codehost.PullRequest) model.App {
 	name := parent.DisplayName
 	if name == "" {
@@ -41,6 +42,9 @@ func Child(parent *model.App, pr codehost.PullRequest) model.App {
 		Sharing:     *parent.Sharing.DeepCopy(),
 		ParentID:    parent.ID,
 		PullNumber:  pr.Number,
+	}
+	if pr.Fork {
+		child.Sharing = model.Sharing{Access: model.AccessPrivate}
 	}
 	if parent.Resources != nil {
 		child.Resources = &model.AppResources{CPU: parent.Resources.CPU.DeepCopy(), Memory: parent.Resources.Memory.DeepCopy()}
