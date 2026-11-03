@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { RouteObject } from 'react-router'
+import { filesFeature } from './files'
 import { jobsFeature } from './jobs'
 
 interface NavEntry {
@@ -30,7 +31,7 @@ export interface FeatureModule {
 }
 
 /** Static: a feature exists in the UI when it is listed here. */
-export const features: FeatureModule[] = [jobsFeature]
+export const features: FeatureModule[] = [jobsFeature, filesFeature]
 
 export function useFeatureAttention(): AttentionEntry[] {
   return features.flatMap((f) => f.useAttention?.() ?? [])

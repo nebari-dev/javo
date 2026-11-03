@@ -18,6 +18,11 @@
   /* Log viewer surfaces, and the tint behind error and warning rows. */
   --log-bg:#fcfcfd; --log-head:#f6f7f9; --log-err-bg:#fcf0f1; --log-warn-bg:#fcf4e6;
   --radius:14px; --radius-sm:10px;
+  /* Code colours of the file viewer (Shiki's css-variables theme) and editor: the log hues, so both themes are covered. */
+  --code-foreground:var(--text); --code-background:var(--log-bg); --code-token-keyword:var(--log-number);
+  --code-token-string:var(--log-string); --code-token-string-expression:var(--log-string); --code-token-constant:var(--log-info);
+  --code-token-comment:var(--log-dim); --code-token-function:var(--log-key); --code-token-parameter:var(--log-path);
+  --code-token-punctuation:var(--text-2); --code-token-link:var(--accent-text); --code-token-inserted:var(--log-ok); --code-token-deleted:var(--log-err);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0e1015; --surface:#161920; --surface-2:#1c2028; --border:#262b35; --border-strong:#353b48;
