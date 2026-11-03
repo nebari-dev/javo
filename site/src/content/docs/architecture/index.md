@@ -38,7 +38,7 @@ Solid arrows are always there; dotted ones only when that feature is on.
 
 1. The browser goes to the UI host or the apps host. An Ingress (from the chart) or an HTTPRoute on Envoy Gateway (from the Nebari pack) sends both to the Service `javo-gateway`.
 2. The gateway's app proxy finds the app from the address: `/u/<owner>/<app>/` on the apps host, or `<app>.<apps domain>` with subdomains.
-3. It checks the visitor's session against the app's sharing on every request and every websocket. On a separate apps host a signed-in person first passes through a one-use ticket from the UI host, which sets a cookie for that app only. Public apps need no sign-in.
+3. It checks the visitor's session against the app's sharing on every request, and again every 30 seconds for an open websocket, which it closes once the answer is no. On a separate apps host a signed-in person first passes through a one-use ticket from the UI host, which sets a cookie for that app only. Public apps need no sign-in.
 4. It strips Javo's own cookies and tokens, then forwards to the app's Service, `<app>.<namespace>.svc`, on the app's port.
 
 Apps have no login of their own. The NetworkPolicy the controller keeps in every apps namespace lets in only the gateway's pods, so the proxy is the only way in. Every 6 hours (and at start) the controller starts two small probe pods to check that the cluster really enforces it.
