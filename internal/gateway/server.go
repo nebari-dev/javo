@@ -109,7 +109,8 @@ type Config struct {
 	CodeHosts *registry.Registry[codehost.Host]
 	// Placement decides the namespace of each app; wired in internal/cli/wiring.
 	Placement placement.Placement
-	// SecureCookies sets the Secure flag; true when served over TLS.
+	// SecureCookies sets the session cookie's Secure flag even when
+	// URLs.URLScheme is http; with https it is always set.
 	SecureCookies bool
 	// TrustedProxies are the peers whose X-Forwarded-For header is believed
 	// when finding a client's address (for login rate limits). Empty
@@ -216,11 +217,11 @@ func NewServer(cfg Config) *Server {
 		cfg.Providers = registry.New[authprovider.Provider]()
 	}
 	if cfg.Revalidator == nil {
-		cfg.Revalidator = authn.NewRevalidator(cfg.Providers, cfg.Sessions, cfg.OutageGrace, cfg.Now)
+		cfg.Revalidator = authn.NewRevalidator(cfg.Providers, cfg.Sessions, cfg.People, cfg.OutageGrace, cfg.Now)
 	}
 	a := &authn.Authenticator{
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
-		Secure: cfg.SecureCookies, Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
+		Secure: cfg.SecureCookies || cfg.URLs.URLScheme() == "https", Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
 		Apps: apps.AppTokenWanted(cfg.Store),
 	}

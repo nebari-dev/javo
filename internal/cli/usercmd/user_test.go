@@ -269,6 +269,35 @@ func TestUserRemoveRevokesTheirAPITokens(t *testing.T) {
 	}
 }
 
+// A replaced password, or replaced groups, must not leave a token made with
+// the old ones working: --force revokes the person's tokens like remove does.
+func TestUserAddForceRevokesTheirAPITokens(t *testing.T) {
+	e := newEnv(t)
+	dir := t.TempDir()
+	if _, _, err := runUserAdd(t, e, "alice", "--password-file", filepath.Join(dir, "pw1"), "--group", "javo-admins"); err != nil {
+		t.Fatal(err)
+	}
+	person, err := e.db.People(store.IDRange{}).Ensure(context.Background(), store.Claims{Issuer: "local", Subject: "alice", Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens := &token.DBStore{Tokens: e.db.Tokens()}
+	text, _, err := tokens.Create(context.Background(), model.Actor{Person: person.Name}, token.Token{Name: "ci", Owner: person.Name, Scope: token.ScopeRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := runUserAdd(t, e, "alice", "--password-file", filepath.Join(dir, "pw2"), "--force")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tokens.Authenticate(context.Background(), text); !errors.Is(err, token.ErrInvalid) {
+		t.Fatalf("token after a password reset: %v", err)
+	}
+	if !strings.Contains(stderr, "revoked 1 API tokens") {
+		t.Fatalf("stderr %q", stderr)
+	}
+}
+
 // The command and the server are separate processes sharing one SQLite file:
 // what the command writes, a server that opened the file earlier reads.
 func TestUserAddThenSignIn(t *testing.T) {

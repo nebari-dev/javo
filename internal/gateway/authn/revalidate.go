@@ -99,25 +99,33 @@ func (k *keyedLock) lock(key string) (unlock func()) {
 // configured any more, or an outage outlasted the grace period.
 var ErrSessionEnded = errors.New("session ended")
 
+// Reconfirmer records the groups and provider roles a revalidation
+// confirmed for a person (store.People), which their API tokens act with.
+type Reconfirmer interface {
+	Reconfirm(ctx context.Context, name string, groups, providerRoles []string) error
+}
+
 // Revalidator asks a ui session's provider whether the person is still valid.
 // The UI API and the app proxy share one, so a session is never revalidated
 // twice at once, whichever of them sees it first.
 type Revalidator struct {
 	providers *registry.Registry[authprovider.Provider]
 	sessions  session.Store
+	people    Reconfirmer
 	grace     time.Duration
 	now       func() time.Time
 	locks     keyedLock
 	outages   outageMemo
 }
 
-// NewRevalidator returns a Revalidator. A zero grace means 15 minutes; a nil
-// now means time.Now.
-func NewRevalidator(providers *registry.Registry[authprovider.Provider], sessions session.Store, grace time.Duration, now func() time.Time) *Revalidator {
+// NewRevalidator returns a Revalidator. Every revalidation the provider
+// answers is recorded on the person through people. A zero grace means 15
+// minutes; a nil now means time.Now.
+func NewRevalidator(providers *registry.Registry[authprovider.Provider], sessions session.Store, people Reconfirmer, grace time.Duration, now func() time.Time) *Revalidator {
 	if now == nil {
 		now = time.Now
 	}
-	return &Revalidator{providers: providers, sessions: sessions, grace: grace, now: now}
+	return &Revalidator{providers: providers, sessions: sessions, people: people, grace: grace, now: now}
 }
 
 // Due is true when the provider must be asked about sess now. A session with
@@ -227,6 +235,11 @@ func (v *Revalidator) check(ctx context.Context, id string, sess session.Session
 		if err := v.sessions.UpdateByID(ctx, id, fresh); err != nil && !errors.Is(err, session.ErrSessionChanged) {
 			slog.Error("store revalidated session", "err", err)
 			return sess, time.Time{}, err
+		}
+		// The person's API tokens follow what the provider said just now.
+		pr := fresh.Principal
+		if err := v.people.Reconfirm(ctx, pr.ID, pr.Groups, pr.ProviderRoles); err != nil {
+			slog.Warn("record revalidated groups", "person", pr.ID, "err", err)
 		}
 		return fresh, time.Time{}, nil
 	case errors.Is(err, authprovider.ErrRevoked):

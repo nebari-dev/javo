@@ -26,9 +26,13 @@ With an Ingress, the chart adds the apps host, or `*.<appsDomain>`, to the Ingre
 
 ## Why a separate host matters
 
-An app runs code its owner chose. When apps share the web UI's host, a page in an app could send requests to Javo's API with the visitor's own session. Javo guards against the obvious cases (it refuses state-changing API calls that come from another site or from a page under `/u/`), but the clean fix is a separate origin.
+An app runs code its owner chose. When apps share the web UI's host, a page in an app runs in the same origin as the web UI: its script can call Javo's API as whoever views it, with their session, and nothing on that one host can tell the two apart. **One-host mode is only for apps everyone who opens them trusts.** The clean fix is a separate origin.
 
-So **sharing beyond Private is refused while apps share the UI's host.** Serve apps on an apps host or on subdomains and sharing works. To allow sharing on one host anyway, knowing the risk, set:
+Javo refuses state-changing API calls from other sites: the web UI marks each call with an `X-Javo-Request` header that another site cannot add, and calls whose `Sec-Fetch-Site`, `Origin` or `Referer` point at another site or at a page under `/u/` are refused too. Clients with an API token (`Authorization: Bearer`) need no header. None of this stops a page served under `/u/` on the UI's own host. So while apps share the UI's host:
+
+- a platform admin cannot open other people's apps (they get "Platform admins cannot open other people's apps while apps share the platform's address");
+- nobody can open a preview of a pull request from a fork;
+- **sharing beyond Private is refused.** Serve apps on an apps host or on subdomains and sharing works. To allow sharing on one host anyway, knowing the risk, set:
 
 ```yaml
 config:

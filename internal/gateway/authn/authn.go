@@ -378,18 +378,28 @@ func (m *mounter) Reject(status int, code reasons.MessageCode) error {
 	return problem.New(status, reasons.Msg(code))
 }
 
-// LimitLogin counts one attempt; the peer is logged because behind a proxy it
-// is the address to list in --trusted-proxies.
-func (m *mounter) LimitLogin(ctx context.Context, username string) error {
+// LimitLogin counts one attempt and waits out recent failures at the
+// username; the peer is logged because behind a proxy it is the address to
+// list in --trusted-proxies.
+func (m *mounter) LimitLogin(ctx context.Context, username string) (func(bool), error) {
 	ip, _ := ctx.Value(clientKey{}).(string)
 	peer, _ := ctx.Value(peerKey{}).(string)
 	slog.Info("login attempt", "client", ip, "peer", peer)
-	wait, ok := m.a.Limiter.Allow(ip, strings.ToLower(username))
-	if ok {
-		return nil
+	username = strings.ToLower(username)
+	if wait, ok := m.a.Limiter.Allow(ip, username); !ok {
+		return nil, problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgTooManyAttempts)).
+			WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 	}
-	return problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgTooManyAttempts)).
-		WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	if err := m.a.Limiter.Wait(ctx, username); err != nil {
+		return nil, err
+	}
+	return func(right bool) {
+		if right {
+			m.a.Limiter.Succeeded(username)
+		} else {
+			m.a.Limiter.Failed(username)
+		}
+	}, nil
 }
 
 func (m *mounter) Complete(ctx context.Context, c identity.Claims, s session.Session) (authprovider.Signed, error) {
@@ -480,6 +490,7 @@ type People interface {
 	Ensure(ctx context.Context, c store.Claims) (model.Person, error)
 	ByName(ctx context.Context, name string) (model.Person, error)
 	Search(ctx context.Context, prefix string, limit int) ([]model.Person, error)
+	Reconfirmer
 }
 
 // Actor is who a change is made by, for the audit row: the person, and the

@@ -14,6 +14,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
+	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/kubeclient"
 	"github.com/nebari-dev/javo/internal/store"
@@ -64,7 +65,7 @@ func newUserAddCmd(openStore dbflag.Opener) *cobra.Command {
 	cmd.Flags().StringVar(&namespace, "namespace", "", "")
 	_ = cmd.Flags().MarkDeprecated("namespace", "accounts live in the database; the flag is ignored")
 	cmd.Flags().StringArrayVar(&groups, "group", nil, "group the account belongs to, as an identity provider would emit it (repeatable)")
-	cmd.Flags().BoolVar(&force, "force", false, "replace an existing user and password file")
+	cmd.Flags().BoolVar(&force, "force", false, "replace an existing user and password file; ends their sessions and revokes their API tokens")
 	_ = cmd.MarkFlagRequired("password-file")
 	return cmd
 }
@@ -121,13 +122,20 @@ func addUser(cmd *cobra.Command, db *store.Store, name, passwordFile string, gro
 		return fmt.Errorf("account stored but password file not written (rerun with --force): %w", err)
 	}
 	if force {
-		// A replaced password must not leave the old sessions signed in.
+		// A replaced password or group list must not leave the old sessions
+		// signed in, nor API tokens made with them working.
+		id := local.UserID(name)
 		sessions := &session.DBStore{Sessions: db.Sessions()}
-		n, err := sessions.DeleteFor(cmd.Context(), local.UserID(name))
+		n, err := sessions.DeleteFor(cmd.Context(), id)
 		if err != nil {
 			return fmt.Errorf("password replaced, but ending the old sessions failed (rerun with --force): %w", err)
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "signed out %d sessions\n", n)
+		revoked, err := (&token.DBStore{Tokens: db.Tokens()}).DeleteFor(cmd.Context(), cliActor, id)
+		if err != nil {
+			return fmt.Errorf("password replaced, but revoking the API tokens failed (rerun with --force): %w", err)
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "revoked %d API tokens\n", revoked)
 	}
 	return nil
 }

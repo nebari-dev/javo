@@ -21,7 +21,7 @@ Values fall in two groups:
 | `database.postgres.dsnSecret` | With Postgres: a Secret whose key `dsn` holds the connection string. |
 | `publicHost` | The host (and port) browsers use. Panel and Bokeh check websocket origins against it. Defaults to `config.urls.uiHost`. |
 | `ingress.*` | An Ingress for the web UI (and the apps host, when set). `config.urls.uiHost` defaults to `ingress.host`. |
-| `gateway.secureCookies` | `true` when served over TLS. |
+| `gateway.secureCookies` | Marks the session cookie Secure even when `config.urls.scheme` is `http`. With `https` (the default) it is always Secure. |
 | `gateway.trustedProxies` | CIDRs of reverse proxies in front of the gateway, so sign-in rate limits see the real client address. |
 | `config.auth` | [Sign-in](/admin/sign-in/): local accounts and OpenID Connect. |
 | `config.roles` | Which groups are platform admins, template admins and members. |

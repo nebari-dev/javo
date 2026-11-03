@@ -230,6 +230,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	if code, refused := p.oneOriginRefusal(app, d); refused {
+		writePage(w, http.StatusForbidden, page{Title: reasons.Msg(code), Link: "/apps", LinkText: "See your apps"})
+		return
+	}
 	if d.Via == "platform-admin" {
 		p.recordAdminOpen(r.Context(), who.ID, app)
 	}
@@ -282,6 +286,24 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		aw.probe = jupyterProbe(&http.Client{Transport: p.transport}, backend, time.Now)
 	}
 	rp.ServeHTTP(aw, r)
+}
+
+// oneOriginRefusal refuses what must not open while apps share the UI's
+// origin (no apps host): there an app's page can call the API as whoever
+// views it, with their session. So a platform admin does not open other
+// people's apps, and nobody opens a preview of a pull request from a fork,
+// which runs a stranger's code.
+func (p *proxy) oneOriginRefusal(app *model.App, d authz.Decision) (reasons.MessageCode, bool) {
+	if p.cfg.Exposure.SeparateHost() {
+		return "", false
+	}
+	switch {
+	case d.Via == "platform-admin":
+		return reasons.MsgAdminOpenNeedsAppsHost, true
+	case app.ParentID != "" && app.Source != nil && app.Source.Fork:
+		return reasons.MsgForkPreviewNeedsAppsHost, true
+	}
+	return "", false
 }
 
 // session returns the live session the request carries for this app: the app

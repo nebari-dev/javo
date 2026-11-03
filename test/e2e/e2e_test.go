@@ -72,6 +72,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 )
@@ -209,6 +210,7 @@ func (s *session) do(method, path string, body any) (*http.Response, []byte) {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set(authn.RequestHeader, "1")
 	resp, err := s.http.Do(req)
 	if err != nil {
 		s.t.Fatalf("%s %s: %v", method, path, err)

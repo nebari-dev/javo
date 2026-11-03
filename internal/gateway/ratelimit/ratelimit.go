@@ -3,6 +3,7 @@
 package ratelimit
 
 import (
+	"context"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -12,15 +13,24 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Login attempt limits. Every attempt counts, right or wrong, which also
-// bounds the password-hashing work one client can cause. Guesses at one
-// username from one address hit the tight limit, so a guesser locks out
-// only its own address; the looser per-username cap bounds guesses spread
-// over many addresses.
+// Login attempt limits per address. Every attempt counts, right or wrong,
+// which also bounds the password-hashing work one client can cause. Guesses
+// at one username from one address hit the tight limit, so a guesser locks
+// out only its own address. An IPv6 client is one /64.
 var (
 	perIPLimit     = Spec{Every: 2 * time.Second, Burst: 20}
 	perUserIPLimit = Spec{Every: 12 * time.Second, Burst: 5}
-	perUserLimit   = Spec{Every: 3 * time.Second, Burst: 30}
+)
+
+// Failed sign-ins at one username, from any address, slow its next attempts
+// instead of refusing them: after freeFailures, each attempt waits
+// firstDelay, doubling with every further failure up to maxDelay. A refusal
+// would let anyone keep the person out by guessing wrong from a few
+// addresses; a capped wait still lets the right password in.
+const (
+	freeFailures = 5
+	firstDelay   = 500 * time.Millisecond
+	maxDelay     = 8 * time.Second
 )
 
 const (
@@ -98,20 +108,114 @@ func (b *Buckets) reserve(key string, spec Spec, now time.Time) *rate.Reservatio
 	return e.lim.ReserveN(now, 1)
 }
 
-// Login is a token bucket per client IP, per (username, client IP)
-// and per username.
-type Login struct{ *Buckets }
+// Login limits sign-in attempts: token buckets per client address and per
+// (username, client address), and a growing wait per username after failures.
+type Login struct {
+	*Buckets
+	sleep func(ctx context.Context, d time.Duration) error
+
+	mu     sync.Mutex
+	failed map[string]failures
+}
+
+// failures is the recent failed sign-ins at one username.
+type failures struct {
+	n    int
+	last time.Time
+}
 
 // NewLogin returns an empty login limiter.
-func NewLogin() *Login { return &Login{NewBuckets()} }
+func NewLogin() *Login {
+	return &Login{Buckets: NewBuckets(), sleep: sleepCtx, failed: map[string]failures{}}
+}
 
-// Allow takes one attempt from each of the three buckets.
+// Allow takes one attempt from the per-address buckets.
 func (l *Login) Allow(ip, username string) (time.Duration, bool) {
+	addr := addrKey(ip)
 	return l.Take(
-		Bucket{"ip:" + ip, perIPLimit},
-		Bucket{"userip:" + username + "\x00" + ip, perUserIPLimit},
-		Bucket{"user:" + username, perUserLimit},
+		Bucket{"ip:" + addr, perIPLimit},
+		Bucket{"userip:" + username + "\x00" + addr, perUserIPLimit},
 	)
+}
+
+// Delay is how long the next attempt at username waits before its password
+// is checked.
+func (l *Login) Delay(username string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f := l.current(username)
+	if f.n < freeFailures {
+		return 0
+	}
+	if k := f.n - freeFailures; k < 8 {
+		return min(firstDelay<<k, maxDelay)
+	}
+	return maxDelay
+}
+
+// Wait sleeps for Delay(username), or until ctx ends.
+func (l *Login) Wait(ctx context.Context, username string) error {
+	if d := l.Delay(username); d > 0 {
+		return l.sleep(ctx, d)
+	}
+	return nil
+}
+
+// Failed records a wrong password for username.
+func (l *Login) Failed(username string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	f := l.current(username)
+	l.failed[username] = failures{n: f.n + 1, last: now}
+	if len(l.failed) > 1024 {
+		for k, f := range l.failed {
+			if now.Sub(f.last) >= limiterIdle {
+				delete(l.failed, k)
+			}
+		}
+	}
+}
+
+// Succeeded ends the wait for username.
+func (l *Login) Succeeded(username string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.failed, username)
+}
+
+// current is username's failures; none after limiterIdle without one.
+func (l *Login) current(username string) failures {
+	f := l.failed[username]
+	if l.now().Sub(f.last) >= limiterIdle {
+		return failures{}
+	}
+	return f
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// addrKey is the key of a client address: an IPv6 address by its /64, which
+// one client usually holds whole.
+func addrKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // ClientIP is the address limits are keyed on. When the peer is a

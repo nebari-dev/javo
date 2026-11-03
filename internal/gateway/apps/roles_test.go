@@ -2,6 +2,7 @@ package apps_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -181,6 +182,46 @@ func TestTemplateAdminManagesTemplates(t *testing.T) {
 	}
 	if _, err := f.Db.Templates().Get(context.Background(), "lab"); err == nil {
 		t.Fatal("not deleted")
+	}
+}
+
+// Replacing a template changes what runs in every app on it, so the audit
+// row names the fields that changed, and who changed them.
+func TestReplacingATemplateAuditsWhatChanged(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig()})
+	tadmin := f.Session("tara-44444444", "tmpl-admins")
+	if w := f.Do("PUT", "/api/templates/lab", apitest.TemplateBody, tadmin); w.Code != http.StatusOK {
+		t.Fatalf("create %d: %s", w.Code, w.Body)
+	}
+	before, err := f.Db.Templates().Get(context.Background(), "lab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := before.Spec
+	next.Image = "example.org/other:1"
+	body, err := json.Marshal(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := f.Do("PUT", "/api/templates/lab", string(body), tadmin); w.Code != http.StatusOK {
+		t.Fatalf("replace %d: %s", w.Code, w.Body)
+	}
+	events, err := f.Db.Audit().List(context.Background(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details []string
+	for _, e := range events {
+		if e.Action == "template.put" {
+			if e.Actor != "tara-44444444" {
+				t.Fatalf("actor %q", e.Actor)
+			}
+			details = append(details, string(e.Detail))
+		}
+	}
+	if len(details) != 2 || !slices.Contains(details, `{"changed":["image"]}`) {
+		t.Fatalf("template.put details %q", details)
 	}
 }
 

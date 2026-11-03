@@ -16,6 +16,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -527,9 +528,15 @@ func (s *API) update(ctx context.Context, in *updateJobInput) (*jobOutput, error
 	if err != nil {
 		return nil, err
 	}
-	spec, err := s.fill(ctx, authn.User(ctx), &in.Body)
+	u := authn.User(ctx)
+	spec, err := s.fill(ctx, u, &in.Body)
 	if err != nil {
 		return nil, err
+	}
+	if !runsTheSame(job.Spec, spec) {
+		if err := envvars.MayRewrite(ctx, s.DB, u, authz.RolesOf(u, s.Roles), authz.Object{Job: job}); err != nil {
+			return nil, err
+		}
 	}
 	saved, err := s.DB.Jobs().UpdateSpec(ctx, authn.Actor(ctx), job.ID, job.Version, func(j *model.Job) error {
 		// The owner stays: an admin changing someone's job does not take it
@@ -542,6 +549,14 @@ func (s *API) update(ctx context.Context, in *updateJobInput) (*jobOutput, error
 		return nil, s.saveError(err, &in.Body)
 	}
 	return s.detail(ctx, &saved)
+}
+
+// runsTheSame is whether next runs the same code as cur: they differ at
+// most in name, schedule, notifications and run policy.
+func runsTheSame(cur, next model.JobSpec) bool {
+	next.DisplayName, next.Schedule, next.Notify, next.Run = cur.DisplayName, cur.Schedule, cur.Notify, cur.Run
+	next.History, next.Env, next.Environment = cur.History, cur.Env, cur.Environment
+	return equality.Semantic.DeepEqual(cur, next)
 }
 
 // fill turns the form into a job spec. The form is checked against the

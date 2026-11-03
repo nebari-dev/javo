@@ -49,13 +49,19 @@ func (f *fakeUsers) Lookup(_ context.Context, name string) (local.User, error) {
 type fakeHost struct {
 	api       humatest.TestAPI
 	limit     error
+	outcomes  []bool
 	completed []identity.Claims
 	sessions  []session.Session
 }
 
 func (h *fakeHost) API() huma.API                            { return h.api }
 func (h *fakeHost) Handle(string, http.Handler)              { panic("local provider has no browser routes") }
-func (h *fakeHost) LimitLogin(context.Context, string) error { return h.limit }
+func (h *fakeHost) LimitLogin(context.Context, string) (func(bool), error) {
+	if h.limit != nil {
+		return nil, h.limit
+	}
+	return func(right bool) { h.outcomes = append(h.outcomes, right) }, nil
+}
 func (h *fakeHost) Now() time.Time                           { return now }
 func (h *fakeHost) Reject(status int, c reasons.MessageCode) error {
 	return huma.NewError(status, reasons.Msg(c))
@@ -118,6 +124,17 @@ func TestWrongPasswordIs401AndCompletesNothing(t *testing.T) {
 	resp := h.api.Post("/api/auth/local/login", map[string]any{"username": "alice", "password": "nope"})
 	if resp.Code != http.StatusUnauthorized || len(h.completed) != 0 {
 		t.Fatalf("status %d, completed %d", resp.Code, len(h.completed))
+	}
+}
+
+// The host hears whether each checked password was right, which is what its
+// limits per username count.
+func TestLoginReportsWhetherThePasswordWasRight(t *testing.T) {
+	h, _, _ := setup(t)
+	h.api.Post("/api/auth/local/login", map[string]any{"username": "alice", "password": "nope"})
+	h.api.Post("/api/auth/local/login", map[string]any{"username": "alice", "password": "alice-password"})
+	if len(h.outcomes) != 2 || h.outcomes[0] || !h.outcomes[1] {
+		t.Fatalf("outcomes %v", h.outcomes)
 	}
 }
 

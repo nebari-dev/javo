@@ -10,6 +10,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/envvars"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -63,6 +64,15 @@ func (s *Workspaces) registerAPIAccess(api huma.API) {
 		}
 		if err := checkAPIAccess(&t, in.Body.APIAccess); err != nil {
 			return nil, err
+		}
+		// The token acts as the owner, so only they give the app more of it.
+		raised := *app
+		raised.APIAccess = in.Body.APIAccess
+		if model.APIAccessRank(model.APIAccessOf(&raised, &t)) > model.APIAccessRank(model.APIAccessOf(app, &t)) {
+			u := authn.User(ctx)
+			if err := envvars.OwnerOnly(ctx, u, s.rolesOf(u), authz.Object{App: app}); err != nil {
+				return nil, err
+			}
 		}
 		if app.APIAccess != in.Body.APIAccess {
 			if app, err = s.updateApp(ctx, app, func(a *model.App) { a.APIAccess = in.Body.APIAccess }); err != nil {

@@ -141,6 +141,61 @@ func MayChange(ctx context.Context, u authz.Principal, roles []authz.Role, targe
 	return nil
 }
 
+// MayRewrite guards a change of what target runs: a job's engine, command,
+// source or template, an app's command, image or port, turning on its
+// previews. While target holds any of its owner's credentials (a secret as a
+// variable or as its repository token, or for an app with target.Template
+// set, an API token), that change decides which code sees them, so only the
+// owner may make it (OwnerOnly). Without them, whoever manages target may.
+func MayRewrite(ctx context.Context, db *store.Store, u authz.Principal, roles []authz.Role, target authz.Object) error {
+	held, err := holdsCredentials(ctx, db, target)
+	if err != nil {
+		return problem.Internal("read secret bindings", err)
+	}
+	if !held {
+		return nil
+	}
+	return OwnerOnly(ctx, u, roles, target)
+}
+
+// OwnerOnly lets only target's owner through, and never with an app's own
+// API token, as for choosing its secrets (MayChange).
+func OwnerOnly(ctx context.Context, u authz.Principal, roles []authz.Role, target authz.Object) error {
+	owner := ""
+	switch {
+	case target.Job != nil:
+		owner = target.Job.Owner
+	case target.App != nil:
+		owner = target.App.Owner
+	}
+	target.Secret = &model.Secret{Owner: owner}
+	if authn.NoAppTokens(ctx) != nil || !authz.Decide(u, roles, authz.ActUseSecret, target).Allowed {
+		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgSecretsHeldOwnerOnly))
+	}
+	return nil
+}
+
+// holdsCredentials is whether target's app or job is bound to any of its
+// owner's secrets, or is an app with API access.
+func holdsCredentials(ctx context.Context, db *store.Store, target authz.Object) (bool, error) {
+	switch {
+	case target.Job != nil:
+		b, err := db.Secrets().JobBindings(ctx, target.Job.ID)
+		return len(b) > 0, err
+	case target.App != nil:
+		if target.Template != nil && model.APIAccessOf(target.App, target.Template) != model.APIAccessNone {
+			return true, nil
+		}
+		b, err := db.Secrets().Bindings(ctx, target.App.ID)
+		if err != nil || len(b) > 0 {
+			return len(b) > 0, err
+		}
+		tok, err := db.Secrets().GitTokenSecret(ctx, target.App.ID)
+		return tok != "", err
+	}
+	return false, nil
+}
+
 // SaveError maps a refused save of variables.
 func SaveError(err error, notFound, changed func() error) error {
 	var missing *store.SecretMissingError

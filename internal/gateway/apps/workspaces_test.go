@@ -25,7 +25,9 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
+	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/netprobe"
@@ -96,13 +98,30 @@ func TestLoginSetsSessionCookieAndLogoutEndsIt(t *testing.T) {
 	}
 }
 
-func TestPlainCookieWithoutTLS(t *testing.T) {
+// The session cookie is Secure whenever the platform's address is https
+// (urls.scheme, https by default), whatever --secure-cookies says; only an
+// http address gets a plain cookie, unless the flag asks for Secure.
+func TestSessionCookieFollowsTheURLScheme(t *testing.T) {
 	t.Parallel()
-	f := apitest.New(t, apitest.Options{Secure: false})
-	w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
-	cs := w.Result().Cookies()
-	if len(cs) != 1 || cs[0].Secure {
-		t.Fatalf("cookies %+v", cs)
+	for _, c := range []struct {
+		name   string
+		scheme string
+		flag   bool
+		secure bool
+	}{
+		{"https by default", "", false, true},
+		{"https", "https", false, true},
+		{"http", "http", false, false},
+		{"http with the flag", "http", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := apitest.New(t, apitest.Options{Secure: c.flag, Urls: config.URLs{Scheme: c.scheme}})
+			w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
+			cs := w.Result().Cookies()
+			if len(cs) != 1 || cs[0].Secure != c.secure {
+				t.Fatalf("cookies %+v", cs)
+			}
+		})
 	}
 }
 
@@ -501,32 +520,26 @@ func TestLoginGuessesLimitOnlyTheGuessingAddress(t *testing.T) {
 	}
 }
 
-// Guesses spread over many addresses still hit a looser cap per username.
-func TestLoginIsRateLimitedPerUsername(t *testing.T) {
+// Wrong passwords spread over many addresses slow the next attempts at that
+// username instead of refusing them, so the right password still signs in.
+func TestGuessesFromManyAddressesSlowButDoNotLockOut(t *testing.T) {
 	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
-	var last *httptest.ResponseRecorder
-	for i := 0; i < 200; i++ {
-		last = f.LoginFrom(fmt.Sprintf("192.0.%d.%d", i/250, i%250+1), "alice", "wrong")
-		if last.Code == http.StatusTooManyRequests {
-			break
+	for i := 0; i < 6; i++ {
+		if w := f.LoginFrom(fmt.Sprintf("192.0.2.%d", i+1), "alice", "wrong"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("guess %d: %d", i, w.Code)
 		}
 	}
-	if last.Code != http.StatusTooManyRequests {
-		t.Fatalf("never limited: %d", last.Code)
+	start := time.Now()
+	if w := f.LoginFrom("198.51.100.1", "alice", "alice-password"); w.Code != http.StatusOK {
+		t.Fatalf("alice after the guesses: %d", w.Code)
 	}
-	if last.Header().Get("Retry-After") == "" {
-		t.Fatal("no Retry-After")
+	if waited := time.Since(start); waited < 500*time.Millisecond {
+		t.Fatalf("alice waited only %v after six wrong guesses", waited)
 	}
-	if p := apitest.Decode[apitest.Problem](t, last); p.Title != reasons.Msg(reasons.MsgTooManyAttempts) {
-		t.Fatalf("title %q", p.Title)
-	}
-	// The right password is refused too while limited; other users are not affected.
-	if w := f.LoginFrom("198.51.100.1", "alice", "alice-password"); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("limited user signed in: %d", w.Code)
-	}
-	if w := f.LoginFrom("198.51.100.2", "bob", "wrong"); w.Code != http.StatusUnauthorized {
-		t.Fatalf("other user: %d", w.Code)
+	start = time.Now()
+	if w := f.LoginFrom("198.51.100.2", "bob", "wrong"); w.Code != http.StatusUnauthorized || time.Since(start) > 400*time.Millisecond {
+		t.Fatalf("other user: %d after %v", w.Code, time.Since(start))
 	}
 }
 
@@ -583,6 +596,7 @@ func TestLoginEndsThePreviousSession(t *testing.T) {
 	old := f.Session("alice-aaaaaaaa")
 	r := httptest.NewRequest("POST", "/api/auth/local/login", strings.NewReader(`{"username":"alice","password":"alice-password"}`))
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set(authn.RequestHeader, "1")
 	r.AddCookie(old)
 	w := httptest.NewRecorder()
 	f.Srv.ServeHTTP(w, r)

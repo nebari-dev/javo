@@ -85,8 +85,10 @@ type Mounter interface {
 	// Handle is for browser routes such as a redirect callback.
 	Handle(pattern string, h http.Handler)
 	// LimitLogin counts one sign-in attempt for username from the caller's
-	// address. It returns nil, or the 429 error to return from the route.
-	LimitLogin(ctx context.Context, username string) error
+	// address and waits as long as recent failures at username ask. It
+	// returns the 429 error to return from the route, or a done func to call
+	// with whether the password was right.
+	LimitLogin(ctx context.Context, username string) (done func(right bool), err error)
 	// Reject builds the error for a failed request from a catalog message.
 	Reject(status int, code reasons.MessageCode) error
 	// Complete finishes a sign-in: it finds or creates the Identity for c,

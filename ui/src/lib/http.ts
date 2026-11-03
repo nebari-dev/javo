@@ -66,8 +66,14 @@ export function fieldErrors(err: unknown): { fields: Record<string, string>; oth
 
 // Every generated call throws ApiError, so callers and the session guard
 // see one error type. baseUrl is set because Request needs an absolute URL
-// outside a browser.
-client.setConfig({ baseUrl: typeof window === 'undefined' ? '' : window.location.origin, throwOnError: true })
+// outside a browser. X-Javo-Request marks a call as the UI's own: the
+// gateway refuses a state-changing call with the session cookie without it,
+// which another site cannot add.
+client.setConfig({
+  baseUrl: typeof window === 'undefined' ? '' : window.location.origin,
+  throwOnError: true,
+  headers: { 'X-Javo-Request': '1' },
+})
 client.interceptors.error.use((err, res) => (err instanceof ApiError ? err : new ApiError(res?.status ?? 0, err, res?.headers)))
 client.interceptors.response.use((res) => {
   noteIdpHeader(res.headers)

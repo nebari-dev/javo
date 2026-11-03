@@ -76,17 +76,20 @@ func (p *Provider) Mount(m authprovider.Mounter) {
 		Summary: "Sign in with a local account", Tags: []string{"auth"}, Security: []map[string][]string{},
 		Errors: []int{http.StatusUnauthorized, http.StatusTooManyRequests},
 	}, func(ctx context.Context, in *loginInput) (*loginOutput, error) {
-		if err := m.LimitLogin(ctx, in.Body.Username); err != nil {
+		done, err := m.LimitLogin(ctx, in.Body.Username)
+		if err != nil {
 			return nil, err
 		}
 		u, err := p.users.Verify(ctx, in.Body.Username, in.Body.Password)
 		if errors.Is(err, local.ErrInvalidCredentials) {
+			done(false)
 			return nil, m.Reject(http.StatusUnauthorized, reasons.MsgWrongCredentials)
 		}
 		if err != nil {
 			slog.Error("verify credentials", "err", err)
 			return nil, m.Reject(http.StatusInternalServerError, reasons.MsgServerError)
 		}
+		done(true)
 		signed, err := m.Complete(ctx, claims(u), session.Session{
 			Provider: ID, Kind: session.KindUI, RevalidateAt: m.Now().Add(p.every),
 		})
