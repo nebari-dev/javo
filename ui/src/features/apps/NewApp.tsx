@@ -712,7 +712,6 @@ export function NewApp() {
           <Button type="submit" variant="primary" className="wide" disabled={!!missing || create.isPending || Object.keys(draftErrs).length > 0}>
             Create app
           </Button>
-          <div className="faint small center hint">We check everything first; nothing is created if a check fails.</div>
         </Card>
       </div>
       {picking && tpl && (

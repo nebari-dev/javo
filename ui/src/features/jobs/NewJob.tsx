@@ -459,7 +459,6 @@ function JobForm({ job, sampleOf, sampleName, templates }: FormProps) {
               Cancel
             </Link>
           )}
-          <div className="faint small center hint">We check everything first; nothing is saved if a check fails.</div>
         </Card>
       </div>
       {picking && (
