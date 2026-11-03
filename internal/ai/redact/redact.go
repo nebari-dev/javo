@@ -1,5 +1,7 @@
-// Package redact hides secrets in text before it is sent to a model, with
-// the rules of gitleaks (its detect package, used as a library).
+// Package redact hides secrets in text before it is sent to a model: first
+// the values the platform knows are secret (Known), then whatever matches
+// the rules of gitleaks (its detect package, used as a library). It does not
+// look for personal data.
 package redact
 
 import (

@@ -53,6 +53,7 @@ import (
 	"github.com/nebari-dev/javo/internal/jobs/engines/papermill"
 	"github.com/nebari-dev/javo/internal/jobs/engines/quarto"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
@@ -185,7 +186,11 @@ func newAIProvider(c config.AICfg, apiKey string, r *provider.Registry) (provide
 // AIService builds the AI features from the config, or nil when AI is
 // off. The key comes only from the environment (JAVO_AI_API_KEY, a Secret in
 // the chart). The provider self-test runs once in the background.
-func AIService(ctx context.Context, c config.AICfg, db *store.Store) (*ai.Service, error) {
+//
+// fp finds the owners' stored secret values in log lines before anything is
+// sent; nil (no fingerprint key) withholds the log lines of every owner who
+// has secrets.
+func AIService(ctx context.Context, c config.AICfg, db *store.Store, fp *secrets.Fingerprinter) (*ai.Service, error) {
 	p, err := newAIProvider(c, os.Getenv("JAVO_AI_API_KEY"), aiProviders())
 	if err != nil || p == nil {
 		return nil, err
@@ -198,6 +203,19 @@ func AIService(ctx context.Context, c config.AICfg, db *store.Store) (*ai.Servic
 	svc := &ai.Service{
 		Provider: p, Model: c.Model, MaxInputRunes: c.MaxInputRunes, Redactor: scan,
 		Budget: &ai.DBBudget{Usage: db.AIUsage(), Daily: c.DailyTokensPerUser},
+		SecretsOf: func(ctx context.Context, owner string) (func(string) []redact.Span, bool, error) {
+			find, unchecked, err := secrets.Lookout(ctx, db, fp, owner)
+			if err != nil {
+				return nil, false, err
+			}
+			return func(text string) []redact.Span {
+				var out []redact.Span
+				for _, m := range find(text) {
+					out = append(out, redact.Span{Start: m.Start, End: m.End, Name: m.Name})
+				}
+				return out
+			}, unchecked, nil
+		},
 	}
 	go svc.SelfTest(ctx)
 	return svc, nil

@@ -128,3 +128,21 @@ ON CONFLICT (id) DO NOTHING;
 -- name: UpdateSecretKeyset :execrows
 UPDATE secret_keysets SET wrapped = $1, public = $2, version = version + 1, updated_at = $3
 WHERE id = 'data' AND version = $4;
+
+-- The secrets with no fingerprint under the key key_id for their current
+-- value, with their sealed values, for the controller.
+-- name: ListUnfingerprintedSecrets :many
+SELECT s.id, s.owner, s.name, s.ciphertext, s.version FROM secrets s
+LEFT JOIN secret_fingerprints f ON f.secret_id = s.id AND f.key_id = $1 AND f.version = s.version
+WHERE f.secret_id IS NULL ORDER BY s.id;
+
+-- name: UpsertSecretFingerprint :exec
+INSERT INTO secret_fingerprints (secret_id, key_id, version, length, mac) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (secret_id) DO UPDATE SET key_id = excluded.key_id, version = excluded.version,
+    length = excluded.length, mac = excluded.mac;
+
+-- Every secret of the owner with its fingerprint, if it has one.
+-- name: ListSecretFingerprintsForOwner :many
+SELECT s.name, s.version, f.key_id, f.version AS fingerprint_version, f.length, f.mac
+FROM secrets s LEFT JOIN secret_fingerprints f ON f.secret_id = s.id
+WHERE s.owner = $1 ORDER BY s.name;

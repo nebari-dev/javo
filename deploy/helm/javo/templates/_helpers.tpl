@@ -172,6 +172,19 @@ secrets.existingKeySecret names one made elsewhere.
     items: [{key: key, path: key}]
 {{- end -}}
 
+{{/* The key of the secrets' fingerprints: the gateway's and the controller's. */}}
+{{- define "javo.fingerprintKeyDir" -}}/etc/javo-secret-fingerprint-key{{- end -}}
+{{- define "javo.fingerprintKeyMount" -}}
+- {name: secret-fingerprint-key, mountPath: {{ include "javo.fingerprintKeyDir" . }}, readOnly: true}
+{{- end -}}
+{{- define "javo.fingerprintKeyVolume" -}}
+- name: secret-fingerprint-key
+  secret:
+    secretName: {{ .Values.secrets.existingFingerprintKeySecret | default "javo-secret-fingerprint-key" }}
+    defaultMode: 0400
+    items: [{key: key, path: key}]
+{{- end -}}
+
 {{- define "javo.databaseMounts" -}}
 {{- if eq (include "javo.engine" .) "sqlite" -}}
 - {name: data, mountPath: {{ include "javo.dataDir" . }}}
@@ -246,6 +259,7 @@ true
 {{- define "javo.commonArgs" -}}
 - --workspace-namespace={{ .Values.workspaceNamespace }}
 - {{ include "javo.sizesArg" . }}
+- --secret-fingerprint-key-file={{ include "javo.fingerprintKeyDir" . }}/key
 {{- end -}}
 
 {{/* The gateway's own flags. */}}

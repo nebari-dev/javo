@@ -260,6 +260,14 @@ type Secret struct {
 	UpdatedAt  dbtime.Time
 }
 
+type SecretFingerprint struct {
+	SecretID string
+	KeyID    string
+	Version  int64
+	Length   int64
+	Mac      string
+}
+
 type SecretKeyset struct {
 	ID        string
 	Wrapped   string

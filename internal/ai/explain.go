@@ -8,7 +8,9 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/nebari-dev/javo/internal/actions"
+	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/diagnose"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -91,10 +93,46 @@ func toAny(ss []string) []any {
 	return out
 }
 
-// Explain asks the model about d for person. With preview it only builds and
-// returns the bundle: no call, no allowance used.
-func (s *Service) Explain(ctx context.Context, person string, d diagnose.Diagnosis, scope Scope, preview bool) (ExplainResult, error) {
-	b := BuildBundle(d.Bundle, s.Redactor, s.MaxInputRunes)
+// Known is what the caller of one request knows must not reach the model:
+// where the app owner's stored secret values are in a text (found by their
+// fingerprints) and the typed values of variables named like credentials.
+// Unchecked says some of the owner's secret values cannot be looked for
+// (they have no fingerprint yet): log lines are then not sent.
+type Known struct {
+	Spans     func(text string) []redact.Span
+	Values    []redact.Value
+	Unchecked bool
+}
+
+// KnownFor is what must not reach the model about an app of owner whose
+// container gets the typed variables env: the owner's stored secret values
+// (SecretsOf) and the values of variables named like credentials.
+func (s *Service) KnownFor(ctx context.Context, owner string, env []model.EnvVar) (Known, error) {
+	typed := make(map[string]string, len(env))
+	for _, e := range env {
+		typed[e.Name] = e.Value
+	}
+	k := Known{Values: redact.SensitiveEnv(typed), Unchecked: true}
+	if s.SecretsOf == nil {
+		return k, nil
+	}
+	find, unchecked, err := s.SecretsOf(ctx, owner)
+	if err != nil {
+		return Known{}, err
+	}
+	k.Spans, k.Unchecked = find, unchecked
+	return k, nil
+}
+
+// Explain asks the model about d for person, hiding what known names before
+// the secret scanner runs. With preview it only builds and returns the
+// bundle: no call, no allowance used.
+func (s *Service) Explain(ctx context.Context, person string, d diagnose.Diagnosis, scope Scope, known Known, preview bool) (ExplainResult, error) {
+	var red Redactor
+	if s.Redactor != nil {
+		red = redact.Known{Spans: known.Spans, Values: known.Values, Next: s.Redactor}
+	}
+	b := BuildBundle(d.Bundle, red, known.Unchecked, s.MaxInputRunes)
 	res := ExplainResult{Bundle: b}
 	if preview {
 		return res, nil

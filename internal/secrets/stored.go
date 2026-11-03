@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -107,4 +109,54 @@ func (k *Keys) Rotate(ctx context.Context) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// FingerprintStored fingerprints with f every stored value that has no
+// fingerprint under f's key for its current value, and returns how many it
+// made. A value that does not open, or a secret deleted meanwhile, is
+// skipped and tried again on the next pass.
+func (k *Keys) FingerprintStored(ctx context.Context, f *Fingerprinter) (int, error) {
+	todo, err := k.Store.Secrets().Unfingerprinted(ctx, f.KeyID())
+	if err != nil || len(todo) == 0 {
+		return 0, err
+	}
+	o, err := k.Opener(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, s := range todo {
+		v, err := o.Open(s.Ciphertext, AD{ID: s.ID, Owner: s.Owner, Name: s.Name})
+		if err != nil {
+			slog.Warn("fingerprint a secret: its value does not open", "owner", s.Owner, "secret", s.Name)
+			continue
+		}
+		fp := f.Fingerprint(s.Name, v)
+		clear(v)
+		if err := k.Store.Secrets().SetFingerprint(ctx, store.SecretFingerprint{
+			SecretID: s.ID, Version: s.Version, KeyID: fp.KeyID, Length: fp.Length, MAC: fp.MAC,
+		}); err != nil {
+			slog.Warn("fingerprint a secret", "owner", s.Owner, "secret", s.Name, "err", err)
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
+// RunFingerprints calls FingerprintStored now and every interval until ctx
+// is done.
+func (k *Keys) RunFingerprints(ctx context.Context, f *Fingerprinter, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		if _, err := k.FingerprintStored(ctx, f); err != nil {
+			slog.Error("fingerprint secrets", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

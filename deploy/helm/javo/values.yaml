@@ -112,6 +112,12 @@ secrets:
   # session. Losing it only signs everyone out. Name a Secret whose key "key"
   # holds 32 random bytes for the same reason as existingKeySecret.
   existingSessionsKeySecret: ""
+  # The controller fingerprints each secret value (its length and an
+  # HMAC-SHA256) under a key kept outside the database, the Secret
+  # javo-secret-fingerprint-key, and the gateway looks for them in an app's
+  # logs before they go to a model. Both mount it. Name a Secret whose key
+  # "key" holds 32 random bytes for the same reason as existingKeySecret.
+  existingFingerprintKeySecret: ""
 
 # Namespace holding Workspaces and their pods, services and PVCs when
 # config.namespaces.mode is shared. The other modes (per-user, per-team) use

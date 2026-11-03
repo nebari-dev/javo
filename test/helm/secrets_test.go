@@ -189,3 +189,40 @@ func TestSessionsKeyIsGeneratedAndOnlyTheGatewayHasIt(t *testing.T) {
 		t.Fatalf("volumes %+v", d.Spec.Template.Spec.Volumes)
 	}
 }
+
+// The controller fingerprints people's secret values and the gateway looks
+// for them in app logs before they go to a model: both mount the one key,
+// made once and kept.
+func TestFingerprintKeyIsGeneratedAndBothComponentsHaveIt(t *testing.T) {
+	t.Parallel()
+	for _, engine := range engines {
+		out, err := render(t, engineArgs(engine)...)
+		if err != nil {
+			t.Fatalf("%s render: %v\n%s", engine, err, out)
+		}
+		var sec corev1.Secret
+		if !object(t, out, "Secret", "javo-secret-fingerprint-key", &sec) {
+			t.Fatalf("%s: no Secret javo-secret-fingerprint-key", engine)
+		}
+		if len(sec.Data["key"]) != 32 || sec.Annotations["helm.sh/resource-policy"] != "keep" {
+			t.Fatalf("%s: key is %d bytes, annotations %v", engine, len(sec.Data["key"]), sec.Annotations)
+		}
+		for _, component := range []string{"gateway", "controller"} {
+			d := deploymentOf(t, out, engine, component)
+			path := controllerArg(d, "secret-fingerprint-key-file")
+			if path == "" || !hasVolumeFromSecret(d, "javo-secret-fingerprint-key") || !mounts(d, strings.TrimSuffix(path, "/key")) {
+				t.Fatalf("%s %s: args %v, volumes %+v", engine, component, d.Spec.Template.Spec.Containers[0].Args, d.Spec.Template.Spec.Volumes)
+			}
+		}
+	}
+	out, err := render(t, "--set", "secrets.existingFingerprintKeySecret=my-fingerprint-key")
+	if err != nil {
+		t.Fatalf("render: %v\n%s", err, out)
+	}
+	if kinds := kindsOf(t, out); slices.Contains(kinds["Secret"], "javo-secret-fingerprint-key") {
+		t.Fatal("the chart made its own fingerprint key as well")
+	}
+	if d := deploymentOf(t, out, "sqlite", "gateway"); !hasVolumeFromSecret(d, "my-fingerprint-key") {
+		t.Fatalf("volumes %+v", d.Spec.Template.Spec.Volumes)
+	}
+}

@@ -7,6 +7,7 @@ package sqlcgen
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/nebari-dev/javo/internal/store/dbtime"
 )
@@ -507,6 +508,52 @@ func (q *Queries) ListSecretCiphertexts(ctx context.Context) ([]ListSecretCipher
 	return items, nil
 }
 
+const listSecretFingerprintsForOwner = `-- name: ListSecretFingerprintsForOwner :many
+SELECT s.name, s.version, f.key_id, f.version AS fingerprint_version, f.length, f.mac
+FROM secrets s LEFT JOIN secret_fingerprints f ON f.secret_id = s.id
+WHERE s.owner = $1 ORDER BY s.name
+`
+
+type ListSecretFingerprintsForOwnerRow struct {
+	Name               string
+	Version            int64
+	KeyID              sql.NullString
+	FingerprintVersion sql.NullInt64
+	Length             sql.NullInt64
+	Mac                sql.NullString
+}
+
+// Every secret of the owner with its fingerprint, if it has one.
+func (q *Queries) ListSecretFingerprintsForOwner(ctx context.Context, owner string) ([]ListSecretFingerprintsForOwnerRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretFingerprintsForOwner, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSecretFingerprintsForOwnerRow
+	for rows.Next() {
+		var i ListSecretFingerprintsForOwnerRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.Version,
+			&i.KeyID,
+			&i.FingerprintVersion,
+			&i.Length,
+			&i.Mac,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretJobUsesForOwner = `-- name: ListSecretJobUsesForOwner :many
 SELECT b.secret_id, j.id AS job_id, j.name AS job_name, j.spec AS job_spec
 FROM job_secrets b
@@ -643,6 +690,51 @@ func (q *Queries) ListSecretsForOwner(ctx context.Context, owner string) ([]List
 	return items, nil
 }
 
+const listUnfingerprintedSecrets = `-- name: ListUnfingerprintedSecrets :many
+SELECT s.id, s.owner, s.name, s.ciphertext, s.version FROM secrets s
+LEFT JOIN secret_fingerprints f ON f.secret_id = s.id AND f.key_id = $1 AND f.version = s.version
+WHERE f.secret_id IS NULL ORDER BY s.id
+`
+
+type ListUnfingerprintedSecretsRow struct {
+	ID         string
+	Owner      string
+	Name       string
+	Ciphertext string
+	Version    int64
+}
+
+// The secrets with no fingerprint under the key key_id for their current
+// value, with their sealed values, for the controller.
+func (q *Queries) ListUnfingerprintedSecrets(ctx context.Context, keyID string) ([]ListUnfingerprintedSecretsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUnfingerprintedSecrets, keyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnfingerprintedSecretsRow
+	for rows.Next() {
+		var i ListUnfingerprintedSecretsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Owner,
+			&i.Name,
+			&i.Ciphertext,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resealSecret = `-- name: ResealSecret :execrows
 UPDATE secrets SET ciphertext = $1 WHERE id = $2 AND ciphertext = $3
 `
@@ -723,4 +815,29 @@ func (q *Queries) UpdateSecretKeyset(ctx context.Context, arg UpdateSecretKeyset
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertSecretFingerprint = `-- name: UpsertSecretFingerprint :exec
+INSERT INTO secret_fingerprints (secret_id, key_id, version, length, mac) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (secret_id) DO UPDATE SET key_id = excluded.key_id, version = excluded.version,
+    length = excluded.length, mac = excluded.mac
+`
+
+type UpsertSecretFingerprintParams struct {
+	SecretID string
+	KeyID    string
+	Version  int64
+	Length   int64
+	Mac      string
+}
+
+func (q *Queries) UpsertSecretFingerprint(ctx context.Context, arg UpsertSecretFingerprintParams) error {
+	_, err := q.db.ExecContext(ctx, upsertSecretFingerprint,
+		arg.SecretID,
+		arg.KeyID,
+		arg.Version,
+		arg.Length,
+		arg.Mac,
+	)
+	return err
 }

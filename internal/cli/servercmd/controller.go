@@ -178,6 +178,13 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if err != nil {
 		return err
 	}
+	fp, err := common.fingerprinter()
+	if err != nil {
+		return err
+	}
+	if keys != nil && fp != nil {
+		go keys.RunFingerprints(ctx, fp, fingerprintEvery)
+	}
 	// Every reconciler that reads the database hears about its changes
 	// through one copy of this feed each.
 	if err := db.StartFeed(ctx); err != nil {
@@ -357,6 +364,11 @@ func (o *controllerOptions) setupStorage(mgr ctrl.Manager, feed *dbsource.Feed, 
 	}
 	return nil
 }
+
+// fingerprintEvery is how often the controller looks for secret values with
+// no fingerprint yet; until one has its fingerprint the gateway sends no log
+// line of its owner's apps to a model.
+const fingerprintEvery = 15 * time.Second
 
 // secretKeys loads the key-encryption key and makes the data keyset when the
 // database has none. A key that does not open the stored keyset is logged

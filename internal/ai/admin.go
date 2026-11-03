@@ -46,7 +46,7 @@ func (s *Service) AskAdmin(ctx context.Context, person, question string, rep adm
 		res.Message = reasons.Msg(reasons.MsgServerError)
 		return res
 	}
-	b := BuildBundle(items, nil, s.MaxInputRunes)
+	b := BuildBundle(items, nil, false, s.MaxInputRunes)
 	c := call{feature: "admin", person: person, system: adminSystem, task: "Answer the question in the data block from the report rows.", bundle: b, schema: schema}
 	o := s.run(ctx, c)
 	if o.raw == nil {

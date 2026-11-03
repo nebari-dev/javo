@@ -79,6 +79,12 @@ A session signed in with OpenID Connect keeps the provider's refresh token and i
 
 Upgrading to the release that seals them ends every OpenID Connect session once (its tokens were stored in clear and the database has no key to seal them); people sign in again. Local account sessions carry no tokens and stay.
 
+## Secrets and Ask AI
+
+Before an app's logs go to the model (Ask AI, "Explain"), the gateway replaces every place one of the owner's secret values appears with `[redacted:<secret name>]`, and does the same for the typed values of variables named like credentials (`*PASSWORD*`, `*TOKEN*`, `*SECRET*`, `API_KEY`, `DATABASE_URL` and so on). Only then does the gitleaks pattern scan run. It does not look for personal data such as names or email addresses.
+
+The gateway cannot open values, so it looks for fingerprints: for each secret the controller stores the value's length and an HMAC-SHA256 of it in the table `secret_fingerprints`, keyed by 32 random bytes in the Secret `javo-secret-fingerprint-key` (mounted in the gateway and the controller, `--secret-fingerprint-key-file`; `secrets.existingFingerprintKeySecret` names your own). The key is not in the database, so a database copy cannot be used to test guesses against them; the copy does show each value's length. The controller fingerprints new and changed values within 15 seconds. Until all of an owner's values have a current fingerprint, or when no key is mounted, none of that owner's log lines are sent ("could not be checked for secrets"). Values shorter than 4 characters are not looked for.
+
 ## Removing a person
 
 `javo user remove` also deletes the person's secrets.

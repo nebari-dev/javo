@@ -102,6 +102,7 @@ spec:
             {{- toYaml .Values.server.resources | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- include "javo.fingerprintKeyMount" . | nindent 12 }}
             - {name: sizes, mountPath: {{ include "javo.sizesDir" . }}, readOnly: true}
             - {name: config, mountPath: /etc/javo, readOnly: true}
             - {name: templates, mountPath: {{ include "javo.templatesDir" . }}, readOnly: true}
@@ -122,6 +123,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "javo.fingerprintKeyVolume" . | nindent 8 }}
         - name: sizes
           configMap: {name: javo-sizes}
         - name: config

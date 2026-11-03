@@ -196,7 +196,11 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if oidc := platform.Auth.OIDC; oidc != nil {
 		outageGrace = oidc.OutageGrace.Duration
 	}
-	aiSvc, err := wiring.AIService(ctx, platform.AI, db)
+	fp, err := common.fingerprinter()
+	if err != nil {
+		return err
+	}
+	aiSvc, err := wiring.AIService(ctx, platform.AI, db, fp)
 	if err != nil {
 		return err
 	}

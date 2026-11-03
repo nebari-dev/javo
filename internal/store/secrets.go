@@ -547,3 +547,80 @@ func (k *SecretKeys) Replace(ctx context.Context, ks SecretKeyset, version int64
 	}
 	return err
 }
+
+// SecretFingerprint is what the gateway looks for of one secret's value
+// (package secrets makes it): the value's length and keyed hash, under the
+// key KeyID names, for the secret at Version. The value itself is never here.
+type SecretFingerprint struct {
+	SecretID string
+	Version  int64
+	KeyID    string
+	Length   int
+	MAC      string
+}
+
+// UnfingerprintedSecret is a secret with no fingerprint under the current
+// key for its current value, with its sealed value.
+type UnfingerprintedSecret struct {
+	SealedSecret
+	Version int64
+}
+
+// OwnerFingerprint is one of an owner's secrets and its fingerprint, if any.
+type OwnerFingerprint struct {
+	Name          string
+	SecretVersion int64
+	// The fingerprint; zero when there is none.
+	KeyID   string
+	Version int64
+	Length  int
+	MAC     string
+}
+
+// Fresh says whether the fingerprint is of the current value under key.
+func (f OwnerFingerprint) Fresh(key string) bool {
+	return f.KeyID != "" && f.KeyID == key && f.Version == f.SecretVersion
+}
+
+// Unfingerprinted returns the secrets that need a fingerprint under key.
+func (x *Secrets) Unfingerprinted(ctx context.Context, key string) ([]UnfingerprintedSecret, error) {
+	rows, err := x.s.q.ListUnfingerprintedSecrets(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UnfingerprintedSecret, 0, len(rows))
+	for _, r := range rows {
+		ct, err := decode(r.Ciphertext)
+		if err != nil {
+			return nil, fmt.Errorf("store: secret %s holds no valid ciphertext", r.ID)
+		}
+		out = append(out, UnfingerprintedSecret{SealedSecret: SealedSecret{ID: r.ID, Owner: r.Owner, Name: r.Name, Ciphertext: ct}, Version: r.Version})
+	}
+	return out, nil
+}
+
+// SetFingerprint stores the fingerprint of a secret's value, replacing the
+// one it had. Not audited: no value changes.
+func (x *Secrets) SetFingerprint(ctx context.Context, fp SecretFingerprint) error {
+	return x.s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		return q.UpsertSecretFingerprint(ctx, sqlcgen.UpsertSecretFingerprintParams{
+			SecretID: fp.SecretID, KeyID: fp.KeyID, Version: fp.Version, Length: int64(fp.Length), Mac: fp.MAC,
+		})
+	})
+}
+
+// Fingerprints returns every secret of owner with its fingerprint, if any.
+func (x *Secrets) Fingerprints(ctx context.Context, owner string) ([]OwnerFingerprint, error) {
+	rows, err := x.s.q.ListSecretFingerprintsForOwner(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OwnerFingerprint, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, OwnerFingerprint{
+			Name: r.Name, SecretVersion: r.Version, KeyID: r.KeyID.String, Version: r.FingerprintVersion.Int64,
+			Length: int(r.Length.Int64), MAC: r.Mac.String,
+		})
+	}
+	return out, nil
+}

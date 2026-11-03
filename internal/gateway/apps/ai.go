@@ -136,7 +136,13 @@ func (a *aiAPI) explain(ctx context.Context, in *explainInput) (*explainOutput, 
 		return out, nil
 	}
 	scope := ai.Scope{Targets: []string{app.Name}, Actions: explainActions(a.ws.actions)}
-	res, err := a.svc.Explain(ctx, authn.User(ctx).ID, d, scope, in.Body.Preview)
+	// The owner's secret values and credential-like variables are hidden by
+	// name before the patterns run, whoever asks.
+	known, err := a.svc.KnownFor(ctx, app.Owner, app.Env)
+	if err != nil {
+		return nil, problem.Internal("read the app's secrets", err)
+	}
+	res, err := a.svc.Explain(ctx, authn.User(ctx).ID, d, scope, known, in.Body.Preview)
 	if err != nil {
 		return nil, problem.Internal("explain", err)
 	}

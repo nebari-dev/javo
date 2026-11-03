@@ -57,7 +57,7 @@ func (s *Service) Draft(ctx context.Context, person, text string, tpls []DraftTe
 			Excerpt: t.DisplayName + " (" + t.Kind + "): " + t.Description + " Opens: " + strings.Join(t.Extensions, ", ")})
 	}
 	schema.Properties["template"].Enum = names
-	b := BuildBundle(items, nil, s.MaxInputRunes)
+	b := BuildBundle(items, nil, false, s.MaxInputRunes)
 	o := s.run(ctx, call{feature: "draft", person: person, system: draftSystem,
 		task: "Fill the new app form from the request in the data block.", bundle: b, schema: schema})
 	if o.raw == nil {

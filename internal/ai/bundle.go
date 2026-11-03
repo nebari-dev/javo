@@ -14,8 +14,10 @@ import (
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
-// Redactor hides secrets and personal data in text and says how many values
-// it hid. Without one, log lines are not sent at all: they are the text an app
+// Redactor hides secrets in text and says how many values it hid. It finds
+// what it knows (Known) and what looks like a credential (gitleaks' rules);
+// it does not look for personal data such as names or email addresses.
+// Without one, log lines are not sent at all: they are the text an app
 // controls, so a password it prints would otherwise reach the model.
 type Redactor interface {
 	Redact(s string) (out string, hidden int)
@@ -28,7 +30,8 @@ type Bundle struct {
 	Refs []string `json:"refs"`
 	// Hidden counts values the redactor replaced.
 	Hidden int `json:"hidden"`
-	// Withheld counts log lines left out because no secret scanner is set.
+	// Withheld counts log lines left out because they could not be checked
+	// for secrets: no scanner is set, or some secret values cannot be looked for.
 	Withheld int   `json:"withheld"`
 	Trimmed  *Trim `json:"trimmed,omitempty"`
 	// Notes say in words what was hidden, withheld or trimmed.
@@ -44,8 +47,9 @@ type Trim struct {
 // BuildBundle wraps each piece of evidence in a labeled delimiter, with its
 // text escaped so it cannot close the delimiter, redacts it, and keeps the
 // result within maxRunes by dropping the oldest log lines first (conditions
-// and events always stay).
-func BuildBundle(evs []diagnose.Evidence, r Redactor, maxRunes int) Bundle {
+// and events always stay). Log lines are withheld when r is nil or
+// withholdLogs is set.
+func BuildBundle(evs []diagnose.Evidence, r Redactor, withholdLogs bool, maxRunes int) Bundle {
 	var b Bundle
 	type piece struct {
 		ref, text string
@@ -55,7 +59,7 @@ func BuildBundle(evs []diagnose.Evidence, r Redactor, maxRunes int) Bundle {
 	logs := 0
 	for _, e := range evs {
 		isLog := e.Kind == diagnose.KindLog
-		if isLog && r == nil {
+		if isLog && (r == nil || withholdLogs) {
 			b.Withheld++
 			continue
 		}

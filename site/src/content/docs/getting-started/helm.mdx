@@ -106,6 +106,7 @@ Then open `http://localhost:8080`. For plain HTTP, set `config.urls.scheme: http
 - Service `javo-gateway` (port 80).
 - Secret `javo-secrets-key`, the key that protects people's secrets. The controller makes it on its first start (the chart does not render it) and never changes it; upgrades and uninstall keep it. [Back it up](/admin/secrets-and-keys/).
 - Secret `javo-sessions-key`, the key the gateway seals each session's sign-in tokens with. It is made once and kept like the one above; losing it only signs everyone out.
+- Secret `javo-secret-fingerprint-key`, the key of the fingerprints that let the gateway hide people's secret values in logs sent to an AI model. Made once and kept.
 - The built-in templates, loaded into the database at start.
 
 ## Next steps

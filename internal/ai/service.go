@@ -18,6 +18,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/actions"
 	"github.com/nebari-dev/javo/internal/ai/provider"
+	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -31,6 +32,10 @@ type Service struct {
 	MaxInputRunes int
 	// MaxOutputTokens bounds each answer; zero means 16000.
 	MaxOutputTokens int
+	// SecretsOf says where an owner's stored secret values are in a text,
+	// and whether some cannot be looked for yet. nil: none can, so log lines
+	// are withheld (see KnownFor).
+	SecretsOf func(ctx context.Context, owner string) (find func(text string) []redact.Span, unchecked bool, err error)
 
 	once  sync.Once
 	cache *lru.Cache

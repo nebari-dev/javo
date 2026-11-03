@@ -74,7 +74,7 @@ func (s *Service) Command(ctx context.Context, person, text string, apps []AppSu
 		act.Properties["target"].Enum = toAny(scope.Targets)
 	}
 	check, _ := jsonschema.For[modelCommand](nil)
-	b := BuildBundle(items, nil, s.MaxInputRunes)
+	b := BuildBundle(items, nil, false, s.MaxInputRunes)
 	c := call{feature: "palette", person: person, system: commandSystem,
 		task: "Do what the request in the data block asks: create a new app, or use the listed actions on the listed apps.", bundle: b, schema: schema, check: check}
 	o := s.run(ctx, c)
