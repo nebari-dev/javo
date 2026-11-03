@@ -50,7 +50,7 @@ export function ParamHelp({ engine, param }: { engine?: string; param: JobParam 
   const { text, code, more } = explain(engine, param)
   return (
     <div className="param-help">
-      <p className="muted small tight">Parameters are named values your code reads, so one job can run with different inputs. {text}</p>
+      <p className="muted small tight">Parameters are the inputs that can change from one run to the next. Each has a type and is checked, and every run records the values it used. Environment variables, the next section, are the same for every run and are where secrets go. {text}</p>
       {code && <CodeBlock text={code} label="Copy example" />}
       {more && <p className="muted small tight">{more}</p>}
       <p className="muted small tight">These are default values. Run now uses them; a run started from the API can give other values for that run only.</p>
