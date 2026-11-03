@@ -29,6 +29,7 @@ newest release at least 14 days old as of 2026-10-30; no install scripts; `pnpm 
 | anser | 2.3.5 | 2025-12-15 | ionicabizau (sole maintainer) | IonicaBizau/anser (tag 2.3.5, d300b23) |
 | cmdk | 1.1.1 | 2025-03-14 | paco, dipnpm | pacocoursey/cmdk |
 | @radix-ui/react-dialog | 1.3.1 | 2026-10-13 | hadihallak, chancestrickland, mark-workos, npm-workos; GitHub Actions with provenance | radix-ui/primitives |
+| @radix-ui/react-select | 2.4.1 | 2026-10-12 | hadihallak, chancestrickland, mark-workos, npm-workos; GitHub Actions with provenance | radix-ui/primitives |
 
 Notes
 - downshift 9.4.0: newest stable (the alpha tags are not used), 4 months old; last releases 9.3.0 to 9.3.6 match GitHub tags, no burst. OSV clean for it and its 8 new transitive packages
@@ -69,6 +70,17 @@ Notes
   not run for registry installs; installed with `--ignore-scripts`; lockfile has no `requiresBuild`). OSV batch over all
   25: 0 with vulnerabilities. `pnpm audit --audit-level=low`: no known vulnerabilities. Names match the upstream repos.
   The palette loads as its own chunk on first open (59 kB, 20 kB gzip); the main bundle grows 1.5 kB.
+- Dropdowns (added 2026-11-03): @radix-ui/react-select 2.4.1 (newest release, 22 days old, published the same day as
+  @radix-ui/react-dialog 1.3.1 and built on the same primitive, context, portal, dismissable-layer and focus-scope versions
+  already installed; the base of shadcn's Select) gives the listbox, keyboard navigation, typeahead and the hidden native
+  select that forms read. It adds 14 packages: 9 `@radix-ui/*` (number 1.1.3, rect 1.1.3, react-arrow 1.1.17,
+  react-collection 1.2.0, react-direction 1.2.0, react-popper 1.4.0, react-use-rect 1.1.4, react-use-size 1.1.5,
+  react-visually-hidden 1.2.13; 22 to 103 days old, same four maintainers) and 4 from floating-ui (core 1.8.0, dom 1.8.0,
+  react-dom 2.1.9, utils 0.2.12; 115 days old, maintainers fezvrasta and atomiks). Every package is its newest release,
+  published by GitHub Actions with provenance; last 10 releases of each follow the upstream release cadence, no burst and
+  no new maintainer. No install scripts (none in any manifest; `pnpm add --save-exact --ignore-scripts`; lockfile has no
+  `requiresBuild`). OSV batch over all 14: 0 with vulnerabilities. `pnpm audit --audit-level=low`: no known
+  vulnerabilities. Names match the upstream repos (radix-ui/primitives, floating-ui/floating-ui).
 
 ## API client generator (ui/tools/gen-api, own lockfile)
 
