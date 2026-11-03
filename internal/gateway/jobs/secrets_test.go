@@ -220,3 +220,81 @@ func TestAppTokensCannotGiveJobsSecrets(t *testing.T) {
 		t.Fatalf("the job got %+v", got)
 	}
 }
+
+// rewrite is a change of what nightly-sales runs: a command that prints the
+// secret variable K.
+const rewrite = `{"displayName":"Nightly sales","template":"lab","engine":"command","command":"sh -c 'echo $K'"}`
+
+// A platform admin may manage alice's job but not choose its secrets, so
+// neither may they change what runs next to the secrets she bound: the
+// stored job and its next run stay hers. Without secrets, or for a change
+// that runs nothing new, the admin's edit goes through.
+func TestAdminCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
+	t.Parallel()
+	f := apitest.JobFixture(t, apitest.Options{})
+	f.WithSecretKeys()
+	alice := f.Session(apitest.AliceID)
+	admin := f.Session("root-cccccccc", "javo-admins")
+	f.CreateSecret(alice, "ALICE_KEY", apitest.SecretValue)
+	if w := f.Do("POST", "/api/jobs", fmt.Sprintf(apitest.NewJob, `,"env":[{"name":"K","secret":"ALICE_KEY"}]`), alice); w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("POST", "/api/jobs", `{"displayName":"Plain","template":"lab","engine":"papermill","source":"reports/sales.ipynb"}`, alice); w.Code != http.StatusCreated {
+		t.Fatalf("create plain: %d %s", w.Code, w.Body)
+	}
+
+	w := f.Do("PUT", "/api/jobs/nightly-sales?owner="+apitest.AliceID, rewrite, admin)
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsHeldOwnerOnly) {
+		t.Fatalf("admin rewrite of a job with secrets: %d %s", w.Code, w.Body)
+	}
+	job, err := f.Db.Jobs().GetByOwnerName(context.Background(), apitest.AliceID, "nightly-sales")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Spec.Engine != "papermill" || len(job.Spec.Command) != 0 {
+		t.Fatalf("stored %s %q", job.Spec.Engine, job.Spec.Command)
+	}
+
+	renamed := strings.Replace(fmt.Sprintf(apitest.NewJob, `,"run":{"retries":2}`), "Nightly sales", "Nightly sales EU", 1)
+	if w := f.Do("PUT", "/api/jobs/nightly-sales?owner="+apitest.AliceID, renamed, admin); w.Code != http.StatusOK {
+		t.Fatalf("admin rename and retries of a job with secrets: %d %s", w.Code, w.Body)
+	}
+	plain := strings.Replace(rewrite, "Nightly sales", "Plain", 1)
+	if w := f.Do("PUT", "/api/jobs/plain?owner="+apitest.AliceID, plain, admin); w.Code != http.StatusOK {
+		t.Fatalf("admin rewrite of a job without secrets: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("PUT", "/api/jobs/nightly-sales", rewrite, alice); w.Code != http.StatusOK {
+		t.Fatalf("owner rewrite: %d %s", w.Code, w.Body)
+	}
+}
+
+// An app's own token cannot give a job secrets, so it cannot change what
+// runs next to them either.
+func TestAppTokensCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
+	t.Parallel()
+	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
+	ws.Template = "agent"
+	f := apitest.JobFixture(t, apitest.Options{}, apitest.AgentTemplate(), ws)
+	f.WithSecretKeys()
+	c := f.LoginAlice()
+	f.CreateSecret(c, "API_KEY", apitest.SecretValue)
+	if w := f.Do("POST", "/api/jobs", fmt.Sprintf(apitest.NewJob, `,"env":[{"name":"K","secret":"API_KEY"}]`), c); w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	text, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{Name: "agent", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+		App: &token.App{Namespace: ws.Namespace, Name: ws.ObjectName(), Short: "agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := f.Bearer("PUT", "/api/jobs/nightly-sales", rewrite, text, nil)
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsHeldOwnerOnly) {
+		t.Fatalf("app token rewrite: %d %s", w.Code, w.Body)
+	}
+	job, err := f.Db.Jobs().GetByOwnerName(context.Background(), apitest.LocalAlice(), "nightly-sales")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Spec.Engine != "papermill" {
+		t.Fatalf("stored engine %s", job.Spec.Engine)
+	}
+}

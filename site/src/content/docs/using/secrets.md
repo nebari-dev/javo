@@ -27,6 +27,10 @@ A private Git repository's access token is also one of your secrets, picked on t
 
 [Pull request previews](/using/previews/) never get secrets, so code from a pull request cannot read them.
 
+## Who can change an app or job that holds secrets
+
+Only you choose which of your secrets an app or job gets. While an app or job holds any of your secrets (as a variable or as its repository token), only you can also change what it runs: a job's engine, command, file or template, an app's command, image or port, or turning on its pull request previews. An app with API access counts the same, because its token acts as you, and only you can give an app more API access. A platform admin, and an app's own API token, get "only its owner can change what it runs" for these; they can still rename, resize, reschedule, stop, start and delete it, and change what it runs once it holds no secrets.
+
 ## How values are protected
 
 Values are encrypted with envelope encryption (HPKE under a data key, itself encrypted by a key kept outside the database). The web-facing gateway can only seal values; only the controller can open them, and it hands them to a pod through a Kubernetes Secret that the pod reads by reference. Admins: see [Secrets and keys](/admin/secrets-and-keys/) for the key, its backup and rotation.

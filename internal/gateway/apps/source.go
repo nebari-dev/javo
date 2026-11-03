@@ -397,6 +397,13 @@ func (s *Workspaces) registerSource(api huma.API) {
 		if b := in.Body; b.Max < 1 || b.Max > s.previewsCap {
 			return nil, problem.FieldError("max", reasons.MsgPreviewsTooMany, s.previewsCap)
 		}
+		if in.Body.Enabled && (app.Source.Previews == nil || !app.Source.Previews.Enabled) {
+			// Previews of the repository's own branches clone with its token.
+			u := authn.User(ctx)
+			if err := envvars.MayRewrite(ctx, s.db, u, s.rolesOf(u), authz.Object{App: app}); err != nil {
+				return nil, err
+			}
+		}
 		set := &model.Previews{Enabled: in.Body.Enabled, Max: in.Body.Max, Forks: in.Body.Forks}
 		if app, err = s.updateApp(ctx, app, func(a *model.App) { a.Source.Previews = set }); err != nil {
 			return nil, err

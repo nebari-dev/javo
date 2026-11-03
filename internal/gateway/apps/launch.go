@@ -11,6 +11,8 @@ import (
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/cmdline"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
+	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/envvars"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
@@ -129,6 +131,10 @@ func (s *Workspaces) registerLaunch(api huma.API) {
 			return nil, err
 		}
 		if app.Command != l.command || app.Image != l.image || app.Port != l.port {
+			u := authn.User(ctx)
+			if err := envvars.MayRewrite(ctx, s.db, u, s.rolesOf(u), authz.Object{App: app, Template: &t}); err != nil {
+				return nil, err
+			}
 			if app, err = s.updateApp(ctx, app, func(a *model.App) { a.Command, a.Image, a.Port = l.command, l.image, l.port }); err != nil {
 				return nil, err
 			}
