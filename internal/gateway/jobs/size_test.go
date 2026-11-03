@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -114,5 +115,27 @@ func TestJobWithoutSizeShowsTheDefault(t *testing.T) {
 	w := f.Do("GET", "/api/jobs/nightly-sales", "", f.Session(apitest.AliceID))
 	if w.Code != http.StatusOK || apitest.Decode[apitest.JobSizeJSON](t, w).Size != "small" {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+}
+
+// A job made without a size runs at its template's default amount, as an
+// app does: a custom amount for a person who may ask for one, else the
+// smallest size that holds it.
+func TestCreateJobWithoutASizeUsesTheTemplatesDefault(t *testing.T) {
+	t.Parallel()
+	tpl := apitest.SampleJobTemplate()
+	tpl.Spec.DefaultResources = &model.TemplateAmount{CPU: resource.MustParse("2"), Memory: resource.MustParse("4Gi")}
+	f := apitest.JobFixture(t, apitest.Options{Sizes: apitest.CustomCatalog(t)}, apitest.SingleNode(), tpl)
+	if w := f.Do("POST", "/api/job-samples/jobs-lab", "", f.Session(apitest.AliceID)); w.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if j := f.StoredJob(apitest.AliceID, "print-the-time"); j.Size != "medium" || j.Resources != nil {
+		t.Fatalf("stored size %q, resources %+v", j.Size, j.Resources)
+	}
+	if w := f.Do("POST", "/api/job-samples/jobs-lab", "", f.Session("bob-bbbbbbbb", "ds")); w.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if j := f.StoredJob("bob-bbbbbbbb", "print-the-time"); j.Size != "" || j.Resources == nil || !j.Resources.CPU.Equal(resource.MustParse("2")) || !j.Resources.Memory.Equal(resource.MustParse("4Gi")) {
+		t.Fatalf("stored size %q, resources %+v", j.Size, j.Resources)
 	}
 }

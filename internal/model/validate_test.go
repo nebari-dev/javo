@@ -942,3 +942,16 @@ func TestNebiTokenFor(t *testing.T) {
 		}
 	}
 }
+
+// A template's default amount is what its apps run at when the person picks
+// no size, so it follows the custom amount minimum.
+func TestTemplateDefaultResourcesFollowTheCustomMinimum(t *testing.T) {
+	amount := func(cpu, mem string) func(*model.TemplateSpec) {
+		return func(s *model.TemplateSpec) {
+			s.DefaultResources = &model.TemplateAmount{CPU: resource.MustParse(cpu), Memory: resource.MustParse(mem)}
+		}
+	}
+	valid(t, newTemplate(amount("250m", "512Mi")).Validate())
+	wantInvalid(t, newTemplate(amount("50m", "512Mi")).Validate(), "spec.defaultResources.cpu")
+	wantInvalid(t, newTemplate(amount("250m", "128Mi")).Validate(), "spec.defaultResources.memory")
+}

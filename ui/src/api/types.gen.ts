@@ -1509,6 +1509,7 @@ export type Template = {
     basePath: 'Prefix' | 'Strip';
     build?: TemplateBuild;
     category: string;
+    defaultResources?: Amount;
     description: string;
     displayName: string;
     fileExtensions: Array<string> | null;

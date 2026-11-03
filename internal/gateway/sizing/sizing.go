@@ -171,6 +171,40 @@ func (s *Rules) Allowed(ctx context.Context, name string, amount *Amount) (sizes
 	return sz, nil
 }
 
+// AllowedFor is Allowed for an app or a job from template t. With no size
+// and no custom amount, t's DefaultResources (when set) decide: as a custom
+// amount when the caller may ask for that one and a machine holds it, else
+// the smallest size the caller may use that holds it (least memory, then
+// least CPU; never a GPU size), else the caller's default size.
+func (s *Rules) AllowedFor(ctx context.Context, t *model.Template, name string, amount *Amount) (sizes.Size, error) {
+	def := t.Spec.DefaultResources
+	if name != "" || amount != nil || def == nil {
+		return s.Allowed(ctx, name, amount)
+	}
+	u := authn.User(ctx)
+	cl, err := s.Machines.Cluster(ctx)
+	if err != nil {
+		return sizes.Size{}, problem.Internal("list nodes", err)
+	}
+	d := authz.Decide(u, authz.RolesOf(u, s.Roles), authz.ActCustomSize, authz.Object{Custom: &authz.CustomAsk{CPU: def.CPU, Memory: def.Memory, Policy: s.Sizes.Custom()}})
+	if d.Allowed && cl.Fits(def.CPU, def.Memory) {
+		return sizes.Custom(def.CPU, def.Memory), nil
+	}
+	var best *sizes.Size
+	for _, sz := range s.Usable(u).List() {
+		if sz.GPU > 0 || sz.CPU.Cmp(def.CPU) < 0 || sz.Memory.Cmp(def.Memory) < 0 || !sz.FitsOn(cl) {
+			continue
+		}
+		if best == nil || sz.Memory.Cmp(best.Memory) < 0 || (sz.Memory.Cmp(best.Memory) == 0 && sz.CPU.Cmp(best.CPU) < 0) {
+			best = &sz
+		}
+	}
+	if best != nil {
+		return *best, nil
+	}
+	return s.Allowed(ctx, "", nil)
+}
+
 func (s *Rules) customSize(u authz.Principal, cl capacity.Cluster, name string, amount Amount) (sizes.Size, error) {
 	if name != "" {
 		return sizes.Size{}, problem.FieldError("resources", reasons.MsgSizeOrCustom)

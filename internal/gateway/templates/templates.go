@@ -21,6 +21,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/gateway/sizing"
 	"github.com/nebari-dev/javo/internal/homepath"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -65,6 +66,10 @@ type Template struct {
 	// picks none; MaxAPIAccess is the most it may have.
 	APIAccessDefault string `json:"apiAccessDefault" enum:"None,Read,ReadWrite"`
 	MaxAPIAccess     string `json:"maxApiAccess" enum:"None,Read,ReadWrite"`
+	// DefaultResources is what an app or a job made without a size runs
+	// at: this custom amount where the person may ask for one, else the
+	// smallest size that holds it. Absent means the default size.
+	DefaultResources *sizing.Amount `json:"defaultResources,omitempty"`
 }
 
 // TemplateJobs is what jobs may run on a template.
@@ -124,6 +129,10 @@ func templateView(t *model.Template) Template {
 	}
 	if view.FromRepo = t.Spec.FromRepo; view.FromRepo == "" {
 		view.FromRepo = model.FromRepoNone
+	}
+	if r := t.Spec.DefaultResources; r != nil {
+		a := sizing.AmountOf(r.CPU, r.Memory)
+		view.DefaultResources = &a
 	}
 	if b := t.Spec.Build; b != nil {
 		view.Build = &TemplateBuild{Command: b.Command, Output: cmp.Or(b.Output, model.DefaultBuildOutput), IfFile: b.IfFile}

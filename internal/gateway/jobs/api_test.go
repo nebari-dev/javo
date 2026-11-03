@@ -879,6 +879,26 @@ func TestStartJobSampleMakesTheTemplatesCommandJob(t *testing.T) {
 	}
 }
 
+// The sample of a template that runs only bash scripts is a bash job: its
+// command is the script, kept whole.
+func TestStartJobSampleOfABashTemplateMakesABashJob(t *testing.T) {
+	t.Parallel()
+	tpl := apitest.ShellTemplate()
+	script := `echo "Hello, ${JAVO_PARAM_NAME:-world}"`
+	tpl.Spec.Jobs.Sample = &model.TemplateJobSample{Title: "Say hello", Command: script}
+	f := apitest.JobFixture(t, apitest.Options{}, tpl)
+	w := f.Do("POST", "/api/job-samples/shell", "", f.Session(apitest.AliceID))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if got := apitest.Decode[struct{ Engine, Command string }](t, w); got.Engine != "bash" || got.Command != script {
+		t.Fatalf("view %+v", got)
+	}
+	if defs := f.Jobs(); len(defs) != 1 || !slices.Equal(defs[0].Spec.Command, []string{script}) {
+		t.Fatalf("stored %+v", defs)
+	}
+}
+
 func TestStartJobSampleOfATemplateWithoutOneIsRefused(t *testing.T) {
 	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})

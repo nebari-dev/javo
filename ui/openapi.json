@@ -4272,6 +4272,9 @@
           "category": {
             "type": "string"
           },
+          "defaultResources": {
+            "$ref": "#/components/schemas/Amount"
+          },
           "description": {
             "type": "string"
           },

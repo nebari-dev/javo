@@ -611,7 +611,7 @@ func (s *Workspaces) prepare(ctx context.Context, u authz.Principal, b appReques
 	if !(b.source != nil && file == "" && t.Spec.Build != nil) && !templates.OpensFile(file, t.Spec.FileExtensions) {
 		return nil, problem.FieldError("file", reasons.MsgFileWrongType, strings.Join(t.Spec.FileExtensions, ", "))
 	}
-	sz, err := s.Allowed(ctx, b.size, b.resources)
+	sz, err := s.AllowedFor(ctx, t, b.size, b.resources)
 	if err != nil {
 		return nil, err
 	}

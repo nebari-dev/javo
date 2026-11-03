@@ -7,6 +7,7 @@ import (
 	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -160,6 +161,13 @@ type TemplateSpec struct {
 
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
+	// DefaultResources is the CPU and memory an app or a job from this
+	// template runs at when its creator picks no size: what the template's
+	// sample needs, with headroom. The gateway gives it as a custom amount
+	// where the person may ask for one, else the smallest size that holds
+	// it. Nil means the catalog's default size.
+	DefaultResources *TemplateAmount `json:"defaultResources,omitempty"`
+
 	// AllowedGroups limits who may use the template. Empty means everyone.
 	AllowedGroups []string `json:"allowedGroups,omitempty"`
 
@@ -279,8 +287,8 @@ type TemplateJobs struct {
 	Kernels    []string         `json:"kernels,omitempty"`
 	MaxTimeout *metav1.Duration `json:"maxTimeout,omitempty"`
 	// Sample is a ready-made command job baked into the image, offered on
-	// the Jobs page; nil means none. Its engine is command, so Engines must
-	// list command.
+	// the Jobs page; nil means none. Its engine is command, or bash on a
+	// template whose Engines list bash and not command.
 	Sample *TemplateJobSample `json:"sample,omitempty"`
 }
 
@@ -291,10 +299,24 @@ type TemplateJobSample struct {
 	// "Print the time".
 	Title string `json:"title"`
 	// Command is the command line the job runs, read like a command job's
-	// (shell quoting, no shell, {{.Home}}), usually a script in the image.
+	// (shell quoting, no shell, {{.Home}}), usually a script in the image;
+	// for a bash job, the script bash runs.
 	Command string `json:"command"`
 	// Parameters the sample job declares, to show how a run gets them.
 	Parameters []JobParameter `json:"parameters,omitempty"`
+}
+
+// TemplateAmount is a CPU and memory amount, set as both requests and
+// limits.
+// +kubebuilder:object:generate=true
+type TemplateAmount struct {
+	CPU    resource.Quantity `json:"cpu"`
+	Memory resource.Quantity `json:"memory"`
+}
+
+// Resources is a as an app's custom amount.
+func (a *TemplateAmount) Resources() *AppResources {
+	return &AppResources{CPU: a.CPU, Memory: a.Memory}
 }
 
 // TemplateSample names the sample a template ships: a folder in its image,
@@ -443,6 +465,14 @@ func (s *TemplateSpec) Validate() error {
 		s.Sample.validate(&v, "spec.sample")
 		if s.UserCommand == UserCommandRequired && s.Sample.Command == "" {
 			v.add("spec.sample", "the sample of a template that requires a command needs a command")
+		}
+	}
+	if r := s.DefaultResources; r != nil {
+		if r.CPU.Cmp(MinCustomCPU) < 0 {
+			v.add("spec.defaultResources.cpu", "cpu must be at least 100m")
+		}
+		if r.Memory.Cmp(MinCustomMemory) < 0 {
+			v.add("spec.defaultResources.memory", "memory must be at least 256Mi")
 		}
 	}
 	if s.JobOnly && s.Jobs == nil {

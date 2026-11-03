@@ -457,13 +457,13 @@ func (s *API) createFor(ctx context.Context, u authz.Principal, b *jobBody) (*jo
 		// The controller makes it right after the person's first sign-in.
 		return nil, problem.Reason(http.StatusServiceUnavailable, reasons.NamespacePending).WithHeader("Retry-After", "2")
 	}
-	spec, err := s.fill(ctx, u, b)
+	spec, tpl, err := s.fill(ctx, u, b)
 	if err != nil {
 		return nil, err
 	}
-	// An empty size stores the default size's name, so a later change of
-	// the default does not change the job's runs.
-	sz, err := s.Allowed(ctx, b.Size, b.Resources)
+	// An empty size stores the template's default or the default size's
+	// name, so a later change of either does not change the job's runs.
+	sz, err := s.AllowedFor(ctx, tpl, b.Size, b.Resources)
 	if err != nil {
 		return nil, err
 	}
@@ -510,7 +510,12 @@ func (s *API) startSample(ctx context.Context, in *templates.SampleInput) (*jobO
 		return nil, problem.New(http.StatusUnprocessableEntity, reasons.Msg(reasons.MsgNoSample, t.Spec.DisplayName))
 	}
 	sm := t.Spec.Jobs.Sample
-	b := jobBody{Template: t.Name, Engine: commandEngine, Command: sm.Command, Parameters: templates.SampleParams(sm)}
+	// A template that runs only bash scripts runs its sample as one.
+	engine := commandEngine
+	if !slices.Contains(t.Spec.Jobs.Engines, commandEngine) && slices.Contains(t.Spec.Jobs.Engines, bashEngine) {
+		engine = bashEngine
+	}
+	b := jobBody{Template: t.Name, Engine: engine, Command: sm.Command, Parameters: templates.SampleParams(sm)}
 	for n := 1; n <= templates.MaxSampleNames; n++ {
 		b.DisplayName = templates.SampleName(sm.Title, n)
 		out, err := s.createFor(ctx, u, &b)
@@ -529,7 +534,7 @@ func (s *API) update(ctx context.Context, in *updateJobInput) (*jobOutput, error
 		return nil, err
 	}
 	u := authn.User(ctx)
-	spec, err := s.fill(ctx, u, &in.Body)
+	spec, _, err := s.fill(ctx, u, &in.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -559,21 +564,22 @@ func runsTheSame(cur, next model.JobSpec) bool {
 	return equality.Semantic.DeepEqual(cur, next)
 }
 
-// fill turns the form into a job spec. The form is checked against the
-// template and the engine; every problem is a field error.
-func (s *API) fill(ctx context.Context, u authz.Principal, b *jobBody) (model.JobSpec, error) {
+// fill turns the form into a job spec, with the template it runs on. The
+// form is checked against the template and the engine; every problem is a
+// field error.
+func (s *API) fill(ctx context.Context, u authz.Principal, b *jobBody) (model.JobSpec, *model.Template, error) {
 	tpl, err := templates.Usable(ctx, s.DB.Templates(), s.Roles, u, b.Template)
 	if err != nil {
-		return model.JobSpec{}, err
+		return model.JobSpec{}, nil, err
 	}
 	spec, errs := s.formSpec(b, tpl)
 	if len(errs) > 0 {
-		return model.JobSpec{}, problem.Fields(errs...)
+		return model.JobSpec{}, nil, problem.Fields(errs...)
 	}
 	if err := jobs.ValidateFor(tpl, &spec); err != nil {
-		return model.JobSpec{}, buildError(err, &spec)
+		return model.JobSpec{}, nil, buildError(err, &spec)
 	}
-	return spec, nil
+	return spec, tpl, nil
 }
 
 // formSpec converts the form to a job spec, collecting field errors.
