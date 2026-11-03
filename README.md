@@ -6,7 +6,9 @@
   </picture>
 </p>
 
-<p align="center"><b>Notebooks, apps and jobs for data teams, on Kubernetes.</b></p>
+<p align="center"><b>The agent-first data science platform on Kubernetes.</b></p>
+
+<p align="center">Notebooks, apps and jobs that you and your AI agents run through one API, with agents working over MCP.</p>
 
 <p align="center">
   <a href="https://github.com/nebari-dev/javo/actions/workflows/go.yml"><img src="https://github.com/nebari-dev/javo/actions/workflows/go.yml/badge.svg?branch=main" alt="Go"></a>
