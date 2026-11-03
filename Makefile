@@ -34,15 +34,19 @@ generate-sql: $(SQLC)
 # container (scripts/test/postgres-test.sh). A missing Postgres fails the tests.
 DB_PACKAGES = ./internal/store/... ./internal/ai/... ./internal/backup/... ./internal/secrets/... ./internal/storage/... ./internal/auth/... ./internal/gateway/... ./internal/templates/... ./internal/controller/dbsource/... ./internal/controller/workspace/... ./internal/controller/storage/... ./internal/controller/namespace/... ./internal/controller/jobs/... ./internal/controller/idle/... ./internal/controller/preview/... ./internal/jobs/notify/... ./internal/netprobe/... ./internal/identity/... ./internal/cli/...
 
+# The packages whose code differs between SQLite and Postgres (queries, the
+# change feed, backups); CI and `make test` run only these on Postgres too.
+PG_PACKAGES = ./internal/store/... ./internal/backup/...
+
 # Some of these packages (internal/controller) have envtest tests, so both lines get the envtest binaries.
 test-db: $(SETUP_ENVTEST) $(RESTIC)
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN)/k8s -p path)" JAVO_TEST_DB=sqlite go test -count=1 $(DB_PACKAGES)
 	$(MAKE) test-postgres
 
 test-postgres: $(SETUP_ENVTEST) $(RESTIC)
-	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN)/k8s -p path)" scripts/test/postgres-test.sh env JAVO_TEST_DB=postgres go test -count=1 $(DB_PACKAGES)
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN)/k8s -p path)" scripts/test/postgres-test.sh env JAVO_TEST_DB=postgres go test -count=1 $(PG_PACKAGES)
 
-# Everything on SQLite (the default engine), then the database tests on Postgres.
+# Everything on SQLite (the default engine), then the engine-specific packages on Postgres.
 test: $(SETUP_ENVTEST) $(RESTIC) test-postgres
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN)/k8s -p path)" go test ./...
 
@@ -52,7 +56,7 @@ envtest-path: $(SETUP_ENVTEST)
 
 # The packages the Postgres pass runs (CI).
 db-packages:
-	@echo $(DB_PACKAGES)
+	@echo $(PG_PACKAGES)
 
 # The UI client is generated from this file (cd ui && pnpm gen:api).
 openapi:

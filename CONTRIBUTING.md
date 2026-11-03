@@ -7,12 +7,12 @@ before you write it.
 
 Requires Go (version in `go.mod`), Node 24 with pnpm, Docker with Compose v2, kubectl and Helm.
 
-    make test                     # Go unit and integration tests; the database tests run on SQLite and on a throwaway Postgres in Docker
+    make test                     # Go unit and integration tests on SQLite, then the store and backup packages on a throwaway Postgres in Docker
     pnpm -C ui install --frozen-lockfile --ignore-scripts
     pnpm -C ui test               # UI tests
     pnpm -C ui build              # type check and production build
 
-On a pull request, CI runs `go build`, `go vet` and the Go tests (on SQLite and on Postgres) when the Go
+On a pull request, CI runs `go build`, `go vet` and the Go tests (all on SQLite, the store and backup packages also on Postgres) when the Go
 side changes, the three `pnpm` steps above when `ui/` changes, and the docs site build when `site/` changes.
 
 ## Run it locally

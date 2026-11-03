@@ -85,10 +85,16 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
+      # Every package on SQLite, cut into shards; Postgres runs only the
+      # packages whose code differs per engine (make db-packages).
       matrix:
-        db: [sqlite, postgres]
+        db: [sqlite]
         shard: [1, 2, 3, 4, 5, 6]
         of: [6]
+        include:
+          - db: postgres
+            shard: 1
+            of: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
