@@ -490,7 +490,8 @@ config:
   # change in the browser. Needs no model.
   mcp:
     enabled: true
-    # Where agents reach the gateway, for approve links; empty gives relative links.
+    # Where agents reach the gateway, for approve links. Empty: https://<urls.uiHost>
+    # (with urls.scheme), or relative links when uiHost is not set either.
     publicURL: ""
   # Proposed changes wait this long for approval.
   plans:

@@ -43,7 +43,7 @@ kubectl -n javo-system create secret generic javo-ai --from-file=api-key=./api-k
 config:
   mcp:
     enabled: true      # the default
-    publicURL: https://javo.example.com   # for approve links; empty gives relative links
+    publicURL: https://javo.example.com   # for approve links; empty: https://<urls.uiHost>
   plans:
     ttl: 10m           # how long a proposed change waits for approval
 ```

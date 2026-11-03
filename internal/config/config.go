@@ -128,7 +128,8 @@ type AIFeatures struct {
 type MCPCfg struct {
 	Enabled bool `json:"enabled"`
 	// PublicURL is the address agents reach the gateway at, for approve links
-	// and the protected resource metadata.
+	// and the protected resource metadata. Default: urls.scheme://urls.uiHost
+	// when uiHost is set.
 	PublicURL string `json:"publicURL"`
 }
 
@@ -543,6 +544,9 @@ func (p *Platform) applyDefaults() {
 		p.Source.Previews.MaxPerApp = model.MaxPreviewMax
 	}
 	setStr(&p.Source.Previews.GitHub.APIURL, DefaultGitHubAPI)
+	if p.URLs.UIHost != "" {
+		setStr(&p.MCP.PublicURL, p.URLs.URLScheme()+"://"+p.URLs.UIHost)
+	}
 	if o := p.Auth.OIDC; o != nil {
 		setStr(&o.UsernameClaim, "preferred_username")
 		setStr(&o.GroupsClaim, "groups")
