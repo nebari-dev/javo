@@ -280,7 +280,7 @@ func TestMeHasDisplayNameAndRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := f.Do("GET", "/api/me", "", &http.Cookie{Name: model.SessionCookieName, Value: tok})
+	w := f.Do("GET", "/api/me", "", f.Cookie(tok))
 	me := apitest.Decode[struct {
 		DisplayName string
 		Roles       []string

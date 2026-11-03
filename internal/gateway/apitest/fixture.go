@@ -66,6 +66,7 @@ type Fixture struct {
 	Store  *session.DBStore
 	Tokens *token.DBStore
 	Srv    *gateway.Server
+	secure bool
 }
 
 // Options change how New builds the gateway; the zero value is a gateway
@@ -234,7 +235,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
 		Environments: o.Environments,
 	})
-	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv}
+	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, secure: o.Urls.SecureCookies(o.Secure)}
 }
 
 // aliceHash is alice's password as an argon2id hash with the smallest cost
@@ -267,7 +268,12 @@ func (f *Fixture) Session(id string, groups ...string) *http.Cookie {
 	if err != nil {
 		f.T.Fatal(err)
 	}
-	return &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	return f.Cookie(tok)
+}
+
+// Cookie is the session cookie carrying tok, named as this gateway names it.
+func (f *Fixture) Cookie(tok string) *http.Cookie {
+	return &http.Cookie{Name: model.CookieName(model.SessionCookieName, f.secure), Value: tok}
 }
 
 // Do sends one request to the gateway, with the session cookie c if any.

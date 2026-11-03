@@ -206,7 +206,8 @@ func NewServer(cfg Config) *Server {
 	hc.CreateHooks = nil // no $schema links: no extra public routes
 	hc.Security = authn.RequireSession
 	hc.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
-		authn.SessionScheme: {Type: "apiKey", In: "cookie", Name: model.SessionCookieName},
+		authn.SessionScheme: {Type: "apiKey", In: "cookie", Name: model.CookieName(model.SessionCookieName, true),
+			Description: "Set at sign-in. Over plain http (urls.scheme http without --secure-cookies) it is " + model.SessionCookieName + "."},
 		authn.BearerScheme: {Type: "http", Scheme: "bearer", Description: "A personal API token (" + token.Prefix + "...), " +
 			"created under Settings. A read token may only GET; tokens cannot manage tokens."},
 	}
@@ -221,7 +222,7 @@ func NewServer(cfg Config) *Server {
 	}
 	a := &authn.Authenticator{
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
-		Secure: cfg.SecureCookies || cfg.URLs.URLScheme() == "https", Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
+		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
 		Apps: apps.AppTokenWanted(cfg.Store),
 	}
@@ -282,6 +283,7 @@ func NewServer(cfg Config) *Server {
 		mux.Handle("GET "+proxy.TicketRoute, &proxy.Tickets{
 			Apps: &proxy.AppLookup{DB: cfg.Store}, Sessions: cfg.Sessions,
 			Exposure: cfg.Exposure, URLs: cfg.URLs, Roles: cfg.Roles, Now: now, Revalidator: cfg.Revalidator,
+			Secure: cfg.URLs.SecureCookies(cfg.SecureCookies),
 		})
 	}
 	mux.Handle("/api/", noSniff(authn.SameOrigin(a.RequireUser(catalogFallback(apiMux)))))

@@ -4954,8 +4954,9 @@
     },
     "securitySchemes": {
       "session": {
+        "description": "Set at sign-in. Over plain http (urls.scheme http without --secure-cookies) it is javo_session.",
         "in": "cookie",
-        "name": "javo_session",
+        "name": "__Host-javo_session",
         "type": "apiKey"
       },
       "token": {

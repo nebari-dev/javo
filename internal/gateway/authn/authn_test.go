@@ -12,10 +12,10 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
+	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
-	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -132,7 +132,7 @@ func TestUnreachableProviderKeepsSessionUntilGraceEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	c := f.Cookie(tok)
 
 	w := f.Do("GET", "/api/me", "", c)
 	if w.Code != http.StatusOK {
@@ -163,7 +163,7 @@ func TestSessionOfASwitchedOffProviderEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := f.Do("GET", "/api/me", "", &http.Cookie{Name: model.SessionCookieName, Value: tok}); w.Code != http.StatusUnauthorized {
+	if w := f.Do("GET", "/api/me", "", f.Cookie(tok)); w.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d", w.Code)
 	}
 }
@@ -224,5 +224,59 @@ func TestReasonCopyIsPublicAndComesFromTheCatalog(t *testing.T) {
 	}
 	if w := f.Do("GET", "/api/reasons?code=NoSuchReason", "", nil); w.Code != http.StatusNotFound {
 		t.Fatalf("unknown code: %d", w.Code)
+	}
+}
+
+// Over TLS the session cookie carries the __Host- prefix, so the browser
+// refuses one of that name from a sibling host; a plain-named cookie, which a
+// sibling host can set for the parent domain, is never read.
+func TestSecureSessionCookieIsHostOnly(t *testing.T) {
+	f := apitest.New(t, apitest.Options{Secure: true})
+	w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
+	var c *http.Cookie
+	for _, k := range w.Result().Cookies() {
+		if k.Name == "__Host-javo_session" {
+			c = k
+		}
+	}
+	if c == nil || !c.Secure || c.Path != "/" || c.Domain != "" {
+		t.Fatalf("session cookie %+v in %v", c, w.Result().Cookies())
+	}
+	if w := f.Do("GET", "/api/me", "", c); w.Code != http.StatusOK {
+		t.Fatalf("host cookie: %d", w.Code)
+	}
+	if w := f.Do("GET", "/api/me", "", &http.Cookie{Name: "javo_session", Value: c.Value}); w.Code != http.StatusUnauthorized {
+		t.Fatalf("plain-named cookie: %d", w.Code)
+	}
+}
+
+// A browser drops a __Host- cookie that is not Secure, so over plain http
+// the session cookie keeps its plain name.
+func TestPlainHTTPSessionCookieKeepsItsName(t *testing.T) {
+	f := apitest.New(t, apitest.Options{Urls: config.URLs{Scheme: "http"}})
+	w := f.Do("POST", "/api/auth/local/login", `{"username":"alice","password":"alice-password"}`, nil)
+	cs := w.Result().Cookies()
+	if len(cs) != 1 || cs[0].Name != "javo_session" || cs[0].Secure {
+		t.Fatalf("cookies %v", cs)
+	}
+	if w := f.Do("GET", "/api/me", "", cs[0]); w.Code != http.StatusOK {
+		t.Fatalf("me: %d", w.Code)
+	}
+}
+
+func TestAppAndTicketSessionsCannotUseTheAPI(t *testing.T) {
+	f := apitest.New(t, apitest.Options{})
+	ui := f.LoginAlice()
+	for _, kind := range []string{session.KindApp, session.KindTicket} {
+		tok, err := f.Store.Create(context.Background(), session.Session{
+			Principal: apitest.PrincipalFor(local.UserID("alice")), Provider: "local", Kind: kind,
+			Parent: session.ID(ui.Value), Workspace: "javo-apps/sales", Expires: time.Now().Add(time.Minute),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w := f.Do("GET", "/api/me", "", &http.Cookie{Name: ui.Name, Value: tok}); w.Code != http.StatusUnauthorized {
+			t.Fatalf("%s session: %d", kind, w.Code)
+		}
 	}
 }

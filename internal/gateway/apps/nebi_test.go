@@ -12,7 +12,6 @@ import (
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
-	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
 )
 
@@ -33,7 +32,7 @@ func TestCreatingOrStartingAnAppStoresTheOwnersNebiToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	cookie := f.Cookie(tok)
 	stored := func(appID string) bool {
 		sealed, _, err := f.Db.NebiTokens().Get(context.Background(), appID)
 		if err != nil {

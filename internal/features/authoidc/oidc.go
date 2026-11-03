@@ -29,6 +29,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/httpx"
 	"github.com/nebari-dev/javo/internal/identity"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -38,7 +39,7 @@ const ID = "oidc"
 const (
 	startPath    = "/auth/oidc/start"
 	callbackPath = "/auth/oidc/callback"
-	flowPrefix   = "javo_oidc_"
+	flowPrefix   = model.OIDCFlowCookiePrefix
 	flowMaxAge   = 10 * time.Minute
 	// maxIATAhead is how far ahead of this server's clock a token may be
 	// issued before the clocks are called out of step.
@@ -328,6 +329,17 @@ func safeNext(next string) string {
 	return next
 }
 
+// flowCookie is the cookie of the sign-in flow with this state, without its
+// value. Over TLS it is a __Host- cookie, which must have Path "/", so no
+// sibling host can plant a flow; the proxy keeps it from apps.
+func (p *Provider) flowCookie(r *http.Request, state string) http.Cookie {
+	secure := p.scheme(r) == "https"
+	return http.Cookie{
+		Name: model.CookieName(flowPrefix+state[:8], secure), Path: "/",
+		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
+	}
+}
+
 func (p *Provider) start(w http.ResponseWriter, r *http.Request) {
 	d := p.discovery()
 	if d == nil {
@@ -336,10 +348,9 @@ func (p *Provider) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := flow{state: rand.Text(), verifier: oauth2.GenerateVerifier(), nonce: rand.Text(), next: safeNext(r.URL.Query().Get("next"))}
-	http.SetCookie(w, &http.Cookie{
-		Name: flowPrefix + f.state[:8], Value: f.encode(), Path: "/auth/oidc/",
-		MaxAge: int(flowMaxAge.Seconds()), HttpOnly: true, Secure: p.scheme(r) == "https", SameSite: http.SameSiteLaxMode,
-	})
+	c := p.flowCookie(r, f.state)
+	c.Value, c.MaxAge = f.encode(), int(flowMaxAge.Seconds())
+	http.SetCookie(w, &c)
 	u := p.oauth(d, p.baseURL(r)+callbackPath).AuthCodeURL(f.state, oauth2.S256ChallengeOption(f.verifier), oidc.Nonce(f.nonce))
 	http.Redirect(w, r, u, http.StatusFound)
 }
@@ -351,10 +362,11 @@ func (p *Provider) callback(w http.ResponseWriter, r *http.Request) {
 		renderPage(w, http.StatusBadRequest, reasons.SignInLinkExpired, true)
 		return
 	}
-	name := flowPrefix + state[:8]
-	c, err := r.Cookie(name)
+	clear := p.flowCookie(r, state)
+	c, err := r.Cookie(clear.Name)
 	// The flow is single use whatever happens next.
-	http.SetCookie(w, &http.Cookie{Name: name, Path: "/auth/oidc/", MaxAge: -1, HttpOnly: true, Secure: p.scheme(r) == "https", SameSite: http.SameSiteLaxMode})
+	clear.MaxAge = -1
+	http.SetCookie(w, &clear)
 	if err != nil {
 		renderPage(w, http.StatusBadRequest, reasons.SignInLinkExpired, true)
 		return

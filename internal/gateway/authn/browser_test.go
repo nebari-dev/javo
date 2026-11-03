@@ -14,7 +14,6 @@ import (
 	"github.com/nebari-dev/javo/internal/features/authoidc"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
-	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -46,7 +45,7 @@ func TestBrowserSignInKeepsTheProvidersPicture(t *testing.T) {
 	}
 	var cookie *http.Cookie
 	for _, c := range w.Result().Cookies() {
-		if c.Name == model.SessionCookieName {
+		if c.Name == f.Cookie("").Name {
 			cookie = c
 		}
 	}
@@ -69,7 +68,7 @@ func TestLogoutPointsAtTheProvidersEndSessionURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := f.Do("POST", "/api/auth/logout", "", &http.Cookie{Name: model.SessionCookieName, Value: tok})
+	w := f.Do("POST", "/api/auth/logout", "", f.Cookie(tok))
 	if w.Code != http.StatusNoContent || w.Header().Get(authn.LogoutURLHeader) != end {
 		t.Fatalf("%d, %s = %q", w.Code, authn.LogoutURLHeader, w.Header().Get(authn.LogoutURLHeader))
 	}
@@ -93,7 +92,7 @@ func TestLogoutWithoutAnEndSessionEndpointSaysSignedOutLocallyOnly(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := f.Do("POST", "/api/auth/logout", "", &http.Cookie{Name: model.SessionCookieName, Value: tok})
+	w := f.Do("POST", "/api/auth/logout", "", f.Cookie(tok))
 	if w.Code != http.StatusNoContent || w.Header().Get(authn.LogoutURLHeader) != "" ||
 		w.Header().Get(authn.LogoutReasonHeader) != string(reasons.SignedOutLocallyOnly) {
 		t.Fatalf("%d, url %q, reason %q", w.Code, w.Header().Get(authn.LogoutURLHeader), w.Header().Get(authn.LogoutReasonHeader))
@@ -111,7 +110,7 @@ func TestParallelRevalidationsDoNotReuseTheRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	c := f.Cookie(tok)
 	const n = 8
 	codes := make([]int, n)
 	var wg sync.WaitGroup
@@ -177,7 +176,7 @@ func TestParallelRevalidationsShareAnOutage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	c := f.Cookie(tok)
 	const n = 8
 	codes := make([]int, n)
 	until := make([]string, n)

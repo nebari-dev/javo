@@ -24,7 +24,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 export const askAdmin = <ThrowOnError extends boolean = false>(options: Options<AskAdminData, ThrowOnError>): RequestResult<AskAdminResponses, AskAdminErrors, ThrowOnError> => (options.client ?? client).post<AskAdminResponses, AskAdminErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/ai/ask',
@@ -41,7 +41,7 @@ export const askAdmin = <ThrowOnError extends boolean = false>(options: Options<
 export const adminListApps = <ThrowOnError extends boolean = false>(options?: Options<AdminListAppsData, ThrowOnError>): RequestResult<AdminListAppsResponses, AdminListAppsErrors, ThrowOnError> => (options?.client ?? client).get<AdminListAppsResponses, AdminListAppsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/apps',
@@ -54,7 +54,7 @@ export const adminListApps = <ThrowOnError extends boolean = false>(options?: Op
 export const adminListBackups = <ThrowOnError extends boolean = false>(options?: Options<AdminListBackupsData, ThrowOnError>): RequestResult<AdminListBackupsResponses, AdminListBackupsErrors, ThrowOnError> => (options?.client ?? client).get<AdminListBackupsResponses, AdminListBackupsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups',
@@ -67,7 +67,7 @@ export const adminListBackups = <ThrowOnError extends boolean = false>(options?:
 export const adminBackUpNow = <ThrowOnError extends boolean = false>(options?: Options<AdminBackUpNowData, ThrowOnError>): RequestResult<AdminBackUpNowResponses, AdminBackUpNowErrors, ThrowOnError> => (options?.client ?? client).post<AdminBackUpNowResponses, AdminBackUpNowErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups',
@@ -80,7 +80,7 @@ export const adminBackUpNow = <ThrowOnError extends boolean = false>(options?: O
 export const adminBackUpEverythingNow = <ThrowOnError extends boolean = false>(options?: Options<AdminBackUpEverythingNowData, ThrowOnError>): RequestResult<AdminBackUpEverythingNowResponses, AdminBackUpEverythingNowErrors, ThrowOnError> => (options?.client ?? client).post<AdminBackUpEverythingNowResponses, AdminBackUpEverythingNowErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/now',
@@ -97,7 +97,7 @@ export const adminBackUpEverythingNow = <ThrowOnError extends boolean = false>(o
 export const adminRestoreNow = <ThrowOnError extends boolean = false>(options?: Options<AdminRestoreNowData, ThrowOnError>): RequestResult<AdminRestoreNowResponses, AdminRestoreNowErrors, ThrowOnError> => (options?.client ?? client).post<AdminRestoreNowResponses, AdminRestoreNowErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/restore',
@@ -114,7 +114,7 @@ export const adminRestoreNow = <ThrowOnError extends boolean = false>(options?: 
 export const adminStartRestoreRun = <ThrowOnError extends boolean = false>(options: Options<AdminStartRestoreRunData, ThrowOnError>): RequestResult<AdminStartRestoreRunResponses, AdminStartRestoreRunErrors, ThrowOnError> => (options.client ?? client).post<AdminStartRestoreRunResponses, AdminStartRestoreRunErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/restores',
@@ -131,7 +131,7 @@ export const adminStartRestoreRun = <ThrowOnError extends boolean = false>(optio
 export const adminRestoreRun = <ThrowOnError extends boolean = false>(options: Options<AdminRestoreRunData, ThrowOnError>): RequestResult<AdminRestoreRunResponses, AdminRestoreRunErrors, ThrowOnError> => (options.client ?? client).get<AdminRestoreRunResponses, AdminRestoreRunErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/restores/{run}',
@@ -144,7 +144,7 @@ export const adminRestoreRun = <ThrowOnError extends boolean = false>(options: O
 export const adminStartBackupRun = <ThrowOnError extends boolean = false>(options: Options<AdminStartBackupRunData, ThrowOnError>): RequestResult<AdminStartBackupRunResponses, AdminStartBackupRunErrors, ThrowOnError> => (options.client ?? client).post<AdminStartBackupRunResponses, AdminStartBackupRunErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/runs',
@@ -161,7 +161,7 @@ export const adminStartBackupRun = <ThrowOnError extends boolean = false>(option
 export const adminBackupRun = <ThrowOnError extends boolean = false>(options: Options<AdminBackupRunData, ThrowOnError>): RequestResult<AdminBackupRunResponses, AdminBackupRunErrors, ThrowOnError> => (options.client ?? client).get<AdminBackupRunResponses, AdminBackupRunErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/runs/{run}',
@@ -174,7 +174,7 @@ export const adminBackupRun = <ThrowOnError extends boolean = false>(options: Op
 export const adminPreviewRestore = <ThrowOnError extends boolean = false>(options: Options<AdminPreviewRestoreData, ThrowOnError>): RequestResult<AdminPreviewRestoreResponses, AdminPreviewRestoreErrors, ThrowOnError> => (options.client ?? client).post<AdminPreviewRestoreResponses, AdminPreviewRestoreErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/{name}/preview',
@@ -191,7 +191,7 @@ export const adminPreviewRestore = <ThrowOnError extends boolean = false>(option
 export const adminRestore = <ThrowOnError extends boolean = false>(options: Options<AdminRestoreData, ThrowOnError>): RequestResult<AdminRestoreResponses, AdminRestoreErrors, ThrowOnError> => (options.client ?? client).post<AdminRestoreResponses, AdminRestoreErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/backups/{name}/restore',
@@ -208,7 +208,7 @@ export const adminRestore = <ThrowOnError extends boolean = false>(options: Opti
 export const getAdminReport = <ThrowOnError extends boolean = false>(options?: Options<GetAdminReportData, ThrowOnError>): RequestResult<GetAdminReportResponses, GetAdminReportErrors, ThrowOnError> => (options?.client ?? client).get<GetAdminReportResponses, GetAdminReportErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/report',
@@ -221,7 +221,7 @@ export const getAdminReport = <ThrowOnError extends boolean = false>(options?: O
 export const adminListRestores = <ThrowOnError extends boolean = false>(options?: Options<AdminListRestoresData, ThrowOnError>): RequestResult<AdminListRestoresResponses, AdminListRestoresErrors, ThrowOnError> => (options?.client ?? client).get<AdminListRestoresResponses, AdminListRestoresErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/restores',
@@ -234,7 +234,7 @@ export const adminListRestores = <ThrowOnError extends boolean = false>(options?
 export const adminReleaseRestore = <ThrowOnError extends boolean = false>(options: Options<AdminReleaseRestoreData, ThrowOnError>): RequestResult<AdminReleaseRestoreResponses, AdminReleaseRestoreErrors, ThrowOnError> => (options.client ?? client).post<AdminReleaseRestoreResponses, AdminReleaseRestoreErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/restores/{name}/release',
@@ -251,7 +251,7 @@ export const adminReleaseRestore = <ThrowOnError extends boolean = false>(option
 export const getAdminStorage = <ThrowOnError extends boolean = false>(options?: Options<GetAdminStorageData, ThrowOnError>): RequestResult<GetAdminStorageResponses, GetAdminStorageErrors, ThrowOnError> => (options?.client ?? client).get<GetAdminStorageResponses, GetAdminStorageErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/storage',
@@ -264,7 +264,7 @@ export const getAdminStorage = <ThrowOnError extends boolean = false>(options?: 
 export const adminUsage = <ThrowOnError extends boolean = false>(options?: Options<AdminUsageData, ThrowOnError>): RequestResult<AdminUsageResponses, AdminUsageErrors, ThrowOnError> => (options?.client ?? client).get<AdminUsageResponses, AdminUsageErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/admin/usage',
@@ -277,7 +277,7 @@ export const adminUsage = <ThrowOnError extends boolean = false>(options?: Optio
 export const aiCommand = <ThrowOnError extends boolean = false>(options: Options<AiCommandData, ThrowOnError>): RequestResult<AiCommandResponses, AiCommandErrors, ThrowOnError> => (options.client ?? client).post<AiCommandResponses, AiCommandErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/ai/command',
@@ -294,7 +294,7 @@ export const aiCommand = <ThrowOnError extends boolean = false>(options: Options
 export const draftWorkspace = <ThrowOnError extends boolean = false>(options: Options<DraftWorkspaceData, ThrowOnError>): RequestResult<DraftWorkspaceResponses, DraftWorkspaceErrors, ThrowOnError> => (options.client ?? client).post<DraftWorkspaceResponses, DraftWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/ai/draft',
@@ -311,7 +311,7 @@ export const draftWorkspace = <ThrowOnError extends boolean = false>(options: Op
 export const aiFeedback = <ThrowOnError extends boolean = false>(options: Options<AiFeedbackData, ThrowOnError>): RequestResult<AiFeedbackResponses, AiFeedbackErrors, ThrowOnError> => (options.client ?? client).post<AiFeedbackResponses, AiFeedbackErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/ai/feedback',
@@ -328,7 +328,7 @@ export const aiFeedback = <ThrowOnError extends boolean = false>(options: Option
 export const getAiStatus = <ThrowOnError extends boolean = false>(options?: Options<GetAiStatusData, ThrowOnError>): RequestResult<GetAiStatusResponses, GetAiStatusErrors, ThrowOnError> => (options?.client ?? client).get<GetAiStatusResponses, GetAiStatusErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/ai/status',
@@ -368,7 +368,7 @@ export const getBranding = <ThrowOnError extends boolean = false>(options?: Opti
 export const searchDirectory = <ThrowOnError extends boolean = false>(options?: Options<SearchDirectoryData, ThrowOnError>): RequestResult<SearchDirectoryResponses, SearchDirectoryErrors, ThrowOnError> => (options?.client ?? client).get<SearchDirectoryResponses, SearchDirectoryErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/directory',
@@ -381,7 +381,7 @@ export const searchDirectory = <ThrowOnError extends boolean = false>(options?: 
 export const listEngines = <ThrowOnError extends boolean = false>(options?: Options<ListEnginesData, ThrowOnError>): RequestResult<ListEnginesResponses, ListEnginesErrors, ThrowOnError> => (options?.client ?? client).get<ListEnginesResponses, ListEnginesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/engines',
@@ -396,7 +396,7 @@ export const listEngines = <ThrowOnError extends boolean = false>(options?: Opti
 export const listEnvironments = <ThrowOnError extends boolean = false>(options?: Options<ListEnvironmentsData, ThrowOnError>): RequestResult<ListEnvironmentsResponses, ListEnvironmentsErrors, ThrowOnError> => (options?.client ?? client).get<ListEnvironmentsResponses, ListEnvironmentsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/environments',
@@ -409,7 +409,7 @@ export const listEnvironments = <ThrowOnError extends boolean = false>(options?:
 export const listFiles = <ThrowOnError extends boolean = false>(options?: Options<ListFilesData, ThrowOnError>): RequestResult<ListFilesResponses, ListFilesErrors, ThrowOnError> => (options?.client ?? client).get<ListFilesResponses, ListFilesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/files',
@@ -422,7 +422,7 @@ export const listFiles = <ThrowOnError extends boolean = false>(options?: Option
 export const getRawFile = <ThrowOnError extends boolean = false>(options?: Options<GetRawFileData, ThrowOnError>): RequestResult<GetRawFileResponses, GetRawFileErrors, ThrowOnError> => (options?.client ?? client).get<GetRawFileResponses, GetRawFileErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/files/raw',
@@ -437,7 +437,7 @@ export const getRawFile = <ThrowOnError extends boolean = false>(options?: Optio
 export const warmFiles = <ThrowOnError extends boolean = false>(options?: Options<WarmFilesData, ThrowOnError>): RequestResult<WarmFilesResponses, WarmFilesErrors, ThrowOnError> => (options?.client ?? client).post<WarmFilesResponses, WarmFilesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/files/warm',
@@ -450,7 +450,7 @@ export const warmFiles = <ThrowOnError extends boolean = false>(options?: Option
 export const getIdleStopPolicy = <ThrowOnError extends boolean = false>(options?: Options<GetIdleStopPolicyData, ThrowOnError>): RequestResult<GetIdleStopPolicyResponses, GetIdleStopPolicyErrors, ThrowOnError> => (options?.client ?? client).get<GetIdleStopPolicyResponses, GetIdleStopPolicyErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/idle-stop',
@@ -463,7 +463,7 @@ export const getIdleStopPolicy = <ThrowOnError extends boolean = false>(options?
 export const serverInfo = <ThrowOnError extends boolean = false>(options?: Options<ServerInfoData, ThrowOnError>): RequestResult<ServerInfoResponses, ServerInfoErrors, ThrowOnError> => (options?.client ?? client).get<ServerInfoResponses, ServerInfoErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/info',
@@ -476,7 +476,7 @@ export const serverInfo = <ThrowOnError extends boolean = false>(options?: Optio
 export const startJobSample = <ThrowOnError extends boolean = false>(options: Options<StartJobSampleData, ThrowOnError>): RequestResult<StartJobSampleResponses, StartJobSampleErrors, ThrowOnError> => (options.client ?? client).post<StartJobSampleResponses, StartJobSampleErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/job-samples/{template}',
@@ -489,7 +489,7 @@ export const startJobSample = <ThrowOnError extends boolean = false>(options: Op
 export const listJobs = <ThrowOnError extends boolean = false>(options?: Options<ListJobsData, ThrowOnError>): RequestResult<ListJobsResponses, ListJobsErrors, ThrowOnError> => (options?.client ?? client).get<ListJobsResponses, ListJobsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs',
@@ -502,7 +502,7 @@ export const listJobs = <ThrowOnError extends boolean = false>(options?: Options
 export const createJob = <ThrowOnError extends boolean = false>(options: Options<CreateJobData, ThrowOnError>): RequestResult<CreateJobResponses, CreateJobErrors, ThrowOnError> => (options.client ?? client).post<CreateJobResponses, CreateJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs',
@@ -519,7 +519,7 @@ export const createJob = <ThrowOnError extends boolean = false>(options: Options
 export const deleteJob = <ThrowOnError extends boolean = false>(options: Options<DeleteJobData, ThrowOnError>): RequestResult<DeleteJobResponses, DeleteJobErrors, ThrowOnError> => (options.client ?? client).delete<DeleteJobResponses, DeleteJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}',
@@ -532,7 +532,7 @@ export const deleteJob = <ThrowOnError extends boolean = false>(options: Options
 export const getJob = <ThrowOnError extends boolean = false>(options: Options<GetJobData, ThrowOnError>): RequestResult<GetJobResponses, GetJobErrors, ThrowOnError> => (options.client ?? client).get<GetJobResponses, GetJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}',
@@ -545,7 +545,7 @@ export const getJob = <ThrowOnError extends boolean = false>(options: Options<Ge
 export const updateJob = <ThrowOnError extends boolean = false>(options: Options<UpdateJobData, ThrowOnError>): RequestResult<UpdateJobResponses, UpdateJobErrors, ThrowOnError> => (options.client ?? client).put<UpdateJobResponses, UpdateJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}',
@@ -564,7 +564,7 @@ export const updateJob = <ThrowOnError extends boolean = false>(options: Options
 export const setJobEnv = <ThrowOnError extends boolean = false>(options: Options<SetJobEnvData, ThrowOnError>): RequestResult<SetJobEnvResponses, SetJobEnvErrors, ThrowOnError> => (options.client ?? client).put<SetJobEnvResponses, SetJobEnvErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/env',
@@ -581,7 +581,7 @@ export const setJobEnv = <ThrowOnError extends boolean = false>(options: Options
 export const pauseJob = <ThrowOnError extends boolean = false>(options: Options<PauseJobData, ThrowOnError>): RequestResult<PauseJobResponses, PauseJobErrors, ThrowOnError> => (options.client ?? client).post<PauseJobResponses, PauseJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/pause',
@@ -594,7 +594,7 @@ export const pauseJob = <ThrowOnError extends boolean = false>(options: Options<
 export const resumeJob = <ThrowOnError extends boolean = false>(options: Options<ResumeJobData, ThrowOnError>): RequestResult<ResumeJobResponses, ResumeJobErrors, ThrowOnError> => (options.client ?? client).post<ResumeJobResponses, ResumeJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/resume',
@@ -607,7 +607,7 @@ export const resumeJob = <ThrowOnError extends boolean = false>(options: Options
 export const runJob = <ThrowOnError extends boolean = false>(options: Options<RunJobData, ThrowOnError>): RequestResult<RunJobResponses, RunJobErrors, ThrowOnError> => (options.client ?? client).post<RunJobResponses, RunJobErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/run',
@@ -624,7 +624,7 @@ export const runJob = <ThrowOnError extends boolean = false>(options: Options<Ru
 export const cancelJobRun = <ThrowOnError extends boolean = false>(options: Options<CancelJobRunData, ThrowOnError>): RequestResult<CancelJobRunResponses, CancelJobRunErrors, ThrowOnError> => (options.client ?? client).post<CancelJobRunResponses, CancelJobRunErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/runs/{run}/cancel',
@@ -637,7 +637,7 @@ export const cancelJobRun = <ThrowOnError extends boolean = false>(options: Opti
 export const getJobRunLog = <ThrowOnError extends boolean = false>(options: Options<GetJobRunLogData, ThrowOnError>): RequestResult<GetJobRunLogResponses, GetJobRunLogErrors, ThrowOnError> => (options.client ?? client).get<GetJobRunLogResponses, GetJobRunLogErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/runs/{run}/log',
@@ -652,7 +652,7 @@ export const getJobRunLog = <ThrowOnError extends boolean = false>(options: Opti
 export const setJobSize = <ThrowOnError extends boolean = false>(options: Options<SetJobSizeData, ThrowOnError>): RequestResult<SetJobSizeResponses, SetJobSizeErrors, ThrowOnError> => (options.client ?? client).put<SetJobSizeResponses, SetJobSizeErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/jobs/{name}/size',
@@ -669,7 +669,7 @@ export const setJobSize = <ThrowOnError extends boolean = false>(options: Option
 export const me = <ThrowOnError extends boolean = false>(options?: Options<MeData, ThrowOnError>): RequestResult<MeResponses, MeErrors, ThrowOnError> => (options?.client ?? client).get<MeResponses, MeErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/me',
@@ -682,7 +682,7 @@ export const me = <ThrowOnError extends boolean = false>(options?: Options<MeDat
 export const createPlan = <ThrowOnError extends boolean = false>(options: Options<CreatePlanData, ThrowOnError>): RequestResult<CreatePlanResponses, CreatePlanErrors, ThrowOnError> => (options.client ?? client).post<CreatePlanResponses, CreatePlanErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/plans',
@@ -699,7 +699,7 @@ export const createPlan = <ThrowOnError extends boolean = false>(options: Option
 export const getPlan = <ThrowOnError extends boolean = false>(options: Options<GetPlanData, ThrowOnError>): RequestResult<GetPlanResponses, GetPlanErrors, ThrowOnError> => (options.client ?? client).get<GetPlanResponses, GetPlanErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/plans/{id}',
@@ -712,7 +712,7 @@ export const getPlan = <ThrowOnError extends boolean = false>(options: Options<G
 export const approvePlan = <ThrowOnError extends boolean = false>(options: Options<ApprovePlanData, ThrowOnError>): RequestResult<ApprovePlanResponses, ApprovePlanErrors, ThrowOnError> => (options.client ?? client).post<ApprovePlanResponses, ApprovePlanErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }],
     url: '/api/plans/{id}/approve',
@@ -725,7 +725,7 @@ export const approvePlan = <ThrowOnError extends boolean = false>(options: Optio
 export const rejectPlan = <ThrowOnError extends boolean = false>(options: Options<RejectPlanData, ThrowOnError>): RequestResult<RejectPlanResponses, RejectPlanErrors, ThrowOnError> => (options.client ?? client).post<RejectPlanResponses, RejectPlanErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }],
     url: '/api/plans/{id}/reject',
@@ -738,7 +738,7 @@ export const rejectPlan = <ThrowOnError extends boolean = false>(options: Option
 export const getPreviewOptions = <ThrowOnError extends boolean = false>(options?: Options<GetPreviewOptionsData, ThrowOnError>): RequestResult<GetPreviewOptionsResponses, GetPreviewOptionsErrors, ThrowOnError> => (options?.client ?? client).get<GetPreviewOptionsResponses, GetPreviewOptionsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/previews',
@@ -753,7 +753,7 @@ export const getPreviewOptions = <ThrowOnError extends boolean = false>(options?
 export const newPreviewsWebhook = <ThrowOnError extends boolean = false>(options: Options<NewPreviewsWebhookData, ThrowOnError>): RequestResult<NewPreviewsWebhookResponses, NewPreviewsWebhookErrors, ThrowOnError> => (options.client ?? client).post<NewPreviewsWebhookResponses, NewPreviewsWebhookErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/previews/webhook',
@@ -775,7 +775,7 @@ export const reasonCopy = <ThrowOnError extends boolean = false>(options?: Optio
 export const startSample = <ThrowOnError extends boolean = false>(options: Options<StartSampleData, ThrowOnError>): RequestResult<StartSampleResponses, StartSampleErrors, ThrowOnError> => (options.client ?? client).post<StartSampleResponses, StartSampleErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/samples/{template}',
@@ -788,7 +788,7 @@ export const startSample = <ThrowOnError extends boolean = false>(options: Optio
 export const previewSchedule = <ThrowOnError extends boolean = false>(options: Options<PreviewScheduleData, ThrowOnError>): RequestResult<PreviewScheduleResponses, PreviewScheduleErrors, ThrowOnError> => (options.client ?? client).post<PreviewScheduleResponses, PreviewScheduleErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/schedule/preview',
@@ -805,7 +805,7 @@ export const previewSchedule = <ThrowOnError extends boolean = false>(options: O
 export const listSecrets = <ThrowOnError extends boolean = false>(options?: Options<ListSecretsData, ThrowOnError>): RequestResult<ListSecretsResponses, ListSecretsErrors, ThrowOnError> => (options?.client ?? client).get<ListSecretsResponses, ListSecretsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/secrets',
@@ -820,7 +820,7 @@ export const listSecrets = <ThrowOnError extends boolean = false>(options?: Opti
 export const createSecret = <ThrowOnError extends boolean = false>(options: Options<CreateSecretData, ThrowOnError>): RequestResult<CreateSecretResponses, CreateSecretErrors, ThrowOnError> => (options.client ?? client).post<CreateSecretResponses, CreateSecretErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/secrets',
@@ -839,7 +839,7 @@ export const createSecret = <ThrowOnError extends boolean = false>(options: Opti
 export const deleteSecret = <ThrowOnError extends boolean = false>(options: Options<DeleteSecretData, ThrowOnError>): RequestResult<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/secrets/{name}',
@@ -854,7 +854,7 @@ export const deleteSecret = <ThrowOnError extends boolean = false>(options: Opti
 export const updateSecret = <ThrowOnError extends boolean = false>(options: Options<UpdateSecretData, ThrowOnError>): RequestResult<UpdateSecretResponses, UpdateSecretErrors, ThrowOnError> => (options.client ?? client).put<UpdateSecretResponses, UpdateSecretErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/secrets/{name}',
@@ -871,7 +871,7 @@ export const updateSecret = <ThrowOnError extends boolean = false>(options: Opti
 export const listShared = <ThrowOnError extends boolean = false>(options?: Options<ListSharedData, ThrowOnError>): RequestResult<ListSharedResponses, ListSharedErrors, ThrowOnError> => (options?.client ?? client).get<ListSharedResponses, ListSharedErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/shared',
@@ -884,7 +884,7 @@ export const listShared = <ThrowOnError extends boolean = false>(options?: Optio
 export const listSizes = <ThrowOnError extends boolean = false>(options?: Options<ListSizesData, ThrowOnError>): RequestResult<ListSizesResponses, ListSizesErrors, ThrowOnError> => (options?.client ?? client).get<ListSizesResponses, ListSizesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/sizes',
@@ -897,7 +897,7 @@ export const listSizes = <ThrowOnError extends boolean = false>(options?: Option
 export const getStorage = <ThrowOnError extends boolean = false>(options?: Options<GetStorageData, ThrowOnError>): RequestResult<GetStorageResponses, GetStorageErrors, ThrowOnError> => (options?.client ?? client).get<GetStorageResponses, GetStorageErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/storage',
@@ -910,7 +910,7 @@ export const getStorage = <ThrowOnError extends boolean = false>(options?: Optio
 export const previewPlacement = <ThrowOnError extends boolean = false>(options?: Options<PreviewPlacementData, ThrowOnError>): RequestResult<PreviewPlacementResponses, PreviewPlacementErrors, ThrowOnError> => (options?.client ?? client).get<PreviewPlacementResponses, PreviewPlacementErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/storage/placement',
@@ -923,7 +923,7 @@ export const previewPlacement = <ThrowOnError extends boolean = false>(options?:
 export const listTemplates = <ThrowOnError extends boolean = false>(options?: Options<ListTemplatesData, ThrowOnError>): RequestResult<ListTemplatesResponses, ListTemplatesErrors, ThrowOnError> => (options?.client ?? client).get<ListTemplatesResponses, ListTemplatesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/templates',
@@ -936,7 +936,7 @@ export const listTemplates = <ThrowOnError extends boolean = false>(options?: Op
 export const deleteTemplate = <ThrowOnError extends boolean = false>(options: Options<DeleteTemplateData, ThrowOnError>): RequestResult<DeleteTemplateResponses, DeleteTemplateErrors, ThrowOnError> => (options.client ?? client).delete<DeleteTemplateResponses, DeleteTemplateErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/templates/{name}',
@@ -950,7 +950,7 @@ export const putTemplate = <ThrowOnError extends boolean = false>(options: Optio
     bodySerializer: null,
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/templates/{name}',
@@ -969,7 +969,7 @@ export const putTemplate = <ThrowOnError extends boolean = false>(options: Optio
 export const listTokens = <ThrowOnError extends boolean = false>(options?: Options<ListTokensData, ThrowOnError>): RequestResult<ListTokensResponses, ListTokensErrors, ThrowOnError> => (options?.client ?? client).get<ListTokensResponses, ListTokensErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }],
     url: '/api/tokens',
@@ -984,7 +984,7 @@ export const listTokens = <ThrowOnError extends boolean = false>(options?: Optio
 export const createToken = <ThrowOnError extends boolean = false>(options: Options<CreateTokenData, ThrowOnError>): RequestResult<CreateTokenResponses, CreateTokenErrors, ThrowOnError> => (options.client ?? client).post<CreateTokenResponses, CreateTokenErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }],
     url: '/api/tokens',
@@ -1003,7 +1003,7 @@ export const createToken = <ThrowOnError extends boolean = false>(options: Optio
 export const revokeToken = <ThrowOnError extends boolean = false>(options: Options<RevokeTokenData, ThrowOnError>): RequestResult<RevokeTokenResponses, RevokeTokenErrors, ThrowOnError> => (options.client ?? client).delete<RevokeTokenResponses, RevokeTokenErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }],
     url: '/api/tokens/{id}',
@@ -1016,7 +1016,7 @@ export const revokeToken = <ThrowOnError extends boolean = false>(options: Optio
 export const listWorkspaces = <ThrowOnError extends boolean = false>(options?: Options<ListWorkspacesData, ThrowOnError>): RequestResult<ListWorkspacesResponses, ListWorkspacesErrors, ThrowOnError> => (options?.client ?? client).get<ListWorkspacesResponses, ListWorkspacesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces',
@@ -1029,7 +1029,7 @@ export const listWorkspaces = <ThrowOnError extends boolean = false>(options?: O
 export const createWorkspace = <ThrowOnError extends boolean = false>(options: Options<CreateWorkspaceData, ThrowOnError>): RequestResult<CreateWorkspaceResponses, CreateWorkspaceErrors, ThrowOnError> => (options.client ?? client).post<CreateWorkspaceResponses, CreateWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces',
@@ -1046,7 +1046,7 @@ export const createWorkspace = <ThrowOnError extends boolean = false>(options: O
 export const exportWorkspaces = <ThrowOnError extends boolean = false>(options?: Options<ExportWorkspacesData, ThrowOnError>): RequestResult<ExportWorkspacesResponses, ExportWorkspacesErrors, ThrowOnError> => (options?.client ?? client).get<ExportWorkspacesResponses, ExportWorkspacesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/export',
@@ -1059,7 +1059,7 @@ export const exportWorkspaces = <ThrowOnError extends boolean = false>(options?:
 export const importWorkspaces = <ThrowOnError extends boolean = false>(options: Options<ImportWorkspacesData, ThrowOnError>): RequestResult<ImportWorkspacesResponses, ImportWorkspacesErrors, ThrowOnError> => (options.client ?? client).post<ImportWorkspacesResponses, ImportWorkspacesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/import',
@@ -1076,7 +1076,7 @@ export const importWorkspaces = <ThrowOnError extends boolean = false>(options: 
 export const previewImportWorkspaces = <ThrowOnError extends boolean = false>(options: Options<PreviewImportWorkspacesData, ThrowOnError>): RequestResult<PreviewImportWorkspacesResponses, PreviewImportWorkspacesErrors, ThrowOnError> => (options.client ?? client).post<PreviewImportWorkspacesResponses, PreviewImportWorkspacesErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/import/preview',
@@ -1093,7 +1093,7 @@ export const previewImportWorkspaces = <ThrowOnError extends boolean = false>(op
 export const deleteWorkspace = <ThrowOnError extends boolean = false>(options: Options<DeleteWorkspaceData, ThrowOnError>): RequestResult<DeleteWorkspaceResponses, DeleteWorkspaceErrors, ThrowOnError> => (options.client ?? client).delete<DeleteWorkspaceResponses, DeleteWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}',
@@ -1106,7 +1106,7 @@ export const deleteWorkspace = <ThrowOnError extends boolean = false>(options: O
 export const getWorkspace = <ThrowOnError extends boolean = false>(options: Options<GetWorkspaceData, ThrowOnError>): RequestResult<GetWorkspaceResponses, GetWorkspaceErrors, ThrowOnError> => (options.client ?? client).get<GetWorkspaceResponses, GetWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}',
@@ -1121,7 +1121,7 @@ export const getWorkspace = <ThrowOnError extends boolean = false>(options: Opti
 export const setWorkspaceApiAccess = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceApiAccessData, ThrowOnError>): RequestResult<SetWorkspaceApiAccessResponses, SetWorkspaceApiAccessErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceApiAccessResponses, SetWorkspaceApiAccessErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/api-access',
@@ -1138,7 +1138,7 @@ export const setWorkspaceApiAccess = <ThrowOnError extends boolean = false>(opti
 export const getDiagnosis = <ThrowOnError extends boolean = false>(options: Options<GetDiagnosisData, ThrowOnError>): RequestResult<GetDiagnosisResponses, GetDiagnosisErrors, ThrowOnError> => (options.client ?? client).get<GetDiagnosisResponses, GetDiagnosisErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/diagnosis',
@@ -1151,7 +1151,7 @@ export const getDiagnosis = <ThrowOnError extends boolean = false>(options: Opti
 export const explainDiagnosis = <ThrowOnError extends boolean = false>(options: Options<ExplainDiagnosisData, ThrowOnError>): RequestResult<ExplainDiagnosisResponses, ExplainDiagnosisErrors, ThrowOnError> => (options.client ?? client).post<ExplainDiagnosisResponses, ExplainDiagnosisErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/diagnosis/explain',
@@ -1170,7 +1170,7 @@ export const explainDiagnosis = <ThrowOnError extends boolean = false>(options: 
 export const setWorkspaceEnv = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceEnvData, ThrowOnError>): RequestResult<SetWorkspaceEnvResponses, SetWorkspaceEnvErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceEnvResponses, SetWorkspaceEnvErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/env',
@@ -1187,7 +1187,7 @@ export const setWorkspaceEnv = <ThrowOnError extends boolean = false>(options: O
 export const listWorkspaceEvents = <ThrowOnError extends boolean = false>(options: Options<ListWorkspaceEventsData, ThrowOnError>): RequestResult<ListWorkspaceEventsResponses, ListWorkspaceEventsErrors, ThrowOnError> => (options.client ?? client).get<ListWorkspaceEventsResponses, ListWorkspaceEventsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/events',
@@ -1200,7 +1200,7 @@ export const listWorkspaceEvents = <ThrowOnError extends boolean = false>(option
 export const setWorkspaceIdleStop = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceIdleStopData, ThrowOnError>): RequestResult<SetWorkspaceIdleStopResponses, SetWorkspaceIdleStopErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceIdleStopResponses, SetWorkspaceIdleStopErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/idle-stop',
@@ -1217,7 +1217,7 @@ export const setWorkspaceIdleStop = <ThrowOnError extends boolean = false>(optio
 export const setWorkspaceLaunch = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceLaunchData, ThrowOnError>): RequestResult<SetWorkspaceLaunchResponses, SetWorkspaceLaunchErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceLaunchResponses, SetWorkspaceLaunchErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/launch',
@@ -1234,7 +1234,7 @@ export const setWorkspaceLaunch = <ThrowOnError extends boolean = false>(options
 export const getWorkspaceLogs = <ThrowOnError extends boolean = false>(options: Options<GetWorkspaceLogsData, ThrowOnError>): RequestResult<GetWorkspaceLogsResponses, GetWorkspaceLogsErrors, ThrowOnError> => (options.client ?? client).get<GetWorkspaceLogsResponses, GetWorkspaceLogsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/logs',
@@ -1247,7 +1247,7 @@ export const getWorkspaceLogs = <ThrowOnError extends boolean = false>(options: 
 export const streamWorkspaceLogs = <ThrowOnError extends boolean = false>(options: Options<StreamWorkspaceLogsData, ThrowOnError, StreamWorkspaceLogsResponse>): Promise<ServerSentEventsResult<StreamWorkspaceLogsResponses>> => (options.client ?? client).sse.get<StreamWorkspaceLogsResponses, StreamWorkspaceLogsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/logs/stream',
@@ -1262,7 +1262,7 @@ export const streamWorkspaceLogs = <ThrowOnError extends boolean = false>(option
 export const getWorkspacePreviews = <ThrowOnError extends boolean = false>(options: Options<GetWorkspacePreviewsData, ThrowOnError>): RequestResult<GetWorkspacePreviewsResponses, GetWorkspacePreviewsErrors, ThrowOnError> => (options.client ?? client).get<GetWorkspacePreviewsResponses, GetWorkspacePreviewsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/previews',
@@ -1277,7 +1277,7 @@ export const getWorkspacePreviews = <ThrowOnError extends boolean = false>(optio
 export const setWorkspacePreviews = <ThrowOnError extends boolean = false>(options: Options<SetWorkspacePreviewsData, ThrowOnError>): RequestResult<SetWorkspacePreviewsResponses, SetWorkspacePreviewsErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspacePreviewsResponses, SetWorkspacePreviewsErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/previews',
@@ -1296,7 +1296,7 @@ export const setWorkspacePreviews = <ThrowOnError extends boolean = false>(optio
 export const setWorkspacePreviewsWebhook = <ThrowOnError extends boolean = false>(options: Options<SetWorkspacePreviewsWebhookData, ThrowOnError>): RequestResult<SetWorkspacePreviewsWebhookResponses, SetWorkspacePreviewsWebhookErrors, ThrowOnError> => (options.client ?? client).post<SetWorkspacePreviewsWebhookResponses, SetWorkspacePreviewsWebhookErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/previews/webhook',
@@ -1311,7 +1311,7 @@ export const setWorkspacePreviewsWebhook = <ThrowOnError extends boolean = false
 export const redeployWorkspace = <ThrowOnError extends boolean = false>(options: Options<RedeployWorkspaceData, ThrowOnError>): RequestResult<RedeployWorkspaceResponses, RedeployWorkspaceErrors, ThrowOnError> => (options.client ?? client).post<RedeployWorkspaceResponses, RedeployWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/redeploy',
@@ -1324,7 +1324,7 @@ export const redeployWorkspace = <ThrowOnError extends boolean = false>(options:
 export const restartWorkspace = <ThrowOnError extends boolean = false>(options: Options<RestartWorkspaceData, ThrowOnError>): RequestResult<RestartWorkspaceResponses, RestartWorkspaceErrors, ThrowOnError> => (options.client ?? client).post<RestartWorkspaceResponses, RestartWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/restart',
@@ -1337,7 +1337,7 @@ export const restartWorkspace = <ThrowOnError extends boolean = false>(options: 
 export const getSharing = <ThrowOnError extends boolean = false>(options: Options<GetSharingData, ThrowOnError>): RequestResult<GetSharingResponses, GetSharingErrors, ThrowOnError> => (options.client ?? client).get<GetSharingResponses, GetSharingErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/sharing',
@@ -1350,7 +1350,7 @@ export const getSharing = <ThrowOnError extends boolean = false>(options: Option
 export const setSharing = <ThrowOnError extends boolean = false>(options: Options<SetSharingData, ThrowOnError>): RequestResult<SetSharingResponses, SetSharingErrors, ThrowOnError> => (options.client ?? client).put<SetSharingResponses, SetSharingErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/sharing',
@@ -1367,7 +1367,7 @@ export const setSharing = <ThrowOnError extends boolean = false>(options: Option
 export const setWorkspaceSize = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceSizeData, ThrowOnError>): RequestResult<SetWorkspaceSizeResponses, SetWorkspaceSizeErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceSizeResponses, SetWorkspaceSizeErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/size',
@@ -1384,7 +1384,7 @@ export const setWorkspaceSize = <ThrowOnError extends boolean = false>(options: 
 export const deleteWorkspaceSourceToken = <ThrowOnError extends boolean = false>(options: Options<DeleteWorkspaceSourceTokenData, ThrowOnError>): RequestResult<DeleteWorkspaceSourceTokenResponses, DeleteWorkspaceSourceTokenErrors, ThrowOnError> => (options.client ?? client).delete<DeleteWorkspaceSourceTokenResponses, DeleteWorkspaceSourceTokenErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/source/token',
@@ -1397,7 +1397,7 @@ export const deleteWorkspaceSourceToken = <ThrowOnError extends boolean = false>
 export const setWorkspaceSourceToken = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceSourceTokenData, ThrowOnError>): RequestResult<SetWorkspaceSourceTokenResponses, SetWorkspaceSourceTokenErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceSourceTokenResponses, SetWorkspaceSourceTokenErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/source/token',
@@ -1414,7 +1414,7 @@ export const setWorkspaceSourceToken = <ThrowOnError extends boolean = false>(op
 export const startWorkspace = <ThrowOnError extends boolean = false>(options: Options<StartWorkspaceData, ThrowOnError>): RequestResult<StartWorkspaceResponses, StartWorkspaceErrors, ThrowOnError> => (options.client ?? client).post<StartWorkspaceResponses, StartWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/start',
@@ -1427,7 +1427,7 @@ export const startWorkspace = <ThrowOnError extends boolean = false>(options: Op
 export const streamWorkspaceStepLog = <ThrowOnError extends boolean = false>(options: Options<StreamWorkspaceStepLogData, ThrowOnError>): RequestResult<StreamWorkspaceStepLogResponses, StreamWorkspaceStepLogErrors, ThrowOnError> => (options.client ?? client).get<StreamWorkspaceStepLogResponses, StreamWorkspaceStepLogErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/steps/{step}/log',
@@ -1440,7 +1440,7 @@ export const streamWorkspaceStepLog = <ThrowOnError extends boolean = false>(opt
 export const stopWorkspace = <ThrowOnError extends boolean = false>(options: Options<StopWorkspaceData, ThrowOnError>): RequestResult<StopWorkspaceResponses, StopWorkspaceErrors, ThrowOnError> => (options.client ?? client).post<StopWorkspaceResponses, StopWorkspaceErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/stop',
@@ -1453,7 +1453,7 @@ export const stopWorkspace = <ThrowOnError extends boolean = false>(options: Opt
 export const removeWorkspaceThumbnail = <ThrowOnError extends boolean = false>(options: Options<RemoveWorkspaceThumbnailData, ThrowOnError>): RequestResult<RemoveWorkspaceThumbnailResponses, RemoveWorkspaceThumbnailErrors, ThrowOnError> => (options.client ?? client).delete<RemoveWorkspaceThumbnailResponses, RemoveWorkspaceThumbnailErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/thumbnail',
@@ -1466,7 +1466,7 @@ export const removeWorkspaceThumbnail = <ThrowOnError extends boolean = false>(o
 export const getWorkspaceThumbnail = <ThrowOnError extends boolean = false>(options: Options<GetWorkspaceThumbnailData, ThrowOnError>): RequestResult<GetWorkspaceThumbnailResponses, GetWorkspaceThumbnailErrors, ThrowOnError> => (options.client ?? client).get<GetWorkspaceThumbnailResponses, GetWorkspaceThumbnailErrors, ThrowOnError>({
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/thumbnail',
@@ -1482,7 +1482,7 @@ export const setWorkspaceThumbnail = <ThrowOnError extends boolean = false>(opti
     bodySerializer: null,
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/workspaces/{name}/thumbnail',

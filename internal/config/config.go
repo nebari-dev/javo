@@ -696,6 +696,12 @@ func (u URLs) AppsOnOtherHost() bool {
 	return u.AppsDomain != "" || u.AppsHost != "" && u.AppsHost != u.UIHost
 }
 
+// SecureCookies is true when the gateway's cookies are Secure: always with
+// https, and with http only when forced (--secure-cookies).
+func (u URLs) SecureCookies(force bool) bool {
+	return force || u.URLScheme() == "https"
+}
+
 // URLScheme is the scheme of absolute URLs: urls.scheme, https when unset.
 func (u URLs) URLScheme() string {
 	if u.Scheme == "" {

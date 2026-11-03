@@ -177,6 +177,9 @@ const (
 	SessionCookieName = ProductName + "_session"
 	// AppCookieName is the cookie an app host sets after a ticket is redeemed.
 	AppCookieName = ProductName + "_app"
+	// OIDCFlowCookiePrefix starts the name of the cookie of each OpenID
+	// Connect sign-in under way.
+	OIDCFlowCookiePrefix = ProductName + "_oidc_"
 	// SessionSecretPrefix starts the name of every session Secret.
 	SessionSecretPrefix = ProductName + "-session-"
 	// TokenSecretPrefix starts the name of every API token Secret.
@@ -186,3 +189,18 @@ const (
 	// FilesPodPrefix starts the name of each user's file picker pod.
 	FilesPodPrefix = ProductName + "-files-"
 )
+
+// hostCookiePrefix marks a cookie a browser keeps only when it is Secure,
+// has no Domain and has Path "/" (RFC 6265bis section 4.1.3.2).
+const hostCookiePrefix = "__Host-"
+
+// CookieName is the name a gateway cookie called name is set and read under.
+// A Secure cookie gets the __Host- prefix, so no other host under the same
+// domain can set one in its place; plain http cannot carry the prefix, so
+// there the name is used as it is.
+func CookieName(name string, secure bool) string {
+	if secure {
+		return hostCookiePrefix + name
+	}
+	return name
+}

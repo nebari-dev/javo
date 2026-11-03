@@ -78,6 +78,17 @@ func TestTicketNeedsASession(t *testing.T) {
 	}
 }
 
+// Over TLS only the __Host- session cookie mints tickets: a plain-named one
+// may have been set for the parent domain by an app on a sibling host.
+func TestTicketIgnoresAPlainNamedSessionCookie(t *testing.T) {
+	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
+	plain := &http.Cookie{Name: model.SessionCookieName, Value: f.ui(alice())}
+	w := f.serve(f.srv, "GET", "https://"+uiHost+"/api/auth/app-ticket?to="+url.QueryEscape(salesURL), plain)
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "/login?next=") {
+		t.Fatalf("%d %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
 func TestTicketFlowGivesAnAppCookieAndTheApp(t *testing.T) {
 	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
@@ -349,6 +360,24 @@ func TestSubdomainFlow(t *testing.T) {
 	}
 }
 
+// Each app's own host keeps its cookie under the __Host- prefix, so another
+// app's host cannot set one for the shared apps domain in its place.
+func TestSubdomainAppCookieIsHostOnly(t *testing.T) {
+	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(sharedWithDS()))
+	base := "https://" + sales + "." + appsHost + "/"
+	w := f.serve(f.srv, "GET", f.ticketFor(f.ui(bob()), base).Header().Get("Location"))
+	cs := w.Result().Cookies()
+	if len(cs) != 1 || cs[0].Name != "__Host-javo_app" || !cs[0].Secure || cs[0].Path != "/" || cs[0].Domain != "" {
+		t.Fatalf("redeem: %d, cookies %v", w.Code, cs)
+	}
+	if w := f.serve(f.srv, "GET", base, cs[0]); w.Code != 200 {
+		t.Fatalf("host cookie: %d", w.Code)
+	}
+	if w := f.serve(f.srv, "GET", base, &http.Cookie{Name: model.AppCookieName, Value: cs[0].Value}); w.Code != http.StatusFound {
+		t.Fatalf("plain-named cookie: %d", w.Code)
+	}
+}
+
 // In subdomain mode an app's websocket reaches it at the path the browser
 // used, with the browser's Host and Origin. ttyd (the coding agent templates,
 // --check-origin) refuses a websocket whose Origin does not match its Host.
@@ -586,6 +615,26 @@ func TestOneHostRefusesTemplateAdminOpeningAnotherPersonsApp(t *testing.T) {
 	}
 }
 
+func TestOneHostIgnoresAPlainNamedSessionCookie(t *testing.T) {
+	f := newOneHost(t, salesApp(nil))
+	plain := &http.Cookie{Name: model.SessionCookieName, Value: f.ui(alice())}
+	if w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", plain); w.Code != http.StatusFound {
+		t.Fatalf("plain-named cookie: %d", w.Code)
+	}
+}
+
+func TestOneHostAppNeverSeesTheHostSessionCookie(t *testing.T) {
+	f := newOneHost(t, salesApp(nil))
+	w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(alice())), &http.Cookie{Name: "app_pref", Value: "dark"},
+		&http.Cookie{Name: "__Host-javo_oidc_ABCDEFGH", Value: "flow"}, &http.Cookie{Name: "javo_oidc_ABCDEFGH", Value: "flow"})
+	if w.Code != 200 {
+		t.Fatalf("got %d", w.Code)
+	}
+	if got := f.seen[len(f.seen)-1].Header.Get("Cookie"); got != "app_pref=dark" {
+		t.Fatalf("cookie header to app: %q", got)
+	}
+}
+
 func TestOneHostViewerWithTheUISessionOpensASharedApp(t *testing.T) {
 	t.Parallel()
 	f := newOneHost(t, salesApp(sharedWithDS()))
@@ -770,8 +819,9 @@ func (f *appsFixture) serve(h http.Handler, method, rawURL string, cookies ...*h
 	return w
 }
 
+// uiCookie is the session cookie of a gateway served over TLS.
 func uiCookie(tok string) *http.Cookie {
-	return &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	return &http.Cookie{Name: model.CookieName(model.SessionCookieName, true), Value: tok}
 }
 
 // ticketFor asks the UI host for a ticket to open appURL as the holder of uiTok.
@@ -797,7 +847,7 @@ func (f *appsFixture) open(uiTok, appURL string) *http.Cookie {
 	}
 	w = f.serve(f.srv, "GET", w.Header().Get("Location"))
 	for _, c := range w.Result().Cookies() {
-		if c.Name == model.AppCookieName {
+		if c.Name == model.AppCookieName || c.Name == model.CookieName(model.AppCookieName, true) {
 			return c
 		}
 	}

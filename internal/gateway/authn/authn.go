@@ -127,7 +127,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer, hasBearer := BearerToken(r)
 		var token string
-		if c, err := r.Cookie(model.SessionCookieName); err == nil && !hasBearer {
+		if c, err := r.Cookie(a.sessionCookie()); err == nil && !hasBearer {
 			token = c.Value
 		}
 		ctx := context.WithValue(r.Context(), tokenKey{}, token)
@@ -147,10 +147,12 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userKey{}, p)))
 			return
 		}
+		// Only a UI session opens the API: an app session or a ticket carried
+		// in the session cookie is refused like no session at all.
 		sess, err := a.Sessions.Get(ctx, token)
 		switch {
-		case err == nil:
-		case errors.Is(err, session.ErrSessionNotFound), errors.Is(err, session.ErrSessionExpired):
+		case err == nil && sess.Kind == session.KindUI:
+		case err == nil, errors.Is(err, session.ErrSessionNotFound), errors.Is(err, session.ErrSessionExpired):
 			problem.Write(w, http.StatusUnauthorized, reasons.Msg(reasons.MsgSignInRequired))
 			return
 		default:
@@ -160,7 +162,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 		}
 		// A UI session with no deadline is due now, so a provider that forgot
 		// to set one cannot keep a deleted account signed in.
-		if sess.Kind == session.KindUI && a.Revalidator.Due(sess) {
+		if a.Revalidator.Due(sess) {
 			var ok bool
 			if sess, ok = a.revalidate(ctx, w, token, sess); !ok {
 				return
@@ -302,10 +304,15 @@ func User(ctx context.Context) authz.Principal {
 	return p
 }
 
+// sessionCookie is the name the session cookie is set and read under.
+func (a *Authenticator) sessionCookie() string {
+	return model.CookieName(model.SessionCookieName, a.Secure)
+}
+
 // cookie builds the session cookie; an empty token clears it.
 func (a *Authenticator) cookie(token string) http.Cookie {
 	c := http.Cookie{
-		Name: model.SessionCookieName, Value: token, Path: "/",
+		Name: a.sessionCookie(), Value: token, Path: "/",
 		HttpOnly: true, Secure: a.Secure, SameSite: http.SameSiteStrictMode,
 	}
 	if token == "" {
@@ -364,7 +371,7 @@ func (m *mounter) API() huma.API { return m.api }
 func (m *mounter) Handle(pattern string, h http.Handler) {
 	m.mux.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var token string
-		if c, err := r.Cookie(model.SessionCookieName); err == nil {
+		if c, err := r.Cookie(m.a.sessionCookie()); err == nil {
 			token = c.Value
 		}
 		ctx := context.WithValue(r.Context(), tokenKey{}, token)

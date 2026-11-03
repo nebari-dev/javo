@@ -68,6 +68,9 @@ type Config struct {
 	// NebiTokens renews the owner's Nebi token of an app that gets one when
 	// the owner's own session opens it; nil (Nebi off) does nothing.
 	NebiTokens *nebi.Tokens
+	// SecureCookies is the gateway's (see config.URLs.SecureCookies): it names
+	// the UI session cookie apps read when they share the UI's origin.
+	SecureCookies bool
 }
 
 // Backend is where a workspace's app listens and how the proxy talks to it.
@@ -321,7 +324,7 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 	var a access
 	a.app, a.tpl = p.apps.load(r.Context(), t)
 	var sess session.Session
-	sess, a.uiID, a.signedIn = p.session(r, a.app)
+	sess, a.uiID, a.signedIn = p.session(r, t, a.app)
 	a.who = authz.Principal{Anonymous: true}
 	if a.signedIn {
 		a.who = sess.Principal
@@ -378,10 +381,10 @@ func (p *proxy) appsShareOrigin() bool {
 // cookie when apps are on their own host (it must be minted for this very
 // app), the UI cookie when they share the UI's origin. uiID is the ID of the
 // ui session behind it.
-func (p *proxy) session(r *http.Request, app *model.App) (sess session.Session, uiID string, ok bool) {
-	name, kind := model.SessionCookieName, session.KindUI
+func (p *proxy) session(r *http.Request, t exposure.Target, app *model.App) (sess session.Session, uiID string, ok bool) {
+	name, kind := model.CookieName(model.SessionCookieName, p.cfg.URLs.SecureCookies(p.cfg.SecureCookies)), session.KindUI
 	if p.cfg.Exposure.SeparateHost() {
-		name, kind = model.AppCookieName, session.KindApp
+		name, kind = p.appCookie(t).Name, session.KindApp
 	}
 	c, err := r.Cookie(name)
 	if err != nil {
@@ -402,6 +405,17 @@ func (p *proxy) session(r *http.Request, app *model.App) (sess session.Session, 
 		return sess, sess.Parent, ok
 	}
 	return sess, session.ID(c.Value), true
+}
+
+// appCookie is the app cookie for t without its value. A Secure cookie that
+// covers the whole of one host gets the __Host- prefix.
+func (p *proxy) appCookie(t exposure.Target) http.Cookie {
+	domain, path := p.cfg.Exposure.CookieScope(t)
+	secure := p.cfg.URLs.URLScheme() == "https"
+	return http.Cookie{
+		Name: model.CookieName(model.AppCookieName, secure && domain == "" && path == "/"), Domain: domain, Path: path,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure,
+	}
 }
 
 // idToken returns the ID token of the ui session uiID, renewed first when it
@@ -471,9 +485,16 @@ func redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 }
 
-// isGatewayCookie is true for the cookies the gateway itself owns.
+// isGatewayCookie is true for the cookies the gateway itself owns, under
+// either name each can have.
 func isGatewayCookie(name string) bool {
-	return name == model.SessionCookieName || name == model.AppCookieName
+	for _, secure := range []bool{false, true} {
+		if name == model.CookieName(model.SessionCookieName, secure) || name == model.CookieName(model.AppCookieName, secure) ||
+			strings.HasPrefix(name, model.CookieName(model.OIDCFlowCookiePrefix, secure)) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripSessionCookie removes the gateway session pair from the Cookie header

@@ -40,13 +40,15 @@ type Tickets struct {
 	Roles       config.Roles
 	Now         func() time.Time
 	Revalidator *authn.Revalidator
+	// Secure says the session cookie is Secure, which names it.
+	Secure bool
 }
 
 // ServeHTTP answers GET /api/auth/app-ticket?to=<absolute app URL>. Only an
 // address that is one of our app URLs, for an app the person may open, gets a
 // ticket; every other `to` is the not-found page (never a redirect).
 func (m *Tickets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(model.SessionCookieName)
+	c, err := r.Cookie(model.CookieName(model.SessionCookieName, m.Secure))
 	if err != nil {
 		redirectToLogin(w, r)
 		return
@@ -129,11 +131,9 @@ func (p *proxy) redeem(w http.ResponseWriter, r *http.Request, t exposure.Target
 		badGateway(w, t.Name)
 		return
 	}
-	domain, path := p.cfg.Exposure.CookieScope(t)
-	http.SetCookie(w, &http.Cookie{
-		Name: model.AppCookieName, Value: tok, Domain: domain, Path: path,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: p.cfg.URLs.URLScheme() == "https",
-	})
+	c := p.appCookie(t)
+	c.Value = tok
+	http.SetCookie(w, &c)
 	next := r.URL.Query().Get("to")
 	if !httpx.IsLocalPath(next) {
 		next = p.cfg.Exposure.BasePath(t.Owner, t.Name)

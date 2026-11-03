@@ -61,7 +61,7 @@ func (f *fixture) login(t *testing.T, id, name string) *http.Cookie {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	return &http.Cookie{Name: model.CookieName(model.SessionCookieName, true), Value: tok}
 }
 
 func (f *fixture) do(r *http.Request) *httptest.ResponseRecorder {
@@ -170,7 +170,7 @@ func TestNoSessionRedirectsToLogin(t *testing.T) {
 		httptest.NewRequest("GET", p, nil),
 		func() *http.Request {
 			r := httptest.NewRequest("GET", p, nil)
-			r.AddCookie(&http.Cookie{Name: model.SessionCookieName, Value: "bogus"})
+			r.AddCookie(&http.Cookie{Name: model.CookieName(model.SessionCookieName, true), Value: "bogus"})
 			return r
 		}(),
 	} {
@@ -343,6 +343,27 @@ func TestBackendCannotTouchGatewaySessionOrOrigin(t *testing.T) {
 	}
 }
 
+// Over TLS the gateway's cookies carry the __Host- prefix; an app on the UI's
+// host must not be able to set those either.
+func TestBackendCannotSetTheGatewaysHostCookies(t *testing.T) {
+	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Add("Set-Cookie", "__Host-javo_session=evil; Path=/; Secure")
+		h.Add("Set-Cookie", "__Host-javo_app=evil; Path=/; Secure")
+		h.Add("Set-Cookie", "__Host-app_pref=ok; Path=/; Secure")
+	}))
+	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
+	r.AddCookie(f.login(t, "alice-aaaaaaaa", "alice"))
+	w := f.do(r)
+	var names []string
+	for _, c := range w.Result().Cookies() {
+		names = append(names, c.Name)
+	}
+	if len(names) != 1 || names[0] != "__Host-app_pref" {
+		t.Fatalf("cookies reaching browser: %v", names)
+	}
+}
+
 func TestHostPreservedAndCookiesByteForByte(t *testing.T) {
 	t.Parallel()
 	var host, xfh, cookie string
@@ -351,7 +372,7 @@ func TestHostPreservedAndCookiesByteForByte(t *testing.T) {
 	}))
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
 	r.Host = "javo.example.com"
-	r.Header.Set("Cookie", `a="x y"; javo_session=`+f.login(t, "alice-aaaaaaaa", "alice").Value+";  b=2;c=%41")
+	r.Header.Set("Cookie", `a="x y"; __Host-javo_session=`+f.login(t, "alice-aaaaaaaa", "alice").Value+";  b=2;c=%41")
 	f.do(r)
 	if host != "javo.example.com" || xfh != "javo.example.com" {
 		t.Fatalf("host %q xfh %q", host, xfh)
@@ -605,7 +626,7 @@ func TestTheOwnerOpeningTheAppStoresTheirNebiToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/lab", nil)
-	r.AddCookie(&http.Cookie{Name: model.SessionCookieName, Value: tok})
+	r.AddCookie(&http.Cookie{Name: model.CookieName(model.SessionCookieName, true), Value: tok})
 	w := httptest.NewRecorder()
 	p.ServeHTTP(w, r)
 	if w.Code != 200 {

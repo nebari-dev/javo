@@ -279,7 +279,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	srv.Apps(proxy.New(proxy.Config{
 		Store: db, Sessions: sessions, Activity: used,
 		Exposure: exp, Roles: platform.Roles, URLs: platform.URLs, Revalidator: revalidator,
-		NebiTokens: nebi,
+		NebiTokens: nebi, SecureCookies: o.secure,
 	}))
 	return serve(ctx, o.listen, srv)
 }

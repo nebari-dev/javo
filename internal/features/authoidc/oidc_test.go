@@ -73,7 +73,12 @@ func newFixture(t *testing.T, cfg func(*config.OIDC)) *fixture {
 
 func newFixtureFor(t *testing.T, o *op, c config.OIDC, hc *http.Client) *fixture {
 	t.Helper()
-	p := authoidc.New(c, config.URLs{Scheme: "http", UIHost: "javo.test"}, hc,
+	return newFixtureAt(t, o, c, hc, config.URLs{Scheme: "http", UIHost: "javo.test"})
+}
+
+func newFixtureAt(t *testing.T, o *op, c config.OIDC, hc *http.Client, urls config.URLs) *fixture {
+	t.Helper()
+	p := authoidc.New(c, urls, hc,
 		authoidc.WithRetryBackoff(5*time.Millisecond, 20*time.Millisecond))
 	t.Cleanup(p.Close)
 	h := &fakeHost{mux: http.NewServeMux()}
@@ -189,6 +194,26 @@ func TestStartWhileUnreachableIsAProblemNotAFlow(t *testing.T) {
 	}
 }
 
+// Over TLS the flow cookie carries the __Host- prefix, so an app on a sibling
+// host cannot plant a flow of its own and sign the browser in as someone else.
+func TestTLSFlowCookieIsHostOnly(t *testing.T) {
+	o := newOP(t)
+	f := newFixtureAt(t, o, oidcConfig(o), &http.Client{Timeout: 2 * time.Second}, config.URLs{Scheme: "https", UIHost: "javo.test"})
+	f.waitReady()
+	w := f.get("/auth/oidc/start")
+	loc := w.Header().Get("Location")
+	state := mustQuery(t, loc).Get("state")
+	flow := cookieNamed(w, "__Host-javo_oidc_")
+	if flow == nil || flow.Name != "__Host-javo_oidc_"+state[:8] || !flow.Secure || flow.Path != "/" || flow.Domain != "" {
+		t.Fatalf("flow cookie %+v in %v", flow, w.Result().Cookies())
+	}
+	plain := &http.Cookie{Name: "javo_oidc_" + state[:8], Value: flow.Value}
+	code := f.op.authorize(loc, map[string]any{"preferred_username": "alice"})
+	if w := f.get("/auth/oidc/callback?code="+code+"&state="+state, plain); w.Code != http.StatusBadRequest || len(f.host.completed) != 0 {
+		t.Fatalf("plain-named flow cookie: %d, completed %d", w.Code, len(f.host.completed))
+	}
+}
+
 func TestCodeFlowUsesPKCEAndCreatesAnIdentityForIssuerAndSubject(t *testing.T) {
 	f := newFixture(t, nil)
 	f.waitReady()
@@ -207,7 +232,7 @@ func TestCodeFlowUsesPKCEAndCreatesAnIdentityForIssuerAndSubject(t *testing.T) {
 		t.Fatalf("scope %q", q.Get("scope"))
 	}
 	if flow == nil || flow.Name != "javo_oidc_"+q.Get("state")[:8] || !flow.HttpOnly ||
-		flow.SameSite != http.SameSiteLaxMode || flow.Path != "/auth/oidc/" || flow.MaxAge != 600 {
+		flow.SameSite != http.SameSiteLaxMode || flow.Path != "/" || flow.MaxAge != 600 {
 		t.Fatalf("flow cookie %+v", flow)
 	}
 

@@ -93,7 +93,7 @@ func (f *Fixture) OidcSession(idToken string) *http.Cookie {
 	if err != nil {
 		f.T.Fatal(err)
 	}
-	return &http.Cookie{Name: model.SessionCookieName, Value: tok}
+	return f.Cookie(tok)
 }
 
 type EnvListJSON struct {

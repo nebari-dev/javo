@@ -9,7 +9,6 @@ import (
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/identity"
-	"github.com/nebari-dev/javo/internal/model"
 )
 
 func (f *Fixture) LoginAlice() *http.Cookie {
@@ -19,7 +18,7 @@ func (f *Fixture) LoginAlice() *http.Cookie {
 		f.T.Fatalf("login status %d: %s", w.Code, w.Body)
 	}
 	for _, c := range w.Result().Cookies() {
-		if c.Name == model.SessionCookieName {
+		if c.Name == f.Cookie("").Name {
 			return c
 		}
 	}

@@ -37,7 +37,7 @@ import (
 func TestUnauthenticatedIsSignInRequired(t *testing.T) {
 	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
-	for _, c := range []*http.Cookie{nil, {Name: model.SessionCookieName, Value: "bogus"}} {
+	for _, c := range []*http.Cookie{nil, f.Cookie("bogus")} {
 		w := f.Do("GET", "/api/workspaces", "", c)
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("status %d: %s", w.Code, w.Body)
@@ -63,12 +63,12 @@ func TestLoginSetsSessionCookieAndLogoutEndsIt(t *testing.T) {
 	}
 	var c *http.Cookie
 	for _, ck := range w.Result().Cookies() {
-		if ck.Name == model.SessionCookieName {
+		if ck.Name == "__Host-javo_session" {
 			c = ck
 		}
 	}
 	if c == nil || c.Value == "" {
-		t.Fatal("no javo_session cookie")
+		t.Fatal("no __Host-javo_session cookie")
 	}
 	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
 		t.Fatalf("cookie attributes: %+v", c)
@@ -88,7 +88,7 @@ func TestLoginSetsSessionCookieAndLogoutEndsIt(t *testing.T) {
 	}
 	cleared := false
 	for _, ck := range out.Result().Cookies() {
-		cleared = cleared || (ck.Name == model.SessionCookieName && ck.MaxAge < 0)
+		cleared = cleared || (ck.Name == c.Name && ck.MaxAge < 0)
 	}
 	if !cleared {
 		t.Fatal("logout did not clear the cookie")
@@ -655,7 +655,7 @@ func TestMePicture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := f.Do("GET", "/api/me", "", &http.Cookie{Name: model.SessionCookieName, Value: tok})
+	w := f.Do("GET", "/api/me", "", f.Cookie(tok))
 	if got := apitest.Decode[map[string]any](t, w)["picture"]; got != "https://example.com/bob.png" {
 		t.Fatalf("picture %v in %s", got, w.Body)
 	}
@@ -826,7 +826,7 @@ func TestTemplatesGatedByAProviderRole(t *testing.T) {
 		slices.Sort(Names)
 		return Names
 	}
-	if got := listed(&http.Cookie{Name: model.SessionCookieName, Value: tok}); !slices.Equal(got, []string{"gpu-lab", "plain"}) {
+	if got := listed(f.Cookie(tok)); !slices.Equal(got, []string{"gpu-lab", "plain"}) {
 		t.Fatalf("bob sees %v", got)
 	}
 	if got := listed(f.Session("alice-aaaaaaaa")); !slices.Equal(got, []string{"plain"}) {
