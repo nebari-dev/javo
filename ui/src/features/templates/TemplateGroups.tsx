@@ -4,7 +4,7 @@ import { useTemplateCategories } from '../../lib/queries'
 
 /** Kinds in the order their cards show within a category; other kinds follow by display name. */
 const KIND_ORDER = [
-  'jupyterlab', 'vscode', 'rstudio', 'marimo', 'terminal',
+  'jupyterlab', 'whybook', 'vscode', 'rstudio', 'marimo', 'terminal',
   'streamlit', 'panel', 'dash', 'gradio', 'voila', 'bokeh',
   'fastapi', 'static', 'node', 'go', 'custom', 'container',
   'claude-code', 'pi', 'herdr',

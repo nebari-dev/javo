@@ -20,6 +20,7 @@ import plotly from '../assets/logos/plotly.svg'
 import rstudio from '../assets/logos/rstudioide.svg'
 import streamlit from '../assets/logos/streamlit.svg'
 import voila from '../assets/logos/voila.svg'
+import whybook from '../assets/logos/whybook.svg'
 
 // Project logos vendored from pinned sources; ui/LOGOS.md records each one.
 // A logo with a tint is a one-colour mark drawn in that colour; the others
@@ -28,6 +29,7 @@ type Logo = { src: string; tint?: string; scale?: number }
 
 const LOGOS: Record<string, Logo> = {
   jupyterlab: { src: jupyter, tint: '#f37626' },
+  whybook: { src: whybook },
   streamlit: { src: streamlit, tint: '#ff4b4b' },
   fastapi: { src: fastapi, tint: '#009688' },
   dash: { src: plotly, tint: '#7a76ff' },

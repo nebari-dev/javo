@@ -1,0 +1,27 @@
+[workspace]
+name = "whybook"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+exclude-newer = "2026-10-26"
+
+[dependencies]
+python = "==3.13.18"
+
+# From PyPI, as in pod/files/envs/jupyterlab: tornado 6.6 (security fixes)
+# is not on conda-forge yet, and every package here needs it.
+[pypi-dependencies]
+jupyterlab = "==4.6.4"
+ipykernel = "==7.4.0"
+tornado = "==6.6"
+# Whybook, a question-driven view of notebooks (github.com/openteams-ai/whybook):
+# kernel for the Variables panel's columns, demo for the libraries of the
+# pain diary sample, models for connecting an AI model in its AI models panel
+# (none is connected by default; template questions need none).
+whybook = { version = "==0.5.1", extras = ["kernel", "demo", "models"] }
+# google-auth (through the models extra) needs pyasn1; 0.6.4, the newest
+# before the cutoff, has GHSA-2qm8-x737-gmw5, GHSA-9m75-vc3g-4x39,
+# GHSA-fm9c-5rcf-2q5p and GHSA-mm57-4v3p-rchx, fixed in 0.6.5 (2026-10-27).
+pyasn1 = "==0.6.5"
+
+[pypi-exclude-newer]
+pyasn1 = "2026-10-27"

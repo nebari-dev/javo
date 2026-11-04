@@ -176,11 +176,11 @@ func TestTemplateCategoryEnum(t *testing.T) {
 }
 
 func TestTemplateKindEnum(t *testing.T) {
-	for _, kind := range []string{"vscode", "rstudio", "bokeh", "custom", "fastapi", "container", "claude-code", "pi", "herdr", "pluto", "terminal"} {
+	for _, kind := range []string{"vscode", "rstudio", "bokeh", "custom", "fastapi", "container", "claude-code", "pi", "herdr", "pluto", "terminal", "whybook"} {
 		valid(t, newTemplate(func(s *model.TemplateSpec) { s.Kind = kind }).Validate())
 	}
 	err := newTemplate(func(s *model.TemplateSpec) { s.Kind = "quarto" }).Validate()
-	all := []string{"jupyterlab", "streamlit", "vscode", "marimo", "pluto", "rstudio", "panel", "bokeh", "dash", "gradio", "voila", "custom", "fastapi", "container", "claude-code", "pi", "herdr", "terminal"}
+	all := []string{"jupyterlab", "streamlit", "vscode", "marimo", "pluto", "rstudio", "panel", "bokeh", "dash", "gradio", "voila", "custom", "fastapi", "container", "claude-code", "pi", "herdr", "terminal", "whybook"}
 	wantInvalid(t, err, "spec.kind", all...)
 	// Pluto.jl is an app kind, not a job engine.
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) {

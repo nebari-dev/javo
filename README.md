@@ -25,7 +25,7 @@ Javo runs notebooks, web apps and scheduled jobs for data teams on Kubernetes, f
 
 ## Features
 
-- **Apps**: JupyterLab, VS Code, RStudio, marimo, Streamlit, Dash, Panel, Bokeh, Gradio, Voila, FastAPI, static sites, Node and Go back-ends, coding agents, or any container image.
+- **Apps**: JupyterLab, Whybook, VS Code, RStudio, marimo, Streamlit, Dash, Panel, Bokeh, Gradio, Voila, FastAPI, static sites, Node and Go back-ends, coding agents, or any container image.
 - **Code from anywhere**: run from your home folder or a Git repository, with a preview app for every pull request.
 - **Jobs**: run scripts and notebooks on demand or on a schedule, with logs and history.
 - **Sharing**: keep an app private, or share it with people, groups, everyone signed in, or the public.

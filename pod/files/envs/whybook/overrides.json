@@ -1,0 +1,17 @@
+{
+  "@jupyterlab/apputils-extension:themes": {
+    "adaptive-theme": true
+  },
+  "@jupyterlab/apputils-extension:notification": {
+    "fetchNews": "false",
+    "checkForUpdates": false
+  },
+  "@jupyterlab/docmanager-extension:plugin": {
+    "defaultViewers": {
+      "notebook": "Whybook"
+    }
+  },
+  "whybook:welcome": {
+    "when": "call"
+  }
+}
