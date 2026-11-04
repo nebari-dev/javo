@@ -49,7 +49,7 @@ type Input struct {
 	Home *model.Home
 	// Folders are the ready folders of the owner's groups.
 	Folders []model.SharedFolder
-	// ScratchMax limits the scratch volume; zero means no limit.
+	// ScratchMax limits the scratch volume, and /tmp; zero means no limit.
 	ScratchMax resource.Quantity
 	// CoLocate keeps all of the owner's pods on one node (Backend.CoLocate).
 	CoLocate bool
@@ -79,14 +79,16 @@ func Build(owner string, in Input) Layout {
 	if in.Home != nil && in.Home.Status.ClaimName != "" {
 		claim = in.Home.Status.ClaimName
 	}
-	scratch := &corev1.EmptyDirVolumeSource{}
+	// /tmp is node disk like scratch and gets the same limit: the kubelet
+	// evicts the pod that goes over, not the node's other pods.
+	scratch, tmp := &corev1.EmptyDirVolumeSource{}, &corev1.EmptyDirVolumeSource{}
 	if !in.ScratchMax.IsZero() {
-		scratch.SizeLimit = ptr.To(in.ScratchMax)
+		scratch.SizeLimit, tmp.SizeLimit = ptr.To(in.ScratchMax), ptr.To(in.ScratchMax)
 	}
 	l := Layout{
 		Volumes: []corev1.Volume{
 			claimVolume(HomeVolume, claim, in.ReadOnly),
-			{Name: TmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			{Name: TmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: tmp}},
 			{Name: ScratchVolume, VolumeSource: corev1.VolumeSource{EmptyDir: scratch}},
 		},
 		Mounts: []corev1.VolumeMount{

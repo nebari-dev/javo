@@ -177,3 +177,12 @@ func TestGroupDirIsOneStableDNSLabel(t *testing.T) {
 		t.Errorf("long group dir is %d chars", len(long))
 	}
 }
+
+// /tmp is node disk too: it has the scratch limit, so filling it evicts only
+// this pod instead of putting the node under disk pressure.
+func TestTmpHasTheScratchLimit(t *testing.T) {
+	tmp := volumes(podstorage.Build(owner, input()))["tmp"].EmptyDir
+	if tmp == nil || tmp.SizeLimit == nil || tmp.SizeLimit.Cmp(resource.MustParse("20Gi")) != 0 {
+		t.Fatalf("tmp volume = %+v, want a 20Gi size limit", tmp)
+	}
+}
