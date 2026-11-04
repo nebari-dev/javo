@@ -265,6 +265,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		PixiImage:  platform.Environments.PixiImage,
 		NebiURL:    wiring.NebiURL(platform),
 		SecretKeys: keys,
+		Access:     wiring.JobAccess(db.People(store.IDRange{}), platform.Roles),
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}

@@ -137,6 +137,11 @@ const (
 	// the fingerprint of the secrets it was built with (names and versions,
 	// never a value).
 	AnnotationSecrets = Group + "/secrets"
+	// AnnotationLayout carries, on an app's pod, a fingerprint of what it
+	// mounts and runs as (claims, read-only or not, group ids, uid) and of
+	// the template fields its pod is built from, so a person leaving a group,
+	// an app being shared or a template change replaces the pod.
+	AnnotationLayout = Group + "/layout"
 
 	// RoleStorageProbe is the LabelRole value of the storage probe's claim
 	// and Jobs.

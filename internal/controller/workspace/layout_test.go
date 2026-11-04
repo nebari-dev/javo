@@ -86,3 +86,47 @@ func TestPreviewPodMountsNoGroupFolder(t *testing.T) {
 		t.Errorf("supplemental groups = %v, want none", got)
 	}
 }
+
+// A shared app runs for people other than its owner (and a public one for
+// anyone), so what they make it do must not reach the code the owner's other
+// apps and jobs run from the home: its container sees the home and the group
+// folders read-only. Its caches stay writable, and a private app keeps
+// writing its home.
+func TestASharedAppSeesTheHomeAndFoldersReadOnly(t *testing.T) {
+	t.Parallel()
+	folder := model.SharedFolder{
+		Spec:   model.SharedFolderSpec{Group: "research"},
+		Status: model.SharedFolderStatus{ClaimName: "folder-research", GID: 5001, Prepared: true},
+	}
+	l := podstorage.Build("alice", podstorage.Input{Folders: []model.SharedFolder{folder}, UID: 1000, GID: 100})
+	mounts := func(access string) map[string]bool {
+		ws, tpl := fixtures()
+		ws.Sharing = model.Sharing{Access: access}
+		pod, err := BuildPod(ws, tpl, "/u/a/b/", "", l, sizes.Size{}, testImages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ro := map[string]bool{}
+		for _, m := range pod.Spec.Containers[0].VolumeMounts {
+			ro[m.MountPath] = m.ReadOnly
+		}
+		for _, v := range pod.Spec.Volumes {
+			if c := v.PersistentVolumeClaim; c != nil && c.ReadOnly {
+				t.Errorf("%s: claim %s read-only at the volume, so no init step can write it", access, c.ClaimName)
+			}
+		}
+		return ro
+	}
+	for _, access := range []string{model.AccessRestricted, model.AccessPublic} {
+		ro := mounts(access)
+		if !ro["/home/user"] || !ro["/shared/research"] {
+			t.Errorf("%s app mounts %v, want the home and the folder read-only", access, ro)
+		}
+		if ro["/home/user/.cache"] || ro["/tmp"] {
+			t.Errorf("%s app mounts %v, want caches and /tmp writable", access, ro)
+		}
+	}
+	if ro := mounts(model.AccessPrivate); ro["/home/user"] || ro["/shared/research"] {
+		t.Errorf("private app mounts %v, want the home writable", ro)
+	}
+}

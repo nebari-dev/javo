@@ -33,18 +33,20 @@ const (
 	OutOfMemory       Code = "OutOfMemory"
 	AppNotAnswering   Code = "AppNotAnswering"
 	TemplateMissing   Code = "TemplateMissing"
-	TemplateInvalid   Code = "TemplateInvalid"
-	SampleMissing     Code = "SampleMissing"
-	SizeUnknown       Code = "SizeUnknown"
-	SizeTooBig        Code = "SizeTooBig"
-	AppUnreachable    Code = "AppUnreachable"
-	Starting          Code = "Starting"
-	Ready             Code = "Ready"
-	Stopped           Code = "Stopped"
-	StoppedIdle       Code = "StoppedIdle"
-	StoppedByAdmin    Code = "StoppedByAdmin"
-	RestoreHeld       Code = "RestoreHeld"
-	SecretsUnreadable Code = "SecretsUnreadable"
+	// TemplateNotAllowed: the app's owner may no longer use its template.
+	TemplateNotAllowed Code = "TemplateNotAllowed"
+	TemplateInvalid    Code = "TemplateInvalid"
+	SampleMissing      Code = "SampleMissing"
+	SizeUnknown        Code = "SizeUnknown"
+	SizeTooBig         Code = "SizeTooBig"
+	AppUnreachable     Code = "AppUnreachable"
+	Starting           Code = "Starting"
+	Ready              Code = "Ready"
+	Stopped            Code = "Stopped"
+	StoppedIdle        Code = "StoppedIdle"
+	StoppedByAdmin     Code = "StoppedByAdmin"
+	RestoreHeld        Code = "RestoreHeld"
+	SecretsUnreadable  Code = "SecretsUnreadable"
 	// An app or a job in a pixi environment (model.Environment).
 	EnvironmentUnavailable   Code = "EnvironmentUnavailable"
 	EnvironmentInstallFailed Code = "EnvironmentInstallFailed"
@@ -325,6 +327,11 @@ var catalog = []Reason{
 		Todo:  "Pick a different template, or ask the template owner to restore it.",
 		Blame: "The template: it was removed.",
 		Who:   "The template owner or a cluster admin.", Blamed: PartyTemplate},
+	{Code: TemplateNotAllowed, Title: "Template not available to the owner",
+		What:  "The owner of this app may no longer use its template, for example after leaving a group the template is limited to, so the app does not run.",
+		Todo:  "Ask a cluster admin to give the owner the template again, or move the app's work to a template the owner may use.",
+		Blame: "The platform: the owner's access to the template was removed.",
+		Who:   "Cluster admins.", Blamed: PartyPlatform},
 	{Code: TemplateInvalid, Title: "Template has a mistake",
 		What:  "The template this app was created from has a mistake, so the app cannot be built from it.",
 		Todo:  "Pick another template, or tell the template owner. The evidence shows the mistake.",

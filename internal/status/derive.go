@@ -27,6 +27,8 @@ type Observed struct {
 	ReadyTimeout time.Duration
 	// TemplateMissing is true when the workspace's template does not exist.
 	TemplateMissing bool
+	// TemplateNotAllowed is true when the owner may no longer use the template.
+	TemplateNotAllowed bool
 	// TemplateError is the error from building the pod from the template, if any.
 	TemplateError string
 	// SecretsUnreadable is why the app's secrets could not be opened for its
@@ -194,6 +196,9 @@ func Derive(ws *model.App, o Observed) (phase string, conds []metav1.Condition, 
 	}
 	if o.TemplateMissing {
 		return build("Failed", model.ConditionScheduled, reasons.TemplateMissing)
+	}
+	if o.TemplateNotAllowed {
+		return build("Failed", model.ConditionScheduled, reasons.TemplateNotAllowed)
 	}
 	if o.TemplateError != "" {
 		return build("Failed", model.ConditionScheduled, reasons.TemplateInvalid, o.TemplateError)

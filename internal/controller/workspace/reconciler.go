@@ -102,6 +102,16 @@ type Reconciler struct {
 	// has no key-encryption key: an app that gets secrets then fails as
 	// SecretsUnreadable rather than start without them.
 	SecretKeys *secrets.Keys
+	// Access decides whether an app's owner may still use its template, by
+	// the rule the API applies when the app is made; an app whose owner may
+	// not stops (TemplateNotAllowed). Required.
+	Access Access
+}
+
+// Access decides whether owner may use template t. The jobs controller's
+// PeopleAccess, from the owner's person row, is the one the platform uses.
+type Access interface {
+	MayUse(ctx context.Context, owner string, t *model.Template) (bool, error)
 }
 
 // RBAC for the controller (make rbac renders config/rbac/controller; the
@@ -212,6 +222,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			phase, conds, ev := status.Derive(&app, obs)
 			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, "", status.WithEvidence(conds, ev), "")
 		}
+		switch ok, err := r.Access.MayUse(ctx, app.Owner, &t); {
+		case err != nil:
+			return ctrl.Result{}, err
+		case !ok:
+			if pod != nil {
+				if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
+					return ctrl.Result{}, err
+				}
+			}
+			obs.TemplateNotAllowed = true
+			phase, conds, _ := status.Derive(&app, obs)
+			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, "", conds, "")
+		}
 		tpl = &t
 		obs.AppLogin, obs.Builds = t.Spec.AppLogin, t.Spec.Build != nil
 		// withEnvironment adds the install step for either (internal/pixienv).
@@ -260,14 +283,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, status.WithEvidence(conds, evidence), "")
 	}
 	blocked := pod == nil && status.LoginlessBlocked(obs.AppLogin, obs.NetworkPolicy)
-	uid := FixedUID
-	// The owner's uid only matters when a pod is about to be built; a pod
-	// that already exists keeps its status whatever happens to the person.
-	if tpl != nil && pod == nil && !blocked {
-		var ok bool
-		if uid, ok, err = identity.PodUIDOf(ctx, r.Store.People(store.IDRange{}), r.UIDMode, app.Owner); err != nil {
+	// The layout the pod should have: what it mounts, as which uid. A pod
+	// that already exists keeps its status whatever happens to the person,
+	// so without their uid it is kept (layoutFP stays empty); a pod about to
+	// be built waits for it.
+	var layout podstorage.Layout
+	var layoutFP string
+	if tpl != nil && !blocked {
+		uid, ok, err := identity.PodUIDOf(ctx, r.Store.People(store.IDRange{}), r.UIDMode, app.Owner)
+		switch {
+		case err != nil:
 			return ctrl.Result{}, err
-		} else if !ok {
+		case ok:
+			if layout, err = r.layout(ctx, &app, uid); err != nil {
+				return ctrl.Result{}, err
+			}
+			layoutFP = LayoutFingerprint(&app, tpl, layout)
+		case pod == nil:
 			obs.IdentityPending = true
 			phase, conds, _ := status.Derive(&app, obs)
 			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
@@ -299,7 +331,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if pod != nil && r.podOutdated(&app, pod, access, gitGen, appSecrets.Fingerprint) {
+		if pod != nil && r.podOutdated(&app, pod, access, gitGen, appSecrets.Fingerprint, layoutFP) {
 			// The next reconcile, once the old pod is gone, builds the new one.
 			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
 				return ctrl.Result{}, err
@@ -309,10 +341,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		if pod == nil && !blocked {
 			size, ok := r.appSize(&app)
-			layout, err := r.layout(ctx, &app, uid)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
 			secretsName := AppSecretsName(app.ObjectName())
 			unreadable, err := r.writeAppSecrets(ctx, &app, appSecrets)
 			if err != nil {
@@ -329,6 +357,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			} else if want, buildErr := BuildPod(&app, tpl, base, host, layout, size, Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig}); buildErr != nil {
 				obs.TemplateError = buildErr.Error()
 			} else {
+				if want.Annotations == nil {
+					want.Annotations = map[string]string{}
+				}
+				want.Annotations[model.AnnotationLayout] = layoutFP
 				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL)
 				if r.NebiURL != "" && model.NebiTokenFor(&app, tpl) {
 					WithNebi(want, app.ObjectName(), r.NebiURL, r.RunnerImage)
@@ -429,14 +461,17 @@ func (r *Reconciler) platform() Platform {
 
 // podOutdated reports whether pod was built with another size, command,
 // image, port, Git source, API access, repository token (gitGen, the
-// generation of the paste) or secrets (their fingerprint) than app asks for,
+// generation of the paste), secrets (their fingerprint) or layout (layoutFP,
+// LayoutFingerprint; empty when it cannot be known now) than app asks for,
 // or before the app's latest restart request. A pod without the run
 // annotation (built before these fields, or for an app that names none)
-// matches an app that names none.
-func (r *Reconciler) podOutdated(app *model.App, pod *corev1.Pod, access, gitGen, secretsFP string) bool {
+// matches an app that names none; one without the layout annotation is
+// replaced, so group folders and read-only homes hold for every pod.
+func (r *Reconciler) podOutdated(app *model.App, pod *corev1.Pod, access, gitGen, secretsFP, layoutFP string) bool {
 	return r.sizeChanged(app, pod) || pod.Annotations[model.AnnotationRun] != RunFingerprint(app) ||
 		pod.Annotations[model.AnnotationRestart] != RestartMark(app) || podAPIAccess(pod) != access ||
-		pod.Annotations[model.AnnotationGitToken] != gitGen || pod.Annotations[model.AnnotationSecrets] != secretsFP
+		pod.Annotations[model.AnnotationGitToken] != gitGen || pod.Annotations[model.AnnotationSecrets] != secretsFP ||
+		(layoutFP != "" && pod.Annotations[model.AnnotationLayout] != layoutFP)
 }
 
 // sizeChanged reports whether pod was built with another size or custom
@@ -612,6 +647,9 @@ func (r *Reconciler) writeStatus(ctx context.Context, app *model.App, phase, url
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
 	if r.Machines == nil {
 		return errors.New("workspace.Reconciler: Machines is required")
+	}
+	if r.Access == nil {
+		return errors.New("workspace.Reconciler: Access is required")
 	}
 	if r.Storage.Homes == nil || r.Storage.Folders == nil {
 		return errors.New("workspace.Reconciler: Storage is required")

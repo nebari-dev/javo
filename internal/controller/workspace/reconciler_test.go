@@ -148,6 +148,7 @@ func newManager(s *store.Store, namespaces []string, tune func(*Reconciler), mtu
 		RunnerImage:   testImages.Runner,
 		PixiImage:     testPixiImage,
 		NebiURL:       testNebiURL,
+		Access:        allowAll{},
 	}
 	if tune != nil {
 		tune(r)
@@ -318,12 +319,17 @@ func reconcileNow(t *testing.T, r *Reconciler, id string) reconcile.Result {
 // run on it has finished when it returns.
 func newRec(s *store.Store, tune ...func(*Reconciler)) *Reconciler {
 	r := &Reconciler{Client: k8s, Store: s, Storage: testStorage(s), Sizes: testSizes, ReadyTimeout: time.Minute, Exposure: pathExposure, NetworkPolicy: policy,
-		Machines: capacity.Nodes{Reader: k8s}, CloneImage: testImages.Clone, RunnerImage: testImages.Runner}
+		Machines: capacity.Nodes{Reader: k8s}, CloneImage: testImages.Clone, RunnerImage: testImages.Runner, Access: allowAll{}}
 	for _, f := range tune {
 		f(r)
 	}
 	return r
 }
+
+// allowAll lets every owner use every template.
+type allowAll struct{}
+
+func (allowAll) MayUse(context.Context, string, *model.Template) (bool, error) { return true, nil }
 
 func condition(app model.App, typ string) *metav1.Condition {
 	return meta.FindStatusCondition(app.Status.Conditions, typ)

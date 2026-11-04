@@ -323,6 +323,9 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 	if ws.ParentID != "" {
 		layout = layout.WithoutFolders()
 	}
+	if Shared(ws) {
+		layout = layout.ReadOnlyFiles()
+	}
 	layout.Apply(pod, app)
 	annotations := pod.Annotations
 	if annotations == nil {
@@ -373,6 +376,49 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 		podspec.ScratchHome(spec)
 	}
 	return pod, nil
+}
+
+// LayoutFingerprint identifies what app's pod mounts and runs as under
+// layout (each claim and whether the app sees it read-only, the group ids,
+// the uid) and the fields of t its pod is built from, so a change of any of
+// them (a person leaving a group, an app shared, a new template image)
+// replaces the pod.
+func LayoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layout) string {
+	if app.ParentID != "" {
+		layout = layout.WithoutFolders()
+	}
+	if Shared(app) {
+		layout = layout.ReadOnlyFiles()
+	}
+	type mount struct {
+		Volume, Claim, Path, SubPath string
+		ReadOnly                     bool
+	}
+	claims := map[string]string{}
+	for _, v := range layout.Volumes {
+		if c := v.PersistentVolumeClaim; c != nil {
+			claims[v.Name] = c.ClaimName
+		}
+	}
+	var mounts []mount
+	for _, m := range layout.Mounts {
+		mounts = append(mounts, mount{m.Name, claims[m.Name], m.MountPath, m.SubPath, m.ReadOnly})
+	}
+	s := t.Spec
+	b, _ := json.Marshal([]any{
+		mounts, layout.SupplementalGroups, layout.RunAsUser, layout.RunAsGroup,
+		s.Kind, s.Image, s.Environment, s.ServesKernels, s.PodFiles, s.Port, s.Command, s.Args, s.UserCommand,
+		s.UserImage, s.FromRepo, s.Build, s.ReadinessPath, s.Activity, s.Resources, s.Sample, s.BasePath, s.AppLogin,
+	})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
+}
+
+// Shared is whether people other than ws's owner may open it. Their use of
+// the app must not change files in the owner's home or group folders: those
+// hold the code the owner's secret-holding jobs and apps run.
+func Shared(ws *model.App) bool {
+	return ws.Sharing.Access != "" && ws.Sharing.Access != model.AccessPrivate
 }
 
 // readinessProbe is an HTTP GET of the template's readinessPath, or, for a

@@ -138,6 +138,22 @@ func (l Layout) WithoutFolders() Layout {
 	return l
 }
 
+// ReadOnlyFiles is l with the home and the group folders mounted read-only
+// in the app container, for a pod that people other than its owner drive (a
+// shared app): what they make it do cannot change the code the owner's other
+// apps and jobs run. The volumes stay writable, so the platform's own init
+// steps (an environment install) still write; caches and /tmp stay
+// writable.
+func (l Layout) ReadOnlyFiles() Layout {
+	l.Mounts = slices.Clone(l.Mounts)
+	for i, m := range l.Mounts {
+		if (m.Name == HomeVolume && m.MountPath == HomeDir) || strings.HasPrefix(m.Name, groupVolumePrefix) {
+			l.Mounts[i].ReadOnly = true
+		}
+	}
+	return l
+}
+
 func claimVolume(name, claim string, readOnly bool) corev1.Volume {
 	return corev1.Volume{Name: name, VolumeSource: corev1.VolumeSource{
 		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim, ReadOnly: readOnly},
