@@ -10,7 +10,7 @@ ARG BUILDARCH
 
 FROM --platform=$BUILDPLATFORM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS ui
 WORKDIR /src/ui
-COPY ui/package.json ui/pnpm-lock.yaml ./
+COPY ui/package.json ui/pnpm-lock.yaml ui/.npmrc ./
 # pnpm through Node's corepack, at the version and sha512 that
 # ui/package.json's packageManager names (10.34.7: 0 OSV advisories, no
 # install scripts; DEPENDENCIES.md).
