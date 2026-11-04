@@ -91,6 +91,19 @@ Every snapshot carries the run's tag, so a run can be restored from the bucket a
 
 Each namespace's repositories (`homes/<namespace>/...` and `folders/<namespace>/...`) have a password of their own: an HMAC-SHA256 of the namespace name under the backup password. It is all `javo-backup` in that namespace holds, so someone who can read Secrets in one namespace cannot open another namespace's backups or the database's, which keep the backup password and live only in the release namespace. The bucket's access key is still the same in every namespace: with it someone can list, download (encrypted) or delete any repository in the bucket. Where the storage allows it, give the key a policy limited to the bucket's prefix, and keep versioning or object lock on the bucket so deleted backups can be recovered.
 
+What this does not protect, so plan around it:
+
+- **Shared mode.** With `config.namespaces.mode: shared` (the default) every home is in one namespace, so every home's repository has the same password and one `javo-backup` Secret opens all of them. Nobody without Secret read rights in that namespace can read it (apps get no service account token), but an admin who delegates Secret read there to someone hands them every home's backups. Use `per-user` or `per-team` mode where people must not be able to read each other's backups even with namespace rights.
+- **The bucket's access key** is copied into `javo-backup` of every namespace with homes, because the step Jobs run there as the home's owner. Whoever reads it can delete or overwrite any repository, the database's included (they still cannot decrypt another namespace's). Javo cannot make a key per prefix on every S3 service; where yours can (an IAM policy or a MinIO policy per prefix), limit the key to the bucket's prefix, and turn on versioning or object lock.
+- **The gateway** also mounts the bucket key and the backup password (it lists home snapshots and the database's copies with restic). A file-read or code-execution flaw in the internet-facing gateway therefore exposes both. Moving those reads to the controller is planned; until then keep the gateway patched and, where you can, use Postgres so the gateway and the controller run as separate pods.
+- **Moving a repository to its namespace password keeps its data key.** `restic key add` and `key remove` change which passwords open the repository, not the key the data is encrypted with. On a bucket with versioning, the removed key file is still there as an older version, so someone who copied a namespace's old Secret (when it held the backup password) and can read the bucket can still decrypt that repository, new snapshots included. If that may have happened, copy each affected repository into a fresh one and delete the old one with all its versions:
+
+  ```sh
+  restic -r <new repository> init --from-repo <old repository> --copy-chunker-params
+  restic -r <new repository> copy --from-repo <old repository>
+  # then delete every object version under the old repository's prefix
+  ```
+
 Repositories made before namespaces had their own password are moved to it the first time the controller backs them up or restores them after the upgrade: it adds a key for the namespace's password (`restic key add`) and removes the one for the backup password (`restic key remove`). Nothing is uploaded again. Until then the Backups page and `javo backup snapshots` still list them with the backup password. With the backup password you can always work out a namespace's password, so a new cluster with the same backup password reads everything. To open a namespace's repository with restic by hand:
 
 ```sh
