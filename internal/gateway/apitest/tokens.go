@@ -61,7 +61,7 @@ func (f *Fixture) MountProxy(target string) {
 		f.T.Fatal(err)
 	}
 	f.Srv.Apps(proxy.New(proxy.Config{
-		Store: f.Db, Sessions: f.Store, Exposure: gatewaytest.OneHostExposure, Activity: activity.NewTracker(nil),
+		Store: f.Db, Sessions: f.Store, Revalidator: f.Revalidator, Exposure: gatewaytest.OneHostExposure, Activity: activity.NewTracker(nil),
 		Resolve: func(context.Context, *model.App, *model.Template) (proxy.Backend, error) {
 			return proxy.Backend{URL: u}, nil
 		},

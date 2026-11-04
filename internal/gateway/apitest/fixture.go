@@ -66,7 +66,9 @@ type Fixture struct {
 	Store  *session.DBStore
 	Tokens *token.DBStore
 	Srv    *gateway.Server
-	secure bool
+	// Revalidator is the gateway's, for a proxy mounted on it.
+	Revalidator *authn.Revalidator
+	secure      bool
 }
 
 // Options change how New builds the gateway; the zero value is a gateway
@@ -222,9 +224,10 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	if o.Nebi != nil {
 		nebiTokens = &nebi.Tokens{Store: db, Source: o.Nebi}
 	}
+	rv := authn.NewRevalidator(providers, sessions, people, 0, o.Now)
 	srv := gateway.NewServer(gateway.Config{
-		NebiTokens: nebiTokens,
-		Tokens:     tokens, API: api, IdleStop: o.Idle,
+		NebiTokens: nebiTokens, Revalidator: rv,
+		Tokens: tokens, API: api, IdleStop: o.Idle,
 		Usage: o.Usage, Groups: o.Groups, Storage: o.Storage,
 
 		Client: c, Store: db, Sessions: sessions, Providers: providers,
@@ -237,7 +240,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
 		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage,
 	})
-	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, secure: o.Urls.SecureCookies(o.Secure)}
+	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, Revalidator: rv, secure: o.Urls.SecureCookies(o.Secure)}
 }
 
 // aliceHash is alice's password as an argon2id hash with the smallest cost

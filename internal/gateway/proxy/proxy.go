@@ -404,7 +404,31 @@ func (p *proxy) session(r *http.Request, t exposure.Target, app *model.App) (ses
 		sess, ok = p.revalidateParent(r.Context(), sess)
 		return sess, sess.Parent, ok
 	}
-	return sess, session.ID(c.Value), true
+	id := session.ID(c.Value)
+	sess, ok = p.revalidateUI(r.Context(), id, sess)
+	return sess, id, ok
+}
+
+// revalidateUI asks the provider about the ui session sess, whose ID is id,
+// when it is due, as the API does: on one host an app tab may be the only
+// thing the person uses. It returns the session as the provider now
+// describes the person, or false when they are gone.
+func (p *proxy) revalidateUI(ctx context.Context, id string, sess session.Session) (session.Session, bool) {
+	if p.cfg.Revalidator == nil { // misconfigured: refuse rather than skip the check
+		slog.Error("app proxy has no Revalidator")
+		return session.Session{}, false
+	}
+	if !p.cfg.Revalidator.Due(sess) {
+		return sess, true
+	}
+	fresh, _, err := p.cfg.Revalidator.Check(ctx, id, sess)
+	if err != nil {
+		if !errors.Is(err, authn.ErrSessionEnded) {
+			slog.Error("revalidate session", "err", err)
+		}
+		return session.Session{}, false
+	}
+	return fresh, true
 }
 
 // appCookie is the app cookie for t without its value. A Secure cookie that
@@ -439,24 +463,15 @@ func (p *proxy) idToken(uiID string) func(context.Context) (string, error) {
 // session with the person as the provider now describes them, or false when
 // the person is gone.
 func (p *proxy) revalidateParent(ctx context.Context, sess session.Session) (session.Session, bool) {
-	if p.cfg.Revalidator == nil { // misconfigured: refuse rather than skip the check
-		slog.Error("app proxy has no Revalidator")
-		return session.Session{}, false
-	}
 	parent, err := p.cfg.Sessions.GetByID(ctx, sess.Parent)
 	if err != nil {
 		return session.Session{}, false
 	}
-	if p.cfg.Revalidator.Due(parent) {
-		if parent, _, err = p.cfg.Revalidator.Check(ctx, sess.Parent, parent); err != nil {
-			if !errors.Is(err, authn.ErrSessionEnded) {
-				slog.Error("revalidate parent session", "err", err)
-			}
-			return session.Session{}, false
-		}
+	if parent, ok := p.revalidateUI(ctx, sess.Parent, parent); ok {
+		sess.Principal = parent.Principal
+		return sess, true
 	}
-	sess.Principal = parent.Principal
-	return sess, true
+	return session.Session{}, false
 }
 
 // redirectToSignIn sends a browser that has no usable session to sign in: the

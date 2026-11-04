@@ -24,7 +24,7 @@ func TestOpenWebsocketClosesWhenAccessEnds(t *testing.T) {
 	f := setup(t, http.HandlerFunc(gatewaytest.EchoBackend))
 	u, _ := url.Parse(f.backend.URL)
 	const every = 20 * time.Millisecond
-	f.proxy = New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity, RecheckEvery: every,
+	f.proxy = New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity, RecheckEvery: every,
 		Resolve: func(context.Context, *model.App, *model.Template) (Backend, error) { return Backend{URL: u}, nil }})
 	srv := httptest.NewServer(f.proxy)
 	defer srv.Close()

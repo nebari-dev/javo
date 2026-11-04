@@ -677,6 +677,8 @@ type appsFixture struct {
 	seen    []*http.Request
 	// activity is where the proxy records use.
 	activity *activity.Tracker
+	// rv revalidates sessions against idp for the API and the proxy.
+	rv *authn.Revalidator
 }
 
 func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.App) *appsFixture {
@@ -712,6 +714,7 @@ func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.A
 	providers := registry.New[authprovider.Provider]()
 	providers.Register(f.idp)
 	rv := authn.NewRevalidator(providers, f.store, f.db.People(store.IDRange{}), 0, func() time.Time { return f.now })
+	f.rv = rv
 	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp,
 		Providers: providers, Revalidator: rv, Now: func() time.Time { return f.now },
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},
@@ -930,7 +933,7 @@ func newOneHost(t *testing.T, app *model.App) *oneHostFixture {
 	target, _ := url.Parse(f.backend.URL)
 	roles := appsRoles()
 	return &oneHostFixture{appsFixture: f, proxy: proxy.New(proxy.Config{Store: f.db, Sessions: f.store,
-		Exposure: exposurepath.New(config.URLs{}), Roles: roles, Activity: f.activity,
+		Exposure: exposurepath.New(config.URLs{}), Roles: roles, Activity: f.activity, Revalidator: f.rv,
 		Resolve: func(context.Context, *model.App, *model.Template) (proxy.Backend, error) {
 			return proxy.Backend{URL: target}, nil
 		}})}

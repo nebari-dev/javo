@@ -49,7 +49,7 @@ func setup(t *testing.T, backend http.Handler) *fixture {
 	u, _ := url.Parse(be.URL)
 	tr := activity.NewTracker(nil)
 	p := New(Config{
-		Store: db, Sessions: store, Exposure: gatewaytest.OneHostExposure, DialWait: 200 * time.Millisecond, Activity: tr,
+		Store: db, Sessions: store, Revalidator: confirming(store), Exposure: gatewaytest.OneHostExposure, DialWait: 200 * time.Millisecond, Activity: tr,
 		Resolve: func(context.Context, *model.App, *model.Template) (Backend, error) { return Backend{URL: u}, nil },
 	})
 	return &fixture{db: db, proxy: p, store: store, backend: be, aliceSl: "alice-aaaaaaaa", activity: tr}
@@ -122,7 +122,7 @@ func TestSameShortNameForTwoUsersReachesEachOwnersApp(t *testing.T) {
 	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	gatewaytest.Seed(t, f.db, []any{gatewaytest.App("bob-bbbbbbbb", "nb1")})
 	var resolved []string
-	f.proxy = New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
+	f.proxy = New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
 		Resolve: func(_ context.Context, app *model.App, _ *model.Template) (Backend, error) {
 			resolved = append(resolved, app.Owner)
 			u, err := url.Parse(f.backend.URL)
@@ -222,7 +222,7 @@ func TestProxyWaitsForAppThatIsNotReachableYet(t *testing.T) {
 		t.Cleanup(func() { srv.Close() })
 		_ = srv.Serve(l)
 	}()
-	p := New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity, DialWait: 5 * time.Second,
+	p := New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity, DialWait: 5 * time.Second,
 		Resolve: func(context.Context, *model.App, *model.Template) (Backend, error) {
 			return Backend{URL: &url.URL{Scheme: "http", Host: addr}}, nil
 		}})
@@ -404,7 +404,7 @@ func TestDefaultResolveUsesTemplatePort(t *testing.T) {
 func TestResolveErrorRendersUnreachablePage(t *testing.T) {
 	t.Parallel()
 	f := setup(t, http.NotFoundHandler())
-	p := New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
+	p := New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
 		Resolve: func(context.Context, *model.App, *model.Template) (Backend, error) { return Backend{}, io.EOF }})
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
 	r.AddCookie(f.login(t, "alice-aaaaaaaa", "alice"))
@@ -423,7 +423,7 @@ func templateProxy(t *testing.T, f *fixture, spec model.TemplateSpec) http.Handl
 	t.Helper()
 	tpl := &model.Template{Name: "t", Spec: spec}
 	u, _ := url.Parse(f.backend.URL)
-	return New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
+	return New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
 		Resolve: func(ctx context.Context, app *model.App, _ *model.Template) (Backend, error) {
 			b, err := defaultResolve(gatewaytest.OneHostExposure)(ctx, app, tpl)
 			b.URL = u
@@ -617,7 +617,7 @@ func TestTheOwnerOpeningTheAppStoresTheirNebiToken(t *testing.T) {
 	gatewaytest.Seed(t, f.db, []any{tpl})
 	src := &gatewaytest.NebiSource{Now: time.Now}
 	u, _ := url.Parse(f.backend.URL)
-	p := New(Config{Store: f.db, Sessions: f.store, Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
+	p := New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
 		NebiTokens: &nebi.Tokens{Store: f.db, Source: src},
 		Resolve:    func(context.Context, *model.App, *model.Template) (Backend, error) { return Backend{URL: u}, nil }})
 	tok, err := f.store.Create(context.Background(), session.Session{Principal: authz.Principal{ID: f.aliceSl, Username: "alice"},
