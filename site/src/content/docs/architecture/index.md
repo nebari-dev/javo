@@ -43,7 +43,7 @@ Solid arrows are always there; dotted ones only when that feature is on.
 
 Apps have no login of their own. The NetworkPolicy the controller keeps in every apps namespace lets in only the gateway's pods, so the proxy is the only way in. Every 6 hours (and at start) the controller starts two small probe pods to check that the cluster really enforces it.
 
-A second policy, `limit-egress`, lets app and job pods reach the public internet but, inside the cluster, only DNS, the gateway and their own namespace: not other namespaces' pods, private addresses or the cloud metadata addresses (and, if `networkPolicy.egress.allowCIDRs` is set, nothing not listed). On Kubernetes 1.30+ ValidatingAdmissionPolicies let the controller's account bind roles and change labels only in the namespaces it manages (see [Configuration](/admin/configuration/#security-defaults-to-keep)).
+A second policy, `limit-egress`, lets app and job pods reach the public internet but, inside the cluster, only DNS, the gateway's HTTP port and their own namespace: not other namespaces' pods, private or reserved addresses, the nodes' own addresses or the cloud metadata addresses (and, if `networkPolicy.egress.allowCIDRs` is set, nothing not listed). ValidatingAdmissionPolicies (Kubernetes 1.30+, required) let the controller's account create, bind roles in and change labels of only the namespaces it manages (see [Configuration](/admin/configuration/#security-defaults-to-keep)).
 
 ## How an app is created
 

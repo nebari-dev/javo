@@ -11,7 +11,7 @@ The chart lives in `deploy/helm/javo` in the repository. It installs one image, 
 
 ## Requirements
 
-- A Kubernetes cluster and `kubectl` and `helm` pointed at it. On 1.30 or newer the chart also installs admission policies that limit what the controller's cluster-wide rights can change (see [Configuration](/admin/configuration/#security-defaults-to-keep)); older clusters install without them.
+- A Kubernetes 1.30 or newer cluster and `kubectl` and `helm` pointed at it. The chart installs admission policies that limit what the components' cluster-wide rights can change (see [Configuration](/admin/configuration/#security-defaults-to-keep)) and refuses to install without them.
 - A default StorageClass, or one named in the values: the SQLite database lives on a volume (`javo-data`), and so do home folders.
 - A network plugin (CNI) that enforces NetworkPolicy. Apps have no sign-in of their own; a default-deny policy lets only the gateway reach them. k3s enforces it out of the box; check yours.
 - A container registry the cluster can pull from, since you build the image yourself.

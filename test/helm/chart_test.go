@@ -25,9 +25,18 @@ import (
 
 var chart = filepath.Join("..", "..", "deploy", "helm", "javo")
 
-// render runs helm template with args and returns the manifest and error
-// output. Tests share renders: each set of args is rendered once per run.
+// render runs helm template with args, for a cluster that serves
+// ValidatingAdmissionPolicy (which the chart requires), and returns the
+// manifest and error output. Tests share renders: each set of args is
+// rendered once per run.
 func render(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	return renderWithoutVAP(t, append(slices.Clone(vapAPI), args...)...)
+}
+
+// renderWithoutVAP is render for a cluster that does not serve
+// ValidatingAdmissionPolicy.
+func renderWithoutVAP(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("needs helm; skipped with -short")
@@ -45,14 +54,9 @@ func render(t *testing.T, args ...string) (string, error) {
 	return r.out, r.err
 }
 
-// modeArgs select a namespace mode; per-user and per-team need the
-// ValidatingAdmissionPolicy API, so the cluster is said to serve it.
+// modeArgs select a namespace mode.
 func modeArgs(mode string) []string {
-	args := []string{"--set", "config.namespaces.mode=" + mode}
-	if mode != "shared" {
-		args = append(args, vapAPI...)
-	}
-	return args
+	return []string{"--set", "config.namespaces.mode=" + mode}
 }
 
 // renders holds each render by its args joined with NUL.

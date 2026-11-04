@@ -1,14 +1,13 @@
 {{- /* RBAC cannot say which namespaces the controller may bind roles in or
 which namespace labels it may change: it needs cluster-wide rolebindings and
-namespaces rights because the namespaces apps live in are created later. These
+namespaces rights because the namespaces apps live in are created later, and
+create on Secrets and pods cannot be narrowed by name or content. These
 ValidatingAdmissionPolicies (Kubernetes 1.30+) let the API server refuse
-anything outside what the controller does. Older clusters install without
-them, but only in shared mode: per-user and per-team modes give the
-controller cluster-wide RoleBinding create and bind, which without these
-policies would let it bind its app roles anywhere. */ -}}
+anything outside what the components do, so the chart refuses to render
+without them. */ -}}
 {{- $hasVAP := .Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy" }}
-{{- if and (not $hasVAP) (ne (include "javo.namespaceMode" .) "shared") }}
-{{- fail (printf "config.namespaces.mode=%s needs ValidatingAdmissionPolicy (admissionregistration.k8s.io/v1, Kubernetes 1.30+) to keep the controller's cluster-wide RoleBinding rights to Javo's namespaces. Upgrade the cluster or use mode shared; with helm template or Argo CD pass --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy when the cluster serves it." (include "javo.namespaceMode" .)) }}
+{{- if not $hasVAP }}
+{{- fail "Javo needs ValidatingAdmissionPolicy (admissionregistration.k8s.io/v1, Kubernetes 1.30+): its admission policies keep the components' namespace, RoleBinding, Secret and pod rights to what Javo does. Upgrade the cluster; with helm template or Argo CD pass --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy when the cluster serves it." }}
 {{- end }}
 {{- if $hasVAP }}
 {{- $controller := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "javo.account" (list . "javo-controller")) }}

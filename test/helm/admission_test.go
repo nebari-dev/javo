@@ -42,23 +42,17 @@ func kindNames(t *testing.T, out, kind string) []string {
 	return names
 }
 
-// The policies need admissionregistration.k8s.io/v1 (Kubernetes 1.30+). In
-// shared mode older clusters still install the chart, without them. Per-user
-// and per-team modes give the controller cluster-wide RoleBinding create and
-// bind, which only the policies keep to Javo's namespaces, so the chart
-// refuses to render those modes without the API. Shared mode makes no
-// RoleBindings, so only the namespace policy is rendered there.
+// The policies need admissionregistration.k8s.io/v1 (Kubernetes 1.30+), and
+// the chart refuses to render without it in every mode: in per-user and
+// per-team modes they keep the controller's cluster-wide RoleBinding rights
+// to Javo's namespaces, and in every mode they keep the components from
+// creating privileged namespaces and token Secrets, and the gateway from
+// creating any pod but a file pod. Shared mode makes no RoleBindings, so its
+// RoleBinding policy is not rendered.
 func TestControllerAdmissionPoliciesNeedTheAPI(t *testing.T) {
 	t.Parallel()
-	out, err := render(t)
-	if err != nil {
-		t.Fatalf("render: %v\n%s", err, out)
-	}
-	if n := kindNames(t, out, "ValidatingAdmissionPolicy"); len(n) != 0 {
-		t.Fatalf("rendered %v without the API", n)
-	}
-	for _, mode := range []string{"per-user", "per-team"} {
-		out, err := render(t, "--set", "config.namespaces.mode="+mode)
+	for _, mode := range []string{"shared", "per-user", "per-team"} {
+		out, err := renderWithoutVAP(t, "--set", "config.namespaces.mode="+mode)
 		if err == nil || !strings.Contains(out, "ValidatingAdmissionPolicy") {
 			t.Errorf("%s without the API: err %v, want a failure naming ValidatingAdmissionPolicy\n%s", mode, err, out)
 		}
@@ -70,7 +64,7 @@ func TestControllerAdmissionPoliciesNeedTheAPI(t *testing.T) {
 		{"per-user", []string{"javo-javo-system-javo-controller-namespaces", "javo-javo-system-javo-controller-rolebindings", "javo-javo-system-javo-no-token-secrets"}},
 		{"shared", []string{"javo-javo-system-javo-controller-namespaces", "javo-javo-system-javo-no-token-secrets"}},
 	} {
-		out, err := render(t, append([]string{"--set", "config.namespaces.mode=" + c.mode}, vapAPI...)...)
+		out, err := render(t, "--set", "config.namespaces.mode="+c.mode)
 		if err != nil {
 			t.Fatalf("%s: render: %v\n%s", c.mode, err, out)
 		}
