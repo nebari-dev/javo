@@ -180,7 +180,7 @@ func TestEnsureUsesTheHomesCurrentClaim(t *testing.T) {
 	moved := homeClaim()
 	moved.Name = naming.HomeClaimNameGen(owner, 2)
 	c := newClient(t, moved)
-	in := podstorage.Input{Home: &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: moved.Name}}}
+	in := podstorage.Input{Home: &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: moved.Name, Prepared: true}}}
 	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{in}})
 	if err != nil {
 		t.Fatal(err)
@@ -243,16 +243,45 @@ func TestNewPodsRequiresImage(t *testing.T) {
 	}
 }
 
-func TestEnsureWithoutHomeClaim(t *testing.T) {
+// A person who never started an app has no home yet. Opening their files
+// asks for it the way an app does and answers starting, never an empty
+// folder; no file pod is made until the home is prepared.
+func TestEnsureAsksForTheHomeOfAPersonWithoutOne(t *testing.T) {
 	c := newClient(t)
-	_, err := newPods(t, c, &clock{time.Now()}).Ensure(context.Background(), owner)
-	if !errors.Is(err, files.ErrNoHome) {
-		t.Fatalf("err = %v, want ErrNoHome", err)
+	st := &homelessStorage{}
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Ensure(context.Background(), owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatalf("err = %v, want ErrHomeStarting", err)
+	}
+	if st.asked != owner {
+		t.Fatalf("home asked for %q, want %q", st.asked, owner)
 	}
 	var pods corev1.PodList
 	_ = c.List(context.Background(), &pods)
 	if len(pods.Items) != 0 {
-		t.Fatalf("created %d pods for a user with no home", len(pods.Items))
+		t.Fatalf("created %d pods before the home was prepared", len(pods.Items))
+	}
+}
+
+// A home whose claim is made but not yet prepared (its one-time Job still
+// runs) gets no file pod yet, as an app gets no pod.
+func TestEnsureWaitsForTheHomeToBePrepared(t *testing.T) {
+	c := newClient(t, homeClaim())
+	home := &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: naming.HomeClaimName(owner)}}
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{podstorage.Input{Home: home}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Ensure(context.Background(), owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatalf("err = %v, want ErrHomeStarting", err)
+	}
+	var pods corev1.PodList
+	_ = c.List(context.Background(), &pods)
+	if len(pods.Items) != 0 {
+		t.Fatalf("created %d pods before the home was prepared", len(pods.Items))
 	}
 }
 
@@ -511,7 +540,7 @@ func TestEnsureReplacesAPodThatMountsAFolderTheUserLost(t *testing.T) {
 func TestEnsureLetsGoOfTheFilePodWhileTheHomeIsHeld(t *testing.T) {
 	for _, cond := range []string{model.ConditionRestoring, model.ConditionMigrating} {
 		c := newClient(t, homeClaim(), filePod(corev1.PodRunning, true, "10.0.0.5"))
-		home := &model.Home{Status: model.HomeStatus{Conditions: []metav1.Condition{{Type: cond, Status: metav1.ConditionTrue}}}}
+		home := &model.Home{Status: model.HomeStatus{ClaimName: naming.HomeClaimName(owner), Prepared: true, Conditions: []metav1.Condition{{Type: cond, Status: metav1.ConditionTrue}}}}
 		p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{podstorage.Input{Home: home}}})
 		if err != nil {
 			t.Fatal(err)
@@ -738,14 +767,6 @@ func TestUsageOfAnEnforcedHomeCarriesTheNumbers(t *testing.T) {
 	}
 }
 
-func TestUsageOfAnEnforcedHomeWithoutAClaimIsEmptyNotAnError(t *testing.T) {
-	l := files.NewLister(stubEnsurer{err: files.ErrNoHome}, stubRemote{})
-	got, err := l.Usage(context.Background(), owner, true)
-	if err != nil || got != (files.HomeUsage{Enforced: true}) {
-		t.Fatalf("Usage = %+v, %v", got, err)
-	}
-}
-
 func TestListerListsFolder(t *testing.T) {
 	tree := stubRemote{
 		"":         {{Name: "Data", IsDir: true}},
@@ -773,17 +794,6 @@ func TestListerRefusesFoldersNotListedInParent(t *testing.T) {
 		if _, err := l.List(context.Background(), owner, p); !errors.Is(err, files.ErrNotFound) {
 			t.Errorf("List(%q) err = %v, want ErrNotFound", p, err)
 		}
-	}
-}
-
-func TestListerWithoutHome(t *testing.T) {
-	l := files.NewLister(stubEnsurer{err: files.ErrNoHome}, stubRemote{})
-	got, err := l.List(context.Background(), owner, "")
-	if err != nil || got.Entries == nil || len(got.Entries) != 0 {
-		t.Fatalf("home root = %+v, %v; want empty", got, err)
-	}
-	if _, err := l.List(context.Background(), owner, "Data"); !errors.Is(err, files.ErrNotFound) {
-		t.Fatalf("subfolder err = %v, want ErrNotFound", err)
 	}
 }
 
@@ -899,11 +909,37 @@ func TestEnsureRefusesPodThatIsNotThisUsersFilePod(t *testing.T) {
 	}
 }
 
-// stubStorage answers every Input call with in.
+// stubStorage answers every Input call with in. Its home is in.Home, or a
+// prepared home on the owner's first claim when in has none.
 type stubStorage struct{ in podstorage.Input }
 
 func (s stubStorage) Input(context.Context, string, string) (podstorage.Input, error) {
-	return s.in, nil
+	in := s.in
+	h := s.home()
+	in.Home = &h
+	return in, nil
+}
+
+func (s stubStorage) Home(context.Context, string, string) (model.Home, error) { return s.home(), nil }
+
+func (s stubStorage) home() model.Home {
+	if s.in.Home != nil {
+		return *s.in.Home
+	}
+	return model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: naming.HomeClaimName(owner), Prepared: true}}
+}
+
+// homelessStorage is a person without a home: Home records who asked and
+// answers the new home as the store makes it, with no claim yet.
+type homelessStorage struct{ asked string }
+
+func (s *homelessStorage) Input(context.Context, string, string) (podstorage.Input, error) {
+	return podstorage.Input{}, nil
+}
+
+func (s *homelessStorage) Home(_ context.Context, _, who string) (model.Home, error) {
+	s.asked = who
+	return model.Home{Spec: model.HomeSpec{Owner: who}}, nil
 }
 
 func filePodWith(t *testing.T, in podstorage.Input) corev1.Pod {
@@ -1197,13 +1233,6 @@ func TestListerOpenRefusesWhatTheListingDoesNotShowAsAFile(t *testing.T) {
 	}
 }
 
-func TestListerOpenWithoutHome(t *testing.T) {
-	l := files.NewLister(stubEnsurer{err: files.ErrNoHome}, stubRemote{})
-	if _, _, err := l.Open(context.Background(), owner, "a.txt"); !errors.Is(err, files.ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound", err)
-	}
-}
-
 func TestListerOpenRefusesFilesOverTheCap(t *testing.T) {
 	tree := stubRemote{"": {{Name: "big.bin", Size: files.MaxOpenBytes + 1}, {Name: "edge.bin", Size: files.MaxOpenBytes}}}
 	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
@@ -1358,7 +1387,7 @@ func TestFilePodAndAppPodShareStorageLayout(t *testing.T) {
 		}
 	}
 	in := podstorage.Input{
-		Home:    &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: naming.HomeClaimName(owner)}},
+		Home:    &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: naming.HomeClaimName(owner), Prepared: true}},
 		Folders: []model.SharedFolder{folder("research", 5001), folder("/ops", 5002)},
 		UID:     1000, GID: 100,
 	}

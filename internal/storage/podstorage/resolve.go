@@ -81,6 +81,18 @@ func (r Resolver) EnsureHome(ctx context.Context, m HomeMaker, ns, owner string)
 	return m.Ensure(ctx, ns, owner, size)
 }
 
+// Provisioner is a Resolver that makes a missing home with Maker, for callers
+// that ask for a home without starting an app (the file pods).
+type Provisioner struct {
+	Resolver
+	Maker HomeMaker
+}
+
+// Home is EnsureHome with p.Maker.
+func (p Provisioner) Home(ctx context.Context, ns, owner string) (model.Home, error) {
+	return p.EnsureHome(ctx, p.Maker, ns, owner)
+}
+
 // Input returns the Input for owner's pods in namespace ns, without the ids
 // (UID, GID) and ReadOnly, which the caller knows.
 func (r Resolver) Input(ctx context.Context, ns, owner string) (Input, error) {

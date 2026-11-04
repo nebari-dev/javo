@@ -45,6 +45,7 @@ import (
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/ids"
+	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/templates"
 )
@@ -206,7 +207,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		// The sessions key is the one key every replica shares; a sealed
 		// login is bound to its pod and Secret, so it opens nothing else.
 		Seal:    sessionsKey,
-		Storage: wiring.StorageResolver(db, platform),
+		Storage: podstorage.Provisioner{Resolver: wiring.StorageResolver(db, platform), Maker: db.Homes()},
 		UIDs:    ids.People{People: db.People(store.IDRange{}), Mode: platform.Identity.UIDMode},
 		ReapIn:  namespaces.New(pl, c).All,
 		// One namespace per person: sweep with one cluster-wide call.
