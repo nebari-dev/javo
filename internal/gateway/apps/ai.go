@@ -87,12 +87,19 @@ func (a *aiAPI) register(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "getAiStatus", Method: http.MethodGet, Path: "/api/ai/status",
 		Summary: "Which AI features are on", Tags: tag, Errors: []int{http.StatusUnauthorized},
-	}, func(context.Context, *struct{}) (*aiStatusOutput, error) {
+	}, func(ctx context.Context, _ *struct{}) (*aiStatusOutput, error) {
 		if a.svc == nil {
 			return &aiStatusOutput{Body: AIStatus{Message: reasons.Msg(reasons.MsgAIOff)}}, nil
 		}
 		st := AIStatus{Enabled: true, Features: a.features, Model: a.svc.Model}
 		if r, ok := a.svc.SelfTestResult(); ok {
+			// The provider's own words can name internal addresses or part of
+			// a key: platform admins see them (the log has them too),
+			// members only that the check failed.
+			p := authn.User(ctx)
+			if r.Err != "" && !slices.Contains(authz.RolesOf(p, a.ws.Roles), authz.RolePlatformAdmin) {
+				r.Err = reasons.Msg(reasons.MsgAISelfTestFailed)
+			}
 			st.SelfTest = &r
 		}
 		return &aiStatusOutput{Body: st}, nil

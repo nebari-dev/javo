@@ -180,19 +180,20 @@ const (
 	MsgPlanSessionOnly  MessageCode = "PlanSessionOnly"
 
 	// AI features: their states, shown in place of an answer.
-	MsgAIOff           MessageCode = "AIOff"
-	MsgAIUnavailable   MessageCode = "AIUnavailable"
-	MsgAIBusy          MessageCode = "AIBusy" // arg: seconds to wait
-	MsgAIInvalidAnswer MessageCode = "AIInvalidAnswer"
-	MsgAIBudgetUsed    MessageCode = "AIBudgetUsed" // arg: reset time in words
-	MsgAIRedacted      MessageCode = "AIRedacted"   // arg: count
-	MsgAIWithheld      MessageCode = "AIWithheld"   // arg: count
-	MsgAITrimmed       MessageCode = "AITrimmed"    // args: used, total
-	MsgAINothingToTell MessageCode = "AINothingToTell"
-	MsgAITooManyAsks   MessageCode = "AITooManyAsks"
-	MsgAdminOnly       MessageCode = "AdminOnly"
-	MsgRestoreHeld     MessageCode = "RestoreHeldStart"
-	MsgRestoreNotFound MessageCode = "RestoreNotFound"
+	MsgAIOff            MessageCode = "AIOff"
+	MsgAISelfTestFailed MessageCode = "AISelfTestFailed"
+	MsgAIUnavailable    MessageCode = "AIUnavailable"
+	MsgAIBusy           MessageCode = "AIBusy" // arg: seconds to wait
+	MsgAIInvalidAnswer  MessageCode = "AIInvalidAnswer"
+	MsgAIBudgetUsed     MessageCode = "AIBudgetUsed" // arg: reset time in words
+	MsgAIRedacted       MessageCode = "AIRedacted"   // arg: count
+	MsgAIWithheld       MessageCode = "AIWithheld"   // arg: count
+	MsgAITrimmed        MessageCode = "AITrimmed"    // args: used, total
+	MsgAINothingToTell  MessageCode = "AINothingToTell"
+	MsgAITooManyAsks    MessageCode = "AITooManyAsks"
+	MsgAdminOnly        MessageCode = "AdminOnly"
+	MsgRestoreHeld      MessageCode = "RestoreHeldStart"
+	MsgRestoreNotFound  MessageCode = "RestoreNotFound"
 
 	MsgBackupNotFound      MessageCode = "BackupNotFound"
 	MsgBackupNotHere       MessageCode = "BackupNotHere"
@@ -435,6 +436,7 @@ var messages = map[MessageCode]string{
 	MsgPlanSessionOnly:  "Changes can only be approved in the browser, signed in. API tokens and agents cannot approve them.",
 
 	MsgAIOff:               "AI features are off on this installation.",
+	MsgAISelfTestFailed:    "The model did not pass its check. A platform admin can see why.",
 	MsgAIUnavailable:       "The AI service cannot be reached right now. The cause and fix above do not depend on it.",
 	MsgAIBusy:              "The AI service is busy. Trying again in %d seconds.",
 	MsgAIInvalidAnswer:     "The AI answer could not be checked against the evidence, so it is not shown.",

@@ -1,6 +1,8 @@
 package apps_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -271,5 +273,28 @@ func TestAdminReportAndAskAreForAdminsOnly(t *testing.T) {
 	}](t, f.Do("POST", "/api/admin/ai/ask", `{"question":"what failed?"}`, admin))
 	if a.Answer != "One app crashed." || len(a.Refs) != 1 {
 		t.Fatalf("answer %+v", a)
+	}
+}
+
+// The provider's own error text (an internal endpoint, an address, a masked
+// key) reaches platform admins only; members learn only that the check failed.
+func TestAIStatusShowsTheProviderErrorToAdminsOnly(t *testing.T) {
+	t.Parallel()
+	svc := apitest.AiService(aitest.New(aitest.Reply{Err: errors.New(`Post "http://10.0.0.7:4000/v1/chat": key sk-...abcd refused`)}))
+	svc.SelfTest(context.Background())
+	f := apitest.New(t, apitest.Options{Ai: svc}, gatewaytest.Template("streamlit", "streamlit"))
+	type status struct {
+		SelfTest *struct {
+			StructuredOutput bool
+			Error            string
+		}
+	}
+	member := apitest.Decode[status](t, f.Do("GET", "/api/ai/status", "", f.Session(apitest.PlanOwner)))
+	if member.SelfTest == nil || member.SelfTest.StructuredOutput || strings.Contains(member.SelfTest.Error, "10.0.0.7") || member.SelfTest.Error == "" {
+		t.Fatalf("member sees %+v", member.SelfTest)
+	}
+	admin := apitest.Decode[status](t, f.Do("GET", "/api/ai/status", "", f.Session(apitest.PlanOwner, "javo-admins")))
+	if admin.SelfTest == nil || !strings.Contains(admin.SelfTest.Error, "10.0.0.7") {
+		t.Fatalf("admin sees %+v", admin.SelfTest)
 	}
 }
