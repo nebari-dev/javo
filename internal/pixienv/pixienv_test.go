@@ -408,3 +408,19 @@ func TestTheInstallLogsEachPackage(t *testing.T) {
 		}
 	}
 }
+
+// The tools step only copies the javo binary into its volume, so its root is
+// read-only; the install step runs pixi, which writes caches, and keeps a
+// writable one.
+func TestToolsStepHasAReadOnlyRoot(t *testing.T) {
+	spec := appPod()
+	if err := Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range spec.InitContainers {
+		ro := c.SecurityContext.ReadOnlyRootFilesystem != nil && *c.SecurityContext.ReadOnlyRootFilesystem
+		if ro != (c.Name == ToolsContainer) {
+			t.Errorf("%s: read-only root %v", c.Name, ro)
+		}
+	}
+}

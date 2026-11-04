@@ -129,6 +129,7 @@ func sourceInitContainers(ws *model.App, t *model.Template, baseURL string, img 
 	}
 
 	check := step(source.CheckContainer, img.Runner.Ref, srcMount)
+	check.SecurityContext = podspec.ReadOnlyRootContext()
 	check.Command = []string{"/" + model.ProductName, "source-check", "--link=" + sourceRoot, "--path=" + s.Path}
 	if ws.File != "" {
 		check.Command = append(check.Command, "--file="+ws.File)
@@ -156,6 +157,7 @@ func sourceInitContainers(ws *model.App, t *model.Template, baseURL string, img 
 			from = path.Join(folder, path.Clean("/"+output))
 		}
 		cp := step(source.SiteCopyContainer, tb.Image, srcMount, corev1.VolumeMount{Name: siteVolume, MountPath: tb.ServeDir})
+		cp.SecurityContext = podspec.ReadOnlyRootContext()
 		cp.Command = []string{"cp", "-r", from + "/.", tb.ServeDir}
 		if ifFile != "" {
 			cp.Command = []string{"sh", "-c", ifFileCopy, "sh", ifFile, folder, from, tb.ServeDir}
@@ -182,7 +184,7 @@ func withSiteConfig(inits []corev1.Container, t *model.Template) ([]corev1.Conta
 		return nil, fmt.Errorf("workspace template %q: spec.build.serverConfig: %w", t.Name, err)
 	}
 	return append(inits, corev1.Container{
-		Name: source.SiteConfigContainer, Image: tb.Image, SecurityContext: podspec.RestrictedContext(),
+		Name: source.SiteConfigContainer, Image: tb.Image, SecurityContext: podspec.ReadOnlyRootContext(),
 		Command:                  []string{"sh", "-c", `printf '%s\n' "$1" > "$2/site.conf"`, "sh", conf, tb.ServerConfigDir},
 		VolumeMounts:             []corev1.VolumeMount{{Name: siteConfigVolume, MountPath: tb.ServerConfigDir}},
 		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
@@ -194,7 +196,7 @@ func withSiteConfig(inits []corev1.Container, t *model.Template) ([]corev1.Conta
 func siteFromHome(t *model.Template, homeFile string) corev1.Container {
 	tb := t.Spec.Build
 	return corev1.Container{
-		Name: source.SiteCopyContainer, Image: tb.Image, SecurityContext: podspec.RestrictedContext(),
+		Name: source.SiteCopyContainer, Image: tb.Image, SecurityContext: podspec.ReadOnlyRootContext(),
 		Env:     []corev1.EnvVar{{Name: "HOME", Value: "/tmp"}},
 		Command: []string{"cp", homeFile, path.Join(tb.ServeDir, "index.html")},
 		VolumeMounts: []corev1.VolumeMount{

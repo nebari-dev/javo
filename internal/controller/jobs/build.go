@@ -254,7 +254,7 @@ func buildJobTemplate(in Inputs, override map[string]string, secretName string) 
 		Image:           in.RunnerImage.Ref,
 		Command:         []string{"/javo"},
 		Args:            []string{"runner", "install", "--to", runnerDir + "/javo"},
-		SecurityContext: podspec.RestrictedContext(),
+		SecurityContext: podspec.ReadOnlyRootContext(),
 		VolumeMounts:    []corev1.VolumeMount{runnerMount},
 	}}
 	in.RunnerImage.Pull(&pod)

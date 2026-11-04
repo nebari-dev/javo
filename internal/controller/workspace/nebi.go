@@ -63,7 +63,7 @@ func WithNebi(pod *corev1.Pod, objectName, nebiURL string, runner podspec.Image)
 	)
 	cli := corev1.VolumeMount{Name: nebiCLIVolume, MountPath: NebiCLIDir}
 	spec.InitContainers = append(spec.InitContainers, corev1.Container{
-		Name: NebiCLIContainer, Image: runner.Ref, SecurityContext: podspec.RestrictedContext(),
+		Name: NebiCLIContainer, Image: runner.Ref, SecurityContext: podspec.ReadOnlyRootContext(),
 		Command:                  []string{"/" + model.ProductName},
 		Args:                     []string{"pod-files", "--from", NebiCLIImageDir, "--to", NebiCLIDir},
 		VolumeMounts:             []corev1.VolumeMount{cli},

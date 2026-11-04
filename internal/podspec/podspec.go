@@ -42,6 +42,15 @@ func RestrictedContext() *corev1.SecurityContext {
 	}
 }
 
+// ReadOnlyRootContext is RestrictedContext with a read-only root filesystem,
+// for a container that runs only the platform's own steps and writes nothing
+// but its volumes (a copy, a check, the identity files).
+func ReadOnlyRootContext() *corev1.SecurityContext {
+	sc := RestrictedContext()
+	sc.ReadOnlyRootFilesystem = ptr.To(true)
+	return sc
+}
+
 // Base returns the pod spec for owner (a person's name) running image with
 // resources. It carries no storage and sets no ids or fsGroup;
 // podstorage.Layout.Apply adds the volumes, ids and groups.

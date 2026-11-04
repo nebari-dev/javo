@@ -232,7 +232,7 @@ func sampleInitContainers(t *model.Template, image string) []corev1.Container {
 			Name:            name,
 			Image:           image,
 			Command:         argv,
-			SecurityContext: podspec.RestrictedContext(),
+			SecurityContext: podspec.ReadOnlyRootContext(),
 			VolumeMounts:    []corev1.VolumeMount{{Name: homeVolume, MountPath: homeDir}},
 			// cp reports errors on stderr; without this the kubelet only
 			// reads the (empty) termination file and the reason has no text.

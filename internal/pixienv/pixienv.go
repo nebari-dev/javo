@@ -248,7 +248,7 @@ func Apply(spec *corev1.PodSpec, image string, toolsImage podspec.Image, src Sou
 	}
 	spec.Volumes = append(spec.Volumes, corev1.Volume{Name: volume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 	spec.InitContainers = append(spec.InitContainers, corev1.Container{
-		Name: ToolsContainer, Image: toolsImage.Ref, SecurityContext: podspec.RestrictedContext(),
+		Name: ToolsContainer, Image: toolsImage.Ref, SecurityContext: podspec.ReadOnlyRootContext(),
 		Command:                  []string{"/" + model.ProductName},
 		Args:                     []string{"runner", "install", "--to", tool},
 		VolumeMounts:             []corev1.VolumeMount{mount},

@@ -17,6 +17,7 @@ import (
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/sizes"
+	"github.com/nebari-dev/javo/internal/source"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
@@ -1456,5 +1457,56 @@ func TestBuildPodLimitsTheAppsDiskAtAnySize(t *testing.T) {
 	r := pod.Spec.Containers[0].Resources
 	if lim := r.Limits[corev1.ResourceEphemeralStorage]; lim.Cmp(resource.MustParse("30Gi")) != 0 || r.Limits.Memory().Cmp(resource.MustParse("1Gi")) != 0 {
 		t.Fatalf("resources = %+v", r)
+	}
+}
+
+// Every init container that runs only the platform's own steps (checks,
+// copies, the identity, the Nebi CLI) has a read-only root filesystem: it
+// writes only to its volumes. The clone (git-sync) and a build (the
+// repository's own commands) keep a writable one.
+func TestPlatformInitContainersHaveAReadOnlyRoot(t *testing.T) {
+	t.Parallel()
+	writable := map[string]bool{source.CloneContainer: true, source.BuildContainer: true}
+	var pods []*corev1.Pod
+	build := func(ws *model.App, tpl *model.Template) {
+		t.Helper()
+		pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pods = append(pods, pod)
+	}
+	ws, _ := fixtures()
+	tpl := sampleTemplate()
+	tpl.Spec.PodFiles = true
+	ws.Sample = true
+	build(ws, tpl)
+	ws, _ = sourceFixtures()
+	build(ws, staticTemplate("npm ci && npm run build"))
+	ws, _ = fixtures()
+	ws.File = "index.html"
+	build(ws, staticTemplate(""))
+	ws, tpl = fixtures()
+	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	WithNebi(pod, ws.ObjectName(), "http://nebi.example.com", testImages.Runner)
+	pods = append(pods, pod)
+
+	seen := map[string]bool{}
+	for _, p := range pods {
+		for _, c := range p.Spec.InitContainers {
+			seen[c.Name] = true
+			ro := c.SecurityContext != nil && c.SecurityContext.ReadOnlyRootFilesystem != nil && *c.SecurityContext.ReadOnlyRootFilesystem
+			if ro == writable[c.Name] {
+				t.Errorf("init container %s: read-only root %v, want %v", c.Name, ro, !writable[c.Name])
+			}
+		}
+	}
+	for _, name := range []string{source.CheckContainer, source.SiteCopyContainer, source.SiteConfigContainer, podfiles.CopyContainer, podfiles.IdentityContainer, NebiCLIContainer, model.SampleCopyContainer} {
+		if !seen[name] {
+			t.Errorf("no pod had init container %s: the check covers nothing for it", name)
+		}
 	}
 }

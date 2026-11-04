@@ -78,7 +78,7 @@ func Apply(spec *corev1.PodSpec, image podspec.Image) {
 	app := &spec.Containers[0]
 	step := func(name, image string, mount corev1.VolumeMount) corev1.Container {
 		return corev1.Container{
-			Name: name, Image: image, SecurityContext: podspec.RestrictedContext(),
+			Name: name, Image: image, SecurityContext: podspec.ReadOnlyRootContext(),
 			Env:                      []corev1.EnvVar{{Name: "HOME", Value: podspec.HomeDir}},
 			VolumeMounts:             []corev1.VolumeMount{mount},
 			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,

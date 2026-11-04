@@ -250,7 +250,9 @@ func TestJobPodShape(t *testing.T) {
 		t.Fatalf("init containers = %+v", pod.InitContainers)
 	}
 	init := pod.InitContainers[0]
-	if init.SecurityContext == nil || *init.SecurityContext.AllowPrivilegeEscalation {
+	// It only copies the runner into its volume: its root is read-only.
+	if init.SecurityContext == nil || *init.SecurityContext.AllowPrivilegeEscalation ||
+		init.SecurityContext.ReadOnlyRootFilesystem == nil || !*init.SecurityContext.ReadOnlyRootFilesystem {
 		t.Fatalf("init security context = %+v", init.SecurityContext)
 	}
 	if len(app.Command) != 1 || !strings.HasSuffix(app.Command[0], "/javo") || !slices.Equal(app.Args, []string{"runner"}) {
