@@ -85,7 +85,7 @@ func TestDiagnosisPlansAndMCP(t *testing.T) {
 	}
 
 	t.Run("MCP", func(t *testing.T) {
-		tok := s.newAPIToken("e2e agent", "read-write")
+		tok := s.newAPIToken("e2e agent", "propose")
 		running := s.create(fmt.Sprintf("e2e mcp %d", time.Now().Unix()%100000), "jupyterlab", "")
 		t.Cleanup(func() { s.do(http.MethodDelete, "/api/workspaces/"+running.Name, nil) })
 		s.waitFor(running.Name, 4*time.Minute, func(a app) bool { return a.Phase == "Running" })

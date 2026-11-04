@@ -306,19 +306,33 @@ func TestDeleteForEndsEveryTokenOfOnePerson(t *testing.T) {
 
 func TestScopeAllows(t *testing.T) {
 	for _, m := range []string{"GET", "HEAD"} {
-		if !token.ScopeRead.Allows(m) {
-			t.Errorf("read refuses %s", m)
+		for _, s := range []token.Scope{token.ScopeRead, token.ScopePropose, token.ScopeReadWrite, token.ScopeAdmin} {
+			if !s.Allows(m, "/api/workspaces") {
+				t.Errorf("%s refuses %s", s, m)
+			}
 		}
 	}
 	for _, m := range []string{"POST", "PUT", "PATCH", "DELETE", "OPTIONS"} {
-		if token.ScopeRead.Allows(m) {
+		if token.ScopeRead.Allows(m, "/api/workspaces") {
 			t.Errorf("read allows %s", m)
 		}
-		if !token.ScopeReadWrite.Allows(m) {
-			t.Errorf("read-write refuses %s", m)
+		if token.ScopePropose.Allows(m, "/api/workspaces") {
+			t.Errorf("propose allows %s", m)
+		}
+		if !token.ScopeReadWrite.Allows(m, "/api/workspaces") || !token.ScopeAdmin.Allows(m, "/api/workspaces") {
+			t.Errorf("read-write or admin refuses %s", m)
 		}
 	}
-	if token.Scope("admin").Allows("GET") {
+	// A propose token stores a plan and nothing else.
+	if !token.ScopePropose.Allows("POST", "/api/plans") {
+		t.Error("propose refuses POST /api/plans")
+	}
+	for _, p := range []string{"/api/plans/x/approve", "/api/plans/../workspaces", "/api/plansx"} {
+		if token.ScopePropose.Allows("POST", p) {
+			t.Errorf("propose allows POST %s", p)
+		}
+	}
+	if token.Scope("root").Allows("GET", "/api/me") {
 		t.Error("an unknown scope allows GET")
 	}
 }

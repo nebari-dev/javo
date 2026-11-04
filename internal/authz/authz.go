@@ -31,6 +31,10 @@ type Principal struct {
 	// verbatim. They gate templates and sizes; they are not platform roles.
 	ProviderRoles []string
 	Anonymous     bool
+	// MemberOnly withholds every role above member, whatever the groups:
+	// the principal of an API token that was not made for admin work (an
+	// app's or a job's own token, or a personal read or read-write token).
+	MemberOnly bool
 }
 
 // Role is a platform role, computed per request from groups.
@@ -50,10 +54,10 @@ func RolesOf(p Principal, cfg config.Roles) []Role {
 		return nil
 	}
 	var roles []Role
-	if inAny(p.Groups, cfg.PlatformAdmin.Groups) {
+	if !p.MemberOnly && inAny(p.Groups, cfg.PlatformAdmin.Groups) {
 		roles = append(roles, RolePlatformAdmin)
 	}
-	if inAny(p.Groups, cfg.TemplateAdmin.Groups) {
+	if !p.MemberOnly && inAny(p.Groups, cfg.TemplateAdmin.Groups) {
 		roles = append(roles, RoleTemplateAdmin)
 	}
 	if len(cfg.Member.Groups) == 0 || inAny(p.Groups, cfg.Member.Groups) {

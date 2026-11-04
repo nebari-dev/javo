@@ -15,6 +15,9 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/config"
+
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
@@ -22,10 +25,12 @@ import (
 )
 
 // TestEveryUIOperationAcceptsToken walks the OpenAPI document: every
-// operation a session may call answers a read-write token exactly as it
-// answers the session, and a read token the same for GET and 403 for the
-// rest. Only the token operations themselves and plan approval need a session. A route added
-// for the UI that refuses tokens fails here.
+// operation a session may call answers an admin token exactly as it answers
+// the admin's session, a read-write token as it answers the session of the
+// same person as a member, a read token the same for GET and 403 for the
+// rest, and a propose token like a read token except that it may store a
+// plan. Only the token operations themselves and plan approval need a
+// session. A route added for the UI that refuses tokens fails here.
 func TestEveryUIOperationAcceptsToken(t *testing.T) {
 	t.Parallel()
 	for _, op := range apiOperations(t) {
@@ -35,15 +40,22 @@ func TestEveryUIOperationAcceptsToken(t *testing.T) {
 		t.Run(op.id, func(t *testing.T) {
 			// Each operation has fixtures of its own.
 			t.Parallel()
-			viaSession, c := parityFixture(t)
-			want := call(viaSession, op, c, "")
-			if want.Code == http.StatusUnauthorized {
-				t.Fatalf("%s: a session gets 401: %s", op, want.Body)
+			asAdmin, c := parityFixture(t, true)
+			wantAdmin := call(asAdmin, op, c, "")
+			if wantAdmin.Code == http.StatusUnauthorized {
+				t.Fatalf("%s: a session gets 401: %s", op, wantAdmin.Body)
 			}
-			for _, scope := range []string{"read-write", "read"} {
-				viaToken, c := parityFixture(t)
-				tok := viaToken.NewToken(c, `{"name":"parity","scope":"`+scope+`"}`).Token
+			asMember, c := parityFixture(t, false)
+			wantMember := call(asMember, op, c, "")
+			for _, scope := range []string{"admin", "read-write", "read", "propose"} {
+				viaToken, c := parityFixture(t, true)
+				tok := viaToken.NewToken(c, `{"name":"parity","scope":"`+scope+`","expiresInDays":7}`).Token
 				got := call(viaToken, op, nil, tok)
+				want := wantMember
+				if scope == "admin" {
+					want = wantAdmin
+				}
+				readOnly := scope == "read" || scope == "propose" && !(op.method == http.MethodPost && op.path == token.PlansRoute)
 				var wantCode int
 				var wantTitle string
 				switch {
@@ -55,7 +67,7 @@ func TestEveryUIOperationAcceptsToken(t *testing.T) {
 						t.Fatalf("%s needs a browser session; only the token and plan decision operations may", op)
 					}
 					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgTokenCannotManageTokens)
-				case scope == "read" && op.method != http.MethodGet:
+				case readOnly && op.method != http.MethodGet:
 					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgTokenReadOnly)
 				default:
 					wantCode = want.Code
@@ -202,9 +214,13 @@ func parityPath(p string) string {
 
 // parityFixture is a gateway with alice signed in, a template and an app of
 // hers, the same every time it is built.
-func parityFixture(t *testing.T) (*apitest.Fixture, *http.Cookie) {
+func parityFixture(t *testing.T, admin bool) (*apitest.Fixture, *http.Cookie) {
 	t.Helper()
-	f := apitest.New(t, apitest.Options{Files: &apitest.StubFilesLister{}}, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Workspace("sales", apitest.LocalAlice(), "Sales"))
+	o := apitest.Options{Files: &apitest.StubFilesLister{}}
+	if !admin {
+		o.Roles = &config.Roles{}
+	}
+	f := apitest.New(t, o, gatewaytest.Template("streamlit", "streamlit"), gatewaytest.Workspace("sales", apitest.LocalAlice(), "Sales"))
 	return f, f.LoginAlice()
 }
 

@@ -226,7 +226,10 @@ func TestAppTokensCannotGiveJobsSecrets(t *testing.T) {
 // app's token it cannot touch secrets.
 func TestJobTokensCannotUseSecrets(t *testing.T) {
 	t.Parallel()
-	f := apitest.JobFixture(t, apitest.Options{}, apitest.JobObj(apitest.LocalAlice(), "nightly"))
+	// The job's template gives its runs a token, so the token is live.
+	tpl := apitest.JobTemplateObj()
+	tpl.Spec.APIToken = true
+	f := apitest.New(t, apitest.Options{Engines: apitest.TestEngines()}, tpl, apitest.JobObj(apitest.LocalAlice(), "nightly"))
 	f.WithSecretKeys()
 	c := f.LoginAlice()
 	f.CreateSecret(c, "API_KEY", apitest.SecretValue)

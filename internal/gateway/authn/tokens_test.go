@@ -255,7 +255,7 @@ func TestCreateTokenChecksItsFields(t *testing.T) {
 	}{
 		{`{"name":"","scope":"read","expiresInDays":30}`, "name", reasons.MsgTokenNameInvalid},
 		{`{"name":"` + strings.Repeat("x", 65) + `","scope":"read","expiresInDays":30}`, "name", reasons.MsgTokenNameInvalid},
-		{`{"name":"ci","scope":"admin","expiresInDays":30}`, "scope", reasons.MsgTokenScopeInvalid},
+		{`{"name":"ci","scope":"root","expiresInDays":30}`, "scope", reasons.MsgTokenScopeInvalid},
 		{`{"name":"ci","scope":"read","expiresInDays":0}`, "expiresInDays", reasons.MsgTokenExpiryInvalid},
 		{`{"name":"ci","scope":"read","expiresInDays":91}`, "expiresInDays", reasons.MsgTokenExpiryTooLong},
 		{`{"name":"ci","scope":"read"}`, "expiresInDays", reasons.MsgTokenExpiryTooLong},

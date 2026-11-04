@@ -107,6 +107,9 @@ type Authenticator struct {
 	GroupsMaxAge time.Duration
 	// Apps reports whether the app an app token is bound to still wants it.
 	Apps token.AppCheck
+	// Jobs reports whether the job a job token is bound to still wants it,
+	// and the job's template.
+	Jobs token.JobCheck
 	// Active, when set, hears of every request a signed-in browser makes.
 	Active func(userID string)
 }
@@ -217,29 +220,116 @@ func (a *Authenticator) tokenPrincipal(ctx context.Context, w http.ResponseWrite
 		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgPlanSessionOnly))
 		return authz.Principal{}, token.Token{}, false
 	}
-	if !tok.Scope.Allows(r.Method) {
+	if !tok.Scope.Allows(r.Method, r.URL.Path) {
 		return refuse(http.StatusForbidden, "insufficient_scope", reasons.MsgTokenReadOnly)
 	}
+	p, why, err := a.liveToken(ctx, tok)
+	switch {
+	case err != nil:
+		return fail("token check", err)
+	case why != "":
+		return refuse(http.StatusUnauthorized, "invalid_token", why)
+	}
+	p.MemberOnly = p.MemberOnly || !a.elevated(tok, p.jobTemplate, r.URL.Path)
+	a.Tokens.Touch(ctx, tok)
+	return p.Principal, tok, true
+}
+
+// LiveToken returns the record of an API token that works now, by the same
+// checks as a request with it (its app or job still wants it, its owner's
+// groups are recent enough), or token.ErrInvalid.
+func (a *Authenticator) LiveToken(ctx context.Context, text string) (token.Token, error) {
+	tok, err := a.Tokens.Authenticate(ctx, text)
+	if err != nil {
+		return token.Token{}, err
+	}
+	switch _, why, err := a.liveToken(ctx, tok); {
+	case err != nil:
+		return token.Token{}, err
+	case why != "":
+		return token.Token{}, token.ErrInvalid
+	}
+	return tok, nil
+}
+
+// tokenOwner is the principal of a live token, and the template of the job
+// it was made for ("" for any other token).
+type tokenOwner struct {
+	authz.Principal
+	jobTemplate string
+}
+
+// ElevatedGroupsMaxAge is how long after the owner's groups were last
+// confirmed by their provider (a sign-in or a revalidation) an admin token
+// keeps its admin roles; after that it acts as a member until they sign in.
+const ElevatedGroupsMaxAge = 24 * time.Hour
+
+// liveToken checks that tok is still wanted by its app or job and that its
+// owner is a person whose groups are recent enough, and returns the owner;
+// why is the reason it is not, for an invalid_token answer.
+func (a *Authenticator) liveToken(ctx context.Context, tok token.Token) (tokenOwner, reasons.MessageCode, error) {
+	var out tokenOwner
 	if tok.App != nil {
 		switch ok, err := a.Apps(ctx, *tok.App, tok.Scope); {
 		case err != nil:
-			return fail("token app lookup", err)
+			return out, "", err
 		case !ok:
-			return refuse(http.StatusUnauthorized, "invalid_token", reasons.MsgTokenInvalid)
+			return out, reasons.MsgTokenInvalid, nil
 		}
+	}
+	if tok.Job != "" {
+		if a.Jobs == nil {
+			return out, reasons.MsgTokenInvalid, nil
+		}
+		tpl, ok, err := a.Jobs(ctx, tok.Job, tok.Scope)
+		switch {
+		case err != nil:
+			return out, "", err
+		case !ok:
+			return out, reasons.MsgTokenInvalid, nil
+		}
+		out.jobTemplate = tpl
 	}
 	person, err := a.People.ByName(ctx, tok.Owner)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		return refuse(http.StatusUnauthorized, "invalid_token", reasons.MsgTokenInvalid)
+		return out, reasons.MsgTokenInvalid, nil
 	case err != nil:
-		return fail("token owner lookup", err)
+		return out, "", err
 	}
-	if a.now().Sub(person.LastLoginAt) > a.GroupsMaxAge {
-		return refuse(http.StatusUnauthorized, "invalid_token", reasons.MsgTokenSignInAgain)
+	age := a.now().Sub(person.LastLoginAt)
+	if age > a.GroupsMaxAge {
+		return out, reasons.MsgTokenSignInAgain, nil
 	}
-	a.Tokens.Touch(ctx, tok)
-	return identity.PrincipalOf(person), tok, true
+	out.Principal = identity.PrincipalOf(person)
+	// Admin roles last only a day past the provider's last word on them.
+	out.MemberOnly = age > ElevatedGroupsMaxAge
+	return out, "", nil
+}
+
+// backupRunRoutes are the admin routes the backup job's own token may use:
+// starting a backup or restore run and following it.
+var backupRunRoutes = []string{"/api/admin/backups/runs", "/api/admin/backups/restores"}
+
+// elevated reports whether a request with tok to the URL path p acts with
+// the owner's admin roles. Only an admin token does, while its owner's
+// groups are fresh (liveToken); and the token of a job on the built-in
+// backup template does on the backup run routes alone, which `javo backup
+// run` needs. Every other token, an app's included, acts as a member.
+func (a *Authenticator) elevated(tok token.Token, jobTemplate, p string) bool {
+	if tok.Scope.Elevated() && !tok.Workload() {
+		return true
+	}
+	if tok.Job == "" || jobTemplate != model.BackupTemplate {
+		return false
+	}
+	p = path.Clean("/" + p)
+	for _, r := range backupRunRoutes {
+		if p == r || strings.HasPrefix(p, r+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isTokenRoute is true for the routes that create, list and revoke tokens,

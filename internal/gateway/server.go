@@ -228,7 +228,7 @@ func NewServer(cfg Config) *Server {
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
 		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
-		Apps: apps.AppTokenWanted(cfg.Store),
+		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store),
 	}
 	mux := http.NewServeMux()
 	a.Register(api, mux)
@@ -277,7 +277,7 @@ func NewServer(cfg Config) *Server {
 	st.Register(api)
 	storage.RegisterFiles(api, listings, nss, st)
 
-	(&authn.TokensAPI{Store: cfg.Tokens, Apps: cfg.Store.Apps(), MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, Now: now, Docs: cfg.API.Docs.Enabled}).Register(api)
+	(&authn.TokensAPI{Store: cfg.Tokens, Roles: cfg.Roles, Apps: cfg.Store.Apps(), MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, Now: now, Docs: cfg.API.Docs.Enabled}).Register(api)
 	(&jobs.API{DB: cfg.Store, Client: cfg.Client, Namespaces: nss, Rules: sz, Logs: cfg.Logs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs}).Register(api)
 
 	if cfg.CodeHosts != nil {
@@ -305,7 +305,7 @@ func NewServer(cfg Config) *Server {
 	if cfg.MCP.Enabled {
 		mux.Handle(mcp.Route, mcp.NewHandler(mcp.Config{
 			API: mux, Doc: api.OpenAPI(), Actions: ws.DescribeActions(),
-			Verify: tokenVerifier(cfg.Tokens), PublicURL: cfg.MCP.PublicURL, Version: "v1alpha1",
+			Verify: tokenVerifier(a.LiveToken), PublicURL: cfg.MCP.PublicURL, Version: "v1alpha1",
 		}))
 		mux.Handle("GET "+mcp.MetadataRoute, mcp.MetadataHandler(cfg.MCP.PublicURL))
 	}

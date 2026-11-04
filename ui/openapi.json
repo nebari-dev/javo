@@ -958,7 +958,9 @@
           "scope": {
             "enum": [
               "read",
-              "read-write"
+              "propose",
+              "read-write",
+              "admin"
             ],
             "type": "string"
           },
@@ -4601,7 +4603,7 @@
             "type": "string"
           },
           "scope": {
-            "description": "read (GET and HEAD only) or read-write",
+            "description": "read (GET and HEAD only), propose (read, and propose changes for you to approve), read-write (everything you may do as a member) or admin (read-write with your admin roles; admins only, expiring within 30 days)",
             "type": "string"
           }
         },
@@ -4660,7 +4662,9 @@
           "scope": {
             "enum": [
               "read",
-              "read-write"
+              "propose",
+              "read-write",
+              "admin"
             ],
             "type": "string"
           }
@@ -10248,7 +10252,7 @@
         ]
       },
       "post": {
-        "description": "The token in the answer is shown once and never again. Send it as `Authorization: Bearer \u003ctoken\u003e`. It acts as you, with the groups from your last sign-in; a read token may only GET. Needs a browser session.",
+        "description": "The token in the answer is shown once and never again. Send it as `Authorization: Bearer \u003ctoken\u003e`. It acts as you, with the groups from your last sign-in, as a member: only an admin token, which an admin makes with an expiry of at most 30 days, keeps their admin roles. A read token may only GET; a propose token may also propose changes (POST /api/plans) that you approve in the browser. Needs a browser session.",
         "operationId": "createToken",
         "requestBody": {
           "content": {

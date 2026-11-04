@@ -145,6 +145,7 @@ const (
 	MsgTokenScopeInvalid       MessageCode = "TokenScopeInvalid"
 	MsgTokenExpiryInvalid      MessageCode = "TokenExpiryInvalid"
 	MsgTokenExpiryTooLong      MessageCode = "TokenExpiryTooLong" // arg: the most days allowed
+	MsgTokenAdminNotAllowed    MessageCode = "TokenAdminNotAllowed"
 	MsgModeWordsPerUser        MessageCode = "ModeWordsPerUser"   // where files are, inside a sentence
 	MsgModeWordsShared         MessageCode = "ModeWordsShared"
 	MsgHomeLabelPerUser        MessageCode = "HomeLabelPerUser" // the sidebar line
@@ -393,7 +394,8 @@ var messages = map[MessageCode]string{
 	MsgTokenCannotManageTokens: "API tokens cannot create, list or revoke tokens. Use Settings in the browser.",
 	MsgTokenNotFound:           "No token with that id.",
 	MsgTokenNameInvalid:        "Give the token a name of up to 64 characters.",
-	MsgTokenScopeInvalid:       "Pick read, or read and write.",
+	MsgTokenScopeInvalid:       "Pick read, propose, read and write, or admin.",
+	MsgTokenAdminNotAllowed:    "Only an admin can make an admin token.",
 	MsgTokenExpiryInvalid:      "Pick an expiry of 1 day or more.",
 	MsgTokenExpiryTooLong:      "Tokens here expire within %d days. Pick a shorter expiry.",
 	MsgModeWordsPerUser:        "a private disk",

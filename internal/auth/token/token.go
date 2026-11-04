@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -40,9 +41,24 @@ type Scope string
 const (
 	// ScopeRead allows GET and HEAD only.
 	ScopeRead Scope = "read"
-	// ScopeReadWrite allows everything its owner may do through the API.
+	// ScopePropose allows GET and HEAD, and storing a proposed change
+	// (POST /api/plans) that a person then approves in the browser: the
+	// token an agent gets over MCP, which cannot make a change itself.
+	ScopePropose Scope = "propose"
+	// ScopeReadWrite allows everything its owner may do through the API as a
+	// member: an admin's roles stay out of it.
 	ScopeReadWrite Scope = "read-write"
+	// ScopeAdmin is ScopeReadWrite with the owner's admin roles too. Only an
+	// admin can make one, in the browser, and only with an expiry of at most
+	// AdminMaxLifetime.
+	ScopeAdmin Scope = "admin"
 )
+
+// AdminMaxLifetime is the longest an admin token may live.
+const AdminMaxLifetime = 30 * 24 * time.Hour
+
+// PlansRoute is the one route a propose token may write to.
+const PlansRoute = "/api/plans"
 
 // ScopeFor is the scope of the token an app with API access (model.APIAccess*)
 // gets; "" for None or an unknown value.
@@ -57,18 +73,28 @@ func ScopeFor(access string) Scope {
 }
 
 // Valid reports whether s is a known scope.
-func (s Scope) Valid() bool { return s == ScopeRead || s == ScopeReadWrite }
+func (s Scope) Valid() bool {
+	return s == ScopeRead || s == ScopePropose || s == ScopeReadWrite || s == ScopeAdmin
+}
 
-// Allows reports whether a token of this scope may make a request with method.
-func (s Scope) Allows(method string) bool {
+// Allows reports whether a token of this scope may make a request with
+// method to the URL path p.
+func (s Scope) Allows(method, p string) bool {
+	if method == http.MethodGet || method == http.MethodHead {
+		return s.Valid()
+	}
 	switch s {
-	case ScopeReadWrite:
+	case ScopeReadWrite, ScopeAdmin:
 		return true
-	case ScopeRead:
-		return method == http.MethodGet || method == http.MethodHead
+	case ScopePropose:
+		return method == http.MethodPost && path.Clean("/"+p) == PlansRoute
 	}
 	return false
 }
+
+// Elevated reports whether a token of this scope acts with its owner's admin
+// roles.
+func (s Scope) Elevated() bool { return s == ScopeAdmin }
 
 // lastUseEvery is how often a token's last use is written at most.
 const lastUseEvery = time.Minute
@@ -328,6 +354,11 @@ func (s *DBStore) RevokeForApp(ctx context.Context, actor model.Actor, appID str
 // AppCheck reports whether a token of scope made for app a is still
 // wanted: the app exists and has API access of that scope.
 type AppCheck func(ctx context.Context, a App, scope Scope) (bool, error)
+
+// JobCheck reports whether a token of scope made for the job with row id job
+// is still wanted (the job exists, is not deleted, and its template gives its
+// runs a token of that scope), and the template the job runs on.
+type JobCheck func(ctx context.Context, job string, scope Scope) (template string, wanted bool, err error)
 
 // DeleteFor deletes every token of owner: for example when the local account
 // is removed.

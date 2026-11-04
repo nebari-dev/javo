@@ -20,7 +20,7 @@ Each person has a daily allowance of model tokens (per UTC day). When it is used
 
 Agents such as Claude Code or Cursor can work with Javo through its MCP endpoint at `/mcp` on the Javo address. MCP needs no model and is on unless your admin turned it off.
 
-1. Create a [personal API token](/using/api/#api-tokens).
+1. Create a [personal API token](/using/api/#api-tokens) with the **Propose** scope. A read-and-write token would also work, but then the agent could skip MCP and make any change directly through the API, so the approval step would protect nothing.
 2. Configure the agent with the MCP address, `https://<javo address>/mcp`, and the token as a bearer token.
 
 An agent can read what you can read. It can only **propose** changes: each proposal is a plan that waits for you to approve or reject it in the browser, at a link the agent shows you. Approving needs your browser session; a token alone can never approve. Plans expire after 10 minutes unless your admin changed it.

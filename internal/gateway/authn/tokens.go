@@ -11,6 +11,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
@@ -27,7 +29,7 @@ const tokensRoute = "/api/tokens"
 type TokenView struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`
-	Scope      string     `json:"scope" enum:"read,read-write"`
+	Scope      string     `json:"scope" enum:"read,propose,read-write,admin"`
 	Prefix     string     `json:"prefix" doc:"The start of the token, enough to recognise it"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	ExpiresAt  *time.Time `json:"expiresAt,omitempty" doc:"Absent when the token never expires"`
@@ -44,7 +46,7 @@ type CreatedToken struct {
 // TokenBody asks for a new token.
 type TokenBody struct {
 	Name          string `json:"name" maxLength:"1024"`
-	Scope         string `json:"scope" doc:"read (GET and HEAD only) or read-write"`
+	Scope         string `json:"scope" doc:"read (GET and HEAD only), propose (read, and propose changes for you to approve), read-write (everything you may do as a member) or admin (read-write with your admin roles; admins only, expiring within 30 days)"`
 	ExpiresInDays *int   `json:"expiresInDays,omitempty" doc:"Days until the token stops working; absent means never, when the server allows that"`
 }
 
@@ -57,6 +59,8 @@ type Info struct {
 // caps a new token's life; Docs says whether the API docs page is served.
 type TokensAPI struct {
 	Store *token.DBStore
+	// Roles says who is an admin, and so may make an admin token.
+	Roles config.Roles
 	// Apps is told when an app's token was revoked, so the controller makes a new one.
 	Apps        *store.Apps
 	MaxLifetime time.Duration
@@ -89,17 +93,26 @@ func validTokenName(name string) bool {
 	return n >= 1 && n <= maxTokenName && !strings.ContainsFunc(name, unicode.IsControl)
 }
 
-// expiry checks the requested lifetime against api.tokens.maxLifetime.
-func (t *TokensAPI) expiry(days *int) (*time.Time, error) {
-	maxDays := int(t.MaxLifetime / (24 * time.Hour))
+// expiry checks the requested lifetime against api.tokens.maxLifetime, and
+// for an admin token against token.AdminMaxLifetime too.
+func (t *TokensAPI) expiry(days *int, scope token.Scope) (*time.Time, error) {
+	limit := t.MaxLifetime
+	if scope.Elevated() && (limit <= 0 || limit > token.AdminMaxLifetime) {
+		limit = token.AdminMaxLifetime
+	}
+	return t.expiryWithin(days, limit)
+}
+
+func (t *TokensAPI) expiryWithin(days *int, limit time.Duration) (*time.Time, error) {
+	maxDays := int(limit / (24 * time.Hour))
 	switch {
-	case days == nil && t.MaxLifetime > 0:
+	case days == nil && limit > 0:
 		return nil, problem.FieldError("expiresInDays", reasons.MsgTokenExpiryTooLong, maxDays)
 	case days == nil:
 		return nil, nil
 	case *days < 1:
 		return nil, problem.FieldError("expiresInDays", reasons.MsgTokenExpiryInvalid)
-	case t.MaxLifetime > 0 && *days > maxDays:
+	case limit > 0 && *days > maxDays:
 		return nil, problem.FieldError("expiresInDays", reasons.MsgTokenExpiryTooLong, maxDays)
 	case *days > 36500:
 		return nil, problem.FieldError("expiresInDays", reasons.MsgTokenExpiryInvalid)
@@ -134,7 +147,9 @@ func (t *TokensAPI) Register(api huma.API) {
 		OperationID: "createToken", Method: http.MethodPost, Path: tokensRoute,
 		Summary: "Create a personal API token", Tags: []string{"tokens"}, Security: SessionOnly,
 		Description: "The token in the answer is shown once and never again. Send it as `Authorization: Bearer <token>`. " +
-			"It acts as you, with the groups from your last sign-in; a read token may only GET. Needs a browser session.",
+			"It acts as you, with the groups from your last sign-in, as a member: only an admin token, which an admin makes " +
+			"with an expiry of at most 30 days, keeps their admin roles. A read token may only GET; a propose token may also " +
+			"propose changes (POST /api/plans) that you approve in the browser. Needs a browser session.",
 		DefaultStatus: http.StatusCreated,
 		Errors:        []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *struct{ Body TokenBody }) (*struct{ Body CreatedToken }, error) {
@@ -149,7 +164,10 @@ func (t *TokensAPI) Register(api huma.API) {
 		if !scope.Valid() {
 			return nil, problem.FieldError("scope", reasons.MsgTokenScopeInvalid)
 		}
-		expires, err := t.expiry(in.Body.ExpiresInDays)
+		if p := User(ctx); scope.Elevated() && !authz.Elevated(authz.RolesOf(p, t.Roles)) {
+			return nil, problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgTokenAdminNotAllowed))
+		}
+		expires, err := t.expiry(in.Body.ExpiresInDays, scope)
 		if err != nil {
 			return nil, err
 		}
