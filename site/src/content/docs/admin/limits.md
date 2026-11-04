@@ -34,7 +34,7 @@ Schedules may run at most once a minute; `@every` below a minute is refused.
 
 ## Disk inside a pod
 
-`/tmp` and the scratch folder of every app and job pod are node disk with a size limit each, `config.storage.scratch.sizeLimit` (20Gi by default). A pod that writes more is evicted alone, before the node runs short of disk.
+`/tmp` and the scratch folder of every app and job pod are node disk with a size limit each: `config.storage.scratch.tmpSizeLimit` (2Gi by default) for `/tmp`, `config.storage.scratch.sizeLimit` (20Gi by default) for scratch. A pod that writes more is evicted alone, before the node runs short of disk.
 
 The container's own writable layer (files written anywhere but the home, `/tmp` and scratch) has no limit of its own. A template whose `resources` name an `ephemeral-storage` limit gives it to its pods, since sizes keep resources other than CPU, memory and GPUs; the built-in templates name none. Kubernetes then also reserves that much node disk for each pod when it places it, since a limit with no request asks for the same request. In per-user and per-team mode, `limits.namespace` below sets a default for every container instead.
 
