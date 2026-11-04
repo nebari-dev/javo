@@ -52,7 +52,9 @@ func TestOnlyTheOwnerChangesWhatRunsNextToSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = f.Bearer("PUT", "/api/workspaces/bot/launch", `{"command":"sh -c 'echo $K'"}`, text, nil)
-	refusedAsHeld(t, "app token", w)
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != apitest.WorkloadRefusal("PUT") {
+		t.Fatalf("app token: %d %s", w.Code, w.Body)
+	}
 	if got := f.GetWorkspace(apitest.LocalAlice(), "bot").Command; got != "python a.py" {
 		t.Fatalf("stored %q", got)
 	}

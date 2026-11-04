@@ -258,6 +258,7 @@ const (
 	MsgSecretsOwnerOnly       MessageCode = "SecretsOwnerOnly"
 	MsgSecretsNotForAppTokens MessageCode = "SecretsNotForAppTokens"
 	MsgSecretsHeldOwnerOnly   MessageCode = "SecretsHeldOwnerOnly"
+	MsgWorkloadTokenReadOnly  MessageCode = "WorkloadTokenReadOnly"
 	MsgEnvValueInvalid        MessageCode = "EnvValueInvalid"
 	MsgEnvValueOrSecret       MessageCode = "EnvValueOrSecret"
 	MsgWebhookUnknown         MessageCode = "WebhookUnknown"
@@ -510,6 +511,7 @@ var messages = map[MessageCode]string{
 	MsgEnvValueOrSecret:       "Type a value or pick a secret, not both.",
 	MsgSecretsNotForAppTokens: "An app's or job's own API token cannot use secrets. Use the browser, or a personal token from Settings.",
 	MsgSecretsHeldOwnerOnly:   "This uses its owner's secrets, so only its owner can change what it runs, and not with an app's or job's own API token. Ask the owner, or have them remove its secrets first.",
+	MsgWorkloadTokenReadOnly:  "An app's or job's own API token can read, start, stop and run, but cannot change files or create or change apps and jobs. Use the browser, or a personal token from Settings.",
 	MsgWebhookUnknown:         "This webhook was not made here. Set up the webhook again and paste the new address and secret into GitHub.",
 
 	MsgEnvironmentsOff:        "Environments are not set up on this platform.",

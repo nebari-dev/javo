@@ -308,7 +308,7 @@ func TestAppTokensCannotUseSecrets(t *testing.T) {
 		{"POST", "/api/workspaces", `{"displayName":"Leak","template":"agent","env":[{"name":"K","secret":"API_KEY"}]}`},
 	} {
 		w := f.Bearer(req.method, req.path, req.body, text, nil)
-		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsNotForAppTokens) {
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != apitest.WorkloadRefusal(req.method) {
 			t.Fatalf("%s %s with an app token: %d %s", req.method, req.path, w.Code, w.Body)
 		}
 	}

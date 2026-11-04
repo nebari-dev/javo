@@ -13,6 +13,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/reasons"
 )
 
 type TokenJSON struct {
@@ -66,4 +67,14 @@ func (f *Fixture) MountProxy(target string) {
 			return proxy.Backend{URL: u}, nil
 		},
 	}))
+}
+
+// WorkloadRefusal is the title an app's or job's own token gets when it
+// asks for its owner's secrets: the secrets message on a read, and on any
+// write the message that such a token changes nothing but what already runs.
+func WorkloadRefusal(method string) string {
+	if method == http.MethodGet || method == http.MethodHead {
+		return reasons.Msg(reasons.MsgSecretsNotForAppTokens)
+	}
+	return reasons.Msg(reasons.MsgWorkloadTokenReadOnly)
 }

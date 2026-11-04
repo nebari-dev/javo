@@ -141,7 +141,7 @@ func TestOnlyTheOwnerChangesTheEnvironment(t *testing.T) {
 	}
 	for _, path := range []string{"/api/workspaces/agent/env", "/api/jobs/nightly/env"} {
 		w := f.Bearer("PUT", path, `{"env":[{"name":"A","value":"1"}]}`, text, nil)
-		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsNotForAppTokens) {
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != apitest.WorkloadRefusal("PUT") {
 			t.Fatalf("app token PUT %s: %d %s", path, w.Code, w.Body)
 		}
 	}

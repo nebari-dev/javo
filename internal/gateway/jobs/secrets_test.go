@@ -212,7 +212,7 @@ func TestAppTokensCannotGiveJobsSecrets(t *testing.T) {
 		{"POST", "/api/jobs", fmt.Sprintf(apitest.NewJob, `,"env":[{"name":"K","secret":"API_KEY"}]`)},
 	} {
 		w := f.Bearer(req.method, req.path, req.body, text, nil)
-		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsNotForAppTokens) {
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != apitest.WorkloadRefusal(req.method) {
 			t.Fatalf("%s %s with an app token: %d %s", req.method, req.path, w.Code, w.Body)
 		}
 	}
@@ -249,7 +249,7 @@ func TestJobTokensCannotUseSecrets(t *testing.T) {
 		{"POST", "/api/jobs", fmt.Sprintf(apitest.NewJob, `,"env":[{"name":"K","secret":"API_KEY"}]`)},
 	} {
 		w := f.Bearer(req.method, req.path, req.body, text, nil)
-		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsNotForAppTokens) {
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != apitest.WorkloadRefusal(req.method) {
 			t.Fatalf("%s %s with a job token: %d %s", req.method, req.path, w.Code, w.Body)
 		}
 	}
@@ -346,7 +346,7 @@ func TestAppTokensCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := f.Bearer("PUT", "/api/jobs/nightly-sales", rewrite, text, nil)
-	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsHeldOwnerOnly) {
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != apitest.WorkloadRefusal("PUT") {
 		t.Fatalf("app token rewrite: %d %s", w.Code, w.Body)
 	}
 	job, err := f.Db.Jobs().GetByOwnerName(context.Background(), apitest.LocalAlice(), "nightly-sales")
