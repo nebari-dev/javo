@@ -1351,6 +1351,7 @@ export type SharingView = {
     access: 'Private' | 'Restricted' | 'SignedIn' | 'Public';
     actsAsOwner?: string;
     apiAccess: 'None' | 'Read' | 'ReadWrite';
+    exposes?: string;
     groups: Array<Group> | null;
     levels: Array<AccessLevel> | null;
     link: string;

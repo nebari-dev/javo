@@ -3831,6 +3831,9 @@
             ],
             "type": "string"
           },
+          "exposes": {
+            "type": "string"
+          },
           "groups": {
             "items": {
               "$ref": "#/components/schemas/Group"

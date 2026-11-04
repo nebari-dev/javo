@@ -68,9 +68,13 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
           // An app that can write as its owner is a way to act as them for anyone it is shared with.
           <Banner tone={view.apiAccess === 'ReadWrite' && view.access !== 'Private' ? 'warn' : 'info'} title={view.actsAsOwner} />
         )}
+        {view.exposes && (
+          // What the people it is shared with get through this kind of app, from the API.
+          <Banner tone="warn" title={view.exposes} />
+        )}
         {canShareWithPeople && (
           <>
-            <p className="muted">People you add can use the app. They never get your files, tokens, or sign-in.</p>
+            <p className="muted">People you add can open the app. They never get your sign-in.</p>
             <PeoplePicker taken={[...userIds, ...groupValues]} onPick={add} disabled={busy} />
             <ul className="people">
               {users.map((u) => (
@@ -123,7 +127,7 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
   )
 }
 
-/** Templates that hand the viewer a terminal can only ever be private. */
+/** The Terminal, JupyterLab and coding agents run code as the owner, so they can only ever be private. */
 function PrivateOnly() {
   return (
     <Card className="pad">
@@ -132,8 +136,8 @@ function PrivateOnly() {
         Only you can open this app
       </h2>
       <p className="muted tight">
-        This kind of app cannot be shared: anyone who opens it gets a terminal with your files. To share your work, run it as an app
-        that only shows results, such as Streamlit, Panel or Voila.
+        Terminals, JupyterLab and coding agents cannot be shared: anyone who opens it can run code as you, with your files. To share
+        your work, run it as an app that shows results, such as Streamlit, Panel or Voila.
       </p>
     </Card>
   )

@@ -369,6 +369,8 @@ export const adminMe = { id: 'bob-bbbbbbbb', username: 'bob', displayName: 'Bob'
 export const MESSAGES = {
   ShareTooOpen: 'This kind of app can be shared with no one but you at most.',
   ShareTooOpenSignedIn: 'This kind of app can be shared with everyone who signs in at most.',
+  ShareExposesCode:
+    'People you share with can run any code or command as you. They can read, change and delete every file in your home folder and your shared folders, including any keys or tokens kept there.',
   InvalidRequest: 'Something in this form is not valid. Check it and try again.',
   ShareTargetUnknown: (name: string) => `Nobody is called "${name}". Check the spelling.`,
 }

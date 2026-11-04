@@ -142,10 +142,19 @@ describe('Sharing tab', () => {
     open(view({ access: 'Private', maxAccess: 'Private', tooOpen: MESSAGES.ShareTooOpen }), {}, lab)
     await userEvent.click(await screen.findByRole('tab', { name: 'Sharing' }))
     expect(await screen.findByRole('heading', { name: 'Only you can open this app' })).toBeTruthy()
-    expect(screen.getByText(/anyone who opens it gets a terminal with your files/)).toBeTruthy()
+    expect(screen.getByText(/anyone who opens it can run code as you, with your files/)).toBeTruthy()
     expect(screen.queryByRole('radio')).toBeNull()
     expect(screen.queryByRole('combobox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull()
+  })
+
+  it('warns what sharing this kind of app hands the people it is shared with', async () => {
+    open(view({ exposes: MESSAGES.ShareExposesCode }))
+    await openSharing()
+    const warning = (await screen.findByText(MESSAGES.ShareExposesCode)).closest('[role="status"]')
+    expect(warning?.classList.contains('warn')).toBe(true)
+    // The old promise that viewers never get the owner's files is gone: for most apps it was not true.
+    expect(screen.queryByText(/never get your files/)).toBeNull()
   })
 
   it('disables the levels the template does not allow and says why', async () => {
@@ -159,7 +168,7 @@ describe('Sharing tab', () => {
   it('shows the hint and copies the link without showing it as text', async () => {
     open(view())
     await openSharing()
-    expect(await screen.findByText('People you add can use the app. They never get your files, tokens, or sign-in.')).toBeTruthy()
+    expect(await screen.findByText('People you add can open the app. They never get your sign-in.')).toBeTruthy()
     expect(screen.getByText('Groups come from your sign-in provider. Changes apply within a minute.')).toBeTruthy()
     expect(screen.getByPlaceholderText('Name, email, or group')).toBeTruthy()
     const writeText = vi.fn().mockResolvedValue(undefined)
