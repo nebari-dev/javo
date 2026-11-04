@@ -15,16 +15,30 @@ policies would let it bind its app roles anywhere. */ -}}
 {{- $managed := include "javo.groupKey" "managed" }}
 {{- $group := include "javo.group" . }}
 {{- $shared := eq (include "javo.namespaceMode" .) "shared" }}
-{{- /* Namespaces the controller may label before they carry the managed
-label: the shared one, or in the other modes the ones named <prefix>-...
-except the release's own (javo-system matches the default prefix). */ -}}
-{{- $adopt := printf "(object.metadata.name.startsWith('%s-') && object.metadata.name != '%s')" ((default (dict) .Values.config.namespaces).prefix | default "javo") .Release.Namespace }}
+{{- /* Namespaces the controller may create: in shared mode the one
+workspace namespace; in the other modes the ones its placement names
+(<prefix>-<person or team>, except the release's own, which javo-system
+matches with the default prefix) and the network probe's own namespace
+(<release namespace>-netprobe, cut and hashed past 63 characters as the
+controller does). It never takes over a namespace someone else made: in the
+other modes an existing namespace becomes Javo's only when an admin labels it
+managed; in shared mode the workspace namespace may be made by the chart or by
+an admin (createWorkspaceNamespace=false), and the controller labels it. */ -}}
+{{- $probe := printf "%s-netprobe" .Release.Namespace }}
+{{- if gt (len $probe) 63 }}
+{{- $probe = printf "%s-%s" (regexReplaceAll "-+$" (substr 0 54 $probe) "") (substr 0 8 (sha256sum $probe)) }}
+{{- end }}
+{{- $create := printf "((object.metadata.name.startsWith('%s-') && object.metadata.name != '%s') || object.metadata.name == '%s')" ((default (dict) .Values.config.namespaces).prefix | default "javo") .Release.Namespace $probe }}
+{{- $adopt := "false" }}
 {{- if $shared }}
-{{- $adopt = printf "object.metadata.name == '%s'" .Values.workspaceNamespace }}
+{{- $create = printf "object.metadata.name == '%s'" .Values.workspaceNamespace }}
+{{- $adopt = $create }}
 {{- end }}
 {{- $name := printf "%s-%s-javo-controller-namespaces" .Release.Name .Release.Namespace }}
-# Namespaces the controller patches: only its own (managed, or named for it),
-# and only Javo's labels and annotations plus the restricted Pod Security level.
+# Namespaces the controller creates and patches: it creates only the ones its
+# placement names, always managed and Pod Security restricted; it patches only
+# managed ones (and in shared mode the workspace namespace); and it sets only
+# Javo's labels and annotations plus the restricted Pod Security level.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -38,17 +52,19 @@ spec:
       - apiGroups: [""]
         apiVersions: ["*"]
         resources: [namespaces]
-        operations: [UPDATE]
+        operations: [CREATE, UPDATE]
   matchConditions:
     - name: controller
       expression: request.userInfo.username == '{{ $controller }}'
   variables:
+    - name: creating
+      expression: request.operation == 'CREATE'
     - name: oldLabels
-      expression: oldObject.metadata.?labels.orValue({})
+      expression: "variables.creating ? {} : oldObject.metadata.?labels.orValue({})"
     - name: newLabels
       expression: object.metadata.?labels.orValue({})
     - name: oldAnnotations
-      expression: oldObject.metadata.?annotations.orValue({})
+      expression: "variables.creating ? {} : oldObject.metadata.?annotations.orValue({})"
     - name: newAnnotations
       expression: object.metadata.?annotations.orValue({})
     - name: changedLabels
@@ -61,17 +77,26 @@ spec:
         + variables.oldAnnotations.filter(k, !(k in variables.newAnnotations))
   validations:
     - expression: >-
-        ('{{ $managed }}' in variables.oldLabels && variables.oldLabels['{{ $managed }}'] == 'true')
-        || {{ $adopt }}
-      message: the Javo controller may change only namespaces labelled {{ $managed }}=true or named for Javo
+        variables.creating
+        ? {{ $create }}
+        : (variables.oldLabels[?'{{ $managed }}'].orValue('') == 'true' || {{ $adopt }})
+      message: the Javo controller may create only the namespaces its placement names, and change only namespaces labelled {{ $managed }}=true
+    - expression: >-
+        !variables.creating
+        || (variables.newLabels[?'{{ $managed }}'].orValue('') == 'true'
+            && ['enforce', 'warn', 'audit'].all(m, variables.newLabels[?('pod-security.kubernetes.io/' + m)].orValue('') == 'restricted'))
+      message: the Javo controller may create a namespace only labelled {{ $managed }}=true with every Pod Security label restricted
     - expression: >-
         variables.changedLabels.all(k, k.startsWith('{{ $group }}/')
         || (k in ['pod-security.kubernetes.io/enforce', 'pod-security.kubernetes.io/warn', 'pod-security.kubernetes.io/audit']
-            && k in variables.newLabels && variables.newLabels[k] == 'restricted'))
-      message: the Javo controller may change only {{ $group }}/ labels, and set Pod Security labels only to restricted
+            && k in variables.newLabels && variables.newLabels[k] == 'restricted')
+        || (variables.creating && k == 'kubernetes.io/metadata.name'))
+      message: the Javo controller may set only {{ $group }}/ labels, and Pod Security labels only to restricted
     - expression: variables.changedAnnotations.all(k, k.startsWith('{{ $group }}/'))
-      message: the Javo controller may change only {{ $group }}/ annotations
-    - expression: object.spec == oldObject.spec && object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
+      message: the Javo controller may set only {{ $group }}/ annotations
+    - expression: >-
+        variables.creating
+        || (object.spec == oldObject.spec && object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([]))
       message: the Javo controller may change only labels and annotations of a namespace
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -108,15 +133,29 @@ spec:
   variables:
     - name: namespaceLabels
       expression: namespaceObject.metadata.?labels.orValue({})
+    - name: subjects
+      expression: "request.operation == 'DELETE' ? [] : object.?subjects.orValue([])"
   validations:
     - expression: >-
         '{{ $managed }}' in variables.namespaceLabels && variables.namespaceLabels['{{ $managed }}'] == 'true'
       message: the Javo controller may change RoleBindings only in namespaces labelled {{ $managed }}=true
     - expression: >-
         request.operation == 'DELETE'
-        || (object.roleRef.kind == 'ClusterRole'
-            && object.roleRef.name in ['{{ include "javo.appRoleName" (list . "javo-gateway") }}', '{{ include "javo.appRoleName" (list . "javo-controller") }}'])
-      message: the Javo controller may bind only the chart's app ClusterRoles
+        || variables.namespaceLabels[?'pod-security.kubernetes.io/enforce'].orValue('') == 'restricted'
+      message: the Javo controller may bind roles only in namespaces whose Pod Security level is restricted
+    # Each app ClusterRole goes to its own component's service account and to
+    # nothing else: a binding to a group or another account would hand it the
+    # Secrets and pod rights of the namespace.
+    - expression: >-
+        request.operation == 'DELETE'
+        || (object.roleRef.kind == 'ClusterRole' && size(variables.subjects) == 1
+            && variables.subjects[0].kind == 'ServiceAccount'
+            && variables.subjects[0].?namespace.orValue('') == '{{ .Release.Namespace }}'
+            && ((object.roleRef.name == '{{ include "javo.appRoleName" (list . "javo-gateway") }}'
+                 && variables.subjects[0].name == '{{ include "javo.account" (list . "javo-gateway") }}')
+                || (object.roleRef.name == '{{ include "javo.appRoleName" (list . "javo-controller") }}'
+                 && variables.subjects[0].name == '{{ include "javo.account" (list . "javo-controller") }}')))
+      message: the Javo controller may bind only the chart's app ClusterRoles, each to its own component's service account
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -128,6 +167,44 @@ spec:
   policyName: {{ $name }}
   validationActions: [Deny]
 {{- end }}
+{{- $gatewayUser := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "javo.account" (list . "javo-gateway")) }}
+{{- $name = printf "%s-%s-javo-no-token-secrets" .Release.Name .Release.Namespace }}
+---
+# Secrets either component writes: never a service-account-token Secret,
+# which Kubernetes fills with a token that does not expire. Both may create
+# Secrets (create cannot be limited by name) and read some by name, so either
+# could otherwise mint a lasting credential for any service account in a
+# namespace it writes to.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        resources: [secrets]
+        operations: [CREATE, UPDATE]
+  matchConditions:
+    - name: javo
+      expression: request.userInfo.username in ['{{ $controller }}', '{{ $gatewayUser }}']
+  validations:
+    - expression: object.?type.orValue('') != 'kubernetes.io/service-account-token'
+      message: Javo's components may not create service account token Secrets
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}
+  validationActions: [Deny]
 {{- /* With SQLite the one pod runs the gateway as the controller's account,
 which creates every kind of app pod, so the gateway's pods cannot be told
 apart there: this policy needs database.engine=postgres. */ -}}
