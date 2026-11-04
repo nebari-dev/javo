@@ -122,6 +122,8 @@ describe('Build with pi in the palette', () => {
     renderApp('/apps')
     const dialog = await search('create a Streamlit app')
     const row = await within(dialog).findByRole('option', { name: /Build with pi: create a Streamlit app/ })
+    // The agent's own logo, as on its app card, not a generic icon.
+    expect(row.querySelector('.logo img')?.getAttribute('src')).toMatch(/pi/)
     await userEvent.click(row)
     await vi.waitFor(() => expect(calls.calls.find((c) => c.path === '/api/ai/agent/build')?.body).toEqual({ request: 'create a Streamlit app' }))
     await vi.waitFor(() => expect(location()).toBe('/apps/create-a-streamlit-app'))

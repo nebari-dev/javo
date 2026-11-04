@@ -1,6 +1,7 @@
 import { Bot, CheckCheck, Plus, Server, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
+import { KindLogo } from '../../components/KindLogo'
 import { useAdminReport, useAgentStatus, useAiFeature, useAiCommand, useAskAdmin, useBuildWithAgent, useDecidePlan } from '../ai/ai'
 import type { DraftView, Plan } from '../../api'
 import { Button } from '../../components/Button'
@@ -192,7 +193,7 @@ export function useAskSection(): (query: string) => PaletteSection | undefined {
     const items: PaletteItem[] = []
     if (builds) {
       const name = agent.template
-      items.push(ask('ai:build', `Build with ${name}: ${text}`, <Bot size={16} />, <BuildPanel text={text} agent={agent.templateName || name} />))
+      items.push(ask('ai:build', `Build with ${name}: ${text}`, <KindLogo kind={agent.template} />, <BuildPanel text={text} agent={agent.templateName || name} />))
     }
     if (palette) items.push(ask('ai:ask', `Ask AI: ${text}`, <Sparkles size={16} />, <AskPanel text={text} />))
     if (admin) items.push(ask('ai:admin', `Ask about this cluster: ${text}`, <Server size={16} />, <AdminPanel text={text} />))
