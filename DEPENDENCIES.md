@@ -145,6 +145,10 @@ The files apps and jobs used to find in their images (`pod-user.sh`, `javo.bashr
 
 The terminal page of the agent templates is built when the Javo image is built (Dockerfile stage `pod-files`), from ttyd 1.7.7's release binary (sha256 `8a217c96...4f55` x86_64, `b38acadd...4165` aarch64, the versions the agents environment installs) and `@xterm/addon-clipboard` 0.1.0 (sha256 `6cbc7814...39e4`), as the agents image did.
 
+### Sample page logos
+
+Checked 2026-11-04. The landing pages of the backend-go, backend-node, fastapi, custom and static-site samples (`pod/files/samples`) inline one icon each from Simple Icons 16.35.0 (npm `simple-icons`, published 2026-10-11, tarball sha512 `TCfl/2+GTrx0nCo4pEWGvxhOb8c6NsqOU1OpwjtF4lwJAthB8IYVD0fuIMjLMg6JFuG1YBO0t1iETQqJLqkoJA==` matching the registry's integrity, gitHead `955f17f35634cd58de1748204059bce380d379af`; maintainers service-paradis, mondeja, adamrusted, litomore; OSV npm `simple-icons` 16.35.0: `{}`). Only the SVG path data of `icons/go.svg`, `nodedotjs.svg`, `fastapi.svg`, `python.svg` and `html5.svg` is copied, with each icon's brand colour from `data/simple-icons.json`; nothing is installed. Simple Icons is CC0-1.0; the marks stay their owners': Go (go.dev/brand), Node.js (OpenJS Foundation, nodejs.org/en/about/branding), FastAPI (its MIT-licensed repository), Python (Python Software Foundation, python.org/community/logos) and HTML5 (W3C, CC BY 3.0). The small Javo mark in each footer is `brand/javo-mark.svg`. The pages fetch no fonts: they name IBM Plex Sans and Fira Code and fall back to system fonts, so they work where the app has no internet access.
+
 ### Pod Security Admission
 
 The workspace namespace is labelled `restricted` (enforce, warn, audit). Checked against source: the pod built by the controller (`BuildPod`) sets runAsNonRoot, runAsUser 1000, seccomp RuntimeDefault, allowPrivilegeEscalation false and drops ALL; the jupyterlab image user is the numeric uid 1000 (jovyan) and the streamlit image user is numeric 1000:100, so runAsNonRoot resolves. Volumes are PVC and emptyDir only. Not yet proven on a live cluster.

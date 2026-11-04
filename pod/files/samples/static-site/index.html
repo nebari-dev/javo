@@ -3,19 +3,73 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>My static site</title>
+<title>Your static site is running</title>
+<!-- The page uses IBM Plex Sans and Fira Code when the viewer has them
+     installed and system fonts otherwise: no web fonts are fetched, so it
+     also works where the app has no internet access. -->
 <style>
-  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #1f2933; background: #f5f7fa; }
-  main { max-width: 40rem; margin: 4rem auto; padding: 2rem; background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.1); }
-  h1 { margin-top: 0; color: #2457a6; }
-  code { background: #eef2f7; padding: 0.1rem 0.3rem; border-radius: 4px; }
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #5b6270;
+    --line: #e3e6eb; --code: #f0f2f5; --link: #2357c6;
+    --brand: #e34f26; --logo: var(--brand);
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a21; --text: #e8eaee; --muted: #9aa3b2;
+      --line: #272c36; --code: #1f232c; --link: #8ab0ff;
+      --logo: color-mix(in srgb, var(--brand), #fff 25%);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.6 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main {
+    width: 100%; max-width: 34rem; padding: 40px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.04);
+  }
+  .logo {
+    width: 56px; height: 56px; display: grid; place-items: center; border-radius: 14px;
+    background: color-mix(in srgb, var(--brand) 12%, transparent);
+  }
+  .logo svg { width: 32px; height: 32px; fill: var(--logo); }
+  h1 { margin: 24px 0 8px; font-size: 1.6rem; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; }
+  p { margin: 0; color: var(--muted); }
+  code, dd { font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.875em; }
+  code { padding: 0.1em 0.35em; border-radius: 6px; background: var(--code); color: var(--text); overflow-wrap: anywhere; }
+  dl { margin: 28px 0 0; padding-top: 20px; border-top: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr; gap: 6px 20px; font-size: 0.875rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  footer { margin-top: 28px; display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: var(--muted); }
+  footer svg { width: 16px; height: 16px; fill: currentColor; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  nav { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+  nav a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
+  nav a:hover { text-decoration: none; border-color: var(--link); }
+  @media (max-width: 480px) { main { padding: 28px 24px; } }
 </style>
 </head>
 <body>
 <main>
-  <h1>My static site</h1>
-  <p>This page is one HTML file served by nginx.</p>
-  <p>Edit <code>samples/static-site/index.html</code> in your home folder and press Redeploy to publish the change.</p>
+  <!-- HTML5 logo: Simple Icons 16.35.0 (icons/html5.svg), CC0-1.0;
+       the logo is the W3C's, licensed CC BY 3.0 (w3.org/html/logo). -->
+  <div class="logo"><svg viewBox="0 0 24 24" role="img" aria-label="HTML5"><path d="M1.5 0h21l-1.91 21.563L11.977 24l-8.564-2.438L1.5 0zm7.031 9.75l-.232-2.718 10.059.003.23-2.622L5.412 4.41l.698 8.01h9.126l-.326 3.426-2.91.804-2.955-.81-.188-2.11H6.248l.33 4.171L12 19.351l5.379-1.443.744-8.157H8.531z"/></svg></div>
+  <h1>Your static site is running</h1>
+  <p>This is a sample app deployed with Javo. Edit <code>samples/static-site/index.html</code> in your home folder and press Redeploy to change it.</p>
+  <dl>
+    <dt>Served by</dt><dd>nginx</dd>
+    <dt>Path</dt><dd><span id="path">/</span></dd>
+  </dl>
+  <footer>
+    <svg viewBox="0 0 100 100" aria-hidden="true"><path fill-rule="evenodd" d="M22 0H78A22 22 0 0 1 100 22V78A22 22 0 0 1 78 100H22A22 22 0 0 1 0 78V22A22 22 0 0 1 22 0ZM28.8 80L49.2 20H63.2L42.8 80ZM54.8 80L68.4 40H82.4L68.8 80Z"/></svg>
+    <span>Deployed with Javo. <a href="https://javo.nebari.dev">Read the docs</a></span>
+  </footer>
 </main>
+<script>document.getElementById('path').textContent = location.pathname</script>
 </body>
 </html>
