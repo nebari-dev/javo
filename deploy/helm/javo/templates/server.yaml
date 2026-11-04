@@ -85,7 +85,7 @@ spec:
             # container's memory limit instead of being OOM-killed past it.
             - name: GOMEMLIMIT
               valueFrom:
-                resourceFieldRef: {containerName: javo, resource: limits.memory}
+                resourceFieldRef: {containerName: javo, resource: limits.memory, divisor: "1"}
             {{- include "javo.aiEnv" . | nindent 12 }}
           ports:
             - {name: http, containerPort: {{ .Values.gateway.port }}}
