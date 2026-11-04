@@ -31,11 +31,11 @@ const (
 	ImageRunsAsRoot   Code = "ImageRunsAsRoot"
 	// ImageNotAllowed: the app's image is from a registry the admin no
 	// longer allows (containerImages.allowedRegistries).
-	ImageNotAllowed   Code = "ImageNotAllowed"
-	AppCrashed        Code = "AppCrashed"
-	OutOfMemory       Code = "OutOfMemory"
-	AppNotAnswering   Code = "AppNotAnswering"
-	TemplateMissing   Code = "TemplateMissing"
+	ImageNotAllowed Code = "ImageNotAllowed"
+	AppCrashed      Code = "AppCrashed"
+	OutOfMemory     Code = "OutOfMemory"
+	AppNotAnswering Code = "AppNotAnswering"
+	TemplateMissing Code = "TemplateMissing"
 	// TemplateNotAllowed: the app's owner may no longer use its template.
 	TemplateNotAllowed Code = "TemplateNotAllowed"
 	TemplateInvalid    Code = "TemplateInvalid"
@@ -140,8 +140,8 @@ const (
 	// RunLimitReached: the job or its owner has as many runs going as the
 	// platform allows (limits.activeRunsPerJob, limits.activeRunsPerPerson).
 	RunLimitReached Code = "RunLimitReached"
-	Succeeded         Code = "Succeeded"
-	Running           Code = "Running"
+	Succeeded       Code = "Succeeded"
+	Running         Code = "Running"
 )
 
 // Job definition state codes.
@@ -210,8 +210,8 @@ const (
 	// PreviewOwnerLimitReached is the platform's cap on all of a person's
 	// previews (limits.previews).
 	PreviewOwnerLimitReached Code = "PreviewOwnerLimitReached"
-	PreviewForkSkipped  Code = "PreviewForkSkipped"
-	PreviewsUnavailable Code = "PreviewsUnavailable"
+	PreviewForkSkipped       Code = "PreviewForkSkipped"
+	PreviewsUnavailable      Code = "PreviewsUnavailable"
 )
 
 // Reason is one catalog entry, keyed by Code.
