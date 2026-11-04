@@ -421,8 +421,9 @@ func setRestoring(h *model.Home, status metav1.ConditionStatus, code reasons.Cod
 	})
 }
 
-// writers are the owner's pods that may write to the home: apps and job
-// runs. File pods read only, the storage Jobs are this controller's, and a
+// writers are the owner's pods that may write to the home: apps, job runs
+// and the file picker's pod (the editor saves through it; the gateway lets
+// it go while the home is Restoring). The storage Jobs are this controller's, and a
 // run of a job from the backup template only follows the restore (it would
 // otherwise wait for itself).
 func (r *BackupReconciler) writers(ctx context.Context, h *model.Home) ([]string, error) {
@@ -434,7 +435,7 @@ func (r *BackupReconciler) writers(ctx context.Context, h *model.Home) ([]string
 	for _, p := range pods.Items {
 		finished := p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed
 		switch p.Labels[model.LabelRole] {
-		case model.RoleFiles, model.RoleHomePrepare, model.RoleHomeMigrate, model.RoleHomeBackup, model.RoleHomeRestore:
+		case model.RoleHomePrepare, model.RoleHomeMigrate, model.RoleHomeBackup, model.RoleHomeRestore:
 			continue
 		}
 		if finished {

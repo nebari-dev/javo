@@ -32,6 +32,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -855,6 +856,16 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 
 	var pod corev1.Pod
 	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: podName(userID)}, &pod)
+	if held(in.Home) {
+		// A restore or a move waits for the owner's pods to go, the file pod
+		// too: it writes to the home.
+		if err == nil && isFilePodOf(&pod, userID) {
+			if err := deleteExact(ctx, c, &pod); err != nil {
+				return "", err
+			}
+		}
+		return "", ErrHomeBusy
+	}
 	if apierrors.IsNotFound(err) {
 		if err := c.Create(ctx, buildPod(userID, ns, p.cfg.Image, in)); err != nil && !apierrors.IsAlreadyExists(err) {
 			return "", err
@@ -1008,6 +1019,12 @@ func (p *Pods) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// held reports whether h is being restored or moved to other storage.
+func held(h *model.Home) bool {
+	return h != nil && (meta.IsStatusConditionTrue(h.Status.Conditions, model.ConditionRestoring) ||
+		meta.IsStatusConditionTrue(h.Status.Conditions, model.ConditionMigrating))
 }
 
 // hasFolders reports whether pod mounts exactly the group folders it should:

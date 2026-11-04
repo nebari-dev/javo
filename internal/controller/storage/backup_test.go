@@ -303,6 +303,33 @@ func TestARestoreHoldsTheAppsRunsAndLetsThemGo(t *testing.T) {
 	}
 }
 
+// The file picker's pod writes to the home (the editor saves through it), so
+// a restore waits for it to go like any app: a save landing in the middle of
+// restic's restore would leave the home neither as the snapshot nor as it was.
+func TestARestoreWaitsForTheFilePod(t *testing.T) {
+	t.Parallel()
+	owner := uniqueOwner("fay")
+	readyHome(t, owner)
+	p := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: model.FilesPodPrefix + owner, Namespace: homeNS,
+			Labels: map[string]string{model.LabelOwner: owner, model.LabelRole: model.RoleFiles}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "rclone", Image: "x"}}},
+	}
+	must(t, env(t).k8s.Create(ctx, p))
+	t.Cleanup(func() { _ = client.IgnoreNotFound(env(t).k8s.Delete(ctx, p, client.GracePeriodSeconds(0))) })
+	requestRestore(t, owner, model.RestoreReplace)
+	r := backupReconciler(t)
+	reconcileBackup(t, r, owner)
+	if n := len(jobsOf(t, owner, model.RoleHomeRestore)); n != 0 {
+		t.Fatal("a restore job started while the file pod could write to the home")
+	}
+	must(t, env(t).k8s.Delete(ctx, p, client.GracePeriodSeconds(0)))
+	reconcileBackup(t, r, owner)
+	if n := len(jobsOf(t, owner, model.RoleHomeRestore)); n != 1 {
+		t.Fatalf("%d restore jobs after the file pod went", n)
+	}
+}
+
 // The run of the restore job itself runs in its owner's home; it does not
 // hold up the restore of that very home.
 func TestTheRestoreJobsOwnRunDoesNotHoldUpItsHome(t *testing.T) {

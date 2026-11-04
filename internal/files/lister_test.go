@@ -418,6 +418,27 @@ func TestEnsureReplacesAPodThatMountsAFolderTheUserLost(t *testing.T) {
 	}
 }
 
+// While a home is being restored or moved, the file pod (which writes to it)
+// is let go and the picker answers busy, so the restore or move can start and
+// no save lands in the middle of it.
+func TestEnsureLetsGoOfTheFilePodWhileTheHomeIsHeld(t *testing.T) {
+	for _, cond := range []string{model.ConditionRestoring, model.ConditionMigrating} {
+		c := newClient(t, homeClaim(), filePod(corev1.PodRunning, true, "10.0.0.5"))
+		home := &model.Home{Status: model.HomeStatus{Conditions: []metav1.Condition{{Type: cond, Status: metav1.ConditionTrue}}}}
+		p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{podstorage.Input{Home: home}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Ensure(context.Background(), owner); !errors.Is(err, files.ErrHomeBusy) {
+			t.Fatalf("%s: err = %v, want ErrHomeBusy", cond, err)
+		}
+		var pod corev1.Pod
+		if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: model.FilesPodPrefix + owner}, &pod); !apierrors.IsNotFound(err) {
+			t.Fatalf("%s: file pod still there: %v", cond, err)
+		}
+	}
+}
+
 func TestEnsurePendingPod(t *testing.T) {
 	cases := []struct {
 		name string
