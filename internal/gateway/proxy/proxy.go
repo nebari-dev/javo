@@ -407,7 +407,7 @@ func (p *proxy) startedByAnotherApp(r *http.Request, t exposure.Target) bool {
 // the UI host share the UI's origin, and apps served under a path of one apps
 // host share that host's origin with each other.
 func (p *proxy) appsShareOrigin() bool {
-	return !p.cfg.Exposure.SeparateHost() || p.cfg.Exposure.BasePath("o", "n") != "/"
+	return exposure.SharesOrigin(p.cfg.Exposure)
 }
 
 // session returns the live session the request carries for this app: the app

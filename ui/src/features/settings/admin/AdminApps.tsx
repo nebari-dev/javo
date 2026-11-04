@@ -1,4 +1,4 @@
-import { Square } from 'lucide-react'
+import { Play, Square } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { AdminApp } from '../../../api'
 import { Banner } from '../../../components/Banner'
@@ -11,7 +11,7 @@ import { problemText } from '../../../lib/http'
 import { OpenAppLink } from '../../apps/OpenAppLink'
 import { readySince } from '../../apps/startup'
 import { appLink, pillStatus, stopNote } from '../../apps/status'
-import { useAdminApps, useAdminStop } from './queries'
+import { useAdminApps, useAdminStart, useAdminStop } from './queries'
 import { duration, when } from './format'
 
 const STOPPABLE = new Set(['Running', 'Starting', 'Pending', 'Failed'])
@@ -27,6 +27,16 @@ function sharedNames(items: AdminApp[]): Set<string> {
   const people = new Map<string, Set<string>>()
   for (const { owner } of items) people.set(owner.displayName, (people.get(owner.displayName) ?? new Set()).add(owner.name))
   return new Set([...people].filter(([, names]) => names.size > 1).map(([display]) => display))
+}
+
+function StartFor({ item }: { item: AdminApp }) {
+  const start = useAdminStart()
+  const { app, owner } = item
+  return (
+    <Button size="sm" icon={Play} aria-label={`Start ${app.displayName}`} disabled={start.isPending} onClick={() => start.mutate({ name: app.name, owner: owner.name })}>
+      <span className="atable-act-label">Start</span>
+    </Button>
+  )
 }
 
 function StopFor({ item }: { item: AdminApp }) {
@@ -59,16 +69,19 @@ function StopFor({ item }: { item: AdminApp }) {
   )
 }
 
-/** Settings, All apps: every person's apps, with Open and Stop for any of them. */
+/** Settings, All apps: every person's apps, with Open, Start and Stop for any of them. */
 export function AdminApps() {
   const apps = useAdminApps()
   if (apps.isError) return <Banner tone="err" title={problemText(apps.error)} />
   if (apps.isPending) return <div className="muted">Loading</div>
   if (apps.data.length === 0) return <EmptyState title="No apps yet" body="Apps people create show here." />
   const shared = sharedNames(apps.data)
+  const closed = apps.data.some((item) => !item.canOpen)
   return (
     <>
-      <p className="sub">Every app on this install. Opening one is recorded in the audit log. Stopping one tells its owner an admin did it; their files and settings are kept.</p>
+      <p className="sub">Every app on this install. Opening someone else's app is recorded in the audit log. Stopping one tells its owner an admin did it; their files and settings are kept.
+        {closed && " Apps here share one address, so you can open only your own: another person's app could act with your admin rights."}
+      </p>
       <div className="section-sm card atable-wrap">
         <table className="atable">
           <caption className="sr-only">All apps</caption>
@@ -89,7 +102,7 @@ export function AdminApps() {
             {apps.data.map((item) => {
               const note = stopNote(item.app)
               const running = runningFor(item)
-              const open = item.app.phase === 'Running' ? appLink(item.app.url) : undefined
+              const open = item.canOpen && item.app.phase === 'Running' ? appLink(item.app.url) : undefined
               return (
                 <tr key={item.id}>
                   <th scope="row">
@@ -118,6 +131,7 @@ export function AdminApps() {
                           <span className="atable-act-label">Open</span>
                         </OpenAppLink>
                       )}
+                      {item.app.phase === 'Stopped' && <StartFor item={item} />}
                       {STOPPABLE.has(item.app.phase) && <StopFor item={item} />}
                     </span>
                   </td>

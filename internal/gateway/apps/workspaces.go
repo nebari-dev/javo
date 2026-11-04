@@ -174,6 +174,10 @@ type Workspaces struct {
 	cfg Config
 }
 
+// AppsShareOrigin says whether app pages share an origin with the UI or
+// with each other (exposure.SharesOrigin).
+func (s *Workspaces) AppsShareOrigin() bool { return exposure.SharesOrigin(s.exp) }
+
 // appURL is the address people open the app at.
 func (s *Workspaces) appURL(app *model.App) string {
 	u := s.exp.URLFor(app.Owner, app.Name, app.ObjectName())

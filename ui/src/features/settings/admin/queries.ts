@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  startWorkspace,
   adminBackUpEverythingNow,
   adminBackUpNow,
   adminListApps,
@@ -44,6 +45,15 @@ export function useAdminStop() {
   return useMutation({
     mutationFn: async ({ name, owner }: { name: string; owner: string }) =>
       (await stopWorkspace({ path: { name }, query: { owner }, throwOnError: true })).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.apps }),
+  })
+}
+
+export function useAdminStart() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ name, owner }: { name: string; owner: string }) =>
+      (await startWorkspace({ path: { name }, query: { owner }, throwOnError: true })).data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.apps }),
   })
 }

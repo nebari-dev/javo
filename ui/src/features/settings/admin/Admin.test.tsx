@@ -12,6 +12,7 @@ const plots: AdminApp = {
   app: ws('plots', 'Plots', 'Running', allReady()),
   createdAt: '2026-10-01T09:00:00Z',
   lastActiveAt: '2026-11-01T09:00:00Z',
+  canOpen: true,
 }
 const notes: AdminApp = { ...plots, id: 'a-2', app: ws('notes', 'Notes', 'Stopped', allStopped()) }
 
@@ -145,14 +146,26 @@ describe('Settings for platform admins', () => {
     expect(api.calls.find((c) => c.method === 'POST')?.path).toBe('/api/workspaces/plots/stop?owner=alice-aaaaaaaa')
   })
 
-  it('links each running app so an admin can open it, in a new tab', async () => {
-    admin({})
+  it('starts a stopped app of any person, as that app\u2019s owner', async () => {
+    const api = admin({ 'POST /api/workspaces/notes/start': { body: { ...notes.app, phase: 'Starting' } } })
+    renderApp('/settings/apps')
+    const table = await screen.findByRole('table', { name: 'All apps' })
+    expect(within(within(table).getByRole('row', { name: /Plots/ })).queryByRole('button', { name: /^Start/ })).toBeNull()
+    await userEvent.click(within(within(table).getByRole('row', { name: /Notes/ })).getByRole('button', { name: 'Start Notes' }))
+    expect(api.calls.find((c) => c.method === 'POST')?.path).toBe('/api/workspaces/notes/start?owner=alice-aaaaaaaa')
+  })
+
+  it('links each running app the admin may open, in a new tab, and says why the others do not open', async () => {
+    const maps: AdminApp = { ...plots, id: 'a-3', canOpen: false, owner: { name: 'carol-cccccccc', displayName: 'Carol' }, app: ws('maps', 'Maps', 'Running', allReady()) }
+    admin({ 'GET /api/admin/apps': { body: { items: [plots, notes, maps] } } })
     renderApp('/settings/apps')
     const table = await screen.findByRole('table', { name: 'All apps' })
     const open = within(within(table).getByRole('row', { name: /Plots/ })).getByRole('link', { name: 'Open Plots' })
     expect(open.getAttribute('href')).toBe('/u/alice/plots/')
     expect(open.getAttribute('target')).toBe('_blank')
     expect(within(within(table).getByRole('row', { name: /Notes/ })).queryByRole('link', { name: /Open/ })).toBeNull()
+    expect(within(within(table).getByRole('row', { name: /Maps/ })).queryByRole('link', { name: /Open/ })).toBeNull()
+    expect(screen.getByText(/you can open only your own/)).toBeTruthy()
   })
 
   it('says how long each running app has run, from when it last became ready', async () => {

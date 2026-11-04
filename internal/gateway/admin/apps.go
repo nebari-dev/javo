@@ -48,6 +48,9 @@ type AdminApp struct {
 	// absent before any.
 	LastActiveAt *time.Time `json:"lastActiveAt,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
+	// CanOpen is whether the calling admin may open the app: their own, or
+	// any when apps have their own origins (exposure.SharesOrigin).
+	CanOpen bool `json:"canOpen"`
 }
 
 type adminAppsInput struct {
@@ -76,6 +79,7 @@ func (a *API) registerApps(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
+		caller, shared := authn.User(ctx).ID, s.AppsShareOrigin()
 		owners := map[string]PersonRef{}
 		out := &adminAppsOutput{}
 		out.Body.Items = []AdminApp{}
@@ -92,6 +96,7 @@ func (a *API) registerApps(api huma.API) {
 			item := AdminApp{
 				ID: app.ID, Owner: owner,
 				App: s.View(ctx, app, tpls), CreatedAt: app.CreatedAt,
+				CanOpen: !shared || app.Owner == caller,
 			}
 			if !app.LastActiveAt.IsZero() {
 				t := app.LastActiveAt

@@ -2,8 +2,9 @@ package apitest
 
 type AdminAppsJSON struct {
 	Items []struct {
-		ID    string `json:"id"`
-		Owner struct {
+		ID      string `json:"id"`
+		CanOpen bool   `json:"canOpen"`
+		Owner   struct {
 			Name        string `json:"name"`
 			DisplayName string `json:"displayName"`
 			Username    string `json:"username"`

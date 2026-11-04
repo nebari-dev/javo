@@ -28,3 +28,10 @@ type Backend interface {
 	// reach them with a ticket instead of the UI cookie.
 	SeparateHost() bool
 }
+
+// SharesOrigin is true when an app's page shares its origin with the UI (one
+// host) or with the other apps (path mode on an apps host). A page there can
+// act as whoever views it, so an admin opens only their own apps.
+func SharesOrigin(b Backend) bool {
+	return !b.SeparateHost() || b.BasePath("o", "n") != "/"
+}

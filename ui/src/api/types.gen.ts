@@ -38,6 +38,7 @@ export type AdminAnswer = {
 
 export type AdminApp = {
     app: Workspace;
+    canOpen: boolean;
     createdAt: string;
     id: string;
     lastActiveAt?: string;
@@ -1836,6 +1837,7 @@ export type WorkspaceListOutputBody = {
 
 export type AdminAppWritable = {
     app: WorkspaceWritable;
+    canOpen: boolean;
     createdAt: string;
     id: string;
     lastActiveAt?: string;

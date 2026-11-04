@@ -43,6 +43,26 @@ func TestAdminListsEveryonesApps(t *testing.T) {
 	}
 }
 
+// While apps share an origin (path mode), an admin may open only their own
+// apps: someone else's page could act with the admin's rights. The list says
+// which, so the UI offers Open only where it works.
+func TestAdminAppsSayWhichTheAdminMayOpen(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("t", "streamlit"),
+		gatewaytest.App(apitest.AdminID, "mine"), gatewaytest.App(apitest.MemberID, "theirs"))
+	w := f.Do(http.MethodGet, "/api/admin/apps", "", f.Session(apitest.AdminID, "javo-admins"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body)
+	}
+	got := map[string]bool{}
+	for _, it := range apitest.Decode[apitest.AdminAppsJSON](t, w).Items {
+		got[it.App.Name] = it.CanOpen
+	}
+	if !got["mine"] || got["theirs"] {
+		t.Errorf("canOpen = %v, want mine true and theirs false", got)
+	}
+}
+
 // The owner is labelled by their display name, else their username, never
 // the internal identity name: a local account has no display name, and a
 // person deleted since keeps only the readable part of their identity name.

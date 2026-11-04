@@ -114,6 +114,9 @@
           "app": {
             "$ref": "#/components/schemas/Workspace"
           },
+          "canOpen": {
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -133,7 +136,8 @@
           "id",
           "owner",
           "app",
-          "createdAt"
+          "createdAt",
+          "canOpen"
         ],
         "type": "object"
       },
