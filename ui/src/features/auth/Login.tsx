@@ -8,13 +8,9 @@ import { ThemeSwitch } from '../../components/ThemeSwitch'
 import { problemText } from '../../lib/http'
 import type { LoginOption } from '../../api'
 import { BrandLogo, BrandName } from '../../components/BrandLogo'
+import { safeNext } from '../../lib/localPath'
 import { useAuthOptions, useLogin, useReasonCopy } from '../../lib/queries'
 
-/** Only same-site paths are followed after sign-in, so a link cannot send the user elsewhere. */
-function safeNext(next: string | null): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/'
-  return next
-}
 
 export interface LoginState {
   expired?: boolean
