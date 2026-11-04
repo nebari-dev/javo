@@ -160,3 +160,30 @@ func TestAdminBackupsSayHomeFoldersNeedTheBucket(t *testing.T) {
 		t.Errorf("with a bucket: homeFolders %+v, bucket %v", got.HomeFolders, got.Bucket)
 	}
 }
+
+// A restore keeps the owner's caps: an app past one is a row that says so,
+// and the rest of the backup is still restored.
+func TestRestoreKeepsTheOwnersCaps(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	dir := t.TempDir()
+	alice, bob := apitest.PersonID("alice"), apitest.PersonID("bob")
+	name := apitest.BackupOf(t, dir, now.Add(-time.Hour), gatewaytest.App(alice, "gone"), gatewaytest.App(bob, "lost"))
+	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }, Backups: apitest.SqliteBackups(dir), Limits: store.Limits{Apps: 1},
+		People: []apitest.TestPerson{apitest.SignedIn("alice", time.Time{}), apitest.SignedIn("bob", time.Time{})}},
+		gatewaytest.Template("t", "streamlit"), gatewaytest.App(alice, "kept"))
+	w := f.Do(http.MethodPost, "/api/admin/backups/"+name+"/restore", `{}`, f.Session(apitest.AdminID, "javo-admins"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("restore: %d %s", w.Code, w.Body)
+	}
+	rows := map[string]string{}
+	for _, r := range apitest.Decode[apitest.RestoreRowsJSON](t, w).Rows {
+		rows[r.Name] = r.Message
+	}
+	if rows["gone"] != reasons.Msg(reasons.MsgLimitApps, 1) {
+		t.Errorf("gone: %q, want the apps limit", rows["gone"])
+	}
+	if rows["lost"] != reasons.Msg(reasons.MsgRestoreCreated) {
+		t.Errorf("lost: %q, want restored", rows["lost"])
+	}
+}

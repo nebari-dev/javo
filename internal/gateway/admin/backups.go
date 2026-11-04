@@ -257,6 +257,9 @@ func (a *API) restoreApps(ctx context.Context, name string, scope restoreScope, 
 			switch _, err := a.DB.Apps().Create(ctx, authn.Actor(ctx), &back); {
 			case errors.Is(err, store.ErrExists):
 				row.Outcome, row.Message = apps.OutcomeExists, reasons.Msg(reasons.MsgRestoreExists)
+			case problem.Limit(err) != nil:
+				// The owner is at a cap: this app stays out, the rest go on.
+				row.Outcome, row.Message = apps.OutcomeInvalid, problem.Limit(err).Title
 			case err != nil:
 				return nil, problem.Internal("restore app", err)
 			default:
