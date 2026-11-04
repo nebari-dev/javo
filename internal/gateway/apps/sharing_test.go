@@ -7,6 +7,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
+	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -237,18 +238,37 @@ func TestDirectory(t *testing.T) {
 		}
 		return apitest.Decode[apitest.DirectoryJSON](t, w)
 	}
-	if got := get("b", "/org/b"); len(got.People) != 0 || len(got.Groups) != 0 {
-		t.Fatalf("one character must list nothing: %+v", got)
+	if got := get("bo", "/org/bo"); len(got.People) != 0 || len(got.Groups) != 0 {
+		t.Fatalf("two characters must list nothing: %+v", got)
 	}
-	got := get("bo")
+	got := get("bob")
 	if len(got.People) != 1 || got.People[0].ID != apitest.BobID || got.People[0].Email != "bob@example.com" || got.People[0].DisplayName != "Bob" {
 		t.Fatalf("people %+v", got.People)
 	}
-	if got := get("ml"); len(got.Groups) != 0 {
+	if got := get("org/ml"); len(got.Groups) != 0 {
 		t.Fatalf("carol is not in /org/ml but sees %+v", got.Groups)
 	}
-	if got := get("ml", "/org/ml", "/org/data"); len(got.Groups) != 1 || got.Groups[0].Value != "/org/ml" {
+	if got := get("org/ml", "/org/ml", "/org/data"); len(got.Groups) != 1 || got.Groups[0].Value != "/org/ml" {
 		t.Fatalf("groups %+v", got.Groups)
+	}
+}
+
+// Nobody can walk the directory: each person gets a burst of searches, then
+// one a second.
+func TestDirectorySearchesAreRateLimited(t *testing.T) {
+	t.Parallel()
+	f := apitest.NewSharingFixture(t, apitest.Options{})
+	c := f.Session(apitest.CarolID)
+	for i := range apps.DirectoryBurst {
+		if w := f.Do("GET", "/api/directory?q=bob", "", c); w.Code != http.StatusOK {
+			t.Fatalf("search %d: %d", i, w.Code)
+		}
+	}
+	if w := f.Do("GET", "/api/directory?q=bob", "", c); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("search past the burst: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("GET", "/api/directory?q=bob", "", f.Session(apitest.AliceID)); w.Code != http.StatusOK {
+		t.Fatalf("another person's search: %d", w.Code)
 	}
 }
 

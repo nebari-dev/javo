@@ -17,6 +17,7 @@ const (
 	MsgCredentialsMissing MessageCode = "CredentialsMissing"
 	MsgTooManyAttempts    MessageCode = "TooManyAttempts"
 	MsgTooManyAppOpens    MessageCode = "TooManyAppOpens"
+	MsgTooManySearches    MessageCode = "TooManySearches"
 	MsgNotAllowedFromApp  MessageCode = "NotAllowedFromApp"
 	// The proxy while apps share an origin: with the UI (one host) or with
 	// each other (path mode with an apps host).
@@ -276,6 +277,7 @@ var messages = map[MessageCode]string{
 	MsgCredentialsMissing: "Enter your username and password.",
 	MsgTooManyAttempts:    "Too many sign-in attempts. Wait a minute, then try again.",
 	MsgTooManyAppOpens:    "Too many apps opened in a short time. Wait a moment, then try again.",
+	MsgTooManySearches:    "Too many searches in a short time. Wait a moment, then try again.",
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
 	MsgAdminOpenNeedsAppsHost: "Admins cannot open other people's apps while apps share one address, because the app's page could act as you, with your admin rights. " +
 		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",

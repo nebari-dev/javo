@@ -27,7 +27,7 @@ const (
 	maxGroupsSnapshot = 200
 	// MinSearchLen is the shortest prefix Search answers, so the share
 	// picker cannot list everyone.
-	MinSearchLen = 2
+	MinSearchLen = 3
 
 	counterUID = "uid"
 	counterGID = "gid"

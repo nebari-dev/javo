@@ -14,6 +14,8 @@ Open an app's **Sharing** tab to choose who else can open it. Only the owner cha
 | **Anyone signed in** | Every person signed in to Javo. |
 | **Anyone with the link** | Anyone, signed in or not. |
 
+The picker searches people by the first three or more letters of their username or email, and your own groups. It shows an email only when the identity provider verified it.
+
 **Copy link** copies the app's address. People you share with never get your sign-in.
 
 ## What sharing hands people

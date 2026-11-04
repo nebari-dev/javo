@@ -15,7 +15,8 @@ var ErrGroupsOverage = errors.New("groups claim is an overage reference, not a l
 // Extract reads the person's claims from an ID token's claim set. The
 // username is for display only. Group and provider role values are kept
 // verbatim; a missing or wrongly shaped claim gives none, not an error. An
-// empty rolesClaim reads no provider roles.
+// empty rolesClaim reads no provider roles. The email is taken only when
+// email_verified is true.
 func Extract(raw map[string]any, usernameClaim, groupsClaim, rolesClaim string) (identity.Claims, error) {
 	sub, _ := raw["sub"].(string)
 	if sub == "" {
@@ -29,7 +30,11 @@ func Extract(raw map[string]any, usernameClaim, groupsClaim, rolesClaim string) 
 		c.ProviderRoles = stringList(lookup(raw, rolesClaim))
 	}
 	c.Issuer, _ = raw["iss"].(string)
-	c.Email, _ = raw["email"].(string)
+	// Only a verified email is the person's: where people set their own, an
+	// unverified one could be anybody's.
+	if verified(raw["email_verified"]) {
+		c.Email, _ = raw["email"].(string)
+	}
 	c.DisplayName, _ = raw["name"].(string)
 	c.Picture, _ = raw["picture"].(string)
 	c.Username, _ = lookup(raw, usernameClaim).(string)
@@ -40,6 +45,18 @@ func Extract(raw map[string]any, usernameClaim, groupsClaim, rolesClaim string) 
 		c.Username = sub
 	}
 	return c, nil
+}
+
+// verified reads an email_verified claim, which some providers send as a
+// string.
+func verified(v any) bool {
+	switch v := v.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true")
+	}
+	return false
 }
 
 func overage(raw map[string]any) bool {

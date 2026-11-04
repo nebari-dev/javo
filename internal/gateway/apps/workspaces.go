@@ -897,7 +897,7 @@ func (s *Workspaces) Register(api huma.API) {
 	s.registerSource(api)
 	(&sharing{
 		ws: s, people: c.People, roles: s.Roles, urls: c.URLs,
-		oneHost: c.Sharing.AllowOneHost, staleAfter: c.StaleAfter, now: c.Now,
+		oneHost: c.Sharing.AllowOneHost, staleAfter: c.StaleAfter, now: c.Now, searches: ratelimit.NewBuckets(),
 	}).register(api)
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
@@ -42,7 +43,16 @@ type sharing struct {
 	oneHost    bool
 	staleAfter time.Duration
 	now        func() time.Time
+	// searches limits each person's directory searches (DirectoryBurst).
+	searches *ratelimit.Buckets
 }
+
+// DirectoryBurst directory searches a person may make at once, then one per
+// directoryEvery, so nobody can walk the directory prefix by prefix.
+const (
+	DirectoryBurst = 30
+	directoryEvery = time.Second
+)
 
 // Person is a person an app is shared with.
 type Person struct {
@@ -339,6 +349,10 @@ func (s *sharing) directory(ctx context.Context, in *directoryInput) (*directory
 	q := strings.TrimSpace(in.Q)
 	if len(q) < store.MinSearchLen {
 		return out, nil
+	}
+	if wait, ok := s.searches.Take(ratelimit.Bucket{Key: authn.User(ctx).ID, Spec: ratelimit.Spec{Every: directoryEvery, Burst: DirectoryBurst}}); !ok {
+		return nil, problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgTooManySearches)).
+			WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 	}
 	found, err := s.people.Search(ctx, q, directoryLimit)
 	if err != nil {

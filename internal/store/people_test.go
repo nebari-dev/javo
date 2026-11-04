@@ -149,15 +149,15 @@ func TestSearchMatchesUsernameOrEmailPrefixIgnoringCase(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	found, err := people.Search(ctx, "AL", 10)
+	found, err := people.Search(ctx, "ALi", 10)
 	if err != nil || len(found) != 2 {
-		t.Fatalf("Search(AL) = %d people, err %v; want alice and bob", len(found), err)
+		t.Fatalf("Search(ALi) = %d people, err %v; want alice and bob", len(found), err)
 	}
-	if one, _ := people.Search(ctx, "al", 1); len(one) != 1 {
+	if one, _ := people.Search(ctx, "ali", 1); len(one) != 1 {
 		t.Errorf("limit 1 returned %d", len(one))
 	}
-	if short, _ := people.Search(ctx, "a", 10); len(short) != 0 {
-		t.Errorf("a one-letter prefix listed %d people", len(short))
+	if short, _ := people.Search(ctx, "al", 10); len(short) != 0 {
+		t.Errorf("a two-letter prefix listed %d people", len(short))
 	}
 }
 

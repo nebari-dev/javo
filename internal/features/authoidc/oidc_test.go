@@ -237,7 +237,7 @@ func TestCodeFlowUsesPKCEAndCreatesAnIdentityForIssuerAndSubject(t *testing.T) {
 		t.Fatalf("flow cookie %+v", flow)
 	}
 
-	code := f.op.authorize(loc, map[string]any{"preferred_username": "alice", "email": "alice@example.com"})
+	code := f.op.authorize(loc, map[string]any{"preferred_username": "alice", "email": "alice@example.com", "email_verified": true})
 	w := f.get("/auth/oidc/callback?code="+code+"&state="+q.Get("state"), flow)
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/apps/mine" {
 		t.Fatalf("callback %d -> %q: %s", w.Code, w.Header().Get("Location"), w.Body)

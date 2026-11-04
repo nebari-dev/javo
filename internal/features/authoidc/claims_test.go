@@ -11,7 +11,7 @@ import (
 func TestExtractKeepsGroupsVerbatim(t *testing.T) {
 	raw := map[string]any{
 		"iss": "https://idp.example.com/realms/javo", "sub": "u-1",
-		"preferred_username": "alice", "email": "alice@example.com", "name": "Alice Example",
+		"preferred_username": "alice", "email": "alice@example.com", "email_verified": true, "name": "Alice Example",
 		"groups": []any{"/org/data-science", "/org/ml"},
 	}
 	c, err := authoidc.Extract(raw, "preferred_username", "groups", "")
@@ -94,7 +94,7 @@ func TestExtractNeedsASubject(t *testing.T) {
 }
 
 func TestExtractFallsBackToEmailThenSubjectForTheDisplayName(t *testing.T) {
-	c, _ := authoidc.Extract(map[string]any{"sub": "u-1", "email": "bob@example.com"}, "preferred_username", "groups", "")
+	c, _ := authoidc.Extract(map[string]any{"sub": "u-1", "email": "bob@example.com", "email_verified": true}, "preferred_username", "groups", "")
 	if c.Username != "bob@example.com" {
 		t.Fatalf("username %q", c.Username)
 	}
@@ -125,5 +125,25 @@ func TestExtractReadsProviderRolesNextToGroups(t *testing.T) {
 	none, err := authoidc.Extract(raw, "preferred_username", "groups", "")
 	if err != nil || none.ProviderRoles != nil {
 		t.Fatalf("no roles claim configured, got %v %v", none.ProviderRoles, err)
+	}
+}
+
+// An email the provider has not verified is not taken: where people can set
+// their own, someone could otherwise pose as alice@example.com in the share
+// picker, or become the username another person is known by.
+func TestExtractIgnoresAnUnverifiedEmail(t *testing.T) {
+	for _, verified := range []any{nil, false, "false"} {
+		raw := map[string]any{"sub": "u-1", "email": "alice@example.com"}
+		if verified != nil {
+			raw["email_verified"] = verified
+		}
+		c, err := authoidc.Extract(raw, "preferred_username", "groups", "")
+		if err != nil || c.Email != "" || c.Username != "u-1" {
+			t.Fatalf("email_verified %v: %+v %v", verified, c, err)
+		}
+	}
+	c, _ := authoidc.Extract(map[string]any{"sub": "u-1", "email": "alice@example.com", "email_verified": "true"}, "preferred_username", "groups", "")
+	if c.Email != "alice@example.com" {
+		t.Fatalf("email_verified \"true\": %+v", c)
 	}
 }
