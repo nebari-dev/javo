@@ -341,6 +341,7 @@ files:
 # Example: jupyterlab: {enabled: true, image: "", allowedProviderRoles: [gpu-users]}
 workspaceTemplates:
   jupyterlab: {enabled: true, image: ""}
+  whybook: {enabled: true, image: ""}
   streamlit: {enabled: true, image: ""}
   marimo: {enabled: true, image: ""}
   pluto: {enabled: true, image: ""}

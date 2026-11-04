@@ -34,6 +34,7 @@ Dash cryptocurrency, not Plotly Dash; it has no Visual Studio Code icon.
 | pi | pi.svg | pi's own mark, transcribed (2) from https://github.com/earendil-works/pi/blob/71023aec1546d6d677a65669c5665c0927ce0dd0/packages/coding-agent/src/modes/interactive/components/pi-logo.ts | MIT | own |
 | herdr | herdr.svg | https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/assets/logo.svg (tag v0.9.5) | Apache-2.0 | text colour (3) |
 | vscode | vscode.png | https://github.com/nebari-dev/jhub-apps/blob/ff5faa9ef2bb9171e7fd650446bbd368a43a22fa/jhub_apps/static/img/logos/vscode.png | BSD-3-Clause | text colour (4) |
+| whybook | whybook.svg | Whybook's own icon (the `svgstr` of `epiIcon`, copied verbatim) from https://github.com/openteams-ai/whybook/blob/9c486c5cda9f52679253e347bead3c07950fbb61/src/icons.ts (tag v0.5.1) | Apache-2.0 | own |
 | custom | none | Lucide `square-terminal` (not a product) | ISC | text colour |
 
 (1) The Voila icon colours its two paths through JupyterLab theme classes that do not apply outside JupyterLab.

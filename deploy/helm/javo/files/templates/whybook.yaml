@@ -1,0 +1,64 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: whybook
+spec:
+  # Runs without a token: access control is the javo-apps NetworkPolicy
+  # (helm value networkPolicy.enabled) plus gateway authentication. The CNI
+  # must enforce NetworkPolicy (k3s does; verify on kind).
+  displayName: Whybook
+  description: Ask your data why
+  category: notebooks
+  kind: whybook
+  # JupyterLab with Whybook: whoever opens it runs code as the owner, so it
+  # stays private (internal/model privateOnlyKinds), as JupyterLab does.
+  maxSharing: Private
+  # Runs the platform's pixi image (environments.pixiImage) in the pixi
+  # environment pod/files/envs/whybook (JupyterLab and Whybook from PyPI,
+  # every package pinned by pixi.lock), installed into the owner's home on
+  # the first start and reused after (internal/pixienv). Set
+  # workspaceTemplates.<name>.image to use a mirror.
+  environment: whybook
+  port: 8888
+  # Run jupyter-lab through pod-user.sh, which runs it in the environment
+  # (pod/files). The environment opens notebooks in Whybook
+  # (overrides.json). An app from the sample first writes Whybook's demo
+  # into the sample's folder (python -m whybook.demo writes nothing where one
+  # of its files is already) and opens its notebook; a chosen notebook opens
+  # the same way (LabApp.default_url: jupyter-lab replaces ServerApp's with
+  # its own). Otherwise it opens in the chosen folder, or
+  # the home when that folder is gone (jupyter-lab exits at start when
+  # preferred_dir is not an existing folder).
+  command:
+    - /opt/javo/pod-user.sh
+    - sh
+    - -c
+    - 'd=$0; s=$1; shift; if [ -n "$s" ]; then python -m whybook.demo "$s"; [ -f "$s/pain_diary_cohort.ipynb" ] && d=$s/pain_diary_cohort.ipynb; fi; if [ -f "$d" ]; then set -- "--LabApp.default_url=/lab/tree/${d#{{.Home}}/}" "$@"; d=$(dirname "$d"); fi; [ -d "$d" ] || d={{.Home}}; exec jupyter-lab "--ServerApp.preferred_dir=$d" "$@"'
+    - "{{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+    - "{{.Sample}}"
+  args:
+    - "--no-browser"
+    - "--ip=0.0.0.0"
+    - "--port={{.Port}}"
+    - "--ServerApp.base_url={{.BaseURL}}"
+    - "--ServerApp.root_dir={{.Home}}"
+    # No token or password: the gateway authenticates every request.
+    - "--IdentityProvider.token="
+    # Empty keeps the same-origin check; never "*".
+    - "--ServerApp.allow_origin="
+    - "--ServerApp.allow_remote_access=True"
+  fileExtensions: []
+  readinessPath: "{{.BaseURL}}api"
+  # As JupyterLab: idle stop asks the Jupyter server what was used, and the
+  # environment's jupyter_server_config.json shuts down idle kernels and
+  # terminals.
+  activity: Jupyter
+  # What an app runs at when no size is picked; not measured yet, the same
+  # as JupyterLab.
+  defaultResources: {cpu: 1, memory: 2Gi}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/whybook
+    title: Pain diary cohort

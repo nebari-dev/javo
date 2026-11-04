@@ -10,11 +10,11 @@ import (
 )
 
 // Every shipped app can be shared with anyone, except the code editors, which
-// only chosen people may open, and the Terminal, JupyterLab and the coding
-// agents, which stay private.
+// only chosen people may open, and the Terminal, JupyterLab, Whybook and the
+// coding agents, which stay private.
 func TestShippedAppsShareUpToTheirKindsLimit(t *testing.T) {
 	t.Parallel()
-	private := []string{"terminal", "jupyterlab", "claude-code", "pi", "herdr"}
+	private := []string{"terminal", "jupyterlab", "whybook", "claude-code", "pi", "herdr"}
 	editors := []string{"vscode", "rstudio", "marimo", "pluto"}
 	files, err := filepath.Glob(filepath.Join("..", "..", "..", "deploy", "helm", "javo", "files", "templates", "*.yaml"))
 	if err != nil || len(files) == 0 {

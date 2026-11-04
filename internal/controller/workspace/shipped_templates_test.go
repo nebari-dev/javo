@@ -93,6 +93,87 @@ func TestJupyterLabOpensTheChosenFolder(t *testing.T) {
 	}
 }
 
+// Whybook opens a notebook in its view: the sample's demo notebook, which
+// `python -m whybook.demo` writes into the sample's folder at start, or the
+// chosen notebook, through LabApp.default_url. A folder opens as in
+// JupyterLab, with no notebook. The pod's start command runs here against
+// stub jupyter-lab and python, with the home moved to a temporary folder.
+func TestWhybookOpensTheChosenNotebook(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "whybook")
+	home := t.TempDir()
+	for _, d := range []string{"projects/q3", "samples/whybook"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "projects/q3/report.ipynb"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	stubs := map[string]string{
+		"jupyter-lab": "#!/bin/sh\nfor a; do echo \"$a\"; done\n",
+		// python -m whybook.demo DIR writes the demo notebook into DIR.
+		"python": "#!/bin/sh\necho \"python $*\"\n[ \"$1 $2\" = \"-m whybook.demo\" ] && : > \"$3/pain_diary_cohort.ipynb\"\n",
+	}
+	for name, body := range stubs {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name   string
+		sample bool
+		file   string
+		dir    string
+		open   string
+	}{
+		{"sample", true, SampleFileOf(tpl), "samples/whybook", "samples/whybook/pain_diary_cohort.ipynb"},
+		{"chosen notebook", false, "projects/q3/report.ipynb", "projects/q3", "projects/q3/report.ipynb"},
+		{"chosen folder", false, "projects/q3", "projects/q3", ""},
+		{"missing folder", false, "missing", "", ""},
+		{"no file", false, "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "why", Owner: "alice", Template: tpl.Name, File: c.file, Sample: c.sample}
+			pod, err := BuildPod(ws, tpl, "/u/a/why/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctr := pod.Spec.Containers[0]
+			argv := slices.Concat(ctr.Command, ctr.Args)
+			if argv[0] != "/opt/javo/pod-user.sh" {
+				t.Fatalf("command = %q, want it to start with pod-user.sh", argv)
+			}
+			for i, a := range argv {
+				argv[i] = strings.ReplaceAll(a, homeDir, home)
+			}
+			cmd := exec.Command("/usr/bin/env", argv[1:]...)
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%q: %v\n%s", argv, err, out)
+			}
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if want := "--ServerApp.preferred_dir=" + filepath.Join(home, c.dir); !slices.Contains(lines, want) {
+				t.Errorf("jupyter-lab got %q, want %s", lines, want)
+			}
+			opened := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "--LabApp.default_url=") })
+			switch {
+			case c.open == "" && opened >= 0:
+				t.Errorf("jupyter-lab got %s, want no notebook opened", lines[opened])
+			case c.open != "" && (opened < 0 || lines[opened] != "--LabApp.default_url=/lab/tree/"+c.open):
+				t.Errorf("jupyter-lab got %q, want --LabApp.default_url=/lab/tree/%s", lines, c.open)
+			}
+			wroteDemo := slices.Contains(lines, "python -m whybook.demo "+filepath.Join(home, "samples/whybook"))
+			if wroteDemo != c.sample {
+				t.Errorf("demo written: %v, want %v (%q)", wroteDemo, c.sample, lines)
+			}
+		})
+	}
+}
+
 // The shipped custom template's sample starts with its own command, in the
 // sample's folder, serving on the template's port under the app's prefix.
 func TestCustomSampleRunsItsCommand(t *testing.T) {

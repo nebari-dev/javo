@@ -221,3 +221,15 @@ line filled in, and neither repository has a `NOTICE` file at that commit.
   (`extension/LICENSE` links to it). `marimo.svg` is unmodified.
 - herdr: https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/LICENSE.
   `herdr.svg` is modified: its background square (one `<rect>` element) is removed; the mark's path is unchanged.
+
+## Whybook (`whybook.svg`)
+
+Licensed under the Apache License, Version 2.0. The license file at the source commit,
+https://github.com/openteams-ai/whybook/blob/9c486c5cda9f52679253e347bead3c07950fbb61/LICENSE (tag v0.5.1),
+is the unmodified Apache-2.0 text, the same as this repository's root `LICENSE`, under this copyright line:
+
+```text
+Copyright (c) 2026, Michal Krassowski
+```
+
+The repository has no `NOTICE` file at its root at that commit. `whybook.svg` is unmodified.

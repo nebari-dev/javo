@@ -17,12 +17,14 @@ Press **New app** and pick a card. The built-in templates are grouped like this:
 
 | Group | Templates |
 |---|---|
-| Notebooks | JupyterLab, marimo, Pluto.jl, RStudio, VS Code, Terminal (a shell in your files) |
+| Notebooks | JupyterLab, Whybook, marimo, Pluto.jl, RStudio, VS Code, Terminal (a shell in your files) |
 | Dashboards | Bokeh, Dash, Gradio, Panel, Streamlit, Voila |
 | Web | FastAPI, Static site, Node back-end, Go back-end, Custom command, Container image |
 | Agents | Claude Code, herdr (agents in a terminal), pi coding agent |
 
 Your admin may turn some off, and template admins can add their own. Templates that only run [jobs](/using/jobs/) do not show here.
+
+**Whybook** is JupyterLab with [Whybook](https://github.com/openteams-ai/whybook), which opens notebooks in its question-driven view. Its sample is Whybook's pain diary demo, written into `samples/whybook` at the first start, and opens in that view. No AI model is connected: the questions from templates need none, and the AI models panel connects one.
 
 In Terminal, Claude Code, herdr and pi, text you select with the mouse (drag, double or triple click) goes to your clipboard at once. Any other copy request (tmux's keyboard copy mode, or in Terminal an editor's yank or a command's output) shows a box with the text, which goes to the clipboard only when you press **Copy**. In Claude Code and pi, tmux drops copy requests from the programs in it. A file or command you did not write cannot quietly change what you paste later.
 
