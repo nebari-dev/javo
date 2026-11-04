@@ -267,6 +267,9 @@ true
 {{- with .Values.gateway.trustedProxies }}
 - --trusted-proxies={{ join "," . }}
 {{- end }}
+{{- if .Values.gateway.trustedProxySecret }}
+- --trusted-proxy-secret-file=/etc/javo-proxy/secret
+{{- end }}
 {{- end -}}
 
 {{/* The controller's own flags. */}}

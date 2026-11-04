@@ -1,6 +1,7 @@
 package servercmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -84,6 +85,7 @@ type gatewayOptions struct {
 	sessionsKeyCreate bool
 	filesIdleAfter    time.Duration
 	trustedProxies    []string
+	proxySecretFile   string
 	secure            bool
 	// backups are the server's own SQLite backups, set by javo server; the
 	// gateway alone (Postgres) has none of its own.
@@ -99,6 +101,8 @@ func (o *gatewayOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.templatesDir, "templates-dir", "", "directory of built-in template files (*.yaml) to install into the database at start")
 	f.StringSliceVar(&o.trustedProxies, "trusted-proxies", nil,
 		"CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)")
+	f.StringVar(&o.proxySecretFile, "trusted-proxy-secret-file", "",
+		"file holding the secret trusted proxies send in "+gateway.ProxySecretHeader+"; set, X-Forwarded-For is believed only on requests that carry it")
 	f.BoolVar(&o.secure, "secure-cookies", false, "mark the session cookie Secure even when urls.scheme is http (it always is with https)")
 	f.StringVar(&o.sessionsKeySecret, "sessions-key-secret", "", "Secret in the release namespace whose key \"key\" holds the 32-byte key that seals each session's identity provider tokens in the database, read at start; empty: a key made at start, so a restart signs everyone out")
 	f.BoolVar(&o.sessionsKeyCreate, "sessions-key-create", false, "make the --sessions-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards")
@@ -284,7 +288,32 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Exposure: exp, Roles: platform.Roles, URLs: platform.URLs, Revalidator: revalidator,
 		NebiTokens: nebi, SecureCookies: o.secure,
 	}))
-	return serve(ctx, o.listen, srv)
+	if o.proxySecretFile == "" {
+		return serve(ctx, o.listen, srv)
+	}
+	secret, err := readProxySecret(o.proxySecretFile)
+	if err != nil {
+		return err
+	}
+	return serve(ctx, o.listen, gateway.RequireProxySecret(secret, srv))
+}
+
+// minProxySecret is the shortest proxy secret accepted: it must not be
+// guessable by the traffic it keeps out.
+const minProxySecret = 32
+
+// readProxySecret reads the trusted proxies' secret, without surrounding
+// white space.
+func readProxySecret(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--trusted-proxy-secret-file: %w", err)
+	}
+	b = bytes.TrimSpace(b)
+	if len(b) < minProxySecret {
+		return nil, fmt.Errorf("--trusted-proxy-secret-file: the secret has %d characters, want at least %d", len(b), minProxySecret)
+	}
+	return b, nil
 }
 
 // parseTrustedProxies parses CIDRs such as 10.42.0.1/32.

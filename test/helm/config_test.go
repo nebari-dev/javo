@@ -331,3 +331,28 @@ func TestOIDCNeedsTheUIHost(t *testing.T) {
 		t.Fatalf("rendered OIDC without a host: %v\n%s", err, out)
 	}
 }
+
+// The trusted proxies' secret is mounted from its Secret and handed to the
+// gateway, which then believes X-Forwarded-For only with it.
+func TestTrustedProxySecretIsMountedForTheGateway(t *testing.T) {
+	t.Parallel()
+	for _, engine := range engines {
+		out, err := render(t, append(engineArgs(engine), "--set", "gateway.trustedProxySecret=edge-proxy")...)
+		if err != nil {
+			t.Fatalf("%s: render: %v\n%s", engine, err, out)
+		}
+		d := deploymentOf(t, out, engine, "gateway")
+		if got := controllerArg(d, "trusted-proxy-secret-file"); got != "/etc/javo-proxy/secret" {
+			t.Errorf("%s: --trusted-proxy-secret-file = %q", engine, got)
+		}
+		found := false
+		for _, v := range d.Spec.Template.Spec.Volumes {
+			if v.Secret != nil && v.Secret.SecretName == "edge-proxy" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: Secret edge-proxy is not mounted", engine)
+		}
+	}
+}

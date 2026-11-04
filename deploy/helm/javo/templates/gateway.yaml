@@ -76,6 +76,9 @@ spec:
             {{- if .Values.gateway.oidcClientSecret }}
             - {name: oidc, mountPath: {{ include "javo.oidcSecretDir" . }}, readOnly: true}
             {{- end }}
+            {{- if .Values.gateway.trustedProxySecret }}
+            - {name: proxy-secret, mountPath: /etc/javo-proxy, readOnly: true}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -97,6 +100,12 @@ spec:
           secret:
             secretName: {{ . }}
             items: [{key: client-secret, path: client-secret}]
+        {{- end }}
+        {{- with .Values.gateway.trustedProxySecret }}
+        - name: proxy-secret
+          secret:
+            secretName: {{ . }}
+            items: [{key: secret, path: secret}]
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

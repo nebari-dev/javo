@@ -18,6 +18,12 @@ gateway:
   # reachable from the proxy alone (host firewall): a client reaching it
   # directly could set X-Forwarded-For and pick the address its sign-in
   # limits count against.
+  # Pods calling NodePort 30080 arrive from that same address too, so pair it
+  # with a proxy secret: create a Secret with a random key "secret"
+  # (openssl rand -hex 32), name it in gateway.trustedProxySecret in
+  # .dev/<site>.values.yaml, and have the proxy add the header
+  # X-Javo-Proxy-Secret with that value. Without it, a pod can choose the
+  # client address the sign-in rate limits and the audit log see.
   trustedProxies: ["10.42.0.1/32"]
   service:
     type: NodePort

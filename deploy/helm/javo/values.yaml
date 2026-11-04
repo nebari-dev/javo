@@ -292,6 +292,15 @@ gateway:
   # "peer" of the "login attempt" log line:
   #   kubectl -n <release namespace> logs deploy/javo | grep 'login attempt'
   trustedProxies: []
+  # Name of a Secret in the release namespace whose key "secret" (random,
+  # at least 32 characters) your reverse proxy sends in the header
+  # X-Javo-Proxy-Secret on every request it forwards. Set, X-Forwarded-For
+  # is believed only on requests that carry it, and the header is removed
+  # before anything else sees it. Use it whenever the proxy's address can be
+  # shared by other traffic: on k3s a pod calling the node's NodePort
+  # arrives from the same bridge address (10.42.0.1) as a proxy that
+  # forwards to that NodePort, and could otherwise set any client address.
+  trustedProxySecret: ""
   # Name of a Secret in the release namespace whose key client-secret is the
   # OIDC client secret. The gateway mounts it, and config.auth.oidc
   # .clientSecretFile points at it unless set. Empty: a public client.
