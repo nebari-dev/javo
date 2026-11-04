@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# The line above pins BuildKit's Dockerfile frontend (the parser of this
+# whole file) by index digest, like every FROM below.
 # Base images are pinned by index digest; provenance in DEPENDENCIES.md.
 # This is the only image the project builds: apps and jobs run upstream
 # images unmodified (the pixi image, plus the few listed in DEPENDENCIES.md),
