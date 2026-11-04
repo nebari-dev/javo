@@ -1,3 +1,6 @@
+{{- if eq .Values.workspaceNamespace .Release.Namespace }}
+{{- fail (printf "workspaceNamespace must not be the release namespace (%s): apps there would reach the components' keys, the database and its backups. Pick another namespace." .Release.Namespace) }}
+{{- end }}
 {{- if and (not .Values.networkPolicy.enabled) (not .Values.networkPolicy.iUnderstandAppsAreUnauthenticated) }}
 {{- fail "networkPolicy.enabled=false leaves every workspace app (they have no auth of their own) open to any pod in the cluster. Set networkPolicy.iUnderstandAppsAreUnauthenticated=true to proceed anyway." }}
 {{- end }}

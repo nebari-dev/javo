@@ -732,3 +732,14 @@ func TestEgressValuesReachTheController(t *testing.T) {
 		}
 	}
 }
+
+// Apps must not share the release namespace: it holds the components' keys,
+// the database and its backups, which the controller's app rights and the
+// apps' own-namespace egress would then reach.
+func TestWorkspaceNamespaceMustNotBeTheReleaseNamespace(t *testing.T) {
+	t.Parallel()
+	out, err := render(t, "--set", "workspaceNamespace=javo-system")
+	if err == nil || !strings.Contains(out, "workspaceNamespace") {
+		t.Fatalf("render with workspaceNamespace = the release namespace: err %v, want a failure naming workspaceNamespace\n%s", err, out)
+	}
+}

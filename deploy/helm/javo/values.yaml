@@ -124,6 +124,7 @@ secrets:
 # Namespace holding Workspaces and their pods, services and PVCs when
 # config.namespaces.mode is shared. The other modes (per-user, per-team) use
 # namespaces the controller creates, named from config.namespaces.prefix.
+# Must not be the release namespace (the chart refuses to render).
 workspaceNamespace: javo-apps
 # Create the shared workspace namespace (shared mode only). It is labelled for
 # Pod Security Admission "restricted" (workspace pods run non-root uid 1000,
