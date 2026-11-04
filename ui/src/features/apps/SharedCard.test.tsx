@@ -23,4 +23,20 @@ describe('SharedCard', () => {
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toBe('noopener')
   })
+
+  it('shows its status as a named icon, not a text pill', () => {
+    mockApi({ 'GET /api/templates': { body: [] } })
+    const { container } = render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <SharedCard
+          app={{
+            displayName: 'Sales app', kind: 'streamlit', name: 'sales-app', template: 'streamlit', phase: 'Stopped',
+            url: '/u/bob/sales-app/', via: 'person', owner: { id: 'u-2', displayName: 'Bob' } as never,
+          }}
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByRole('img', { name: 'Stopped' }).getAttribute('title')).toBe('Stopped')
+    expect(container.querySelector('.pill')).toBeNull()
+  })
 })

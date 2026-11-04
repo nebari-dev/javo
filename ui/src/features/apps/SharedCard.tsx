@@ -2,7 +2,7 @@ import type { SharedApp } from '../../api'
 import { useTemplateName } from '../../lib/queries'
 import { appLink, pillStatus } from './status'
 import { CardMark } from './CardThumb'
-import { Pill } from '../../components/Pill'
+import { StatusIcon } from '../../components/Pill'
 
 /** An app another person shared; it opens the app itself, since viewers have no management page. */
 export function SharedCard({ app }: { app: SharedApp }) {
@@ -18,9 +18,7 @@ export function SharedCard({ app }: { app: SharedApp }) {
             {template} · <span>from {app.owner.displayName}</span>
           </div>
         </div>
-      </div>
-      <div className="acard-foot">
-        <Pill status={pillStatus(app.phase)} />
+        <StatusIcon status={pillStatus(app.phase)} />
       </div>
     </>
   )

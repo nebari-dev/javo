@@ -24,6 +24,16 @@ export function sizeLabel(s: Size): string {
   return `${s.displayName} · ${sizeSpecs(s)}${s.gpu ? ` · ${gpuCount(s.gpu)}` : ''}`
 }
 
+/**
+ * "1 CPU · 2 GB" for what an app runs at: its custom amount, or its size from
+ * sizes (with any GPU). None while its size is not in the list.
+ */
+export function runsAt(app: { size: string; resources?: Amount }, sizes: Size[]): string | undefined {
+  if (app.resources) return sizeSpecs(app.resources)
+  const s = sizes.find((x) => x.name === app.size)
+  return s && `${sizeSpecs(s)}${s.gpu ? ` · ${gpuCount(s.gpu)}` : ''}`
+}
+
 /** What an app runs at: a size from the list, or a custom amount. */
 export type SizeChoice = { size: string } | { resources: Amount }
 

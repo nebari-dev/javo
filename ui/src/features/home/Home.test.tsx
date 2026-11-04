@@ -17,14 +17,14 @@ const queued = ws('report', 'Weekly report', 'Starting', stepsAt(0, 'NoCapacity'
 const busy = ws('etl', 'ETL notebook', 'Starting', stepsAt(1, 'HomeBusy'))
 
 describe('Home', () => {
-  it('lists the apps with status pills', async () => {
+  it('lists the apps with their status', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/workspaces': { body: { items: [running, crashed] } } })
     renderApp('/')
     const card = (await screen.findByText('Research lab')).closest('.acard') as HTMLElement
-    expect(within(card).getByText('Running')).toBeTruthy()
+    expect(within(card).getByRole('img', { name: 'Running' })).toBeTruthy()
     expect(within(card).getByRole('link', { name: 'Research lab' }).getAttribute('href')).toBe('/apps/research-lab')
     const failed = screen.getAllByText('Churn dashboard').map((e) => e.closest('.acard') as HTMLElement)
-    expect(failed.some((c) => c && within(c).queryByText('Failed'))).toBe(true)
+    expect(failed.some((c) => c && within(c).queryByRole('img', { name: 'Failed' }))).toBe(true)
   })
 
   it('titles the page Home, with no greeting or email', async () => {
@@ -67,10 +67,10 @@ describe('Home', () => {
       'GET /api/workspaces': [{ body: { items: [starting] } }, { body: { items: [{ ...starting, phase: 'Running', steps: allReady() }] } }],
     })
     renderApp('/')
-    await screen.findByText('Starting')
+    await screen.findByRole('img', { name: 'Starting' })
     expect(api.count('GET', '/api/workspaces')).toBe(1)
     await act(() => vi.advanceTimersByTimeAsync(2000))
-    await waitFor(() => expect(screen.getByText('Running')).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy())
     expect(api.count('GET', '/api/workspaces')).toBe(2)
     await act(() => vi.advanceTimersByTimeAsync(6000))
     expect(api.count('GET', '/api/workspaces')).toBe(2)

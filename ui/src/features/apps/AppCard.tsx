@@ -3,12 +3,13 @@ import { OpenAppLink } from './OpenAppLink'
 import { Link } from 'react-router'
 import type { Workspace } from '../../api'
 import { problemText } from '../../lib/http'
-import { useStartStop, useTemplateName } from '../../lib/queries'
+import { useSizes, useStartStop, useTemplateName } from '../../lib/queries'
+import { runsAt } from '../../lib/sizes'
 import { appLink, heldStep, pillStatus, problemNote, stopNote } from './status'
 import { Button } from '../../components/Button'
 import { CardMark } from './CardThumb'
 import { EmptyState } from '../../components/EmptyState'
-import { Pill } from '../../components/Pill'
+import { StatusIcon } from '../../components/Pill'
 import { StopButton } from './StopButton'
 import { Uptime } from './Uptime'
 
@@ -40,6 +41,7 @@ export function AppCard({ ws }: { ws: Workspace }) {
   const problem = problemNote(ws)
   const stopped = stopNote(ws) ?? heldStep(ws)?.title
   const template = useTemplateName(ws.template)
+  const specs = runsAt(ws, useSizes().data ?? [])
   return (
     <div className="card acard">
       <div className="acard-head">
@@ -50,15 +52,11 @@ export function AppCard({ ws }: { ws: Workspace }) {
             <h3>{ws.displayName}</h3>
           </Link>
           <div className="acard-sub">
-            {template} <Uptime ws={ws} />
-            {ws.file && (
-              <>
-                {' · '}
-                <span className="mono" title={ws.file}>{ws.file}</span>
-              </>
-            )}
+            <span>{template}</span>
+            {specs && <> · <span>{specs}</span></>} <Uptime ws={ws} />
           </div>
         </div>
+        <StatusIcon status={pillStatus(ws.phase)} />
       </div>
       {problem ? (
         <div className={`why ${problem.tone}`}>
@@ -72,7 +70,6 @@ export function AppCard({ ws }: { ws: Workspace }) {
         )
       )}
       <div className="acard-foot">
-        <Pill status={pillStatus(ws.phase)} />
         <div className="acard-actions">
           <RunActions ws={ws} />
         </div>

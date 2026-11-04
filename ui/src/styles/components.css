@@ -122,6 +122,11 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .s-pending{background:var(--warn-soft);color:var(--warn)}
 .s-failed{background:var(--err-soft);color:var(--err)}
 .s-stopped{background:var(--idle-soft);color:var(--idle)}
+/* A status as an icon (app cards): the status colour only; Stopped is red, in-between states amber. */
+.status-icon{display:inline-flex;flex:none}
+.status-icon[class*=" s-"]{background:none}
+.status-icon.s-stopped{color:var(--err)}
+.status-icon.s-starting,.status-icon.s-stopping,.status-icon.s-pending{color:var(--warn)}
 
 /* More */
 .more-toggle{text-align:left;border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-weight:500;font-size:var(--fs-sm);padding:6px 0;user-select:none}

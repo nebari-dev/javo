@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
-import { allReady, allStopped, me, NOTICES, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
+import { allowance, allReady, allStopped, me, NOTICES, sizes, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -25,6 +25,10 @@ function withApps(extra: Record<string, unknown> = {}) {
 async function listView() {
   await userEvent.click(await screen.findByRole('button', { name: 'List' }))
   return screen.getByRole('table', { name: 'Your apps' })
+}
+
+function cardOf(name: string): HTMLElement {
+  return screen.getByRole('link', { name }).closest('.acard') as HTMLElement
 }
 
 function rowOf(name: string): HTMLElement {
@@ -112,6 +116,40 @@ describe('Apps', () => {
     const failed = rowOf('Churn dashboard')
     expect(within(failed).getByRole('button', { name: 'Stop retrying' })).toBeTruthy()
     expect(within(failed).queryByRole('link', { name: 'Open' })).toBeNull()
+  })
+
+  it('shows each card status as a named icon, not a text pill', async () => {
+    const starting = ws('etl', 'ETL notebook', 'Starting', stepsAt(2, 'Starting'))
+    const stopping = ws('report', 'Weekly report', 'Stopping', allReady())
+    withApps({ 'GET /api/workspaces': { body: { items: [running, stopped, crashed, starting, stopping] } } })
+    renderApp('/apps')
+    await screen.findByRole('link', { name: 'Research lab' })
+    const expected: Record<string, string> = {
+      'Research lab': 'Running',
+      'Sales app': 'Stopped',
+      'Churn dashboard': 'Failed',
+      'ETL notebook': 'Starting',
+      'Weekly report': 'Stopping',
+    }
+    for (const [app, status] of Object.entries(expected)) {
+      const card = cardOf(app)
+      const icon = within(card).getByRole('img', { name: status })
+      expect(icon.getAttribute('title')).toBe(status)
+      expect(card.querySelector('.pill')).toBeNull()
+    }
+  })
+
+  it('shows the app size on its card, and not its file', async () => {
+    const custom = ws('plots', 'Plots', 'Stopped', allStopped(), { resources: { cpu: 0.5, memory: 2 ** 30 } })
+    withApps({
+      'GET /api/workspaces': { body: { items: [stopped, custom] } },
+      'GET /api/sizes': { body: { items: sizes, custom: allowance } },
+    })
+    renderApp('/apps')
+    await screen.findByRole('link', { name: 'Sales app' })
+    await waitFor(() => expect(within(cardOf('Sales app')).getByText('1 CPU · 2 GB')).toBeTruthy())
+    expect(within(cardOf('Plots')).getByText('0.5 CPU · 1 GB')).toBeTruthy()
+    expect(cardOf('Sales app').textContent).not.toContain('sales/app.py')
   })
 
   it('shows a failed app reason under its name', async () => {
