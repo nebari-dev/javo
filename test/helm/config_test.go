@@ -192,7 +192,7 @@ func TestIngressRoutesTheAppsHostOrTheWildcardAppsDomain(t *testing.T) {
 // config file names the mounted file.
 func TestOIDCClientSecretIsMountedFromASecret(t *testing.T) {
 	t.Parallel()
-	out, err := render(t, "--set", "gateway.oidcClientSecret=dev-oidc",
+	out, err := render(t, "--set", "gateway.oidcClientSecret=dev-oidc", "--set", "ingress.host=javo.example.com",
 		"--set", "config.auth.oidc.issuer=https://idp.example.com/realms/javo", "--set", "config.auth.oidc.clientID=javo")
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
@@ -320,5 +320,14 @@ func TestPreviewSettingsReachTheConfigFile(t *testing.T) {
 	p := load("--set", "source.previews.enabled=true", "--set", "source.previews.pollInterval=5m", "--set", "source.previews.maxPerApp=4").Source
 	if !p.Previews.Enabled || p.Previews.PollInterval.Duration.Minutes() != 5 || p.Previews.MaxPerApp != 4 || p.CloneImage == "" {
 		t.Fatalf("source = %+v", p)
+	}
+}
+
+// OIDC without the UI's host does not render: the gateway would refuse it.
+func TestOIDCNeedsTheUIHost(t *testing.T) {
+	t.Parallel()
+	out, err := render(t, "--set", "config.auth.oidc.issuer=https://idp.example.com/realms/javo", "--set", "config.auth.oidc.clientID=javo")
+	if err == nil || !strings.Contains(out, "config.auth.oidc needs the UI's host") {
+		t.Fatalf("rendered OIDC without a host: %v\n%s", err, out)
 	}
 }

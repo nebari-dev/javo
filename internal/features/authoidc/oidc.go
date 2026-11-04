@@ -265,22 +265,15 @@ func decodeFlow(v string) (flow, bool) {
 	return f, f.state != "" && f.verifier != "" && f.nonce != ""
 }
 
-func (p *Provider) scheme(r *http.Request) string {
-	switch {
-	case p.urls.Scheme != "":
-		return p.urls.Scheme
-	case r != nil && r.TLS != nil:
-		return "https"
-	}
-	return "http"
-}
+// scheme is the platform's (urls.URLScheme, https unless set): never the
+// request's, since behind a TLS-terminating proxy the hop to the gateway is
+// plain http.
+func (p *Provider) scheme(*http.Request) string { return p.urls.URLScheme() }
 
+// baseURL is where the provider sends the browser back: urls.uiHost, which
+// the config requires with OIDC, never the request's Host header.
 func (p *Provider) baseURL(r *http.Request) string {
-	host := p.urls.UIHost
-	if host == "" && r != nil {
-		host = r.Host
-	}
-	return p.scheme(r) + "://" + host
+	return p.scheme(r) + "://" + p.urls.UIHost
 }
 
 func (p *Provider) oauth(d *discovered, redirect string) *oauth2.Config {

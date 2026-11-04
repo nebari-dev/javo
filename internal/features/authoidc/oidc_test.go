@@ -642,3 +642,20 @@ func TestLoginAndRefreshLogsHoldNoTokens(t *testing.T) {
 		}
 	}
 }
+
+// With urls.scheme unset the platform is https (urls.URLScheme), behind a
+// TLS-terminating proxy too: the redirect_uri is https and the flow cookie is
+// a Secure __Host- cookie, whatever the plain hop to the gateway is.
+func TestUnsetSchemeMeansHTTPSBehindAProxy(t *testing.T) {
+	o := newOP(t)
+	f := newFixtureAt(t, o, oidcConfig(o), &http.Client{Timeout: 2 * time.Second}, config.URLs{UIHost: "javo.test"})
+	f.waitReady()
+	w := f.get("/auth/oidc/start")
+	q := mustQuery(t, w.Header().Get("Location"))
+	if q.Get("redirect_uri") != "https://javo.test/auth/oidc/callback" {
+		t.Fatalf("redirect_uri %q", q.Get("redirect_uri"))
+	}
+	if c := cookieNamed(w, "__Host-javo_oidc_"); c == nil || !c.Secure {
+		t.Fatalf("flow cookie %v", w.Result().Cookies())
+	}
+}

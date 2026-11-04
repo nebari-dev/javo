@@ -50,7 +50,7 @@ func TestLoadReadsSessionSweepInterval(t *testing.T) {
 }
 
 func TestLoadOIDCDefaults(t *testing.T) {
-	p, err := load(t, "auth:\n  local:\n    enabled: false\n  oidc:\n    issuer: https://idp.example.com/auth/realms/javo\n    clientID: javo\n")
+	p, err := load(t, "urls:\n  uiHost: javo.example.com\nauth:\n  local:\n    enabled: false\n  oidc:\n    issuer: https://idp.example.com/auth/realms/javo\n    clientID: javo\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestLoadRejectsBadConfig(t *testing.T) {
 }
 
 // oidcOn is the auth section of a platform that signs in with OIDC.
-const oidcOn = "auth:\n  local:\n    enabled: false\n  oidc:\n    issuer: https://idp.example.com\n    clientID: javo\n"
+const oidcOn = "urls:\n  uiHost: javo.example.com\nauth:\n  local:\n    enabled: false\n  oidc:\n    issuer: https://idp.example.com\n    clientID: javo\n"
 
 // pixiOn names the image that installs environments.
 const pixiOn = "environments:\n  pixiImage: example.com/pixi:1\n"
@@ -383,5 +383,17 @@ func TestMCPPublicURLDefaultsToTheUIHost(t *testing.T) {
 		if p.MCP.PublicURL != tc.want {
 			t.Errorf("%s: mcp.publicURL = %q, want %q", tc.name, p.MCP.PublicURL, tc.want)
 		}
+	}
+}
+
+// The OIDC redirect address is built from urls.uiHost, never from a request's
+// Host header, so OIDC needs it set.
+func TestOIDCNeedsTheUIHost(t *testing.T) {
+	_, err := load(t, "auth:\n  oidc:\n    issuer: https://idp.example.com\n    clientID: javo\n")
+	if err == nil || !strings.Contains(err.Error(), "urls.uiHost") {
+		t.Fatalf("oidc without uiHost: %v", err)
+	}
+	if _, err := load(t, "urls:\n  uiHost: javo.example.com\nauth:\n  oidc:\n    issuer: https://idp.example.com\n    clientID: javo\n"); err != nil {
+		t.Fatalf("oidc with uiHost: %v", err)
 	}
 }

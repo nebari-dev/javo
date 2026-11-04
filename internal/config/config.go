@@ -619,6 +619,9 @@ func (p Platform) Validate() error {
 		if o.ClientID == "" {
 			bad("auth.oidc.clientID", "required")
 		}
+		if p.URLs.UIHost == "" {
+			bad("urls.uiHost", "required with auth.oidc: the sign-in redirect address is built from it, never from a request's Host header")
+		}
 		positive("auth.oidc.revalidateInterval", o.RevalidateInterval)
 		positive("auth.oidc.outageGrace", o.OutageGrace)
 	}

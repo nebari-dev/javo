@@ -60,7 +60,7 @@ Register this callback address with the provider:
 https://<ui host>/auth/oidc/callback
 ```
 
-`<ui host>` is `config.urls.uiHost`, which defaults to `ingress.host`. Sign-out sends the person to the provider's end-session endpoint; it returns them to Javo when `config.urls.uiHost` is set.
+`<ui host>` is `config.urls.uiHost`, which defaults to `ingress.host`; OIDC needs one of them set (the address is never taken from a request's `Host` header). The scheme is `config.urls.scheme`, `https` unless set, also behind a proxy that ends TLS. Sign-out sends the person to the provider's end-session endpoint; it returns them to Javo when `config.urls.uiHost` is set.
 
 ### Keycloak
 

@@ -22,6 +22,9 @@ rendered as templates. */ -}}
 {{- $_ := set $oidc "clientSecretFile" (printf "%s/client-secret" (include "javo.oidcSecretDir" .)) -}}
 {{- end -}}
 {{- $urls := include "javo.urls" . | fromJson -}}
+{{- if and $oidc (not $urls.uiHost) -}}
+{{- fail "config.auth.oidc needs the UI's host: set ingress.host or config.urls.uiHost (the sign-in redirect address is built from it, never from a request's Host header)" -}}
+{{- end -}}
 {{- if $urls -}}
 {{- $_ := set $cfg "urls" $urls -}}
 {{- end -}}
