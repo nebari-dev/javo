@@ -45,7 +45,7 @@ COPY pod/files/fonts/FiraCode-VF.woff2 /src/terminal/
 COPY pod/javo-api/ /src/javo-api/
 RUN cd /src/terminal \
  && tar -xzf /tmp/addon-clipboard.tgz -C /tmp package/lib/addon-clipboard.js \
- && node --test page.test.mjs \
+ && node --test page.test.mjs osc52.test.mjs \
  && mkdir -p /out \
  && node page.mjs /tmp/package/lib/addon-clipboard.js /out/terminal.html \
  && cd /src/javo-api && node --test javo-api.test.mjs

@@ -22,6 +22,8 @@ Press **New app** and pick a card. The built-in templates are grouped like this:
 
 Your admin may turn some off, and template admins can add their own. Templates that only run [jobs](/using/jobs/) do not show here.
 
+In Terminal, Claude Code, herdr and pi, text you select with the mouse (drag, double or triple click) goes to your clipboard at once. Any other copy request (tmux's keyboard copy mode, or in Terminal an editor's yank or a command's output) shows a box with the text, which goes to the clipboard only when you press **Copy**. In Claude Code and pi, tmux drops copy requests from the programs in it. A file or command you did not write cannot quietly change what you paste later.
+
 **Container image** runs an image of your choice: give its reference, the port it listens on (8080 is offered first) and, if you like, a command that replaces the image's own. The app's URL prefix is removed before requests reach it, so an image that serves at `/` works. It runs under the same restrictions as every app (never as root, no extra privileges); an image that needs root fails with a reason saying so. Admins can limit which registries images may come from.
 
 ## Where the code comes from

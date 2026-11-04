@@ -2,7 +2,8 @@
 // ttyd's own page, read from the ttyd binary, plus
 //   - Fira Code (FiraCode-VF.woff2, inline: ttyd serves no other files),
 //   - xterm.js's clipboard addon, so OSC 52 from tmux or herdr reaches the
-//     browser clipboard, and javo.js, which loads it and sets the font.
+//     browser clipboard, osc52.js, which decides which of those writes are
+//     made, and javo.js, which loads both and sets the font.
 //
 //   node page.mjs <addon-clipboard.js> <out.html>
 // Runs the ttyd on the PATH on a unix socket to read its page.
@@ -48,7 +49,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const [addon, out] = process.argv.slice(2)
   const page = buildPage(await readTtydPage(), {
     font: readFileSync(new URL('FiraCode-VF.woff2', import.meta.url)),
-    scripts: [readFileSync(addon, 'utf8'), readFileSync(new URL('javo.js', import.meta.url), 'utf8')],
+    scripts: [
+      readFileSync(addon, 'utf8'),
+      readFileSync(new URL('osc52.js', import.meta.url), 'utf8'),
+      readFileSync(new URL('javo.js', import.meta.url), 'utf8'),
+    ],
   })
   writeFileSync(out, page)
 }

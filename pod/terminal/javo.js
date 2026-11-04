@@ -36,10 +36,65 @@
   const style = document.createElement('style')
   style.textContent =
     'html,body{background:var(--javo-term-bg)}' +
-    '#terminal-container .terminal{height:calc(100% - 20px);padding:10px 12px}'
+    '#terminal-container .terminal{height:calc(100% - 20px);padding:10px 12px}' +
+    // The request to copy text a program sent (askToCopy below).
+    '.javo-copy{position:fixed;right:12px;bottom:12px;z-index:10;max-width:min(480px,calc(100% - 24px));' +
+    'box-sizing:border-box;padding:12px;border:1px solid var(--javo-term-accent);border-radius:8px;' +
+    'background:var(--javo-term-bg);color:var(--javo-term-fg);font:13px/1.4 system-ui,sans-serif}' +
+    '.javo-copy pre{margin:8px 0;max-height:8em;overflow:auto;white-space:pre-wrap;word-break:break-all;' +
+    'font:12px/1.4 "Fira Code",monospace}' +
+    '.javo-copy button{margin-right:8px;padding:4px 12px;border:1px solid var(--javo-term-accent);' +
+    'border-radius:6px;background:transparent;color:inherit;font:inherit;cursor:pointer}'
   document.head.append(style)
-  const paint = () => document.documentElement.style.setProperty('--javo-term-bg', theme().background)
+  const paint = () => {
+    const t = theme()
+    const root = document.documentElement.style
+    root.setProperty('--javo-term-bg', t.background)
+    root.setProperty('--javo-term-fg', t.foreground)
+    root.setProperty('--javo-term-accent', t.cursor)
+  }
   paint()
+
+  // Asks before putting text a program sent on the clipboard: shows it (at
+  // most 500 characters, control and direction characters made visible)
+  // and copies it only on a click, the user gesture the browser and the
+  // user both see. A newer request replaces the one shown.
+  let request = null
+  function askToCopy(term, text) {
+    request?.remove()
+    const shown = (text.length > 500 ? text.slice(0, 500) + '\u2026' : text).replace(
+      /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g,
+      '\ufffd',
+    )
+    const box = document.createElement('div')
+    box.className = 'javo-copy'
+    box.setAttribute('role', 'dialog')
+    box.setAttribute('aria-label', 'Copy to clipboard')
+    const note = document.createElement('div')
+    note.textContent = `A program in this terminal wants to copy ${text.length} characters to your clipboard:`
+    const pre = document.createElement('pre')
+    pre.textContent = shown
+    const close = () => {
+      box.remove()
+      if (request === box) request = null
+      term.focus()
+    }
+    const button = (label, onClick) => {
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.textContent = label
+      b.addEventListener('click', onClick)
+      return b
+    }
+    box.append(
+      note,
+      pre,
+      button('Copy', () => navigator.clipboard.writeText(text).finally(close)),
+      button('Dismiss', close),
+    )
+    document.body.append(box)
+    request = box
+  }
 
   function setUp(term) {
     // Fira Code, set before xterm.js first measures its cells: changing it
@@ -65,13 +120,25 @@
     })
 
     // OSC 52 writes (tmux and herdr send a copied selection this way) go to
-    // the browser clipboard. tmux sends an empty selection parameter, which
-    // means the clipboard too, so every write is taken. Requests to read the
-    // clipboard are answered with nothing: a program in the terminal never
-    // sees what the user copied elsewhere.
+    // the browser clipboard at once only right after a mouse selection in
+    // the terminal; any other is shown and copied on a click (osc52.js).
+    // tmux sends an empty selection parameter, which means the clipboard
+    // too, so every write is considered. Requests to read the clipboard are
+    // answered with nothing: a program in the terminal never sees what the
+    // user copied elsewhere.
+    const guard = javoClipboardGuard({
+      now: () => performance.now(),
+      write: (text) => navigator.clipboard.writeText(text),
+      ask: (text) => askToCopy(term, text),
+    })
+    // Capture phase, so the guard sees the mouse before xterm.js (or a
+    // program that turned on mouse reporting) handles it.
+    const inTerminal = (e) => term.element?.contains(e.target)
+    document.addEventListener('mousedown', (e) => inTerminal(e) && guard.pointerDown(e.clientX, e.clientY), true)
+    document.addEventListener('mouseup', (e) => inTerminal(e) && guard.pointerUp(e.clientX, e.clientY, e.detail), true)
     const provider = {
       readText: () => '',
-      writeText: (_selection, text) => navigator.clipboard.writeText(text),
+      writeText: (_selection, text) => guard.offer(text),
     }
     term.loadAddon(new ClipboardAddon.ClipboardAddon(undefined, provider))
 
