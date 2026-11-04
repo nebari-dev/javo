@@ -142,6 +142,9 @@ To bring back apps deleted since a backup without replacing the database, open *
 | Exists | an app with the same owner and name exists; it is left as it is |
 | OwnerUnknown | its owner has no account here; they must sign in once first |
 | TemplateMissing | its template is gone; add it first |
+| Invalid | its owner could not create it today (the template is no longer for their groups, its size or API access is above what is allowed now, and so on); the message says why |
+
+Each app is checked as its owner would create it today, so a rule made stricter since the backup is not undone: sharing above the template's cap now, or sharing while apps share the UI's address without `config.sharing.allowOneHost`, comes back private, and people no longer here are dropped from it.
 
 Restore (`POST /api/admin/backups/<file>/restore`) creates only the Create rows. They wait like a whole restore does, until you release them. This reads SQLite backups only; with Postgres restore with `pg_restore`.
 

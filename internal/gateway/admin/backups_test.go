@@ -8,6 +8,7 @@ import (
 	adminapi "github.com/nebari-dev/javo/internal/gateway/admin"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
@@ -77,6 +78,7 @@ func TestRestorePreviewAndRestore(t *testing.T) {
 	dir := t.TempDir()
 	alice := apitest.PersonID("alice")
 	gone, kept := gatewaytest.App(alice, "gone"), gatewaytest.App(alice, "kept")
+	gone.File = "app.py"
 	ghost := gatewaytest.App("ghost-00000000", "orphan")
 	noTpl := gatewaytest.App(alice, "old")
 	noTpl.Template = "retired"
@@ -119,6 +121,49 @@ func TestRestorePreviewAndRestore(t *testing.T) {
 	}
 	if f.WorkspaceCount() != 2 {
 		t.Errorf("apps after restore = %d, want kept and gone", f.WorkspaceCount())
+	}
+}
+
+// An app comes back only as its owner could create it today: rules made
+// stricter since the backup (a template's sharing cap, its API access, who
+// may use it) apply. Sharing above the cap comes back private, and an app
+// the owner could not create now is refused with the reason.
+func TestRestoreAppliesTodaysRules(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	dir := t.TempDir()
+	alice := apitest.PersonID("alice")
+	shared := gatewaytest.App(alice, "shared")
+	shared.File, shared.Sharing = "app.py", model.Sharing{Access: model.AccessPublic}
+	token := gatewaytest.App(alice, "token")
+	token.File, token.APIAccess = "app.py", model.APIAccessReadWrite
+	locked := gatewaytest.App(alice, "locked")
+	locked.File, locked.Template = "app.py", "finance"
+	name := apitest.BackupOf(t, dir, now.Add(-time.Hour), shared, token, locked)
+	// Today: template t allows no sharing and no API access; finance is for a
+	// group alice is not in.
+	tpl := gatewaytest.Template("t", "streamlit")
+	tpl.Spec.MaxAPIAccess = model.APIAccessNone
+	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }, Backups: apitest.SqliteBackups(dir), People: []apitest.TestPerson{apitest.SignedIn("alice", time.Time{})}},
+		tpl, gatewaytest.Template("finance", "streamlit", "/org/finance"))
+	admin := f.Session(apitest.AdminID, "javo-admins")
+
+	w := f.Do(http.MethodPost, "/api/admin/backups/"+name+"/restore", `{}`, admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("restore: %d %s", w.Code, w.Body)
+	}
+	outcomes := map[string]string{}
+	for _, r := range apitest.Decode[apitest.RestoreRowsJSON](t, w).Rows {
+		outcomes[r.Name] = r.Outcome
+	}
+	if outcomes["token"] != "Invalid" || outcomes["locked"] != "Invalid" || outcomes["shared"] != "Created" {
+		t.Fatalf("outcomes %v", outcomes)
+	}
+	if got := f.GetWorkspace(alice, "shared").Sharing.Access; got != model.AccessPrivate {
+		t.Errorf("restored sharing %q, want private", got)
+	}
+	if f.WorkspaceCount() != 1 {
+		t.Errorf("apps after restore = %d, want only the shared one", f.WorkspaceCount())
 	}
 }
 
@@ -168,7 +213,10 @@ func TestRestoreKeepsTheOwnersCaps(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	dir := t.TempDir()
 	alice, bob := apitest.PersonID("alice"), apitest.PersonID("bob")
-	name := apitest.BackupOf(t, dir, now.Add(-time.Hour), gatewaytest.App(alice, "gone"), gatewaytest.App(bob, "lost"))
+	// Each saved app passes today's create checks; only the cap may refuse it.
+	gone, lost := gatewaytest.App(alice, "gone"), gatewaytest.App(bob, "lost")
+	gone.File, lost.File = "app.py", "app.py"
+	name := apitest.BackupOf(t, dir, now.Add(-time.Hour), gone, lost)
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }, Backups: apitest.SqliteBackups(dir), Limits: store.Limits{Apps: 1},
 		People: []apitest.TestPerson{apitest.SignedIn("alice", time.Time{}), apitest.SignedIn("bob", time.Time{})}},
 		gatewaytest.Template("t", "streamlit"), gatewaytest.App(alice, "kept"))

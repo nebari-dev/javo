@@ -15,6 +15,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
@@ -243,18 +244,14 @@ func (a *API) restoreApps(ctx context.Context, name string, scope restoreScope, 
 	for i := range saved {
 		app := &saved[i]
 		row := apps.TransferRow{Name: app.Name, DisplayName: app.DisplayName, Template: app.Template, Owner: app.Owner, WasRunning: !app.Paused}
-		row.Outcome, row.Message, err = a.restoreOutcome(ctx, app)
+		var back *model.App
+		row.Outcome, row.Message, back, err = a.restoreOutcome(ctx, app)
 		if err != nil {
 			return nil, problem.Internal("compare backup", err)
 		}
 		if apply && row.Outcome == apps.OutcomeCreate {
-			back := model.App{
-				Namespace: app.Namespace, Name: app.Name, Owner: app.Owner, DisplayName: app.DisplayName, Template: app.Template,
-				File: app.File, Sample: app.Sample, Size: app.Size, Resources: app.Resources, Command: app.Command,
-				Image: app.Image, Port: app.Port, APIAccess: app.APIAccess, IdleStopMinutes: app.IdleStopMinutes,
-				Paused: app.Paused, Sharing: app.Sharing, Source: app.Source, RestoreHold: name,
-			}
-			_, err := a.DB.Apps().Create(ctx, authn.Actor(ctx), &back)
+			back.RestoreHold = name
+			_, err := a.DB.Apps().Create(ctx, authn.Actor(ctx), back)
 			capped := problem.Limit(err)
 			switch {
 			case errors.Is(err, store.ErrExists):
@@ -273,25 +270,39 @@ func (a *API) restoreApps(ctx context.Context, name string, scope restoreScope, 
 	return out, nil
 }
 
-// restoreOutcome is what restoring app would do now.
-func (a *API) restoreOutcome(ctx context.Context, app *model.App) (string, string, error) {
+// restoreOutcome is what restoring app would do now, and with Create the
+// app to store: checked as its owner would create it today
+// (Workspaces.RestoreCheck), so a rule made stricter since the backup is not
+// undone by a restore.
+func (a *API) restoreOutcome(ctx context.Context, app *model.App) (string, string, *model.App, error) {
 	switch _, err := a.DB.Apps().GetByOwnerName(ctx, app.Owner, app.Name); {
 	case err == nil:
-		return apps.OutcomeExists, reasons.Msg(reasons.MsgRestoreExists), nil
+		return apps.OutcomeExists, reasons.Msg(reasons.MsgRestoreExists), nil, nil
 	case !errors.Is(err, store.ErrNotFound):
-		return "", "", err
+		return "", "", nil, err
 	}
-	switch _, err := a.People.ByName(ctx, app.Owner); {
+	person, err := a.People.ByName(ctx, app.Owner)
+	switch {
 	case errors.Is(err, store.ErrNotFound):
-		return apps.OutcomeOwnerUnknown, reasons.Msg(reasons.MsgRestoreOwnerGone, app.Owner), nil
+		return apps.OutcomeOwnerUnknown, reasons.Msg(reasons.MsgRestoreOwnerGone, app.Owner), nil, nil
 	case err != nil:
-		return "", "", err
+		return "", "", nil, err
 	}
 	switch _, err := a.DB.Templates().Get(ctx, app.Template); {
 	case errors.Is(err, store.ErrNotFound):
-		return apps.OutcomeTemplateMissing, reasons.Msg(reasons.MsgRestoreTemplateGone, app.Template), nil
+		return apps.OutcomeTemplateMissing, reasons.Msg(reasons.MsgRestoreTemplateGone, app.Template), nil, nil
 	case err != nil:
-		return "", "", err
+		return "", "", nil, err
 	}
-	return apps.OutcomeCreate, reasons.Msg(reasons.MsgRestoreCreate), nil
+	if a.Workspaces == nil {
+		return "", "", nil, errors.New("no app rules to check a restore against")
+	}
+	back, refusal, err := a.Workspaces.RestoreCheck(ctx, identity.PrincipalOf(person), *app)
+	switch {
+	case err != nil:
+		return "", "", nil, err
+	case refusal != "":
+		return apps.OutcomeInvalid, refusal, nil, nil
+	}
+	return apps.OutcomeCreate, reasons.Msg(reasons.MsgRestoreCreate), back, nil
 }

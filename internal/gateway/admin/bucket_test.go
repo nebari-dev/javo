@@ -160,7 +160,9 @@ func TestRestoreEverythingFromARun(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	dir := t.TempDir()
 	alice := apitest.PersonID("alice")
-	name := apitest.BackupOf(t, dir, now.Add(-time.Hour), gatewaytest.App(alice, "gone"))
+	gone := gatewaytest.App(alice, "gone")
+	gone.File = "app.py"
+	name := apitest.BackupOf(t, dir, now.Add(-time.Hour), gone)
 	var f *apitest.Fixture
 	cfg := apitest.SqliteBackups(dir)
 	snaps := map[string][]restic.Snapshot{alice: {

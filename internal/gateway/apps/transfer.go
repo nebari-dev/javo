@@ -155,6 +155,50 @@ func (s *Workspaces) importApps(ctx context.Context, yaml string, rename, apply 
 	return out, nil
 }
 
+// RestoreCheck is saved, an app read from a database backup, as owner could
+// create it today: every check a create makes (template use, size, API
+// access, launch, file), and its sharing within today's cap (above it, or
+// shared while apps share the UI's address without allowOneHost, it comes
+// back private; people no longer here are dropped). It keeps the saved
+// namespace and name. refusal is why owner could not create it now ("" when
+// they could); err is a failure to check.
+func (s *Workspaces) RestoreCheck(ctx context.Context, owner authz.Principal, saved model.App) (app *model.App, refusal string, err error) {
+	app, err = s.check(ctx, owner, requestOf(saved))
+	var details *problem.Details
+	if errors.As(err, &details) && details.Status < http.StatusInternalServerError {
+		return nil, errorText(err), nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	app.Namespace, app.Name, app.Paused = saved.Namespace, saved.Name, saved.Paused
+	t, err := s.db.Templates().Get(ctx, saved.Template)
+	if err != nil {
+		return nil, "", err
+	}
+	sh := saved.Sharing
+	if sh.Access != model.AccessPrivate && (model.AccessRank(sh.Access) > model.AccessRank(model.MaxSharing(&t)) ||
+		!s.urls.AppsOnOtherHost() && !s.cfg.Sharing.AllowOneHost) {
+		sh = model.Sharing{Access: model.AccessPrivate}
+	}
+	if sh.Access != model.AccessPrivate {
+		users := sh.Users[:0:0]
+		for _, id := range sh.Users {
+			switch _, err := s.cfg.People.ByName(ctx, id); {
+			case err == nil:
+				users = append(users, id)
+			case !errors.Is(err, store.ErrNotFound):
+				return nil, "", err
+			}
+		}
+		sh.Users = users
+	} else {
+		sh = model.Sharing{Access: model.AccessPrivate}
+	}
+	app.Sharing = sh
+	return app, "", nil
+}
+
 // maxRenames bounds the search for a free name.
 const maxRenames = 20
 

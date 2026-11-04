@@ -577,6 +577,28 @@ func (s *Workspaces) createFor(ctx context.Context, u authz.Principal, b appRequ
 // without storing it. Import previews ask it for each app, and an AI-filled
 // form is checked with it, so both get the same field errors as a create.
 func (s *Workspaces) prepare(ctx context.Context, u authz.Principal, b appRequest) (*model.App, error) {
+	app, err := s.check(ctx, u, b)
+	if err != nil {
+		return nil, err
+	}
+	ns, err := s.nss.For(u, b.team)
+	if err != nil {
+		return nil, problem.Team(err)
+	}
+	switch ok, err := s.nss.Managed(ctx, ns); {
+	case err != nil:
+		return nil, problem.Internal("check namespace", err)
+	case !ok:
+		// The controller makes it right after the person's first sign-in.
+		return nil, problem.Reason(http.StatusServiceUnavailable, reasons.NamespacePending).WithHeader("Retry-After", "2")
+	}
+	app.Namespace = ns
+	return app, nil
+}
+
+// check is prepare without choosing the namespace: every rule a create
+// applies to who u is and what b asks for.
+func (s *Workspaces) check(ctx context.Context, u authz.Principal, b appRequest) (*model.App, error) {
 	if err := s.mayCreate(u); err != nil {
 		return nil, err
 	}
@@ -621,20 +643,8 @@ func (s *Workspaces) prepare(ctx context.Context, u authz.Principal, b appReques
 	if err != nil {
 		return nil, err
 	}
-
-	ns, err := s.nss.For(u, b.team)
-	if err != nil {
-		return nil, problem.Team(err)
-	}
-	switch ok, err := s.nss.Managed(ctx, ns); {
-	case err != nil:
-		return nil, problem.Internal("check namespace", err)
-	case !ok:
-		// The controller makes it right after the person's first sign-in.
-		return nil, problem.Reason(http.StatusServiceUnavailable, reasons.NamespacePending).WithHeader("Retry-After", "2")
-	}
 	app := &model.App{
-		Namespace: ns, Name: name, Owner: u.ID, DisplayName: b.displayName, Template: b.template,
+		Name: name, Owner: u.ID, DisplayName: b.displayName, Template: b.template,
 		File: file, Sample: b.sample, Command: run.command, Image: run.image, Port: run.port,
 		APIAccess: b.apiAccess, IdleStopMinutes: idle, Source: b.source,
 	}
