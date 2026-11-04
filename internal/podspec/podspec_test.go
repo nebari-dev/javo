@@ -31,6 +31,11 @@ func TestBaseCarriesTemplateLimitsAndHardening(t *testing.T) {
 	if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken {
 		t.Fatal("service account token must not be mounted")
 	}
+	// Service links put every Service of the namespace (other people's app
+	// names and addresses, in a shared namespace) into the environment.
+	if spec.EnableServiceLinks == nil || *spec.EnableServiceLinks {
+		t.Fatal("service-link variables must be off")
+	}
 	// The storage layout adds the ids and the volumes. No pod sets fsGroup:
 	// on drivers with fsGroupPolicy File it would re-group every file of a
 	// shared folder the pod mounts.

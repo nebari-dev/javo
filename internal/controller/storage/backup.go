@@ -692,6 +692,7 @@ func (r *BackupReconciler) volumeJob(v volume, name, role string, readOnly bool,
 				Spec: corev1.PodSpec{
 					RestartPolicy:                corev1.RestartPolicyNever,
 					AutomountServiceAccountToken: ptr.To(false),
+					EnableServiceLinks:           ptr.To(false),
 					Affinity:                     affinity,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:       ptr.To(true),

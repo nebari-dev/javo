@@ -133,6 +133,10 @@ func TestProbePodsAreRestricted(t *testing.T) {
 		if p.Spec.RestartPolicy == corev1.RestartPolicyAlways {
 			t.Errorf("pod %s restarts", p.Name)
 		}
+		// Service links would list every app Service of the namespace.
+		if p.Spec.EnableServiceLinks == nil || *p.Spec.EnableServiceLinks {
+			t.Errorf("pod %s gets service-link variables", p.Name)
+		}
 	}
 	// The release namespace holds the gateway's Secrets, so no probe pod
 	// may be created there.

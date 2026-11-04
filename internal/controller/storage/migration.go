@@ -376,6 +376,7 @@ func (r *MigrationReconciler) copyJob(h *model.Home, uid, gid int64, groups []in
 				Spec: corev1.PodSpec{
 					RestartPolicy:                corev1.RestartPolicyNever,
 					AutomountServiceAccountToken: ptr.To(false),
+					EnableServiceLinks:           ptr.To(false),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr.To(true),
 						RunAsUser:    ptr.To(uid),

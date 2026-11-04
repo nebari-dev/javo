@@ -30,6 +30,12 @@ func helperJobBuilders() map[string]func() *batchv1.Job {
 	moving := h.DeepCopy()
 	moving.Status = model.HomeStatus{ClaimName: "home-alice", Migration: &model.HomeMigration{NewClaim: "home-alice-2"}}
 	out["copy home"] = func() *batchv1.Job { return (&MigrationReconciler{}).copyJob(moving, 1000, 100, []int64{2345}) }
+	out["backup home"] = func() *batchv1.Job {
+		return (&BackupReconciler{Backups: &HomeBackups{}}).volumeJob(volume{ns: "javo-apps", claim: "home-alice", owner: "alice", uid: 1000, gid: 100}, "job", "backup", true, nil)
+	}
+	out["restore home"] = func() *batchv1.Job {
+		return (&BackupReconciler{Backups: &HomeBackups{}}).volumeJob(volume{ns: "javo-apps", claim: "home-alice", owner: "alice", uid: 1000, gid: 100}, "job", "restore", false, nil)
+	}
 	for _, step := range []string{probestep.StepPrepare, probestep.StepWrite, probestep.StepCheck, probestep.StepConfirm} {
 		out["probe "+step] = func() *batchv1.Job {
 			return (&ProbeReconciler{}).buildJob(key, "nonce", step, pvc, 0, nil)
@@ -53,5 +59,16 @@ func TestEveryJobThatSetsFSGroupMountsExactlyOneVolume(t *testing.T) {
 	}
 	if !sawFSGroup {
 		t.Fatal("no helper Job sets fsGroup: the sweep checks nothing")
+	}
+}
+
+// Service links put every Service of the namespace (other people's app names
+// and addresses, in a shared namespace) into a helper's environment.
+func TestNoHelperJobGetsServiceLinks(t *testing.T) {
+	t.Parallel()
+	for name, build := range helperJobBuilders() {
+		if l := build().Spec.Template.Spec.EnableServiceLinks; l == nil || *l {
+			t.Errorf("%s: service-link variables are on", name)
+		}
 	}
 }

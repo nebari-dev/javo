@@ -48,6 +48,7 @@ func RestrictedContext() *corev1.SecurityContext {
 func Base(owner, image string, resources corev1.ResourceRequirements) corev1.PodSpec {
 	return corev1.PodSpec{
 		AutomountServiceAccountToken: ptr.To(false),
+		EnableServiceLinks:           ptr.To(false),
 		SecurityContext: &corev1.PodSecurityContext{
 			RunAsNonRoot:   ptr.To(true),
 			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},

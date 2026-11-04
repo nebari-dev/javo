@@ -404,6 +404,7 @@ func (r *ProbeReconciler) buildJob(key client.ObjectKey, nonce, step string, pvc
 				Spec: corev1.PodSpec{
 					RestartPolicy:                corev1.RestartPolicyNever,
 					AutomountServiceAccountToken: ptr.To(false),
+					EnableServiceLinks:           ptr.To(false),
 					Affinity:                     aff,
 					SecurityContext:              podSec,
 					Containers: []corev1.Container{{

@@ -79,6 +79,7 @@ func buildPrepareJob(p prepareJobSpec) *batchv1.Job {
 					Affinity:                     p.Affinity,
 					RestartPolicy:                corev1.RestartPolicyNever,
 					AutomountServiceAccountToken: ptr.To(false),
+					EnableServiceLinks:           ptr.To(false),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:        ptr.To(true),
 						RunAsUser:           ptr.To(p.UID),

@@ -262,6 +262,7 @@ func (p *Prober) pod(ns, name, role string, args []string) *corev1.Pod {
 		Spec: corev1.PodSpec{
 			RestartPolicy:                corev1.RestartPolicyNever,
 			AutomountServiceAccountToken: ptr.To(false),
+			EnableServiceLinks:           ptr.To(false),
 			ActiveDeadlineSeconds:        ptr.To(int64(p.Timeout.Seconds()) + 60),
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot:   ptr.To(true),
