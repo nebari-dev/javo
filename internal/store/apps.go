@@ -100,6 +100,13 @@ func (a *Apps) CreateWith(ctx context.Context, actor model.Actor, in *model.App,
 	if (r.HookID == "") != (r.HookSecret == "") {
 		return model.App{}, errors.New("store: a webhook needs both its address and its secret")
 	}
+	var hookSecret string
+	if r.HookID != "" {
+		var err error
+		if hookSecret, err = a.s.sealHook(r.HookID, r.HookSecret); err != nil {
+			return model.App{}, err
+		}
+	}
 	return a.create(ctx, actor, in, func(q *sqlcgen.Queries, id string) error {
 		if r.Token != "" {
 			if err := q.UpsertGitToken(ctx, sqlcgen.UpsertGitTokenParams{AppID: id, Token: r.Token, SetAt: dbtime.From(now())}); err != nil {
@@ -108,7 +115,7 @@ func (a *Apps) CreateWith(ctx context.Context, actor model.Actor, in *model.App,
 		}
 		if r.HookID != "" {
 			if err := q.UpsertPreviewHook(ctx, sqlcgen.UpsertPreviewHookParams{
-				AppID: id, HookID: sql.NullString{String: r.HookID, Valid: true}, HookSecret: r.HookSecret,
+				AppID: id, HookID: sql.NullString{String: r.HookID, Valid: true}, HookSecret: hookSecret,
 			}); err != nil {
 				return err
 			}

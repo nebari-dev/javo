@@ -169,10 +169,15 @@ func (p *Previews) Sync(ctx context.Context, parentID string) (model.PreviewSync
 
 // SetHook makes the app a new webhook address and secret (16 and 32 random
 // bytes, base64url), replacing any earlier pair, whose id stops resolving at
-// once. The secret is stored as it is: the signature check needs it. A
-// missing or deleted app is ErrNotFound. The audit row carries neither value.
+// once. The secret is stored sealed (SetHookKey): the signature check needs
+// it back, a copy of the database must not give it. A missing or deleted app
+// is ErrNotFound. The audit row carries neither value.
 func (p *Previews) SetHook(ctx context.Context, actor model.Actor, parentID string) (hookID, secret string, err error) {
 	if hookID, secret, err = NewHook(); err != nil {
+		return "", "", err
+	}
+	sealed, err := p.s.sealHook(hookID, secret)
+	if err != nil {
 		return "", "", err
 	}
 	err = p.s.mutate(ctx, actor, func(q *sqlcgen.Queries) (effect, error) {
@@ -181,7 +186,7 @@ func (p *Previews) SetHook(ctx context.Context, actor model.Actor, parentID stri
 			return effect{}, err
 		}
 		err = q.UpsertPreviewHook(ctx, sqlcgen.UpsertPreviewHookParams{
-			AppID: parentID, HookID: sql.NullString{String: hookID, Valid: true}, HookSecret: secret,
+			AppID: parentID, HookID: sql.NullString{String: hookID, Valid: true}, HookSecret: sealed,
 		})
 		return effect{audit: appKind.effect("app.preview_hook_set", app).audit}, err
 	})
@@ -231,7 +236,16 @@ func (p *Previews) ByHook(ctx context.Context, hookID string) (parentID string, 
 	if err != nil {
 		return "", nil, err
 	}
-	return row.AppID, []byte(row.HookSecret), nil
+	secret, clear, err := p.s.openHook(hookID, row.HookSecret)
+	if err != nil {
+		return "", nil, err
+	}
+	if clear && len(secret) > 0 {
+		if err := p.s.resealHook(ctx, row.AppID, hookID, row.HookSecret); err != nil {
+			return "", nil, err
+		}
+	}
+	return row.AppID, secret, nil
 }
 
 // PokedAt is when the app's webhook last delivered (the zero time if never).

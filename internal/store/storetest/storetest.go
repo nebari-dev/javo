@@ -22,6 +22,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver for the admin connection
 
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -165,7 +166,8 @@ func Exec(t testing.TB, s *store.Store, query string, args ...any) {
 	}
 }
 
-// New returns a migrated store on a fresh database. The schema is migrated
+// New returns a migrated store on a fresh database, with a random key for
+// webhook secrets. The schema is migrated
 // once per test binary into a template database (a file on SQLite) and each
 // New is a copy of it, which is many times faster than migrating every one.
 func New(t testing.TB) *store.Store {
@@ -179,7 +181,7 @@ func New(t testing.TB) *store.Store {
 		if err := os.WriteFile(cfg.Path, img, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return Open(t, cfg)
+		return withHookKey(t, Open(t, cfg))
 	}
 	adminDSN := os.Getenv(envPGDSN)
 	tpl, err := migratedTemplate(adminDSN)
@@ -191,7 +193,18 @@ func New(t testing.TB) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanup)
-	return Open(t, cfg)
+	return withHookKey(t, Open(t, cfg))
+}
+
+// withHookKey gives s a key for webhook secrets, as the gateway does at start.
+func withHookKey(t testing.TB, s *store.Store) *store.Store {
+	t.Helper()
+	k, err := secrets.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetHookKey(k)
+	return s
 }
 
 // sqliteTemplate migrates a SQLite database once per process and returns its

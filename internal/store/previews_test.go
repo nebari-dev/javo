@@ -11,6 +11,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
@@ -168,6 +169,7 @@ func TestRecordSyncIsNotAnnouncedAndIsBounded(t *testing.T) {
 func TestWebhookHookSecretAndPoke(t *testing.T) {
 	t.Parallel()
 	s, _ := startedStore(t)
+	withHookKey(t, s)
 	parent := createApp(t, s, "alice", "site")
 	if _, _, err := s.Previews().ByHook(ctx, "unknown"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("ByHook of an unknown id = %v, want ErrNotFound", err)
@@ -245,6 +247,7 @@ func TestWebhookHookSecretAndPoke(t *testing.T) {
 func TestCreateFromRepoStoresTheWebhookWithTheApp(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
+	withHookKey(t, s)
 	hookID, secret, err := store.NewHook()
 	if err != nil || len(hookID) != 22 || len(secret) != 43 {
 		t.Fatalf("NewHook = %q, %q, %v", hookID, secret, err)
@@ -321,5 +324,79 @@ func TestPutRacingTheParentsDeletionLeavesNoLivePreview(t *testing.T) {
 				t.Fatalf("round %d: preview %s is live under a deleted parent", i, k.Name)
 			}
 		}
+	}
+}
+
+// withHookKey gives s the key webhook secrets are sealed with, as the
+// gateway does at start.
+func withHookKey(t *testing.T, s *store.Store) {
+	t.Helper()
+	k, err := secrets.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetHookKey(k)
+}
+
+// rawHookSecret is the hook_secret column of parent's row as stored.
+func rawHookSecret(t *testing.T, s *store.Store, parentID string) string {
+	t.Helper()
+	var v string
+	if err := s.DB().QueryRowContext(ctx, "SELECT hook_secret FROM app_previews WHERE app_id = $1", parentID).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// A copy of the database (a backup file, the bucket's database repository,
+// a dump) must not let its holder forge webhook deliveries: the secret is
+// stored sealed, and only the gateway's key opens it.
+func TestWebhookSecretIsSealedAtRest(t *testing.T) {
+	t.Parallel()
+	s, _ := startedStore(t)
+	parent := createApp(t, s, "alice", "site")
+	if _, _, err := s.Previews().SetHook(ctx, alice, parent.ID); err == nil {
+		t.Fatal("SetHook without a key stored the secret")
+	}
+	withHookKey(t, s)
+	hookID, secret, err := s.Previews().SetHook(ctx, alice, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw := rawHookSecret(t, s, parent.ID); raw == "" || strings.Contains(raw, secret) {
+		t.Fatalf("stored %q for secret %q", raw, secret)
+	}
+	if _, got, err := s.Previews().ByHook(ctx, hookID); err != nil || string(got) != secret {
+		t.Fatalf("ByHook = %q, %v", got, err)
+	}
+	// Another key (another install, a lost key) opens nothing.
+	withHookKey(t, s)
+	if _, _, err := s.Previews().ByHook(ctx, hookID); err == nil {
+		t.Fatal("another key opened the secret")
+	}
+}
+
+// A secret stored in clear by an earlier version still checks deliveries and
+// is sealed the first time it is read.
+func TestWebhookSecretInClearIsSealedOnFirstUse(t *testing.T) {
+	t.Parallel()
+	s, _ := startedStore(t)
+	withHookKey(t, s)
+	parent := createApp(t, s, "alice", "site")
+	hookID, _, err := s.Previews().SetHook(ctx, alice, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, "UPDATE app_previews SET hook_secret = $1 WHERE app_id = $2", "old-clear-secret", parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, got, err := s.Previews().ByHook(ctx, hookID); err != nil || string(got) != "old-clear-secret" {
+		t.Fatalf("ByHook = %q, %v", got, err)
+	}
+	if raw := rawHookSecret(t, s, parent.ID); strings.Contains(raw, "old-clear-secret") {
+		t.Fatalf("still in clear: %q", raw)
+	}
+	if _, got, err := s.Previews().ByHook(ctx, hookID); err != nil || string(got) != "old-clear-secret" {
+		t.Fatalf("ByHook after sealing = %q, %v", got, err)
 	}
 }

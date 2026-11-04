@@ -75,6 +75,10 @@ type Store struct {
 
 	// limits are the per-person caps (SetLimits); nil is none.
 	limits atomic.Pointer[Limits]
+
+	// hookKey seals webhook secrets (SetHookKey); nil in processes that
+	// never check a delivery.
+	hookKey atomic.Pointer[hookKeyBox]
 }
 
 // StartFeed starts delivering announcements on Changes until ctx ends. With

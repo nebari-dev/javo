@@ -192,6 +192,9 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		return err
 	}
 	sessions := &session.DBStore{Sessions: db.Sessions(), Key: sessionsKey}
+	// Webhook secrets are sealed with the same key (each bound to its hook),
+	// so a copy of the database cannot sign deliveries.
+	db.SetHookKey(sessionsKey)
 	tokens := &token.DBStore{Tokens: db.Tokens()}
 	pl := wiring.Placement(platform)
 	// c reads straight from the API server (no cache), as files.Pods needs.
