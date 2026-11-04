@@ -49,13 +49,39 @@ git tag -a v0.1.3 -m "v0.1.3"
 git push origin v0.1.3
 ```
 
-The workflow builds the default target of the `Dockerfile`, pushes the image, then sets the chart's `version` and `appVersion` to X.Y.Z and its image defaults to `quay.io/nebari/javo`, tag X.Y.Z and the pushed digest (`scripts/release/set-chart-release.sh`), so the published chart pulls exactly the image built from the tag. The chart in the repository keeps its development defaults; only the published copy names the release image. The workflow uses only the repository's `GITHUB_TOKEN`. A package (the image or the chart) that was first pushed by hand and is not linked to this repository needs this repository added under the package's settings, Manage Actions access, with the Write role; otherwise the push is refused.
+Tag a commit on `main` after its **Go** and **UI** workflow runs have passed. The release first checks that the tagged commit is on `main` and that both workflows passed on `main` for that exact commit (`scripts/release/check-release-commit.sh`); otherwise it stops before building anything. If CI was still running, re-run the release once it has passed. Tags `v*` cannot be moved or deleted once pushed, and only maintainers and admins can create them.
+
+The workflow builds the default target of the `Dockerfile`, pushes the image, then sets the chart's `version` and `appVersion` to X.Y.Z and its image defaults to `quay.io/nebari/javo`, tag X.Y.Z and the pushed digest (`scripts/release/set-chart-release.sh`), so the published chart pulls exactly the image built from the tag. The chart in the repository keeps its development defaults; only the published copy names the release image. The job runs in the `release` environment, which only `v*` tags may use; it is the only job that reads the Quay credentials (`QUAY_USERNAME`, `QUAY_TOKEN`), and it uses the run's `GITHUB_TOKEN` for the build cache on ghcr.io. A package (the image or the chart) that was first pushed by hand and is not linked to this repository needs this repository added under the package's settings, Manage Actions access, with the Write role; otherwise the push is refused.
 
 Install a release with:
 
 ```sh
 helm install javo oci://quay.io/nebari/charts/javo --version 0.1.3 -n javo --create-namespace
 ```
+
+### Verifying a release
+
+The image and the chart are signed with [cosign](https://docs.sigstore.dev/cosign/) keyless signing: the signature's certificate names the release workflow and the tag it ran for, and is logged in Sigstore's public transparency log. The image also carries BuildKit's provenance (how and from what it was built) and an SPDX SBOM for each platform. With cosign 3:
+
+```sh
+VERSION=0.1.3
+ID="https://github.com/nebari-dev/javo/.github/workflows/release.yaml@refs/tags/v$VERSION"
+ISSUER=https://token.actions.githubusercontent.com
+
+# The image the chart pins: its digest, then its signature.
+DIGEST=$(docker buildx imagetools inspect "quay.io/nebari/javo:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
+cosign verify "quay.io/nebari/javo@$DIGEST" --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
+
+# The chart: helm pull prints its digest.
+helm pull oci://quay.io/nebari/charts/javo --version "$VERSION"
+cosign verify "quay.io/nebari/charts/javo@sha256:<digest helm printed>" --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
+
+# Provenance and SBOM.
+docker buildx imagetools inspect "quay.io/nebari/javo:$VERSION" --format '{{json .Provenance}}'
+docker buildx imagetools inspect "quay.io/nebari/javo:$VERSION" --format '{{json .SBOM}}'
+```
+
+Releases published before signing was added to the workflow carry no signature, provenance or SBOM.
 
 ## Conventions
 

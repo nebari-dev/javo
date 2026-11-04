@@ -1,22 +1,10 @@
 name: Go
 
+# Every push to main runs, whatever it changed: a release builds only a
+# commit whose run here passed (scripts/release/check-release-commit.sh).
 on:
   push:
     branches: [main]
-    paths:
-      - 'go.mod'
-      - 'go.sum'
-      - '**.go'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'test/**'
-      - 'pod/**'
-      - 'deploy/**'
-      - 'config/**'
-      - 'scripts/**'
-      - 'Makefile'
-      - 'ui/openapi.json'
-      - '.github/workflows/go.yml'
   pull_request:
     paths:
       - 'go.mod'
@@ -31,7 +19,8 @@ on:
       - 'scripts/**'
       - 'Makefile'
       - 'ui/openapi.json'
-      - '.github/workflows/go.yml'
+      # test/workflows checks every workflow.
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -154,10 +143,12 @@ jobs:
       - *setup-go
       - *week
       - *restore
-      # The envtest binaries (kube-apiserver, etcd) and restic.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The envtest binaries (kube-apiserver, etcd) and restic: saved from
+      # main only (one shard), read by every ref.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: test-bins
         with:
-          path: |
+          path: &test-bins |
             bin/k8s
             bin/setup-envtest
             bin/restic
@@ -179,3 +170,24 @@ jobs:
           else
             scripts/test/shard.sh "$SHARD" "$OF" ./... -- -vet=off
           fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.test-bins.outputs.cache-hit != 'true' && matrix.db == 'sqlite' && matrix.shard == 1
+        with:
+          path: *test-bins
+          key: ${{ steps.test-bins.outputs.cache-primary-key }}
+
+  # Known vulnerabilities in the code paths javo calls (Go's vulnerability
+  # database, by govulncheck at a pinned version, verified by the Go
+  # checksum database). A finding in a module javo does not call is listed,
+  # not failed on.
+  govulncheck:
+    name: Go vulnerabilities
+    runs-on: ubuntu-24.04
+    env:
+      GO_CACHE: go-test
+    steps:
+      - *source
+      - *setup-go
+      - *week
+      - *restore
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

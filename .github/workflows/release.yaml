@@ -2,14 +2,16 @@ name: Release
 
 # Pushing a tag vX.Y.Z publishes quay.io/nebari/javo:X.Y.Z (linux/amd64 and
 # linux/arm64) and the chart oci://quay.io/nebari/charts/javo X.Y.Z, whose
-# image defaults name that image by digest.
+# image defaults name that image by digest. Both are signed with cosign
+# (keyless: the signature names this workflow and the tag) and the image
+# carries BuildKit's provenance and an SBOM; site/src/content/docs/
+# contributing/index.md shows how to verify them.
 on:
   push:
     tags: ["v*.*.*"]
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -20,6 +22,16 @@ env:
   CHARTS: oci://quay.io/nebari/charts
   # The image build's layer cache, on this repository's own registry.
   CACHE: ghcr.io/nebari-dev/javo-buildcache
+  # Go for the javo binaries: the official linux/amd64 release archive and
+  # the sha256 go.dev publishes for it; go.mod's toolchain line must name
+  # the same version (checked below).
+  GO_VERSION: go1.26.10
+  GO_SHA256: ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+  # The BuildKit daemon that builds the image, and the SBOM scanner it runs,
+  # by index digest (DEPENDENCIES.md), instead of the moving tags buildx
+  # pulls by default.
+  BUILDKIT_IMAGE: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+  SBOM_GENERATOR: docker.io/docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
   # Helm 4.3.1 linux/amd64 release binary and the sha256 published with it
   # (the same release the Dockerfile's helm stage pins).
   HELM_VERSION: v4.3.1
@@ -30,6 +42,18 @@ jobs:
     name: Image and chart
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # The release environment admits only tags v* (its deployment rule), and
+    # is where the Quay credentials belong; no other workflow or job reads
+    # them (test/workflows).
+    environment: release
+    permissions:
+      contents: read
+      # Reads the CI runs of the tagged commit.
+      actions: read
+      # The build cache on ghcr.io.
+      packages: write
+      # cosign's keyless signing: the OIDC token names this workflow and tag.
+      id-token: write
     steps:
       # The tagged commit's files from GitHub's tarball endpoint: under a
       # second, where actions/checkout's git fetch takes 8 to 16 s on these
@@ -53,13 +77,35 @@ jobs:
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
+      # Only a commit on main whose Go and UI workflows passed on main is
+      # released: a tag on an unmerged or failing commit publishes nothing.
+      # go.yml and ui.yml run on every push to main, so each commit has
+      # both runs; while they are still going, this fails, and the release
+      # is re-run once they pass.
+      - name: Check the commit is on main and passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release/check-release-commit.sh "$GITHUB_SHA" go.yml ui.yml
+
+      - name: Install Go
+        run: |
+          want=$(awk '$1 == "toolchain" { print $2 }' go.mod)
+          if [ "$want" != "$GO_VERSION" ]; then
+            echo "::error::go.mod names toolchain $want, the release installs $GO_VERSION; update GO_VERSION and GO_SHA256"
+            exit 1
+          fi
+          curl -fsSLo "$RUNNER_TEMP/go.tgz" "https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz"
+          echo "$GO_SHA256  $RUNNER_TEMP/go.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/go.tgz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+          # This Go and no other: no download of a toolchain go.mod names.
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+
       # The go-cross cache CI's Go build job saves on main (javo for both
       # architectures; a tag run can read main's caches), so only what
-      # changed since compiles here.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
+      # changed since compiles here. Only main saves caches
+      # (test/workflows checks every workflow), so no branch, pull request
+      # or tag can have written what this restores.
       - name: Cache week
         id: week
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
@@ -83,6 +129,7 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           cleanup: false
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
 
       # Quay with the organisation's robot account (QUAY_USERNAME, QUAY_TOKEN);
       # ghcr.io for the build cache.
@@ -101,6 +148,8 @@ jobs:
       # two architectures differ only in the files copied in. The layer
       # cache lives in the registry, so it carries from one release to the
       # next (an Actions cache written by a tag is not readable by the next).
+      # The index carries BuildKit's provenance (mode=max: the full build
+      # definition) and an SPDX SBOM for each platform.
       - name: Build and push the image
         id: image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -109,10 +158,19 @@ jobs:
           build-contexts: javo-bin=${{ runner.temp }}/javo-bin
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
+          provenance: mode=max
+          attests: type=sbom,generator=${{ env.SBOM_GENERATOR }}
           tags: ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
           cache-from: type=registry,ref=${{ env.CACHE }}
           cache-to: type=registry,ref=${{ env.CACHE }},mode=max
+
+      # cosign v3.0.6, the release this installer version pins by sha256.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
 
       - name: Install helm
         run: |
@@ -127,13 +185,21 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: scripts/release/set-chart-release.sh deploy/helm/javo "$VERSION" "$IMAGE" "$DIGEST"
 
-      - name: Package and push the chart
+      - name: Package, push and sign the chart
         env:
           VERSION: ${{ steps.version.outputs.version }}
           QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
           QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
         run: |
+          set -o pipefail
           helm lint deploy/helm/javo
           helm package deploy/helm/javo --destination "$RUNNER_TEMP/chart"
           printf '%s' "$QUAY_TOKEN" | helm registry login quay.io --username "$QUAY_USERNAME" --password-stdin
-          helm push "$RUNNER_TEMP/chart/javo-$VERSION.tgz" "$CHARTS"
+          helm push "$RUNNER_TEMP/chart/javo-$VERSION.tgz" "$CHARTS" 2>&1 | tee "$RUNNER_TEMP/push.log"
+          # helm prints the pushed manifest as "Digest: sha256:...".
+          digest=$(sed -n 's/^Digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' "$RUNNER_TEMP/push.log")
+          if [ -z "$digest" ]; then
+            echo "::error::helm push printed no digest"
+            exit 1
+          fi
+          cosign sign --yes "${CHARTS#oci://}/javo@$digest"

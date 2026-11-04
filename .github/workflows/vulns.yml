@@ -1,0 +1,56 @@
+name: Vulnerabilities
+
+# New advisories against what main already pins, without waiting for a
+# commit: Go code paths (govulncheck) and the npm lockfiles (osv-scanner,
+# OSV's database). A failed run is the signal; nothing is changed or opened.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # osv-scanner v2.7.0 linux/amd64 release binary and the sha256 from the
+  # release's osv-scanner_SHA256SUMS (DEPENDENCIES.md).
+  OSV_SCANNER_VERSION: v2.7.0
+  OSV_SCANNER_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+
+jobs:
+  go:
+    name: Go vulnerabilities
+    runs-on: ubuntu-24.04
+    steps:
+      # The commit's files from GitHub's tarball endpoint (see go.yml).
+      - &source
+        name: Fetch the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" |
+            tar -xz --strip-components=1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  npm:
+    name: npm lockfile advisories
+    runs-on: ubuntu-24.04
+    steps:
+      - *source
+      - name: Install osv-scanner
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/$OSV_SCANNER_VERSION/osv-scanner_linux_amd64"
+          echo "$OSV_SCANNER_SHA256  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+      - run: |
+          "$RUNNER_TEMP/osv-scanner" scan source \
+            -L ui/pnpm-lock.yaml \
+            -L ui/tools/gen-api/pnpm-lock.yaml \
+            -L site/pnpm-lock.yaml \
+            -L pod/files/envs/agents/package-lock.json

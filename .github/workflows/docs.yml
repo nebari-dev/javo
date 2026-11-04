@@ -45,7 +45,8 @@ jobs:
             tar -xz --strip-components=1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          # The Node of the Dockerfile's ui stage (one reviewed version).
+          node-version: 22.23.4
       # pnpm through Node's corepack, at the version and sha512 that
       # site/package.json's packageManager names.
       - run: corepack enable pnpm
