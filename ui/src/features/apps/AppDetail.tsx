@@ -2,7 +2,7 @@ import { ChevronRight, ChevronUp, CircleCheck, Clock3, FileText, Play, RotateCcw
 import { PartIcon } from '../../components/Section'
 import { OpenAppLink } from './OpenAppLink'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import type { Event as KubeEvent, PodRun, Step, Workspace } from '../../api'
 import { ApiAccessChoices, apiAccessLabel, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
@@ -233,28 +233,41 @@ function useJustStarted(phase: string): { started: boolean; hold: boolean; dismi
   return { started, hold, dismiss: () => setStarted(false) }
 }
 
+// Coding agents by kind, with the name people know them by. Their ready card
+// says the agent is running, not that the app it builds is.
+const AGENTS: Record<string, string> = { pi: 'Pi', 'claude-code': 'Claude Code', herdr: 'herdr' }
+
 /**
  * Says an app that just started is ready, with its address, a link to open
- * it and a button to copy the address.
+ * it and a button to copy the address. For a coding agent it says the agent
+ * is running: building when it was started with a request (Build with), and
+ * that the apps it deploys appear in Apps.
  */
-function ReadyCard({ link, onDismiss }: { link: string; onDismiss: () => void }) {
+function ReadyCard({ ws, link, building, onDismiss }: { ws: Workspace; link: string; building: boolean; onDismiss: () => void }) {
   // A path on this host is copied as a whole address, to paste anywhere.
   const address = new URL(link, window.location.href).href
+  const agent = AGENTS[ws.kind]
+  const title = !agent ? 'Your app is ready' : building ? `${agent} is building your app` : `${agent} is ready`
   return (
     <Banner
       tone="ok"
       className="ready-card"
-      title="Your app is ready"
+      title={title}
       actions={
         <>
           <OpenAppLink className="btn primary sm" href={link}>
-            Open app
+            {agent ? `Open ${agent}` : 'Open app'}
           </OpenAppLink>
           <CopyLink link={address} />
           <IconButton icon={X} label="Dismiss" onClick={onDismiss} />
         </>
       }
-    />
+    >
+      {agent &&
+        (building
+          ? `${agent} is writing the code. When it's done, your new app appears in Apps with its own link. Open ${agent} to watch it work or answer its questions.`
+          : `Open ${agent} and tell it what to build. Apps it deploys appear in Apps.`)}
+    </Banner>
   )
 }
 
@@ -637,6 +650,7 @@ export function AppDetail() {
   const [pickedSize, setPickedSize] = useState<SizeChoice | null>(null)
   const [revealSize, setRevealSize] = useState(0)
   const justStarted = useJustStarted(ws?.phase ?? '')
+  const building = !!(useLocation().state as { building?: boolean } | null)?.building
 
   if (q.isError) {
     return (
@@ -655,7 +669,7 @@ export function AppDetail() {
   const overview = (
       <div className="two">
         <div className="stack">
-          {readyLink && <ReadyCard link={readyLink} onDismiss={justStarted.dismiss} />}
+          {readyLink && <ReadyCard ws={ws} link={readyLink} building={building} onDismiss={justStarted.dismiss} />}
           {ws.previewOf && <PreviewOfBanner of={ws.previewOf} />}
           {stopped && (
             <Banner tone="info" title={stopNote(ws) ?? stopped.title}>

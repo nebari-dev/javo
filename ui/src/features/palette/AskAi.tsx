@@ -147,7 +147,7 @@ function BuildPanel({ text, agent }: { text: string; agent: string }) {
     mutate(text, {
       onSuccess: (ws) => {
         close()
-        void navigate(`/apps/${encodeURIComponent(ws.name)}`)
+        void navigate(`/apps/${encodeURIComponent(ws.name)}`, { state: { building: true } })
       },
     }),
   )

@@ -119,7 +119,7 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
       <div className="row describe-foot">
         <Button
           disabled={!text.trim() || build.isPending}
-          onClick={() => build.mutate(text.trim(), { onSuccess: (w) => navigate(`/apps/${encodeURIComponent(w.name)}`) })}
+          onClick={() => build.mutate(text.trim(), { onSuccess: (w) => navigate(`/apps/${encodeURIComponent(w.name)}`, { state: { building: true } }) })}
         >
           <KindLogo kind={agent.template} inline />
           Build with {agentLabel(agent.template)}
