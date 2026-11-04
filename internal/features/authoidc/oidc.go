@@ -9,6 +9,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -52,6 +54,8 @@ type discovered struct {
 	provider   *oidc.Provider
 	verifier   *oidc.IDTokenVerifier
 	endSession string
+	// userInfo is the UserInfo endpoint; "" when the provider has none.
+	userInfo string
 }
 
 // Provider signs people in through one OpenID Connect provider.
@@ -205,6 +209,7 @@ func (p *Provider) discover() {
 func (p *Provider) build(prov *oidc.Provider) *discovered {
 	var meta struct {
 		EndSession string `json:"end_session_endpoint"`
+		UserInfo   string `json:"userinfo_endpoint"`
 	}
 	if err := prov.Claims(&meta); err != nil {
 		slog.Warn("oidc discovery document unreadable for end_session_endpoint", "err", err)
@@ -212,7 +217,7 @@ func (p *Provider) build(prov *oidc.Provider) *discovered {
 	return &discovered{
 		provider:   prov,
 		verifier:   prov.Verifier(&oidc.Config{ClientID: p.cfg.ClientID, Now: p.now}),
-		endSession: meta.EndSession,
+		endSession: meta.EndSession, userInfo: meta.UserInfo,
 	}
 }
 
@@ -508,24 +513,84 @@ func (p *Provider) Revalidate(ctx context.Context, s session.Session) (identity.
 	if tok.RefreshToken != "" {
 		s.Refresh = tok.RefreshToken
 	}
+	// The groups are taken only from what the provider confirms now: a
+	// refreshed ID token, or else UserInfo. Neither means they cannot be
+	// confirmed, which is an outage: the session lives out the grace period
+	// and its person's tokens are not reconfirmed with stale groups.
+	wantSub := subjectOf(s.IDToken)
+	c, ok := identity.Claims{}, false
 	if rawID, _ := tok.Extra("id_token").(string); rawID != "" {
-		if c, ok := p.claimsFrom(ctx, d, rawID); ok {
-			c.Username, c.Email, c.DisplayName, c.Picture = cur.Username, cur.Email, cur.DisplayName, cur.Picture
-			cur = c
+		if c, ok = p.claimsFrom(ctx, d, rawID); ok {
 			s.IDToken = rawID
-			s.Principal = authz.Principal{
-				ID: s.Principal.ID, Username: s.Principal.Username, Email: s.Principal.Email,
-				DisplayName: s.Principal.DisplayName, Picture: s.Principal.Picture, Issuer: s.Principal.Issuer, Groups: c.Groups,
-				ProviderRoles: c.ProviderRoles,
-			}
 		}
+	}
+	if !ok {
+		c, ok = p.userInfoClaims(ctx, d, tok)
+	}
+	switch {
+	case !ok:
+		slog.Warn("refresh confirmed no groups: no usable ID token or UserInfo")
+		return identity.Claims{}, s, authprovider.ErrUnavailable
+	case wantSub != "" && c.Subject != wantSub:
+		// OIDC Core 12.2: a refreshed ID token must name the same person.
+		slog.Warn("refresh answered for another subject")
+		return identity.Claims{}, s, authprovider.ErrRevoked
+	}
+	c.Username, c.Email, c.DisplayName, c.Picture = cur.Username, cur.Email, cur.DisplayName, cur.Picture
+	cur = c
+	s.Principal = authz.Principal{
+		ID: s.Principal.ID, Username: s.Principal.Username, Email: s.Principal.Email,
+		DisplayName: s.Principal.DisplayName, Picture: s.Principal.Picture, Issuer: s.Principal.Issuer, Groups: c.Groups,
+		ProviderRoles: c.ProviderRoles,
 	}
 	s.RevalidateAt = p.now().Add(p.cfg.RevalidateInterval.Duration)
 	return cur, s, nil
 }
 
-// claimsFrom verifies a refreshed ID token and reads its claims. When it
-// cannot be used the session keeps the groups it had.
+// userInfoClaims reads the person's claims from the provider's UserInfo
+// endpoint with tok; ok is false when there is none, it fails, or it does not
+// carry the groups claim (so it cannot confirm them).
+func (p *Provider) userInfoClaims(ctx context.Context, d *discovered, tok *oauth2.Token) (identity.Claims, bool) {
+	if d.userInfo == "" {
+		return identity.Claims{}, false
+	}
+	ui, err := d.provider.UserInfo(ctx, oauth2.StaticTokenSource(tok))
+	if err != nil {
+		slog.Warn("userinfo after refresh", "err", errText(err))
+		return identity.Claims{}, false
+	}
+	var raw map[string]any
+	if err := ui.Claims(&raw); err != nil || lookup(raw, p.cfg.GroupsClaim) == nil {
+		return identity.Claims{}, false
+	}
+	c, err := Extract(raw, p.cfg.UsernameClaim, p.cfg.GroupsClaim, p.cfg.RolesClaim)
+	if err != nil {
+		return identity.Claims{}, false
+	}
+	c.Issuer = p.cfg.Issuer
+	return c, true
+}
+
+// subjectOf reads the sub claim of the session's own ID token, verified when
+// it was stored; "" when there is none.
+func subjectOf(raw string) string {
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	b, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		Sub string `json:"sub"`
+	}
+	_ = json.Unmarshal(b, &c)
+	return c.Sub
+}
+
+// claimsFrom verifies a refreshed ID token and reads its claims; ok is false
+// when it cannot be used.
 func (p *Provider) claimsFrom(ctx context.Context, d *discovered, rawID string) (identity.Claims, bool) {
 	idt, err := d.verifier.Verify(ctx, rawID)
 	if err != nil {

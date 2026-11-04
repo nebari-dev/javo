@@ -51,7 +51,7 @@ Javo uses the authorization code flow with PKCE and a nonce. Settings under `con
 | `usernameClaim` | `preferred_username` | The claim shown as the person's name. |
 | `groupsClaim` | `groups` | A dotted path to the claim that lists the person's groups. |
 | `rolesClaim` | | A dotted path to a claim that lists the person's roles at the provider, such as `resource_access.javo.roles` (a Keycloak client's roles) or `realm_access.roles`. Empty reads none. Templates and sizes can be limited to these roles; see [Limit templates and sizes by provider role](#limit-templates-and-sizes-by-provider-role). |
-| `revalidateInterval` | `5m` | How often Javo checks the person with the refresh token. |
+| `revalidateInterval` | `5m` | How often Javo checks the person with the refresh token. The groups come from the refreshed ID token, or the UserInfo endpoint when the provider sends none; a provider that offers neither cannot confirm them, so its sessions end after `outageGrace`. |
 | `outageGrace` | `15m` | How long sessions keep working while the provider cannot be reached. |
 
 Register this callback address with the provider:

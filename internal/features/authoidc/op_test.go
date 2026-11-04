@@ -57,6 +57,8 @@ type op struct {
 	refreshDelay  time.Duration        // the refresh grant stalls this long
 	refreshGroups []string             // groups in refreshed ID tokens; nil means no id_token
 	refreshRoles  []string             // a "roles" claim in refreshed ID tokens
+	refreshSub    string               // the sub of refreshed ID tokens; "" means u-alice
+	userinfo      []string             // groups the UserInfo endpoint answers; nil means it has none
 	// state
 	codes     map[string]grant
 	refresh   string
@@ -77,6 +79,7 @@ func newOP(t *testing.T) *op {
 	mux.HandleFunc("GET /", o.discovery)
 	mux.HandleFunc("GET "+opPrefix+"/certs", o.certs)
 	mux.HandleFunc("POST "+opPrefix+"/token", o.token)
+	mux.HandleFunc("GET "+opPrefix+"/userinfo", o.userInfo)
 	o.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		o.mu.Lock()
 		down := o.down
@@ -114,6 +117,9 @@ func (o *op) discovery(w http.ResponseWriter, r *http.Request) {
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 	}
 	o.mu.Lock()
+	if o.userinfo != nil {
+		doc["userinfo_endpoint"] = opIssuer + "/userinfo"
+	}
 	if !o.noEndSession {
 		doc["end_session_endpoint"] = opIssuer + "/protocol/openid-connect/logout"
 	}
@@ -228,7 +234,11 @@ func (o *op) token(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{"access_token": "at-" + rand.Text(), "token_type": "Bearer", "expires_in": 300, "refresh_token": o.refresh}
 		o.issued = append(o.issued, o.refresh)
 		if groups != nil {
-			claims := baseClaims("u-alice")
+			sub := o.refreshSub
+			if sub == "" {
+				sub = "u-alice"
+			}
+			claims := baseClaims(sub)
 			claims["groups"] = groups
 			if roles != nil {
 				claims["roles"] = roles
@@ -242,6 +252,18 @@ func (o *op) token(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 	}
+}
+
+// userInfo answers the UserInfo endpoint for any bearer access token.
+func (o *op) userInfo(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer at-") {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	o.mu.Lock()
+	groups := o.userinfo
+	o.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"sub": "u-alice", "groups": groups})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

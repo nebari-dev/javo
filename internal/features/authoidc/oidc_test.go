@@ -513,15 +513,42 @@ func TestRevalidateRotatesTheRefreshTokenAndTakesGroupsFromTheNewIDToken(t *test
 	}
 }
 
-func TestRevalidateWithoutAnIDTokenKeepsTheGroupsTheSessionHad(t *testing.T) {
+// A refresh with no usable ID token does not confirm the session's groups:
+// a person removed from the admin group must not keep it for as long as
+// refresh works. With nothing else to ask the answer is an outage (the
+// session lives out the grace period, its tokens are not reconfirmed).
+func TestRevalidateWithoutAnIDTokenDoesNotConfirmTheOldGroups(t *testing.T) {
 	f := newFixture(t, nil)
+	s := f.signedIn()
+	if _, _, err := f.p.Revalidate(context.Background(), s); !errors.Is(err, authprovider.ErrUnavailable) {
+		t.Fatalf("revalidate without an ID token: %v", err)
+	}
+}
+
+// When the provider has a UserInfo endpoint, a refresh without an ID token
+// takes the groups from there.
+func TestRevalidateWithoutAnIDTokenAsksUserInfo(t *testing.T) {
+	f := newFixture(t, nil)
+	f.op.set(func() { f.op.userinfo = []string{"/org/ml"} })
+	f.p.Close()
+	f = newFixtureFor(t, f.op, oidcConfig(f.op), &http.Client{Timeout: 2 * time.Second})
 	s := f.signedIn()
 	c, fresh, err := f.p.Revalidate(context.Background(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Groups) != 1 || c.Groups[0] != "old" || len(fresh.Principal.Groups) != 1 || fresh.Principal.Groups[0] != "old" {
+	if len(c.Groups) != 1 || c.Groups[0] != "/org/ml" || len(fresh.Principal.Groups) != 1 || fresh.Principal.Groups[0] != "/org/ml" {
 		t.Fatalf("groups %v / %v", c.Groups, fresh.Principal.Groups)
+	}
+}
+
+// A refreshed ID token for another subject (OIDC Core 12.2) ends the session.
+func TestRevalidateRefusesAnIDTokenForAnotherSubject(t *testing.T) {
+	f := newFixture(t, nil)
+	s := f.signedIn()
+	f.op.set(func() { f.op.refreshGroups, f.op.refreshSub = []string{"admins"}, "u-mallory" })
+	if _, _, err := f.p.Revalidate(context.Background(), s); !errors.Is(err, authprovider.ErrRevoked) {
+		t.Fatalf("revalidate with another subject: %v", err)
 	}
 }
 
