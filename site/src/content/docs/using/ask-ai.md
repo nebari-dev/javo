@@ -14,7 +14,7 @@ Model features are off until an admin [connects a model](/admin/ai/). With them 
 - **Ask AI** in the search palette (Cmd+K or Ctrl+K): ask for a change. The answer is a plan you approve, or a draft that opens New app.
 - **Ask about this cluster** in the palette, for platform admins: questions about the cluster report. The answer cites its rows and changes nothing.
 
-Each person has a daily allowance of model tokens (per UTC day). Every token a call uses counts, including a retried answer. When it is used up, Javo says when it resets.
+Each person has a daily allowance of model tokens (per UTC day). Every token a call uses counts, including a retried answer. When it is used up, Javo says when it resets. Up to 20 proposed changes may wait for your approval at once (your admin [sets the limit](/admin/limits/)); approve or reject some to propose more.
 
 ## Coding agents (MCP)
 

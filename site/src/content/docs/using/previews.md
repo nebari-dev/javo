@@ -11,7 +11,7 @@ Your admin must turn previews on for the platform (`source.previews.enabled`, se
 
 ## How previews behave
 
-- The newest open pull requests get a preview, up to **Previews at most** (3 by default; your admin sets the platform's cap, at most 10). The others are listed with the reason, such as the limit being reached.
+- The newest open pull requests get a preview, up to **Previews at most** (3 by default; your admin sets the platform's cap, at most 10). The others are listed with the reason, such as the limit being reached. Your admin also [limits](/admin/limits/) the previews of all your apps together (20 by default); past it a pull request lists **Your preview limit reached**.
 - A preview follows new commits to its pull request, and is removed when the pull request is closed.
 - A preview is named `<app> PR #<number>`. Its short name is `<app>--pr-<number>`, so with path addresses it opens at `/u/<owner>/<app>--pr-<number>/`.
 - Pull requests from forks are skipped unless you turn on **Also preview pull requests from forks**.

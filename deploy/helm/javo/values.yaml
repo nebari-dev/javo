@@ -542,6 +542,31 @@ config:
       # without a body, such as log streams, and apps' own traffic are not
       # affected.
       bodyReadTimeout: 60s
+  # Per-person caps (they apply to platform admins too), so one person cannot
+  # fill the cluster or the database. A create, start, import, Run now, new
+  # token or proposed change past one is refused with a message naming it;
+  # a scheduled run is skipped while a run cap is reached (the job's CronJob
+  # is suspended until a run ends); a pull request past `previews` gets no
+  # preview. Lowering a cap stops nothing that exists. See
+  # site/src/content/docs/admin/limits.md, which also covers the kubelet's
+  # podPidsLimit (Javo sets no process limit of its own).
+  limits:
+    runningApps: 10 # apps running at once (previews not counted)
+    apps: 50 # apps, running or stopped
+    previews: 20 # previews of pull requests over all of a person's apps
+    jobs: 50
+    activeRunsPerJob: 3 # runs of one job going at once (requested ones count)
+    activeRunsPerPerson: 10 # runs of all of a person's jobs going at once
+    apiTokens: 50 # personal API tokens not yet expired
+    pendingPlans: 20 # proposed changes waiting for a person's approval
+    jobMaxTimeout: 24h # no run takes longer, whatever its job or template says
+    # per-user and per-team mode only: a ResourceQuota and a LimitRange
+    # (javo-limits) in each namespace. A quota on a resource refuses pods
+    # that do not ask for it, so give a default request for each.
+    # namespace:
+    #   quota: {requests.cpu: "16", requests.memory: 64Gi, pods: "30", requests.ephemeral-storage: 100Gi}
+    #   containerDefaults: {ephemeral-storage: 20Gi}
+    #   containerDefaultRequests: {ephemeral-storage: 1Gi}
   # Model features: Explain more on a failure, Describe it on New app, Ask
   # AI in the search palette and the admin's cluster question. Off by
   # default: then nothing connects to a model and no AI control shows. The

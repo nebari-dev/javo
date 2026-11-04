@@ -28,6 +28,7 @@ Values fall in two groups:
 | `config.urls` | [App addresses](/admin/app-addresses/). `uiHost` and `appsHost`, like `config.auth.oidc.issuer` and `clientID`, may be Helm templates such as `javo.{{ .Values.global.domain }}`. |
 | `sizes`, `defaultSize`, `customSize` | [Sizes](/admin/sizes/). |
 | `config.idleStop` | [Idle stop](/admin/idle-stop/). |
+| `config.limits` | [Per-person limits](/admin/limits/): apps, running apps, jobs, runs, previews, tokens and plans per person, the longest run, and quotas of per-person and per-team namespaces. |
 | `database.backup`, `backupTarget` | [Backups](/admin/backups/). |
 | `workspaceTemplates` | Turn built-in templates on or off, point one at an image in your own registry, or limit one to groups (`allowedGroups`) or identity provider roles (`allowedProviderRoles`). |
 | `containerImages` | Allow the Container image template, and from which registries. |
