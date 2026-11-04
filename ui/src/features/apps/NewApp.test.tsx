@@ -65,6 +65,19 @@ const openCode = async () => userEvent.click(await screen.findByRole('button', {
 const sizesLoaded = async () => screen.findByRole('radiogroup', { name: 'Size' })
 
 describe('New app', () => {
+  it('shows the image and command the chosen template runs, filled in as the person types', async () => {
+    const custom = { ...customTemplate, sample: undefined, run: { image: 'ghcr.io/example/pixi:1', command: ['/opt/javo/pod-user.sh', '<your command>'], line: '/opt/javo/pod-user.sh <your command>' } }
+    base({}, [...plain.filter((t) => t.name !== 'custom'), custom])
+    renderApp('/apps/new')
+    await userEvent.click(await screen.findByRole('radio', { name: /Custom command/ }))
+    const runs = screen.getByRole('group', { name: 'Runs' })
+    expect(within(runs).getByText('ghcr.io/example/pixi:1')).toBeTruthy()
+    const line = () => runs.querySelector('code')?.textContent
+    expect(line()).toBe('/opt/javo/pod-user.sh <your command>')
+    await userEvent.type(screen.getByLabelText('Command'), 'python app.py')
+    expect(line()).toBe('/opt/javo/pod-user.sh python app.py')
+  })
+
   it('keeps keyboard focus inside the file picker and returns it on Escape', async () => {
     base()
     renderApp('/apps/new')

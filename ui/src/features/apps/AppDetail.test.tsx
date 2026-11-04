@@ -376,7 +376,7 @@ describe('App status page', () => {
     const card = (await screen.findByText('What runs')).closest('.card') as HTMLElement
     expect(within(card).getByText(run.image)).toBeTruthy()
     expect(within(card).getByText(run.environment)).toBeTruthy()
-    expect(within(card).getByText(run.line)).toBeTruthy()
+    expect(card.querySelector('.cmdline code')?.textContent).toBe(run.line)
     expect(within(card).getByRole('button', { name: 'Copy command' })).toBeTruthy()
   })
 
@@ -386,7 +386,7 @@ describe('App status page', () => {
     await userEvent.click(await screen.findByRole('button', { name: "Show the running app's log" }))
     const log = screen.getByRole('heading', { name: "Running app's log" }).closest('section') as HTMLElement
     const started = within(log).getByRole('group', { name: 'Started with' })
-    expect(within(started).getByText(run.line)).toBeTruthy()
+    expect(started.querySelector('code')?.textContent).toBe(run.line)
     expect(within(started).getByText(run.image)).toBeTruthy()
     // It stands above the lines, not among them.
     expect(started.compareDocumentPosition(within(log).getByRole('log')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

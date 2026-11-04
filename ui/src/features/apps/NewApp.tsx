@@ -11,6 +11,7 @@ import { HomePicker } from '../files/HomePicker'
 import { IdleStopChoice } from './IdleStop'
 import { KindLogo } from '../../components/KindLogo'
 import { LaunchFields, launchBody, type Launch } from './LaunchFields'
+import { TemplateRuns } from './RunCommand'
 import { More } from '../../components/More'
 import { isGitHubRepo, PreviewSettings } from './PreviewsCard'
 import { emptyRepo, RepoFields, sourceBody, type Repo } from './RepoFields'
@@ -652,6 +653,7 @@ export function NewApp() {
             </Card>
             </Section>
           )}
+          {tpl?.run && <TemplateRuns run={tpl.run} file={file} command={launch.command} image={launch.image} />}
           {tpl && !takesImage && <EnvironmentCard what="app" value={environment} onChange={setEnvironment} error={errs.fields.environment} />}
           {tpl && sizes.length > 0 && (
             <SizeCard sizes={sizes} custom={allowance} value={size} onChange={setPickedSize} errors={errs.fields} />
