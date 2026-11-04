@@ -254,7 +254,10 @@ a.btn{text-decoration:none}
 @media (max-width:760px){
   .top-actions{gap:8px}
   h1{font-size:var(--fs-xl)}
-  .dhead .actions-col{margin-left:0;align-items:flex-start}
+  /* On a phone the actions take their own line under the name, which wraps with its status. */
+  .dhead .grow{min-width:0}
+  .dhead .grow .row{flex-wrap:wrap}
+  .dhead .actions-col{margin-left:0;align-items:flex-start;flex-basis:100%}
   .dhead .actions{justify-content:flex-start}
 }
 .login-or{text-align:center;margin:2px 0}
