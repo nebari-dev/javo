@@ -92,8 +92,8 @@ type (
 	// sharedPeerKey is set (true) when the client address cannot tell
 	// clients apart (ratelimit.SharedPeer).
 	sharedPeerKey struct{}
-	// agentKey is set (true) when that token is an app's whose template
-	// has agentDeploy (Authenticator.Agents).
+	// agentKey holds the AgentCaps of that token's app
+	// (Authenticator.Agents).
 	agentKey struct{}
 	// writeKey is set (true) on a request that is not a read (GET, HEAD).
 	writeKey struct{}
@@ -121,11 +121,16 @@ type Authenticator struct {
 	Jobs token.JobCheck
 	// Active, when set, hears of every request a signed-in browser makes.
 	Active func(userID string)
-	// Agents reports whether the app an app token is bound to is a coding
-	// agent with deploy rights (its template's agentDeploy, while the app is
-	// private); nil: none is.
-	Agents func(ctx context.Context, a token.App) (bool, error)
+	// Agents says what the app an app token is bound to may do as a coding
+	// agent (its template's agentDeploy and agentModel, while the app is
+	// private); nil: nothing.
+	Agents func(ctx context.Context, a token.App) (AgentCaps, error)
 }
+
+// AgentCaps is what a coding agent's app token may do besides what every
+// workload token may: Deploy, the AgentDeployWrites; Model, call the
+// gateway's model endpoint.
+type AgentCaps struct{ Deploy, Model bool }
 
 func (a *Authenticator) now() time.Time {
 	if a.Clock != nil {
@@ -163,13 +168,13 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, apiTokenKey{}, tok.ID)
 			ctx = context.WithValue(ctx, appTokenKey{}, tok.Workload())
 			if tok.App != nil && a.Agents != nil {
-				agent, err := a.Agents(ctx, *tok.App)
+				caps, err := a.Agents(ctx, *tok.App)
 				if err != nil {
 					slog.Error("agent token check", "err", err)
 					problem.Write(w, http.StatusInternalServerError, reasons.Msg(reasons.MsgServerError))
 					return
 				}
-				ctx = context.WithValue(ctx, agentKey{}, agent)
+				ctx = context.WithValue(ctx, agentKey{}, caps)
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userKey{}, p)))
 			return
@@ -373,8 +378,15 @@ func viaAppToken(ctx context.Context) bool {
 // ViaAgentToken reports whether the request came with the token of a coding
 // agent with deploy rights (Authenticator.Agents).
 func ViaAgentToken(ctx context.Context) bool {
-	agent, _ := ctx.Value(agentKey{}).(bool)
-	return agent && viaAppToken(ctx)
+	caps, _ := ctx.Value(agentKey{}).(AgentCaps)
+	return caps.Deploy && viaAppToken(ctx)
+}
+
+// ViaAgentModelToken reports whether the request came with the token of a
+// coding agent that may use the gateway's model (Authenticator.Agents).
+func ViaAgentModelToken(ctx context.Context) bool {
+	caps, _ := ctx.Value(agentKey{}).(AgentCaps)
+	return caps.Model && viaAppToken(ctx)
 }
 
 // Writes reports whether the request is not a read (GET or HEAD).

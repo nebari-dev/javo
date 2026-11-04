@@ -280,6 +280,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Diagnose:        wiring.DiagnoseEngine(),
 		Plans:           proposals,
 		AI:              aiSvc,
+		AgentModel:      wiring.AgentModel(platform.AI, db),
 		AIFeatures:      platform.AI.Features,
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
 		MCP:             platform.MCP,

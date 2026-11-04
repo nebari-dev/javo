@@ -114,27 +114,29 @@ func AppTokenWanted(db *store.Store) token.AppCheck {
 	}
 }
 
-// AgentTokens is authn.Authenticator.Agents: an app token's app is a coding
-// agent with deploy rights while its template has agentDeploy and the app is
-// private, read on every request so turning either off takes effect at once.
-func AgentTokens(db *store.Store) func(context.Context, token.App) (bool, error) {
-	return func(ctx context.Context, a token.App) (bool, error) {
+// AgentTokens is authn.Authenticator.Agents: what an app token's app may do
+// as a coding agent, its template's agentDeploy and agentModel, while the
+// app is private. It is read on every request, so turning either off takes
+// effect at once.
+func AgentTokens(db *store.Store) func(context.Context, token.App) (authn.AgentCaps, error) {
+	return func(ctx context.Context, a token.App) (authn.AgentCaps, error) {
 		app, err := db.Apps().GetByObjectName(ctx, a.Name)
 		switch {
 		case errors.Is(err, store.ErrNotFound):
-			return false, nil
+			return authn.AgentCaps{}, nil
 		case err != nil:
-			return false, err
+			return authn.AgentCaps{}, err
 		case app.Namespace != a.Namespace || !app.DeletedAt.IsZero() || app.Sharing.Access != model.AccessPrivate:
-			return false, nil
+			return authn.AgentCaps{}, nil
 		}
 		t, err := db.Templates().Get(ctx, app.Template)
 		switch {
 		case errors.Is(err, store.ErrNotFound):
-			return false, nil
+			return authn.AgentCaps{}, nil
 		case err != nil:
-			return false, err
+			return authn.AgentCaps{}, err
 		}
-		return t.Spec.AgentDeploy && model.MaxSharing(&t) == model.AccessPrivate, nil
+		private := model.MaxSharing(&t) == model.AccessPrivate
+		return authn.AgentCaps{Deploy: t.Spec.AgentDeploy && private, Model: t.Spec.AgentModel && private}, nil
 	}
 }

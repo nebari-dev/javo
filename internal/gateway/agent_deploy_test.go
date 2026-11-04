@@ -24,13 +24,19 @@ type agentFixture struct {
 
 func newAgentFixture(t *testing.T, deploy bool) agentFixture {
 	t.Helper()
+	return newAgentFixtureWith(t, deploy, apitest.Options{})
+}
+
+func newAgentFixtureWith(t *testing.T, deploy bool, o apitest.Options) agentFixture {
+	t.Helper()
 	pi := apitest.AgentTemplate()
 	pi.Name, pi.Spec.AgentDeploy, pi.Spec.AgentModel = "pi", deploy, true
 	piApp := gatewaytest.Workspace("pi", apitest.LocalAlice(), "pi")
 	piApp.Template = "pi"
 	streamlit := gatewaytest.Template("streamlit", "streamlit")
 	streamlit.Spec.FromRepo = model.FromRepoOptional
-	f := apitest.New(t, apitest.Options{Engines: apitest.TestEngines(), Files: &apitest.StubFilesLister{Content: "x"}},
+	o.Engines, o.Files = apitest.TestEngines(), &apitest.StubFilesLister{Content: "x"}
+	f := apitest.New(t, o,
 		pi, piApp, streamlit, apitest.JobTemplateObj(),
 		gatewaytest.Workspace("plain", apitest.LocalAlice(), "Plain"),
 		gatewaytest.Workspace("keyed", apitest.LocalAlice(), "Keyed"),

@@ -7,6 +7,9 @@ package wiring
 import (
 	"context"
 	"fmt"
+	"github.com/nebari-dev/javo/internal/ai/agentproxy"
+	"log/slog"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -219,6 +222,34 @@ func AIService(ctx context.Context, c config.AICfg, db *store.Store, fp *secrets
 	}
 	go svc.SelfTest(ctx)
 	return svc, nil
+}
+
+// AgentModel is the coding agents' model endpoint, or nil while
+// c.AgentModel is off. It forwards with the same key the AI features use
+// (JAVO_AI_API_KEY), counted against the same daily allowance.
+func AgentModel(c config.AICfg, db *store.Store) *agentproxy.Proxy {
+	m := c.AgentModel()
+	if m == "" {
+		if c.Enabled {
+			slog.Info("the coding agents' model endpoint is off", "provider", c.Provider, "why", "it needs ai.provider openai (any OpenAI-compatible server) and ai.agent.enabled")
+		}
+		return nil
+	}
+	return &agentproxy.Proxy{
+		BaseURL: c.BaseURL, APIKey: os.Getenv("JAVO_AI_API_KEY"), Model: m, Allows: c.AgentAllows,
+		Models: append([]string{m}, c.Agent.Models...), MaxRequestBytes: c.Agent.MaxRequestBytes,
+		Budget: &ai.DBBudget{Usage: db.AIUsage(), Daily: c.DailyTokensPerUser},
+		Client: agentModelClient(c.Timeout.Duration),
+	}
+}
+
+// agentModelClient waits at most the longer of timeout and five minutes for
+// a provider's first answer byte; a streamed answer then takes as long as it
+// takes, until the agent hangs up.
+func agentModelClient(timeout time.Duration) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = max(timeout, 5*time.Minute)
+	return &http.Client{Transport: t}
 }
 
 // JobAccess is the only place the job reconciler's access rule is chosen:

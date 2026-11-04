@@ -7,6 +7,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/nebari-dev/javo/internal/ai"
+	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
@@ -166,6 +167,9 @@ type Config struct {
 	AI *ai.Service
 	// AIFeatures turns single AI features off while AI is on.
 	AIFeatures config.AIFeatures
+	// AgentModel is the coding agents' model endpoint; nil serves none. Only
+	// the token of an app whose template has agentModel may call it.
+	AgentModel *agentproxy.Proxy
 	// AIIncludeOwners names app owners in the admin report and its answers.
 	AIIncludeOwners bool
 	// MCP serves agents at /mcp when enabled.
@@ -303,6 +307,10 @@ func NewServer(cfg Config) *Server {
 			Exposure: cfg.Exposure, URLs: cfg.URLs, Roles: cfg.Roles, Now: now, Revalidator: cfg.Revalidator,
 			Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewBuckets(),
 		})
+	}
+	if p := cfg.AgentModel; p != nil {
+		p.Caller = func(ctx context.Context) (string, bool) { return authn.User(ctx).ID, authn.ViaAgentModelToken(ctx) }
+		p.Register(apiMux)
 	}
 	mux.Handle("/api/", noSniff(authn.SameOrigin(a.RequireUser(catalogFallback(apiMux)))))
 	docs := apiDocs(cfg.API.Docs.Enabled, cfg.UIDir)
