@@ -226,8 +226,8 @@ func AIService(ctx context.Context, c config.AICfg, db *store.Store, fp *secrets
 
 // AgentModel is the coding agents' model endpoint, or nil while
 // c.AgentModel is off. It forwards with the same key the AI features use
-// (JAVO_AI_API_KEY), counted against the same daily allowance.
-func AgentModel(c config.AICfg, db *store.Store) *agentproxy.Proxy {
+// (JAVO_AI_API_KEY); spend is capped at the provider, not here.
+func AgentModel(c config.AICfg) *agentproxy.Proxy {
 	m := c.AgentModel()
 	if m == "" {
 		if c.Enabled {
@@ -238,7 +238,6 @@ func AgentModel(c config.AICfg, db *store.Store) *agentproxy.Proxy {
 	return &agentproxy.Proxy{
 		BaseURL: c.BaseURL, APIKey: os.Getenv("JAVO_AI_API_KEY"), Model: m, Allows: c.AgentAllows,
 		Models: append([]string{m}, c.Agent.Models...), MaxRequestBytes: c.Agent.MaxRequestBytes,
-		Budget: &ai.DBBudget{Usage: db.AIUsage(), Daily: c.DailyTokensPerUser},
 		Client: agentModelClient(c.Timeout.Duration),
 	}
 }

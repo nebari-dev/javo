@@ -11,35 +11,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/nebari-dev/javo/internal/ai"
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 )
 
 const adminKey = "sk-admin-PLACEHOLDER-0451"
-
-// budget records reservations and what each released.
-type budget struct {
-	mu       sync.Mutex
-	used     bool
-	reserved []int
-	charged  []int
-}
-
-func (b *budget) Reserve(_ context.Context, person string, tokens int) (func(int), error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.used {
-		return nil, &ai.BudgetUsedError{ResetAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
-	}
-	b.reserved = append(b.reserved, tokens)
-	return func(actual int) {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		b.charged = append(b.charged, actual)
-	}, nil
-}
 
 // upstream is a fake OpenAI-compatible server; it keeps the last request.
 type upstream struct {
@@ -85,13 +61,13 @@ func newUpstream(t *testing.T) *upstream {
 	return u
 }
 
-func proxyFor(u *upstream, b *budget, caller bool) http.Handler {
+func proxyFor(u *upstream, caller bool) http.Handler {
 	p := &agentproxy.Proxy{
 		BaseURL: u.URL + "/v1", APIKey: adminKey, Model: "admin/model",
-		Allows:  func(m string) bool { return m == "admin/model" || m == "admin/other" },
-		Models:  []string{"admin/model", "admin/other"},
-		Budget:  b, MaxRequestBytes: 4096,
-		Caller: func(context.Context) (string, bool) { return "alice", caller },
+		Allows:          func(m string) bool { return m == "admin/model" || m == "admin/other" },
+		Models:          []string{"admin/model", "admin/other"},
+		MaxRequestBytes: 4096,
+		Caller:          func(context.Context) (string, bool) { return "alice", caller },
 	}
 	mux := http.NewServeMux()
 	p.Register(mux)
@@ -116,12 +92,12 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 }
 
 // A request goes to the admin's provider with the admin's key, never the
-// caller's token, on the admin's model when it names another, and its real
-// usage is charged to the person.
+// caller's token, on the admin's model when it names another, and its usage
+// is logged with the person and the model, never the prompt.
 func TestForwardsWithTheAdminsKeyAndModel(t *testing.T) {
 	logs := captureLogs(t)
-	u, b := newUpstream(t), &budget{}
-	w := post(proxyFor(u, b, true), `{"model":"someone/else","messages":[{"role":"user","content":"SECRET-PROMPT-TEXT"}],"max_tokens":500}`)
+	u := newUpstream(t)
+	w := post(proxyFor(u, true), `{"model":"someone/else","messages":[{"role":"user","content":"SECRET-PROMPT-TEXT"}],"max_tokens":500}`)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Hello") {
 		t.Fatalf("answer: %d %s", w.Code, w.Body)
 	}
@@ -131,8 +107,8 @@ func TestForwardsWithTheAdminsKeyAndModel(t *testing.T) {
 	if u.body["model"] != "admin/model" {
 		t.Fatalf("upstream model %v, want the admin's", u.body["model"])
 	}
-	if b.charged[0] != 120 {
-		t.Fatalf("charged %v, want the 120 tokens used", b.charged)
+	if !strings.Contains(logs.String(), "user=alice") || !strings.Contains(logs.String(), "tokens_in=100") || !strings.Contains(logs.String(), "tokens_out=20") {
+		t.Fatalf("no audit line with the usage: %s", logs)
 	}
 	if strings.Contains(logs.String(), "SECRET-PROMPT-TEXT") || strings.Contains(logs.String(), adminKey) {
 		t.Fatalf("a prompt or the key reached the log: %s", logs)
@@ -141,17 +117,18 @@ func TestForwardsWithTheAdminsKeyAndModel(t *testing.T) {
 		t.Fatal("the key is in the answer")
 	}
 	// A model on the admin's list is kept.
-	post(proxyFor(u, b, true), `{"model":"admin/other","messages":[]}`)
+	post(proxyFor(u, true), `{"model":"admin/other","messages":[]}`)
 	if u.body["model"] != "admin/other" {
 		t.Fatalf("upstream model %v, want admin/other", u.body["model"])
 	}
 }
 
 // A streamed answer comes through as server-sent events, and the usage the
-// provider reports at the end is what is charged.
-func TestStreamsAndChargesTheReportedUsage(t *testing.T) {
-	u, b := newUpstream(t), &budget{}
-	w := post(proxyFor(u, b, true), `{"model":"admin/model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+// provider reports at the end is logged.
+func TestStreamsAndLogsTheReportedUsage(t *testing.T) {
+	logs := captureLogs(t)
+	u := newUpstream(t)
+	w := post(proxyFor(u, true), `{"model":"admin/model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "text/event-stream" {
 		t.Fatalf("answer: %d %v", w.Code, w.Header())
 	}
@@ -162,48 +139,36 @@ func TestStreamsAndChargesTheReportedUsage(t *testing.T) {
 	if opts["include_usage"] != true {
 		t.Fatalf("stream_options %v: usage is not asked for", u.body["stream_options"])
 	}
-	if len(b.charged) != 1 || b.charged[0] != 150 {
-		t.Fatalf("charged %v, want 150", b.charged)
-	}
-}
-
-// A person whose daily allowance is spent is told so, and nothing is sent.
-func TestRefusesASpentAllowance(t *testing.T) {
-	u, b := newUpstream(t), &budget{used: true}
-	w := post(proxyFor(u, b, true), `{"model":"admin/model","messages":[]}`)
-	if w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), "00:00 UTC") {
-		t.Fatalf("answer: %d %s", w.Code, w.Body)
-	}
-	if u.calls != 0 {
-		t.Fatal("the provider was called")
+	if !strings.Contains(logs.String(), "tokens_in=120") || !strings.Contains(logs.String(), "tokens_out=30") {
+		t.Fatalf("usage not logged: %s", logs)
 	}
 }
 
 // A request above the cap, or from anyone but a coding agent's app, is
 // refused before anything is sent.
 func TestRefusesLargeRequestsAndOtherCallers(t *testing.T) {
-	u, b := newUpstream(t), &budget{}
+	u := newUpstream(t)
 	big := `{"model":"admin/model","messages":[{"role":"user","content":"` + strings.Repeat("a", 5000) + `"}]}`
-	if w := post(proxyFor(u, b, true), big); w.Code != http.StatusRequestEntityTooLarge {
+	if w := post(proxyFor(u, true), big); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("large request: %d %s", w.Code, w.Body)
 	}
-	if w := post(proxyFor(u, b, false), `{"model":"admin/model","messages":[]}`); w.Code != http.StatusForbidden {
+	if w := post(proxyFor(u, false), `{"model":"admin/model","messages":[]}`); w.Code != http.StatusForbidden {
 		t.Fatalf("other caller: %d %s", w.Code, w.Body)
 	}
-	if w := post(proxyFor(u, b, true), `not json`); w.Code != http.StatusBadRequest {
+	if w := post(proxyFor(u, true), `not json`); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad body: %d %s", w.Code, w.Body)
 	}
-	if u.calls != 0 || len(b.reserved) != 0 {
-		t.Fatalf("calls %d, reserved %v", u.calls, b.reserved)
+	if u.calls != 0 {
+		t.Fatalf("calls %d", u.calls)
 	}
 }
 
 // The model list names only the admin's models.
 func TestListsTheAdminsModels(t *testing.T) {
-	u, b := newUpstream(t), &budget{}
+	u := newUpstream(t)
 	r := httptest.NewRequest("GET", agentproxy.Route+"/models", nil)
 	w := httptest.NewRecorder()
-	proxyFor(u, b, true).ServeHTTP(w, r)
+	proxyFor(u, true).ServeHTTP(w, r)
 	var got struct {
 		Data []struct{ ID string } `json:"data"`
 	}

@@ -1,7 +1,8 @@
 // Package agentproxy is the model endpoint coding-agent apps call: an
 // OpenAI-compatible chat completions route that forwards each request to the
-// admin's provider with the admin's key, on the admin's model, within the
-// person's daily token allowance. The key stays in the gateway; the agent
+// admin's provider with the admin's key, on the admin's model. Spend is
+// capped by the admin at the provider (such as an OpenRouter key limit), not
+// here. The key stays in the gateway; the agent
 // authenticates with its app's own API token. Prompts and answers pass
 // through and are never logged.
 package agentproxy
@@ -17,16 +18,13 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-
-	"github.com/nebari-dev/javo/internal/ai"
 )
 
 // Route is where the endpoint is served; an agent's base URL is
 // $JAVO_URL + Route.
 const Route = "/api/ai/openai/v1"
 
-// DefaultMaxOutput is the output a request may ask for when it names none,
-// and the most it may ask for.
+// DefaultMaxOutput is the most output a request may ask for.
 const DefaultMaxOutput = 32000
 
 // maxAnswerBytes bounds an answer that is not streamed.
@@ -43,7 +41,6 @@ type Proxy struct {
 	Allows func(model string) bool
 	// Models are listed by GET /models.
 	Models []string
-	Budget ai.Budget
 	// MaxRequestBytes caps a request body.
 	MaxRequestBytes int64
 	// Caller is who the request comes from, and whether they may use the
@@ -102,33 +99,8 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid_request_error", "The request is not a JSON object.")
 		return
 	}
-	model, stream, maxOut := p.rewrite(body)
+	model, stream := p.rewrite(body)
 	out, _ := json.Marshal(body)
-
-	// Tokens are counted as for the other AI features: an estimate is set
-	// aside first, and what the provider reports is charged after.
-	estimate := len(raw)/3 + maxOut
-	release, err := p.Budget.Reserve(r.Context(), person, estimate)
-	var used *ai.BudgetUsedError
-	switch {
-	case errors.As(err, &used):
-		audit(person, model, 0, 0, "budget")
-		fail(w, http.StatusTooManyRequests, "insufficient_quota",
-			"Your daily AI allowance is used up; it resets at "+used.ResetAt.UTC().Format("15:04")+" UTC.")
-		return
-	case err != nil:
-		slog.Error("reserve AI allowance", "err", err)
-		fail(w, http.StatusInternalServerError, "server_error", "The AI allowance could not be checked.")
-		return
-	}
-	in, outTok, found := 0, 0, false
-	defer func() {
-		if found {
-			release(in + outTok)
-		} else {
-			release(estimate)
-		}
-	}()
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, p.base()+"/chat/completions", bytes.NewReader(out))
 	if err != nil {
@@ -154,12 +126,13 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 	}
 	w.WriteHeader(resp.StatusCode)
+	var in, outTok int
 	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		in, outTok, found = copyEvents(w, resp.Body)
+		in, outTok, _ = copyEvents(w, resp.Body)
 	} else {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxAnswerBytes))
 		_, _ = w.Write(b)
-		in, outTok, found = usageOf(b)
+		in, outTok, _ = usageOf(b)
 	}
 	result := "ok"
 	if resp.StatusCode >= 400 {
@@ -169,19 +142,18 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 }
 
 // rewrite puts the admin's model in body unless it names one Allows, caps
-// the output it asks for, and asks a streamed answer to report its usage.
-func (p *Proxy) rewrite(body map[string]json.RawMessage) (model string, stream bool, maxOut int) {
+// the output it asks for, and asks a streamed answer to report its usage
+// (for the audit line).
+func (p *Proxy) rewrite(body map[string]json.RawMessage) (model string, stream bool) {
 	_ = json.Unmarshal(body["model"], &model)
 	if !p.Allows(model) {
 		model = p.Model
 		body["model"], _ = json.Marshal(model)
 	}
-	maxOut = DefaultMaxOutput
 	for _, f := range []string{"max_tokens", "max_completion_tokens"} {
 		var n int
-		if json.Unmarshal(body[f], &n) == nil && n > 0 {
-			maxOut = min(n, DefaultMaxOutput)
-			body[f], _ = json.Marshal(maxOut)
+		if json.Unmarshal(body[f], &n) == nil && n > DefaultMaxOutput {
+			body[f], _ = json.Marshal(DefaultMaxOutput)
 		}
 	}
 	if json.Unmarshal(body["stream"], &stream) == nil && stream {
@@ -190,7 +162,7 @@ func (p *Proxy) rewrite(body map[string]json.RawMessage) (model string, stream b
 		opts["include_usage"] = json.RawMessage("true")
 		body["stream_options"], _ = json.Marshal(opts)
 	}
-	return model, stream, maxOut
+	return model, stream
 }
 
 func (p *Proxy) base() string {

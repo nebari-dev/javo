@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/auth/token"
@@ -25,12 +26,17 @@ func TestOnlyAgentAppsReachTheModelEndpoint(t *testing.T) {
 	}))
 	t.Cleanup(up.Close)
 	p := &agentproxy.Proxy{BaseURL: up.URL, APIKey: "sk-admin", Model: "m", Allows: func(m string) bool { return m == "m" },
-		Budget: apitest.Unlimited{}, MaxRequestBytes: 1 << 20}
+		MaxRequestBytes: 1 << 20}
 	f := newAgentFixtureWith(t, true, apitest.Options{AgentModel: p})
 	path := agentproxy.Route + "/chat/completions"
 	body := `{"model":"m","messages":[]}`
 	if w := f.agent("POST", path, body); w.Code != http.StatusOK {
 		t.Fatalf("the agent's token: %d %s", w.Code, w.Body)
+	}
+	// Spend is capped at the provider: the daily allowance of the other AI
+	// features is not touched.
+	if used, err := f.Db.AIUsage().Used(context.Background(), apitest.LocalAlice(), time.Now().UTC().Format(time.DateOnly)); err != nil || used != 0 {
+		t.Fatalf("ai_usage = %d, %v; want untouched", used, err)
 	}
 	personal, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{
 		Name: "laptop", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,

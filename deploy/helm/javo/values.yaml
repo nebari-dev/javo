@@ -640,9 +640,9 @@ config:
     # Name app owners in what the admin assistant sends to the model.
     admin: {includeOwners: false}
     # Coding-agent apps (the pi template, agentModel) get a model through the
-    # gateway at /api/ai/openai/v1: the key above stays in the gateway, each
-    # call counts against the person's dailyTokensPerUser, prompts are never
-    # logged. Needs provider openai (any OpenAI-compatible server, such as
+    # gateway at /api/ai/openai/v1: the key above stays in the gateway and
+    # prompts are never logged. dailyTokensPerUser does not apply to it: cap
+    # the spend at the provider (such as a credit limit on the OpenRouter key). Needs provider openai (any OpenAI-compatible server, such as
     # OpenRouter: baseURL https://openrouter.ai/api/v1). Off while AI is off;
     # then each person may set their own key in Settings > AI agent.
     agent:
