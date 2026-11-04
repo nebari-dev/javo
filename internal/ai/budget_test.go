@@ -37,3 +37,24 @@ func TestBudgetIsPerPersonPerUTCDay(t *testing.T) {
 		t.Fatalf("a new UTC day: %v", err)
 	}
 }
+
+// A call that uses more than it reserved (a retried answer, a longer reply
+// than estimated) is charged in full: the overage counts against the day.
+func TestBudgetChargesWhatACallUsedAboveItsReservation(t *testing.T) {
+	db := storetest.New(t)
+	b := &DBBudget{Usage: db.AIUsage(), Daily: 1000}
+	ctx := context.Background()
+	release, err := b.Reserve(ctx, "alice-a", 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release(900)
+	_, err = b.Reserve(ctx, "alice-a", 300)
+	var used *BudgetUsedError
+	if !errors.As(err, &used) {
+		t.Fatalf("900 of 1000 used, a 300 reservation: %v", err)
+	}
+	if _, err := b.Reserve(ctx, "alice-a", 100); err != nil {
+		t.Fatalf("900 of 1000 used, a 100 reservation: %v", err)
+	}
+}

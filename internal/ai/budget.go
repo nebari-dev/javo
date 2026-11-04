@@ -13,7 +13,8 @@ import (
 // Budget limits the model tokens each person may use per day.
 type Budget interface {
 	// Reserve sets aside tokens for one call. release, called with what the
-	// call really used, gives back the rest. A used-up allowance is a
+	// call really used, gives back the rest or charges what it used above
+	// the reservation. A used-up allowance is a
 	// *BudgetUsedError.
 	Reserve(ctx context.Context, person string, tokens int) (release func(actual int), err error)
 }
@@ -52,9 +53,16 @@ func (b *DBBudget) Reserve(ctx context.Context, person string, tokens int) (func
 		return nil, err
 	}
 	return func(actual int) {
-		if unused := tokens - actual; unused > 0 {
-			if err := b.Usage.Release(context.WithoutCancel(ctx), person, day, int64(unused)); err != nil {
+		ctx := context.WithoutCancel(ctx)
+		switch d := actual - tokens; {
+		case d < 0:
+			if err := b.Usage.Release(ctx, person, day, int64(-d)); err != nil {
 				slog.Error("release AI allowance", "err", err)
+			}
+		case d > 0:
+			// Tokens above the reservation were spent all the same.
+			if err := b.Usage.Charge(ctx, person, day, int64(d)); err != nil {
+				slog.Error("charge AI allowance", "err", err)
 			}
 		}
 	}, nil

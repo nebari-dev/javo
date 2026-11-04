@@ -26,5 +26,9 @@ RETURNING tokens;
 UPDATE ai_usage SET tokens = CASE WHEN tokens > $1 THEN tokens - $1 ELSE 0 END
 WHERE person = $2 AND day = $3;
 
+-- name: ChargeAIUsage :exec
+INSERT INTO ai_usage (person, day, tokens) VALUES ($1, $2, $3)
+ON CONFLICT (person, day) DO UPDATE SET tokens = ai_usage.tokens + excluded.tokens;
+
 -- name: GetAIUsage :one
 SELECT tokens FROM ai_usage WHERE person = $1 AND day = $2;

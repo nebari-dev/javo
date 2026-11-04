@@ -11,6 +11,22 @@ import (
 	"github.com/nebari-dev/javo/internal/store/dbtime"
 )
 
+const chargeAIUsage = `-- name: ChargeAIUsage :exec
+INSERT INTO ai_usage (person, day, tokens) VALUES ($1, $2, $3)
+ON CONFLICT (person, day) DO UPDATE SET tokens = ai_usage.tokens + excluded.tokens
+`
+
+type ChargeAIUsageParams struct {
+	Person string
+	Day    string
+	Tokens int64
+}
+
+func (q *Queries) ChargeAIUsage(ctx context.Context, arg ChargeAIUsageParams) error {
+	_, err := q.db.ExecContext(ctx, chargeAIUsage, arg.Person, arg.Day, arg.Tokens)
+	return err
+}
+
 const deleteExpiredPlans = `-- name: DeleteExpiredPlans :execrows
 DELETE FROM plans WHERE expires_at < $1
 `

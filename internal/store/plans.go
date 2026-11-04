@@ -165,6 +165,14 @@ func (u *AIUsage) Release(ctx context.Context, person, day string, tokens int64)
 	})
 }
 
+// Charge adds tokens used above a reservation, whatever the limit: they
+// were spent, so they count.
+func (u *AIUsage) Charge(ctx context.Context, person, day string, tokens int64) error {
+	return u.s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		return q.ChargeAIUsage(ctx, sqlcgen.ChargeAIUsageParams{Person: person, Day: day, Tokens: tokens})
+	})
+}
+
 // Used is person's count for day.
 func (u *AIUsage) Used(ctx context.Context, person, day string) (int64, error) {
 	n, err := u.s.q.GetAIUsage(ctx, sqlcgen.GetAIUsageParams{Person: person, Day: day})
