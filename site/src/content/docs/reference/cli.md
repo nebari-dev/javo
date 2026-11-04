@@ -419,6 +419,7 @@ Flags:
   -h, --help                                   help for gateway
       --listen string                          address to listen on (default ":8080")
       --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
+      --public-host string                     host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
       --secret-fingerprint-key-create          make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
       --secret-fingerprint-key-secret string   Secret in the release namespace whose key "key" holds the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model, read at start; empty: those log lines are not sent
       --secure-cookies                         mark the session cookie Secure even when urls.scheme is http (it always is with https)
