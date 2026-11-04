@@ -45,7 +45,14 @@ rules:
     resources: [secrets]
     resourceNames: [{{ include "javo.secretsKeySecret" . | quote }}, {{ include "javo.fingerprintKeySecret" . | quote }}]
     verbs: [get]
-  {{- if or (not .Values.secrets.existingKeySecret) (not .Values.secrets.existingFingerprintKeySecret) }}
+  {{- if include "javo.bucketEnabled" . }}
+  # The backup password, read at start (--backup-password-secret).
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ include "javo.bucketPasswordSecret" . | quote }}]
+    verbs: [get]
+  {{- end }}
+  {{- if or (not .Values.secrets.existingKeySecret) (not .Values.secrets.existingFingerprintKeySecret) (include "javo.bucketPasswordMade" .) }}
   # Making them on the first start (--secrets-key-create,
   # --secret-fingerprint-key-create). Create cannot be narrowed by name;
   # nothing here changes or deletes Secrets.
@@ -92,7 +99,13 @@ rules:
     resources: [secrets]
     resourceNames: [{{ include "javo.sessionsKeySecret" . | quote }}, {{ include "javo.fingerprintKeySecret" . | quote }}]
     verbs: [get]
-  {{- if or (not .Values.secrets.existingSessionsKeySecret) (not .Values.secrets.existingFingerprintKeySecret) }}
+  {{- if include "javo.bucketEnabled" . }}
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ include "javo.bucketPasswordSecret" . | quote }}]
+    verbs: [get]
+  {{- end }}
+  {{- if or (not .Values.secrets.existingSessionsKeySecret) (not .Values.secrets.existingFingerprintKeySecret) (include "javo.bucketPasswordMade" .) }}
   # Create cannot be narrowed by name; nothing here changes or deletes Secrets.
   - apiGroups: [""]
     resources: [secrets]

@@ -53,9 +53,12 @@ func TestBucketIsOffByDefault(t *testing.T) {
 	}
 }
 
-// With a bucket: the config names it, the password is made once and kept,
-// and every component that runs restic or starts backup Jobs has the key and
-// the password mounted where the config says.
+// With a bucket: the config names it, and every component that runs restic
+// or starts backup Jobs has the key and the password mounted where the
+// config says. The chart does not make the password (a render without the
+// cluster, helm template or Argo CD, would make a new one each time, and a
+// Secret deleted and synced again would open none of the backups): the
+// components make it once at start and read it through the API.
 func TestBucketIsConfiguredAndItsSecretsMounted(t *testing.T) {
 	t.Parallel()
 	for _, engine := range engines {
@@ -67,12 +70,11 @@ func TestBucketIsConfiguredAndItsSecretsMounted(t *testing.T) {
 		if s == nil || s.Endpoint != "https://s3.example.com" || s.Bucket != "backups" {
 			t.Fatalf("%s: config = %+v", engine, s)
 		}
-		var pw corev1.Secret
-		if !object(t, out, "Secret", "javo-backup-password", &pw) {
-			t.Fatalf("%s: no backup password", engine)
+		if object(t, out, "Secret", "javo-backup-password", &corev1.Secret{}) {
+			t.Errorf("%s: the chart renders the backup password", engine)
 		}
-		if len(pw.Data["password"]) < 32 || pw.Immutable == nil || !*pw.Immutable || pw.Annotations["helm.sh/resource-policy"] != "keep" {
-			t.Errorf("%s: password secret = %+v", engine, pw.ObjectMeta)
+		if g := releaseSecretGrants(t, out); !slices.Contains(g["javo-backup-password"], "get") || !slices.Contains(g[""], "create") {
+			t.Errorf("%s: release namespace secrets grants %v", engine, g)
 		}
 		components := []string{"controller"}
 		if engine == "postgres" {
@@ -83,6 +85,9 @@ func TestBucketIsConfiguredAndItsSecretsMounted(t *testing.T) {
 			if !hasVolumeFromSecret(d, "bucket-key") || !hasVolumeFromSecret(d, "javo-backup-password") ||
 				!mounts(d, s.CredentialsDir) || !mounts(d, filepath.Dir(s.PasswordFile)) {
 				t.Errorf("%s %s: volumes %+v", engine, c, d.Spec.Template.Spec.Volumes)
+			}
+			if controllerArg(d, "backup-password-secret") != "javo-backup-password" || controllerArg(d, "backup-password-create") != "true" {
+				t.Errorf("%s %s: args %v", engine, c, d.Spec.Template.Spec.Containers[0].Args)
 			}
 		}
 	}
@@ -110,6 +115,37 @@ func TestPostgresBackupCronJobCopiesTheDumpToTheBucket(t *testing.T) {
 	}
 	if !strings.HasPrefix(c.Image, "javo:") {
 		t.Errorf("copy image = %s", c.Image)
+	}
+}
+
+// A render with a bucket is the same every time, so a GitOps tool sees no
+// change and never replaces the password.
+func TestTwoBucketRendersAreIdentical(t *testing.T) {
+	t.Parallel()
+	for _, engine := range engines {
+		first, err := render(t, bucketArgs(engine)...)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", engine, err, first)
+		}
+		second, err := render(t, bucketArgs(engine)...)
+		if err != nil || first != second {
+			t.Fatalf("%s: two renders differ (%v)", engine, err)
+		}
+	}
+}
+
+// A password the admin keeps elsewhere is only read, never made.
+func TestBucketPasswordFromAnExistingSecret(t *testing.T) {
+	t.Parallel()
+	out, err := render(t, append(bucketArgs("postgres"), "--set", "backupTarget.password.existingSecret=my-pw")...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, c := range []string{"controller", "gateway"} {
+		d := deploymentOf(t, out, "postgres", c)
+		if controllerArg(d, "backup-password-secret") != "my-pw" || controllerArg(d, "backup-password-create") != "" || !hasVolumeFromSecret(d, "my-pw") {
+			t.Errorf("%s: args %v", c, d.Spec.Template.Spec.Containers[0].Args)
+		}
 	}
 }
 

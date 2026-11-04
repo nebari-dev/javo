@@ -2,11 +2,15 @@ package servercmd
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/nebari-dev/javo/internal/config"
 )
 
 // The gateway makes its sessions key in the named Secret on its first start
@@ -56,5 +60,50 @@ func TestBothComponentsReadOneFingerprintKey(t *testing.T) {
 	}
 	if none, err := (&commonFlags{}).fingerprinter(ctx, c); none != nil || err != nil {
 		t.Fatalf("without a Secret: %v, %v", none, err)
+	}
+}
+
+// The backup password is made once at run time, like the keys above, not by
+// the chart (a render without the cluster would make a new one each time,
+// and a new password opens none of the backups already in the bucket). The
+// component that makes it and every later one use the same password, and
+// that password, not the mounted file, is what restic gets.
+func TestTheBackupPasswordIsMadeOnceAndShared(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().Build()
+	platform := func() *config.Platform {
+		return &config.Platform{Backup: config.BackupCfg{S3: &config.S3Cfg{PasswordFile: "/nonexistent/password"}}}
+	}
+	first := platform()
+	flags := commonFlags{namespace: "javo-system", backupPasswordSecret: "javo-backup-password", backupPasswordCreate: true}
+	if err := flags.backupPassword(ctx, c, first); err != nil {
+		t.Fatal(err)
+	}
+	var s corev1.Secret
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "javo-system", Name: "javo-backup-password"}, &s); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Data["password"]) < 48 || s.Immutable == nil || !*s.Immutable {
+		t.Fatalf("password Secret: %d bytes, immutable %v", len(s.Data["password"]), s.Immutable)
+	}
+	second := platform()
+	if err := (&commonFlags{namespace: "javo-system", backupPasswordSecret: "javo-backup-password"}).backupPassword(ctx, c, second); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []*config.Platform{first, second} {
+		p.Backup.S3.CredentialsDir = t.TempDir()
+		for _, f := range []string{"access-key-id", "secret-access-key"} {
+			if err := os.WriteFile(filepath.Join(p.Backup.S3.CredentialsDir, f), []byte("k"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		tg, err := p.Backup.S3.Target()
+		if err != nil || tg.Password != string(s.Data["password"]) {
+			t.Fatalf("restic gets %q, %v; want the Secret's password", tg.Password, err)
+		}
+	}
+	// Without a Secret named, the mounted file is read as before.
+	if err := (&commonFlags{namespace: "javo-system"}).backupPassword(ctx, c, platform()); err != nil {
+		t.Fatal(err)
 	}
 }

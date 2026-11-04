@@ -134,7 +134,7 @@ func NewController() *cobra.Command {
 		Short: "Run the workspace controller",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			ctx := ctrl.SetupSignalHandler()
-			platform, err := common.loadConfig()
+			platform, err := common.load(ctx)
 			if err != nil {
 				return err
 			}

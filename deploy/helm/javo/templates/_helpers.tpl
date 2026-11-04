@@ -247,6 +247,12 @@ true
 {{- if not .Values.secrets.existingFingerprintKeySecret }}
 - --secret-fingerprint-key-create=true
 {{- end }}
+{{- if include "javo.bucketEnabled" . }}
+- --backup-password-secret={{ include "javo.bucketPasswordSecret" . }}
+{{- if not .Values.backupTarget.password.existingSecret }}
+- --backup-password-create=true
+{{- end }}
+{{- end }}
 {{- with include "javo.publicHost" . }}
 - --public-host={{ . }}
 {{- end }}
@@ -367,6 +373,10 @@ password, mounted where config.backup.s3 says. */}}
 true
 {{- end -}}
 {{- end -}}
+{{/* The Secret of the backup password: made by the components at run time
+(never by the chart, which cannot see the live one under helm template or
+Argo CD), or the admin's own. */}}
+{{- define "javo.bucketPasswordMade" -}}{{ if and (include "javo.bucketEnabled" .) (not .Values.backupTarget.password.existingSecret) }}true{{ end }}{{- end -}}
 {{- define "javo.bucketPasswordSecret" -}}{{ .Values.backupTarget.password.existingSecret | default "javo-backup-password" }}{{- end -}}
 {{- define "javo.bucketMounts" -}}
 {{- if include "javo.bucketEnabled" . -}}
@@ -391,6 +401,12 @@ true
     secretName: {{ include "javo.bucketPasswordSecret" . }}
     defaultMode: 0400
     items: [{key: password, path: password}]
+    {{- if not .Values.backupTarget.password.existingSecret }}
+    # Made by the first gateway or controller to start
+    # (--backup-password-create), which read it through the API; the file
+    # is for the backup Jobs, which start later.
+    optional: true
+    {{- end }}
 {{- with .Values.backupTarget.tls.caSecret }}
 - name: bucket-ca
   secret:

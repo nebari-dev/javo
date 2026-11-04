@@ -57,7 +57,7 @@ import (
 // Secrets are the gateway's sessions key and the secrets' fingerprint key in
 // the release namespace, read by name and made on the first start (create
 // cannot be narrowed by name; nothing changes or deletes a Secret).
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,resourceNames=javo-sessions-key;javo-secret-fingerprint-key
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,resourceNames=javo-sessions-key;javo-secret-fingerprint-key;javo-backup-password
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create
 // File picker pods: created, read, reaped and released; their events and
 // the owner's home claim are read, and so are the pods of runs and apps.
@@ -121,7 +121,7 @@ func NewGateway() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			platform, err := common.loadConfig()
+			platform, err := common.load(ctx)
 			if err != nil {
 				return err
 			}

@@ -286,6 +286,10 @@ type S3Cfg struct {
 	// PasswordFile the password every backup is encrypted with.
 	CredentialsDir string `json:"credentialsDir,omitempty"`
 	PasswordFile   string `json:"passwordFile,omitempty"`
+	// Password, when set (the gateway and controller read it from its
+	// Secret at start, --backup-password-secret), is used instead of
+	// PasswordFile. Never read from or written to the file.
+	Password string `json:"-"`
 	// Homes is which backups of each home folder and shared folder are
 	// kept. When backups run is the backup job's schedule (Jobs page).
 	Homes HomeBackupCfg `json:"homes"`
@@ -333,7 +337,8 @@ func (c *S3Cfg) validate(bad func(key, format string, a ...any)) {
 	}
 }
 
-// Target reads the access key and the password from their files.
+// Target reads the access key and the password from their files (the
+// password from Password when that is set).
 func (c S3Cfg) Target() (restic.Target, error) {
 	read := func(file string) (string, error) {
 		b, err := os.ReadFile(file)
@@ -352,6 +357,10 @@ func (c S3Cfg) Target() (restic.Target, error) {
 	}
 	if t.SecretAccessKey, err = read(filepath.Join(c.CredentialsDir, "secret-access-key")); err != nil {
 		return t, err
+	}
+	if c.Password != "" {
+		t.Password = c.Password
+		return t, nil
 	}
 	if t.Password, err = read(c.PasswordFile); err != nil {
 		return t, err

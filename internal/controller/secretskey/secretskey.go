@@ -26,7 +26,7 @@ import (
 // The controller's Role in the release namespace grants these, for the
 // secrets key and the fingerprint key; the chart grants create only when it
 // is the controller that makes a Secret.
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,resourceNames=javo-secrets-key;javo-secret-fingerprint-key
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get,resourceNames=javo-secrets-key;javo-secret-fingerprint-key;javo-backup-password
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create
 
 // Key is the Secret's data key holding the 32 bytes of the key-encryption
@@ -43,6 +43,9 @@ type Secret struct {
 	// Component is the Secret's app.kubernetes.io/component label when it
 	// is made; empty means "secrets-key".
 	Component string
+	// New makes the value of a new Secret; nil means secrets.KEKSize random
+	// bytes.
+	New func() ([]byte, error)
 	// Create makes the Secret, with a new random key, when it does not exist.
 	// Off, a missing Secret is an error (one made by the admin, such as a
 	// restored key, must never be replaced by a new one).
@@ -103,7 +106,12 @@ func (s Secret) get(ctx context.Context) (*corev1.Secret, error) {
 // it first, its key is the one used.
 func (s Secret) create(ctx context.Context) (*corev1.Secret, error) {
 	b := make([]byte, secrets.KEKSize)
-	if _, err := rand.Read(b); err != nil {
+	if s.New != nil {
+		var err error
+		if b, err = s.New(); err != nil {
+			return nil, err
+		}
+	} else if _, err := rand.Read(b); err != nil {
 		return nil, err
 	}
 	immutable := true

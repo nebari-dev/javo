@@ -42,12 +42,12 @@ func NewServer() *cobra.Command {
 			if err := backup.validate(common.database.Engine); err != nil {
 				return err
 			}
-			platform, err := common.loadConfig()
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			platform, err := common.load(ctx)
 			if err != nil {
 				return err
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
 			db, err := common.openDB(ctx, platform)
 			if err != nil {
 				return err

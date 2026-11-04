@@ -50,6 +50,7 @@ rules:
 - apiGroups:
   - ""
   resourceNames:
+  - javo-backup-password
   - javo-secret-fingerprint-key
   - javo-sessions-key
   resources:

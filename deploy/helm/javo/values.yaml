@@ -78,12 +78,14 @@ backupTarget:
   keys:
     accessKeyID: AWS_ACCESS_KEY_ID
     secretAccessKey: AWS_SECRET_ACCESS_KEY
-  # The password every backup is encrypted with. By default the chart makes
-  # it once, in the Secret javo-backup-password, and keeps it on upgrade and
-  # uninstall. Back it up apart from the cluster: without it no backup in the
-  # bucket can be read. Name a Secret with key "password" to bring your own
-  # (needed when the chart is rendered without cluster access, and to point
-  # a new install at the bucket of an old one).
+  # The password every backup is encrypted with. By default the first
+  # gateway or controller to start makes it once, in the Secret
+  # javo-backup-password (48 random characters, immutable, never changed or
+  # deleted; the chart does not render it, so helm template and Argo CD
+  # renders stay the same). An install upgraded from a chart that rendered
+  # it keeps that Secret. Back it up apart from the cluster: without it no
+  # backup in the bucket can be read. Name a Secret with key "password" to
+  # bring your own (to point a new install at the bucket of an old one).
   password:
     existingSecret: ""
   # Which backups of each home folder and shared folder are kept. When

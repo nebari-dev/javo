@@ -60,7 +60,7 @@ kubectl -n javo-system create secret generic javo-backup-s3 \
 
 `backupTarget.keys` renames the two keys; `backupTarget.tls.caSecret` names a Secret with a `ca.crt` for a private CA; `backupTarget.tls.insecureSkipVerify` skips the certificate check.
 
-Everything in the bucket is a [restic](https://restic.net) repository: encrypted, and only changed data is uploaded. The chart makes its password once, in the Secret `javo-backup-password`, and keeps it on upgrade and uninstall.
+Everything in the bucket is a [restic](https://restic.net) repository: encrypted, and only changed data is uploaded. The first gateway or controller to start makes its password once, in the Secret `javo-backup-password` (immutable, never changed or deleted, kept on uninstall). The chart does not render it, so `helm template` and Argo CD renders stay the same; an install upgraded from a chart that rendered it keeps that Secret.
 
 <Aside type="caution" title="Keep the password apart from the cluster">
 Without the backup password nothing in the bucket can be read. Copy it somewhere safe, together with the [secrets key](/admin/secrets-and-keys/):
