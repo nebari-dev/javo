@@ -272,6 +272,8 @@ Flags:
       --backup-claim string                    make this claim in the release namespace, if missing, for the Postgres backup CronJob's dumps; never changed or deleted after; empty makes none
       --backup-claim-size string               size of the --backup-claim claim (default "5Gi")
       --backup-claim-storage-class string      storage class of the --backup-claim claim; empty uses the cluster default
+      --backup-password-create                 make the --backup-password-secret Secret, immutable with a new random password, when it does not exist; never changed afterwards
+      --backup-password-secret string          Secret in the release namespace whose key "password" holds the password every backup in the bucket is encrypted with, read at start instead of backup.s3.passwordFile; empty: the file is read
       --config string                          platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
       --database-dsn-file string               file holding the Postgres connection string
       --database-engine string                 database engine: sqlite or postgres (default "sqlite")
@@ -406,6 +408,8 @@ Usage:
   javo gateway [flags]
 
 Flags:
+      --backup-password-create                 make the --backup-password-secret Secret, immutable with a new random password, when it does not exist; never changed afterwards
+      --backup-password-secret string          Secret in the release namespace whose key "password" holds the password every backup in the bucket is encrypted with, read at start instead of backup.s3.passwordFile; empty: the file is read
       --config string                          platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
       --database-dsn-file string               file holding the Postgres connection string
       --database-engine string                 database engine: sqlite or postgres (default "sqlite")
@@ -628,6 +632,8 @@ Flags:
       --backup-claim-storage-class string      storage class of the --backup-claim claim; empty uses the cluster default
       --backup-dir string                      directory the scheduled backups are written to
       --backup-keep int                        how many scheduled backups to keep (default 7)
+      --backup-password-create                 make the --backup-password-secret Secret, immutable with a new random password, when it does not exist; never changed afterwards
+      --backup-password-secret string          Secret in the release namespace whose key "password" holds the password every backup in the bucket is encrypted with, read at start instead of backup.s3.passwordFile; empty: the file is read
       --backup-schedule string                 cron schedule of SQLite backups taken by this process (empty: none)
       --components strings                     what to run: gateway, controller or both (default [gateway,controller])
       --config string                          platform config file (rendered by Helm into ConfigMap javo-config) (default "/etc/javo/config.yaml")
