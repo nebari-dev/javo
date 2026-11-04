@@ -119,3 +119,94 @@ func TestStartClearsTheIdleStop(t *testing.T) {
 		t.Fatalf("start: %d %s", w.Code, w.Body)
 	}
 }
+
+// A template's own default replaces the admin's for apps made from it; what
+// the creator picks still wins, and other templates keep the admin's default.
+func TestTemplateIdleStopDefault(t *testing.T) {
+	t.Parallel()
+	term := gatewaytest.Template("term", "terminal")
+	ten := int32(10)
+	term.Spec.DefaultIdleStopMinutes = &ten
+	f := apitest.New(t, apitest.Options{Idle: apitest.OptionalIdle()}, term, gatewaytest.Template("lab", "jupyterlab"))
+	bob := f.Session("bob-bbbbbbbb")
+	for _, c := range []struct {
+		name, body string
+		want       int32
+	}{
+		{"template default", `{"displayName":"Shell","template":"term"}`, 10},
+		{"picked off", `{"displayName":"Shell off","template":"term","idleStopMinutes":0}`, 0},
+		{"picked other", `{"displayName":"Shell long","template":"term","idleStopMinutes":30}`, 30},
+		{"admin default", `{"displayName":"Lab","template":"lab"}`, 0},
+	} {
+		w := f.Do("POST", "/api/workspaces", c.body, bob)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("%s: status %d: %s", c.name, w.Code, w.Body)
+		}
+		if got := apitest.Decode[apitest.IdleJSON](t, w).IdleStopMinutes; got != c.want {
+			t.Fatalf("%s: idleStopMinutes %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// A built-in template's default outside the admin's range (the range can
+// change after the template is written) is kept inside it.
+func TestTemplateIdleStopDefaultKeptInRange(t *testing.T) {
+	t.Parallel()
+	long, off := gatewaytest.Template("long", "terminal"), gatewaytest.Template("off", "terminal")
+	week, zero := int32(10080), int32(0)
+	long.Spec.DefaultIdleStopMinutes, off.Spec.DefaultIdleStopMinutes = &week, &zero
+	f := apitest.New(t, apitest.Options{Idle: apitest.StrictIdle()}, long, off)
+	bob := f.Session("bob-bbbbbbbb")
+	for tpl, want := range map[string]int32{"long": 120, "off": 60} {
+		w := f.Do("POST", "/api/workspaces", `{"displayName":"App `+tpl+`","template":"`+tpl+`"}`, bob)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("%s: status %d: %s", tpl, w.Code, w.Body)
+		}
+		if got := apitest.Decode[apitest.IdleJSON](t, w).IdleStopMinutes; got != want {
+			t.Fatalf("%s: idleStopMinutes %d, want %d", tpl, got, want)
+		}
+	}
+}
+
+// A template admin may give a template its own default, inside the admin's
+// range; the template list gives every template the default its new apps get.
+func TestTemplateAdminSetsIdleStopDefault(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig(), Idle: apitest.StrictIdle()}, gatewaytest.Template("plain", "jupyterlab"))
+	tadmin := f.Session("tara-44444444", "tmpl-admins")
+	spec := func(minutes string) string {
+		return `{"displayName":"Lab","kind":"jupyterlab","image":"example.org/lab:1","port":8888,"defaultIdleStopMinutes":` + minutes + `}`
+	}
+	for _, c := range []struct{ minutes, want string }{
+		{"600", "Pick between 10 minutes and 2 hours."},
+		{"5", "Pick between 10 minutes and 2 hours."},
+		{"0", "Apps here must stop when idle. Pick how long they may sit unused."},
+	} {
+		w := f.Do("PUT", "/api/templates/lab", spec(c.minutes), tadmin)
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("%s: status %d: %s", c.minutes, w.Code, w.Body)
+		}
+		if got, _ := apitest.Decode[apitest.Problem](t, w).FieldMessage("body.defaultIdleStopMinutes"); got != c.want {
+			t.Fatalf("%s: message %q, want %q", c.minutes, got, c.want)
+		}
+	}
+	if w := f.Do("PUT", "/api/templates/lab", spec("-1"), tadmin); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("negative: status %d: %s", w.Code, w.Body)
+	}
+	if w := f.Do("PUT", "/api/templates/lab", spec("30"), tadmin); w.Code != http.StatusOK {
+		t.Fatalf("in range: status %d: %s", w.Code, w.Body)
+	}
+	type listJSON struct {
+		Items []struct {
+			Name                   string `json:"name"`
+			DefaultIdleStopMinutes int32  `json:"defaultIdleStopMinutes"`
+		} `json:"items"`
+	}
+	got := map[string]int32{}
+	for _, it := range apitest.Decode[listJSON](t, f.Do("GET", "/api/templates", "", f.Session("bob-bbbbbbbb", "/org/members"))).Items {
+		got[it.Name] = it.DefaultIdleStopMinutes
+	}
+	if got["lab"] != 30 || got["plain"] != 60 {
+		t.Fatalf("defaults %v, want lab 30 and plain 60", got)
+	}
+}

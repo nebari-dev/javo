@@ -48,6 +48,10 @@ spec:
   # A shell needs little; heavy work belongs in a bigger size or a job.
   # A shell is light; the smallest default (not measured yet).
   defaultResources: {cpu: 100m, memory: 256Mi}
+  # A new terminal stops after 10 minutes unused (no open tab), in place of
+  # config.idleStop.defaultMinutes; its owner can pick another time or Off.
+  # Kept inside idleStop.minMinutes and maxMinutes.
+  defaultIdleStopMinutes: 10
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 1Gi}

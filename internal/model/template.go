@@ -168,6 +168,13 @@ type TemplateSpec struct {
 	// it. Nil means the catalog's default size.
 	DefaultResources *TemplateAmount `json:"defaultResources,omitempty"`
 
+	// DefaultIdleStopMinutes is the "Stop when idle" timeout an app from
+	// this template gets when its creator picks none, in place of the
+	// admin's idleStop.defaultMinutes; 0 is Off. Kept inside the admin's
+	// range when used (config.IdleStopCfg.DefaultFor). Nil means the
+	// admin's default.
+	DefaultIdleStopMinutes *int32 `json:"defaultIdleStopMinutes,omitempty"`
+
 	// AllowedGroups limits who may use the template. Empty means everyone.
 	AllowedGroups []string `json:"allowedGroups,omitempty"`
 
@@ -474,6 +481,9 @@ func (s *TemplateSpec) Validate() error {
 		if r.Memory.Cmp(MinCustomMemory) < 0 {
 			v.add("spec.defaultResources.memory", "memory must be at least 256Mi")
 		}
+	}
+	if m := s.DefaultIdleStopMinutes; m != nil && *m < 0 {
+		v.add("spec.defaultIdleStopMinutes", "defaultIdleStopMinutes must not be negative")
 	}
 	if s.JobOnly && s.Jobs == nil {
 		v.add("spec.jobOnly", "jobOnly needs jobs")

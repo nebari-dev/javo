@@ -218,7 +218,7 @@ export function NewApp() {
   const [typedPort, setTypedPort] = useState<string | null>(null)
   // null until the user picks; the template's default is chosen meanwhile.
   const [pickedAccess, setPickedAccess] = useState<ApiAccess | null>(null)
-  // null until the user picks; the admin's default is chosen meanwhile.
+  // null until the user picks; the template's default (the admin's unless it has its own) is chosen meanwhile.
   const [pickedIdle, setPickedIdle] = useState<number | null>(null)
   // Fields the AI filled (shown with a note until edited) and the field
   // errors its filled form would get from Create.
@@ -434,8 +434,8 @@ export function NewApp() {
         ...launchBody(tpl, launch),
         // Left out at the default, so the template's own default applies.
         ...(pickedAccess && pickedAccess !== tpl.apiAccessDefault ? { apiAccess: pickedAccess } : {}),
-        // Left out at the admin's default, which then applies.
-        ...(pickedIdle !== null && pickedIdle !== idlePolicy?.defaultMinutes ? { idleStopMinutes: pickedIdle } : {}),
+        // Left out at the template's default, which then applies.
+        ...(pickedIdle !== null && pickedIdle !== tpl.defaultIdleStopMinutes ? { idleStopMinutes: pickedIdle } : {}),
         ...(env.length ? { env } : {}),
         ...(environment ? { environment: { id: environment } } : {}),
       },
@@ -683,8 +683,9 @@ export function NewApp() {
                       When nobody uses it
                     </PartTitle>
                     <IdleStopChoice
-                      policy={idlePolicy}
-                      value={pickedIdle ?? idlePolicy.defaultMinutes}
+                      // The template's default is the one this app starts from.
+                      policy={{ ...idlePolicy, defaultMinutes: tpl.defaultIdleStopMinutes }}
+                      value={pickedIdle ?? tpl.defaultIdleStopMinutes}
                       onChange={setPickedIdle}
                       error={errs.fields.idleStopMinutes}
                     />

@@ -950,6 +950,11 @@ func (in *TemplateSpec) DeepCopyInto(out *TemplateSpec) {
 		*out = new(TemplateAmount)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.DefaultIdleStopMinutes != nil {
+		in, out := &in.DefaultIdleStopMinutes, &out.DefaultIdleStopMinutes
+		*out = new(int32)
+		**out = **in
+	}
 	if in.AllowedGroups != nil {
 		in, out := &in.AllowedGroups, &out.AllowedGroups
 		*out = make([]string, len(*in))

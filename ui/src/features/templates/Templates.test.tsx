@@ -16,6 +16,7 @@ const custom: Template = {
   fileExtensions: null,
   maxSharing: 'Private',
   apiAccessDefault: 'None',
+  defaultIdleStopMinutes: 60,
   maxApiAccess: 'ReadWrite',
   userCommand: 'Required',
   userImage: false,

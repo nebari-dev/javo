@@ -8,7 +8,7 @@ import { me } from '../../test/fixtures'
 afterEach(() => vi.unstubAllGlobals())
 
 function tpl(kind: string, displayName: string, withSample = true): Template {
-  const t: Template = { name: kind, displayName, description: `${displayName} app`, category: 'other', kind, fileExtensions: [], maxSharing: 'Private', apiAccessDefault: 'None', maxApiAccess: 'ReadWrite', basePath: 'Prefix', appLogin: 'Disabled', userCommand: 'None', userImage: false, fromRepo: 'None', port: 8080 }
+  const t: Template = { name: kind, displayName, description: `${displayName} app`, category: 'other', kind, fileExtensions: [], maxSharing: 'Private', apiAccessDefault: 'None', defaultIdleStopMinutes: 60, maxApiAccess: 'ReadWrite', basePath: 'Prefix', appLogin: 'Disabled', userCommand: 'None', userImage: false, fromRepo: 'None', port: 8080 }
   return withSample ? { ...t, sample: { title: `${displayName} tour`, file: `samples/${kind}`, command: '' } } : t
 }
 

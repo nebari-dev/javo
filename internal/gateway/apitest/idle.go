@@ -15,3 +15,9 @@ func StrictIdle() config.IdleStopCfg {
 	no := false
 	return config.IdleStopCfg{DefaultMinutes: 60, MinMinutes: 10, MaxMinutes: 120, AllowOff: &no}
 }
+
+// OptionalIdle is the chart's policy: Off by default, between 10 minutes and
+// 7 days, and people may turn it off.
+func OptionalIdle() config.IdleStopCfg {
+	return config.IdleStopCfg{MinMinutes: 10, MaxMinutes: 10080}
+}

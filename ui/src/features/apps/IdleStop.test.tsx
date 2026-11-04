@@ -9,10 +9,11 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('New app Stop when idle', () => {
   const created = ws('streamlit-app', 'Streamlit app', 'Pending', stepsAt(0, 'Starting'))
-  function setup(policy = idlePolicy) {
+  // The template list gives each template the default the policy leads to, unless told otherwise.
+  function setup(policy = idlePolicy, templateDefault = policy.defaultMinutes) {
     return mockApi({
       'GET /api/me': { body: me },
-      'GET /api/templates': { body: { items: templates } },
+      'GET /api/templates': { body: { items: templates.map((t) => ({ ...t, defaultIdleStopMinutes: templateDefault })) } },
       'GET /api/workspaces': { body: { items: [] } },
       'GET /api/sizes': { body: { items: [] } },
       'GET /api/idle-stop': { body: policy },
@@ -72,6 +73,24 @@ describe('New app Stop when idle', () => {
     expect(sw.getAttribute('aria-checked')).toBe('false')
     await userEvent.click(sw)
     expect(screen.getByRole('combobox', { name: 'Stop after' }).textContent).toBe('60 minutes')
+    await create()
+    expect(createBody(api)).toMatchObject({ idleStopMinutes: 60 })
+  })
+
+  it("shows the template's own default, and sends Off when turned off", async () => {
+    const api = setup({ ...idlePolicy, defaultMinutes: 0 }, 10)
+    await openAdvanced()
+    expect(screen.getByRole('switch', { name: 'Stop when idle' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('combobox', { name: 'Stop after' }).textContent).toBe('10 minutes')
+    await userEvent.click(screen.getByRole('switch', { name: 'Stop when idle' }))
+    await create()
+    expect(createBody(api)).toMatchObject({ idleStopMinutes: 0 })
+  })
+
+  it("sends the admin's default when picked over the template's own", async () => {
+    const api = setup(idlePolicy, 10)
+    await openAdvanced()
+    await choose(screen.getByRole('combobox', { name: 'Stop after' }), '60 minutes')
     await create()
     expect(createBody(api)).toMatchObject({ idleStopMinutes: 60 })
   })

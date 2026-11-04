@@ -304,7 +304,7 @@ export type CreateInputBody = {
      */
     file?: string;
     /**
-     * Stop the app after this many minutes without use; 0 is Off. Absent means the admin's default (GET /api/idle-stop).
+     * Stop the app after this many minutes without use; 0 is Off. Absent means the template's default (defaultIdleStopMinutes in GET /api/templates).
      */
     idleStopMinutes?: number;
     /**
@@ -1581,6 +1581,7 @@ export type Template = {
     basePath: 'Prefix' | 'Strip';
     build?: TemplateBuild;
     category: string;
+    defaultIdleStopMinutes: number;
     defaultResources?: Amount;
     description: string;
     displayName: string;
@@ -1833,7 +1834,7 @@ export type CreateInputBodyWritable = {
      */
     file?: string;
     /**
-     * Stop the app after this many minutes without use; 0 is Off. Absent means the admin's default (GET /api/idle-stop).
+     * Stop the app after this many minutes without use; 0 is Off. Absent means the template's default (defaultIdleStopMinutes in GET /api/templates).
      */
     idleStopMinutes?: number;
     /**

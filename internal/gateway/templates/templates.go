@@ -70,6 +70,10 @@ type Template struct {
 	// at: this custom amount where the person may ask for one, else the
 	// smallest size that holds it. Absent means the default size.
 	DefaultResources *sizing.Amount `json:"defaultResources,omitempty"`
+	// DefaultIdleStopMinutes is the "Stop when idle" timeout a new app gets
+	// when its creator picks none: the template's own default kept inside
+	// the admin's range, else the admin's default; 0 is Off.
+	DefaultIdleStopMinutes int32 `json:"defaultIdleStopMinutes"`
 	// Run is what an app of the caller's would run, with what the person
 	// picks shown as placeholders such as <your file>; absent when the
 	// platform cannot run the template.
@@ -115,7 +119,7 @@ type TemplateSample struct {
 	Port  int32  `json:"port,omitempty" doc:"Port the sample image serves on, for templates with userImage"`
 }
 
-func templateView(t *model.Template) Template {
+func templateView(t *model.Template, idle config.IdleStopCfg) Template {
 	max := model.MaxSharing(t)
 	view := Template{
 		Name: t.Name, DisplayName: t.Spec.DisplayName, Description: t.Spec.Description,
@@ -124,6 +128,7 @@ func templateView(t *model.Template) Template {
 		BasePath: t.Spec.BasePath, AppLogin: t.Spec.AppLogin, JobOnly: t.Spec.JobOnly,
 		UserCommand: t.Spec.UserCommand, UserImage: t.Spec.UserImage, Port: t.Spec.Port,
 		APIAccessDefault: model.DefaultAPIAccess(t), MaxAPIAccess: model.MaxAPIAccess(t),
+		DefaultIdleStopMinutes: idle.DefaultFor(t.Spec.DefaultIdleStopMinutes),
 	}
 	if view.UserCommand == "" {
 		view.UserCommand = model.UserCommandNone
@@ -164,6 +169,9 @@ type API struct {
 	Roles config.Roles
 	// Run fills in what each template's apps run.
 	Run workspace.Platform
+	// Idle is the admin's "Stop when idle" policy, which bounds a template's
+	// default.
+	Idle config.IdleStopCfg
 }
 
 // TemplateCategory is a group of templates, as New app and the Templates page
@@ -234,7 +242,7 @@ func (s *API) list(ctx context.Context, _ *struct{}) (*templateListOutput, error
 	for i := range l {
 		t := &l[i]
 		if authz.Decide(p, roles, authz.ActUseTemplate, authz.Object{Template: t}).Allowed {
-			v := templateView(t)
+			v := templateView(t, s.Idle)
 			v.Run = previewRun(t, p.ID, s.Run)
 			out.Body.Items = append(out.Body.Items, v)
 		}
@@ -264,6 +272,11 @@ func (s *API) put(ctx context.Context, in *templatePutInput) (*templateOutput, e
 		return nil, problem.Fields(problem.Field{Msg: reasons.Msg(reasons.MsgInvalidRequest)})
 	}
 	spec.ApplyDefaults()
+	if m := spec.DefaultIdleStopMinutes; m != nil {
+		if d := authz.IdleStopInPolicy(s.Idle, *m); !d.Allowed {
+			return nil, problem.FieldError("defaultIdleStopMinutes", d.Code, d.Args...)
+		}
+	}
 	tpl := model.Template{Name: in.Name, Source: store.SourceAdmin, Spec: spec}
 	// Replace the template as it is now; a template that comes with the
 	// installation is changed in the Helm values, not here.
@@ -281,7 +294,7 @@ func (s *API) put(ctx context.Context, in *templatePutInput) (*templateOutput, e
 	if err != nil {
 		return nil, templateWriteError(err)
 	}
-	v := templateView(&saved)
+	v := templateView(&saved, s.Idle)
 	v.Run = previewRun(&saved, authn.User(ctx).ID, s.Run)
 	return &templateOutput{Body: v}, nil
 }
