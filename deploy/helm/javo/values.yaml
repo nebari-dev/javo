@@ -639,6 +639,22 @@ config:
     maxInputRunes: 24000
     # Name app owners in what the admin assistant sends to the model.
     admin: {includeOwners: false}
+    # Coding-agent apps (the pi template, agentModel) get a model through the
+    # gateway at /api/ai/openai/v1: the key above stays in the gateway, each
+    # call counts against the person's dailyTokensPerUser, prompts are never
+    # logged. Needs provider openai (any OpenAI-compatible server, such as
+    # OpenRouter: baseURL https://openrouter.ai/api/v1). Off while AI is off;
+    # then each person may set their own key in Settings > AI agent.
+    agent:
+      enabled: true
+      # The model agents get; empty means ai.model.
+      model: ""
+      # More models an agent may ask for; any other is replaced by model.
+      models: []
+      # The template "Build with pi" in the search bar starts.
+      template: pi
+      # The largest request an agent may send (its whole conversation).
+      maxRequestBytes: 8388608
   # Agents (Claude Code, Cursor) reach the platform at /mcp with a personal
   # API token. They can read and propose changes; a person approves every
   # change in the browser. Needs no model.

@@ -39,6 +39,31 @@ kubectl -n javo-system create secret generic javo-ai --from-file=api-key=./api-k
 - The daily allowance counts every token a call really uses: a call that uses more than it reserved (a retried answer, a longer reply) is charged the difference.
 - When a platform admin explains another person's app, the fixes it proposes act on that person's app, and approving re-checks that the admin may still manage it. The admin does not see what was sent (only the owner does), and the owner's secrets go to the model as `[redacted]` without their names.
 
+## The coding agent's model
+
+With AI on and an OpenAI-compatible provider, coding-agent apps (the pi template, whose `agentModel` is set) get a model through the gateway, and the search bar offers **Build with pi** next to Ask AI.
+
+```yaml
+config:
+  ai:
+    enabled: true
+    provider: openai
+    baseURL: https://openrouter.ai/api/v1
+    model: anthropic/claude-sonnet-5.5
+    dailyTokensPerUser: 5000000  # an agent resends its conversation on every call
+    agent:
+      enabled: true      # the default while AI is on
+      model: ""          # empty: ai.model
+      models: []         # more models an agent may ask for; any other is replaced by model
+      template: pi       # what Build with pi starts
+      maxRequestBytes: 8388608
+```
+
+- The gateway serves `/api/ai/openai/v1/chat/completions` (streamed answers too) and `/api/ai/openai/v1/models`. Only the own API token of an app whose template sets `agentModel` may call it: not personal tokens, not other apps, not the browser. It forwards with the key from `ai.apiKeySecret`, which never enters a pod, on the agent model, counted against the person's `dailyTokensPerUser` like the other AI features (refused with a clear message when spent). Prompts and answers are never logged; each call logs the person, the model and the token counts.
+- `provider: anthropic` does not serve agents: requests pass through in the OpenAI format. Use an OpenAI-compatible endpoint (OpenRouter serves Anthropic models).
+- Without an agent model, each person may store their own OpenAI-compatible address, model and key in **Settings > Secrets > AI agent**. The key is sealed like a secret (`JAVO_AGENT_KEY`), shown again only by its last four characters, and given only to that person's coding-agent apps. With neither, pi asks the person to sign in (`/login`). A change applies when the agent app restarts.
+- A coding agent's app token (templates with `agentDeploy`) may create, change, restart and delete its owner's apps and jobs that hold no secret, API token or Nebi token. Secrets, API access, sharing and anything on an app or job that holds a secret are refused; the agent asks the person or proposes a plan.
+
 ## MCP for coding agents
 
 ```yaml

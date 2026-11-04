@@ -16,6 +16,10 @@ Model features are off until an admin [connects a model](/admin/ai/). With them 
 
 Each person has a daily allowance of model tokens (per UTC day). Every token a call uses counts, including a retried answer. When it is used up, Javo says when it resets. Up to 20 proposed changes may wait for your approval at once (your admin [sets the limit](/admin/limits/)); approve or reject some to propose more.
 
+## Build with pi
+
+When your admin gives coding agents a model, or you stored your own key in **Settings > Secrets > AI agent**, the search palette offers **Build with pi: <your words>**. It starts a new pi app named after your request, gives pi your request as its first prompt, and opens the app's page; **Open** shows pi at work in its terminal. pi starts in your home folder, or in the folder your request names (such as `~/projects/sales-dashboard`) when it exists. It can write code there, deploy it as an app or a job, wait for it to run and read the startup logs when it fails. It cannot give an app secrets or API access, share it, or touch an app or job that holds a secret: it asks you to do that, or proposes a change for you to approve. The first prompt runs only on the app's first start.
+
 ## Coding agents (MCP)
 
 Agents such as Claude Code or Cursor can work with Javo through its MCP endpoint at `/mcp` on the Javo address. MCP needs no model and is on unless your admin turned it off.
