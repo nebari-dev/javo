@@ -36,6 +36,8 @@ kubectl -n javo-system create secret generic javo-ai --from-file=api-key=./api-k
 - The API key comes only from the Secret named in `ai.apiKeySecret`, never from the values, and only the gateway gets it.
 - `features` turns each feature on or off: `explain` (Explain more on a failure), `draft` (Describe it on New app), `palette` (Ask AI in the search palette), `admin` (Ask about this cluster, for platform admins).
 - `admin.includeOwners` names app owners in what the admin question sends to the model.
+- The daily allowance counts every token a call really uses: a call that uses more than it reserved (a retried answer, a longer reply) is charged the difference.
+- When a platform admin explains another person's app, the fixes it proposes act on that person's app, and approving re-checks that the admin may still manage it. The admin does not see what was sent (only the owner does), and the owner's secrets go to the model as `[redacted]` without their names.
 
 ## MCP for coding agents
 
