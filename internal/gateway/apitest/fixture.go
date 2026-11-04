@@ -137,6 +137,8 @@ type Options struct {
 	Backups adminapi.BackupConfig
 	// Environments is Config.Environments: nil offers none.
 	Environments envsource.Source
+	// PublicHost and PixiImage are Config.PublicHost and Config.PixiImage.
+	PublicHost, PixiImage string
 	// Nebi, when set, gives the gateway a nebi.Tokens over it (Nebi on).
 	Nebi nebi.TokenSource
 }
@@ -233,7 +235,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
 		AI:       o.Ai, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
-		Environments: o.Environments,
+		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage,
 	})
 	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, secure: o.Urls.SecureCookies(o.Secure)}
 }

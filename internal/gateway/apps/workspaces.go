@@ -123,6 +123,9 @@ type Workspace struct {
 	Thumbnail *Thumbnail `json:"thumbnail,omitempty"`
 	// Environment is the pixi environment the app runs in; absent for none.
 	Environment *environments.EnvironmentView `json:"environment,omitempty"`
+	// Run is the image and command line the app's pod runs; absent when
+	// the pod cannot be built.
+	Run *templates.PodRun `json:"run,omitempty"`
 }
 
 // Workspaces is the app API: /api/workspaces and every route about one app.
@@ -766,8 +769,10 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 	}
 	size, custom := s.Shown(app.Size, app.Resources)
 	kind, access := "", model.APIAccessNone
+	var run *templates.PodRun
 	if t := tpls[app.Template]; t != nil {
 		kind, access = t.Spec.Kind, model.APIAccessOf(app, t)
+		run = templates.PodRunOf(app, t, s.cfg.Run)
 	}
 	return Workspace{
 		Name: app.Name, DisplayName: app.DisplayName, Template: app.Template,
@@ -781,6 +786,7 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 		Env:          s.envOf(ctx, app),
 		Thumbnail:    s.thumbnailOf(ctx, app),
 		Environment:  environments.ViewOf(app.Environment),
+		Run:          run,
 	}
 }
 
@@ -853,6 +859,8 @@ type Config struct {
 	People            authn.People
 	Sharing           config.SharingCfg
 	StaleAfter        time.Duration
+	// Run fills in what each app runs; its Exposure is the one above.
+	Run workspace.Platform
 }
 
 // New builds the app API from c; c.Now and c.Plans must be set.

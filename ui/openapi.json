@@ -2860,6 +2860,39 @@
         ],
         "type": "object"
       },
+      "PodRun": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "The container's command then its args, placeholders filled in; empty when the image's own command runs",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "environment": {
+            "description": "Which environment the app runs in, in words; empty for the image's own",
+            "type": "string"
+          },
+          "image": {
+            "description": "Image the app's container runs",
+            "type": "string"
+          },
+          "line": {
+            "description": "Command as one shell-quoted line; empty when the image's own command runs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "command",
+          "line"
+        ],
+        "type": "object"
+      },
       "PreviewInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -4351,6 +4384,9 @@
             "format": "int32",
             "type": "integer"
           },
+          "run": {
+            "$ref": "#/components/schemas/PodRun"
+          },
           "sample": {
             "$ref": "#/components/schemas/TemplateSample"
           },
@@ -4910,6 +4946,9 @@
           },
           "resources": {
             "$ref": "#/components/schemas/Amount"
+          },
+          "run": {
+            "$ref": "#/components/schemas/PodRun"
           },
           "size": {
             "type": "string"

@@ -70,6 +70,10 @@ type Template struct {
 	// at: this custom amount where the person may ask for one, else the
 	// smallest size that holds it. Absent means the default size.
 	DefaultResources *sizing.Amount `json:"defaultResources,omitempty"`
+	// Run is what an app of the caller's would run, with what the person
+	// picks shown as placeholders such as <your file>; absent when the
+	// platform cannot run the template.
+	Run *PodRun `json:"run,omitempty"`
 }
 
 // TemplateJobs is what jobs may run on a template.
@@ -161,6 +165,8 @@ func templateView(t *model.Template) Template {
 type API struct {
 	DB    *store.Store
 	Roles config.Roles
+	// Run fills in what each template's apps run.
+	Run workspace.Platform
 }
 
 // TemplateCategory is a group of templates, as New app and the Templates page
@@ -231,7 +237,9 @@ func (s *API) list(ctx context.Context, _ *struct{}) (*templateListOutput, error
 	for i := range l {
 		t := &l[i]
 		if authz.Decide(p, roles, authz.ActUseTemplate, authz.Object{Template: t}).Allowed {
-			out.Body.Items = append(out.Body.Items, templateView(t))
+			v := templateView(t)
+			v.Run = previewRun(t, p.ID, s.Run)
+			out.Body.Items = append(out.Body.Items, v)
 		}
 	}
 	return out, nil
@@ -276,7 +284,9 @@ func (s *API) put(ctx context.Context, in *templatePutInput) (*templateOutput, e
 	if err != nil {
 		return nil, templateWriteError(err)
 	}
-	return &templateOutput{Body: templateView(&saved)}, nil
+	v := templateView(&saved)
+	v.Run = previewRun(&saved, authn.User(ctx).ID, s.Run)
+	return &templateOutput{Body: v}, nil
 }
 
 func errTemplateManagedByHelm() error {

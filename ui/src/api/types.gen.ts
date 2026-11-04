@@ -989,6 +989,25 @@ export type Planned = {
     target: string;
 };
 
+export type PodRun = {
+    /**
+     * The container's command then its args, placeholders filled in; empty when the image's own command runs
+     */
+    command: Array<string> | null;
+    /**
+     * Which environment the app runs in, in words; empty for the image's own
+     */
+    environment?: string;
+    /**
+     * Image the app's container runs
+     */
+    image: string;
+    /**
+     * Command as one shell-quoted line; empty when the image's own command runs
+     */
+    line: string;
+};
+
 export type PreviewInputBody = {
     cron: string;
     timeZone: string;
@@ -1528,6 +1547,7 @@ export type Template = {
     maxSharing: string;
     name: string;
     port: number;
+    run?: PodRun;
     sample?: TemplateSample;
     userCommand: 'None' | 'Optional' | 'Required';
     userImage: boolean;
@@ -1718,6 +1738,7 @@ export type Workspace = {
     previewOf?: PreviewOf;
     redeployable: boolean;
     resources?: Amount;
+    run?: PodRun;
     size: string;
     source?: SourceView;
     steps: Array<Step> | null;

@@ -231,6 +231,8 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Tokens:            tokens,
 		API:               platform.API,
 		Exposure:          exp,
+		PublicHost:        common.publicHost,
+		PixiImage:         platform.Environments.PixiImage,
 		Providers:         providers,
 		Revalidator:       revalidator,
 		People:            people,

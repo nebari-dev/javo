@@ -438,7 +438,7 @@ export const saveRawFile = <ThrowOnError extends boolean = false>(options?: Opti
     bodySerializer: null,
     security: [{
             in: 'cookie',
-            name: 'javo_session',
+            name: '__Host-javo_session',
             type: 'apiKey'
         }, { scheme: 'bearer', type: 'http' }],
     url: '/api/files/raw',

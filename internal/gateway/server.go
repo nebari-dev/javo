@@ -11,6 +11,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
@@ -80,6 +81,9 @@ type Config struct {
 	Sharing config.SharingCfg
 	// Exposure decides where apps are served; wired in internal/cli/wiring.
 	Exposure exposure.Backend
+	// PublicHost (--public-host) and PixiImage (environments.pixiImage) fill
+	// in the command each app is shown to run, as the controller does.
+	PublicHost, PixiImage string
 	// StaleAfter is how long since last login before a person shared with
 	// shows as no longer active; zero means never.
 	StaleAfter time.Duration
@@ -250,7 +254,9 @@ func NewServer(cfg Config) *Server {
 	if cfg.Plans == nil {
 		cfg.Plans = &plans.Service{DB: cfg.Store, Now: cfg.Now}
 	}
+	run := workspace.Platform{Exposure: cfg.Exposure, PublicHost: cfg.PublicHost, PixiImage: cfg.PixiImage}
 	ws := apps.New(apps.Config{
+		Run:   run,
 		Store: cfg.Store, Client: cfg.Client, Namespaces: nss, Homes: cfg.Homes, Sizing: sz, Exposure: cfg.Exposure,
 		Logs: cfg.Logs, NetworkPolicy: cfg.NetworkPolicy, Images: cfg.ContainerImages, Tokens: cfg.Tokens,
 		IdleStop: cfg.IdleStop, Diagnose: cfg.Diagnose, Environments: envs,
@@ -263,7 +269,7 @@ func NewServer(cfg Config) *Server {
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
 	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs}).Register(api)
-	(&templates.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
+	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,
 		Usage: cfg.Usage, Groups: cfg.Groups, Now: now,
