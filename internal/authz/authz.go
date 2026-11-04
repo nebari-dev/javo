@@ -472,10 +472,16 @@ func idleStop(p Principal, admin bool, ask *IdleAsk) Decision {
 	if ask == nil {
 		return deny(reasons.MsgInvalidRequest)
 	}
-	pol := ask.Policy
-	switch m := ask.Minutes; {
-	case m == 0 && admin:
+	if ask.Minutes == 0 && admin {
 		return allow("platform-admin")
+	}
+	return IdleStopInPolicy(ask.Policy, ask.Minutes)
+}
+
+// IdleStopInPolicy allows a timeout (minutes, 0 is Off) that pol lets
+// everyone pick: one inside the range, and Off when people may turn it off.
+func IdleStopInPolicy(pol config.IdleStopCfg, minutes int32) Decision {
+	switch m := minutes; {
 	case m == 0 && pol.MayTurnOff():
 		return allow("idle-off")
 	case m == 0:

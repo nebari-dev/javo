@@ -19,3 +19,5 @@ config:
 ```
 
 It is off by default, so an upgrade never stops a shared dashboard or a long computation that nobody watches. Set `defaultMinutes: 60` to free unused apps' CPU and memory after an hour. With `allowOff: false`, `defaultMinutes` must be between `minMinutes` and `maxMinutes`.
+
+A template can set its own default with `defaultIdleStopMinutes` (0 is Off), which replaces `defaultMinutes` for apps made from it. The built-in Terminal template sets 10 minutes, so a terminal nobody has open stops soon after its tab closes. A built-in template's default outside `minMinutes` and `maxMinutes` is moved to the nearest bound, and Off with `allowOff: false` gives `defaultMinutes`; a template saved through the API is refused instead. People still pick another time or Off when they create the app, or later on its page.

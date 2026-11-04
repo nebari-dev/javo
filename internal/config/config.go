@@ -510,6 +510,20 @@ type IdleStopCfg struct {
 // MayTurnOff reports whether people may set an app's idle stop to Off.
 func (c IdleStopCfg) MayTurnOff() bool { return c.AllowOff == nil || *c.AllowOff }
 
+// DefaultFor is what a new app gets when its creator picks nothing, given
+// its template's own default (nil for none): that default kept inside the
+// range (Off, where people may not turn the stop off, gives DefaultMinutes),
+// else DefaultMinutes.
+func (c IdleStopCfg) DefaultFor(template *int32) int32 {
+	switch {
+	case template == nil, *template == 0 && !c.MayTurnOff():
+		return c.DefaultMinutes
+	case *template == 0:
+		return 0
+	}
+	return min(max(*template, c.MinMinutes), c.MaxMinutes)
+}
+
 // APICfg configures personal API tokens, the optional API docs page and
 // the limits on what requests may hold.
 type APICfg struct {

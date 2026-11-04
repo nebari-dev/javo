@@ -551,7 +551,9 @@ config:
     # What a new app gets when its creator picks nothing; 0 is Off. Off by
     # default so an upgrade never stops a shared dashboard or a long
     # computation that nobody watches; set 60 to free unused apps' CPU and
-    # memory after an hour.
+    # memory after an hour. A template's defaultIdleStopMinutes replaces it
+    # for apps made from that template (the Terminal template: 10), kept
+    # inside minMinutes and maxMinutes.
     defaultMinutes: 0
     # The shortest and longest timeout people may pick.
     minMinutes: 10

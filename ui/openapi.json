@@ -1022,7 +1022,7 @@
             "type": "string"
           },
           "idleStopMinutes": {
-            "description": "Stop the app after this many minutes without use; 0 is Off. Absent means the admin's default (GET /api/idle-stop).",
+            "description": "Stop the app after this many minutes without use; 0 is Off. Absent means the template's default (defaultIdleStopMinutes in GET /api/templates).",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -4511,6 +4511,10 @@
           "category": {
             "type": "string"
           },
+          "defaultIdleStopMinutes": {
+            "format": "int32",
+            "type": "integer"
+          },
           "defaultResources": {
             "$ref": "#/components/schemas/Amount"
           },
@@ -4597,7 +4601,8 @@
           "userImage",
           "port",
           "apiAccessDefault",
-          "maxApiAccess"
+          "maxApiAccess",
+          "defaultIdleStopMinutes"
         ],
         "type": "object"
       },

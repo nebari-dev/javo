@@ -295,7 +295,7 @@ func NewServer(cfg Config) *Server {
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
 	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs}).Register(api)
-	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run}).Register(api)
+	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,
 		Usage: cfg.Usage, Groups: cfg.Groups, Now: now,

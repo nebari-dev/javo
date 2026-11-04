@@ -211,8 +211,8 @@ type createInput struct {
 		Team        string         `json:"team,omitempty" maxLength:"63" doc:"Team the app belongs to; needed only when namespaces are per team and the user is in several"`
 		Source      *SourceBody    `json:"source,omitempty" doc:"Run the app from a Git repository instead of the home folder; file is then relative to the repository folder"`
 		APIAccess   string         `json:"apiAccess,omitempty" enum:"None,Read,ReadWrite" doc:"Give the app JAVO_URL and JAVO_TOKEN so it can call this API as you: None, Read (GET only) or ReadWrite. Empty means the template's apiAccessDefault. Anyone the app is shared with can make it act as you."`
-		// IdleStopMinutes is a pointer so an absent field takes the admin's default.
-		IdleStopMinutes *int32           `json:"idleStopMinutes,omitempty" minimum:"0" doc:"Stop the app after this many minutes without use; 0 is Off. Absent means the admin's default (GET /api/idle-stop)."`
+		// IdleStopMinutes is a pointer so an absent field takes the template's default.
+		IdleStopMinutes *int32           `json:"idleStopMinutes,omitempty" minimum:"0" doc:"Stop the app after this many minutes without use; 0 is Off. Absent means the template's default (defaultIdleStopMinutes in GET /api/templates)."`
 		Env             []envvars.EnvVar `json:"env,omitempty" doc:"The app's environment variables: plain values and values from your secrets (see PUT /api/workspaces/{name}/env)"`
 		LaunchBody
 
@@ -649,7 +649,7 @@ func (s *Workspaces) check(ctx context.Context, u authz.Principal, b appRequest)
 	if err := checkAPIAccess(t, b.apiAccess); err != nil {
 		return nil, err
 	}
-	idle, err := s.idleStopFor(u, b.idleStop)
+	idle, err := s.idleStopFor(u, t, b.idleStop)
 	if err != nil {
 		return nil, err
 	}

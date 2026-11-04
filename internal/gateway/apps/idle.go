@@ -22,11 +22,11 @@ func (s *Workspaces) checkIdleStop(u authz.Principal, minutes int32) error {
 	return nil
 }
 
-// idleStopFor is the timeout a new app gets: the one asked for, checked, or
-// the admin's default.
-func (s *Workspaces) idleStopFor(u authz.Principal, asked *int32) (int32, error) {
+// idleStopFor is the timeout a new app from t gets: the one asked for,
+// checked, or the default (t's own, else the admin's).
+func (s *Workspaces) idleStopFor(u authz.Principal, t *model.Template, asked *int32) (int32, error) {
 	if asked == nil {
-		return s.idle.DefaultMinutes, nil
+		return s.idle.DefaultFor(t.Spec.DefaultIdleStopMinutes), nil
 	}
 	return *asked, s.checkIdleStop(u, *asked)
 }
