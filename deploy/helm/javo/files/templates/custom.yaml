@@ -10,6 +10,7 @@ spec:
   description: Your own command
   category: web
   kind: custom
+  maxSharing: Public
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/custom (conda-forge, every package pinned by

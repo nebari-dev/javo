@@ -10,6 +10,7 @@ spec:
   description: Code in the browser
   category: notebooks
   kind: vscode
+  maxSharing: Public
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/vscode (conda-forge, every package pinned by
   # pixi.lock), installed into the owner's home on the first start and reused

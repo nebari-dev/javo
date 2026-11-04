@@ -10,6 +10,7 @@ spec:
   description: Interactive plots
   category: dashboards
   kind: bokeh
+  maxSharing: Public
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/bokeh (conda-forge, every package pinned by

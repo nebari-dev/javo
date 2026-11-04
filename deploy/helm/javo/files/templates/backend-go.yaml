@@ -13,6 +13,7 @@ spec:
   description: Go server
   category: web
   kind: go
+  maxSharing: Public
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/backend-go (conda-forge, every package pinned by

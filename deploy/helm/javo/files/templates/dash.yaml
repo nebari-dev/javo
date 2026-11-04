@@ -10,6 +10,7 @@ spec:
   description: Plotly dashboards
   category: dashboards
   kind: dash
+  maxSharing: Public
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/dash (conda-forge, every package pinned by

@@ -10,6 +10,7 @@ spec:
   description: Python web APIs
   category: web
   kind: fastapi
+  maxSharing: Public
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/fastapi (conda-forge, every package pinned by

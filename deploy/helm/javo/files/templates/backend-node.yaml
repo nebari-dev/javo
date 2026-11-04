@@ -11,6 +11,7 @@ spec:
   description: Node.js server
   category: web
   kind: node
+  maxSharing: Public
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi
   # environment pod/files/envs/backend-node (conda-forge, every package pinned by
