@@ -22,7 +22,9 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver for the admin connection
 
-	"github.com/nebari-dev/javo/internal/secrets"
+	"github.com/tink-crypto/tink-go/v2/aead"
+	"github.com/tink-crypto/tink-go/v2/keyset"
+
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -199,7 +201,12 @@ func New(t testing.TB) *store.Store {
 // withHookKey gives s a key for webhook secrets, as the gateway does at start.
 func withHookKey(t testing.TB, s *store.Store) *store.Store {
 	t.Helper()
-	k, err := secrets.NewKey()
+	// Tink directly: internal/secrets' own tests use storetest.
+	h, err := keyset.NewHandle(aead.AES256GCMKeyTemplate())
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := aead.New(h)
 	if err != nil {
 		t.Fatal(err)
 	}
