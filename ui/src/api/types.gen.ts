@@ -1798,6 +1798,213 @@ export type WorkspaceListOutputBody = {
     items: Array<Workspace> | null;
 };
 
+export type AdminAppWritable = {
+    app: WorkspaceWritable;
+    createdAt: string;
+    id: string;
+    lastActiveAt?: string;
+    owner: PersonRef;
+};
+
+export type AdminAppsOutputBodyWritable = {
+    items: Array<AdminAppWritable> | null;
+};
+
+export type CreateInputBodyWritable = {
+    /**
+     * Give the app JAVO_URL and JAVO_TOKEN so it can call this API as you: None, Read (GET only) or ReadWrite. Empty means the template's apiAccessDefault. Anyone the app is shared with can make it act as you.
+     */
+    apiAccess?: 'None' | 'Read' | 'ReadWrite';
+    /**
+     * Command line, for templates whose userCommand is Optional or Required; split into words like a shell, with {{.Port}}, {{.BaseURL}}, {{.Home}}, {{.File}} and {{.Source}} filled in
+     */
+    command?: string;
+    displayName: string;
+    /**
+     * The app's environment variables: plain values and values from your secrets (see PUT /api/workspaces/{name}/env)
+     */
+    env?: Array<EnvVarWritable> | null;
+    /**
+     * Run the app in this pixi environment from GET /api/environments; its newest version is copied in now
+     */
+    environment?: EnvironmentPick;
+    /**
+     * Path relative to the home folder
+     */
+    file?: string;
+    /**
+     * Stop the app after this many minutes without use; 0 is Off. Absent means the admin's default (GET /api/idle-stop).
+     */
+    idleStopMinutes?: number;
+    /**
+     * Image reference, for templates with userImage
+     */
+    image?: string;
+    /**
+     * Port the image serves on, for templates with userImage; 0 means the template's port
+     */
+    port?: number;
+    /**
+     * A custom amount instead of a size, for people the admin allows (GET /api/sizes custom)
+     */
+    resources?: Amount;
+    /**
+     * Run the template's sample; file is then ignored
+     */
+    sample?: boolean;
+    /**
+     * One of the names from GET /api/sizes; empty means the default size
+     */
+    size?: string;
+    /**
+     * Run the app from a Git repository instead of the home folder; file is then relative to the repository folder
+     */
+    source?: SourceBody;
+    /**
+     * Team the app belongs to; needed only when namespaces are per team and the user is in several
+     */
+    team?: string;
+    template: string;
+};
+
+export type EnvBodyWritable = {
+    /**
+     * Every variable; the list replaces the one before
+     */
+    env: Array<EnvVarWritable> | null;
+};
+
+export type EnvVarWritable = {
+    /**
+     * Letters, digits and underscores, not starting with a digit; names the platform sets are refused
+     */
+    name: string;
+    /**
+     * The name of one of your secrets to take the value from instead; its value is never shown
+     */
+    secret?: string;
+    /**
+     * A plain value, shown again as typed: for settings that are not secret
+     */
+    value?: string;
+};
+
+export type JobBodyWritable = {
+    /**
+     * Command line, for engine command only: split into words like a shell but run without one, with {{.Home}} filled in; it runs in the home folder and gets each parameter as environment variable JAVO_PARAM_<NAME>
+     */
+    command?: string;
+    displayName: string;
+    engine: string;
+    /**
+     * Environment variables each run gets, plain or from your secrets, on create; change them later with PUT /api/jobs/{name}/env
+     */
+    env?: Array<EnvVarWritable> | null;
+    /**
+     * Run in this pixi environment from GET /api/environments, on create; its newest version is copied in now
+     */
+    environment?: EnvironmentPick;
+    kernel?: string;
+    notify?: JobNotifyBody;
+    parameters?: Array<JobParam> | null;
+    /**
+     * A custom amount each run gets instead of a size, for people the admin allows (GET /api/sizes custom), on create
+     */
+    resources?: Amount;
+    run?: JobRunBody;
+    /**
+     * Absent for a job that only runs on demand
+     */
+    schedule?: JobScheduleBody;
+    /**
+     * The size each run gets, one of the names from GET /api/sizes, on create; empty means the default size. Change it later with PUT /api/jobs/{name}/size
+     */
+    size?: string;
+    /**
+     * Path relative to the home folder; none for engine command
+     */
+    source?: string;
+    /**
+     * Team the job belongs to, on create; needed only when namespaces are per team and the user is in several
+     */
+    team?: string;
+    template: string;
+};
+
+export type JobDetailWritable = {
+    /**
+     * The command line of a command job
+     */
+    command?: string;
+    displayName: string;
+    engine: string;
+    env: Array<EnvVarWritable> | null;
+    environment?: EnvironmentView;
+    kernel?: string;
+    lastRun?: RunView;
+    name: string;
+    nextRuns: Array<string> | null;
+    notify: JobNotifyBody;
+    parameters: Array<JobParam> | null;
+    phase: string;
+    problem?: Problem;
+    /**
+     * Outcomes of the latest runs, oldest first
+     */
+    recent: Array<string> | null;
+    /**
+     * The custom amount each run gets instead of a size
+     */
+    resources?: Amount;
+    /**
+     * What resuming a paused schedule will do, when it starts a missed run
+     */
+    resumeNotice?: string;
+    run: JobRunBody;
+    /**
+     * Newest first
+     */
+    runs: Array<RunView> | null;
+    schedule?: ScheduleView;
+    size: string;
+    /**
+     * Path relative to the home folder; empty for a command job
+     */
+    source: string;
+    template: string;
+};
+
+export type WorkspaceWritable = {
+    apiAccess: 'None' | 'Read' | 'ReadWrite';
+    canShare: boolean;
+    command: string;
+    displayName: string;
+    env: Array<EnvVarWritable> | null;
+    environment?: EnvironmentView;
+    file: string;
+    filePath?: string;
+    idleStopMinutes: number;
+    image: string;
+    kind: string;
+    name: string;
+    phase: string;
+    port: number;
+    previewOf?: PreviewOf;
+    redeployable: boolean;
+    resources?: Amount;
+    size: string;
+    source?: SourceView;
+    steps: Array<Step> | null;
+    stoppedIdleAfter: number;
+    template: string;
+    thumbnail?: Thumbnail;
+    url: string;
+};
+
+export type WorkspaceListOutputBodyWritable = {
+    items: Array<WorkspaceWritable> | null;
+};
+
 export type AskAdminData = {
     body: AskInputBody;
     path?: never;
@@ -3241,7 +3448,7 @@ export type ListJobsResponses = {
 export type ListJobsResponse = ListJobsResponses[keyof ListJobsResponses];
 
 export type CreateJobData = {
-    body: JobBody;
+    body: JobBodyWritable;
     path?: never;
     query?: never;
     url: '/api/jobs';
@@ -3370,7 +3577,7 @@ export type GetJobResponses = {
 export type GetJobResponse = GetJobResponses[keyof GetJobResponses];
 
 export type UpdateJobData = {
-    body: JobBody;
+    body: JobBodyWritable;
     path: {
         name: string;
     };
@@ -3418,7 +3625,7 @@ export type UpdateJobResponses = {
 export type UpdateJobResponse = UpdateJobResponses[keyof UpdateJobResponses];
 
 export type SetJobEnvData = {
-    body: EnvBody;
+    body: EnvBodyWritable;
     path: {
         name: string;
     };
@@ -4729,7 +4936,7 @@ export type ListWorkspacesResponses = {
 export type ListWorkspacesResponse = ListWorkspacesResponses[keyof ListWorkspacesResponses];
 
 export type CreateWorkspaceData = {
-    body: CreateInputBody;
+    body: CreateInputBodyWritable;
     path?: never;
     query?: never;
     url: '/api/workspaces';
@@ -5113,7 +5320,7 @@ export type ExplainDiagnosisResponses = {
 export type ExplainDiagnosisResponse = ExplainDiagnosisResponses[keyof ExplainDiagnosisResponses];
 
 export type SetWorkspaceEnvData = {
-    body: EnvBody;
+    body: EnvBodyWritable;
     path: {
         name: string;
     };
