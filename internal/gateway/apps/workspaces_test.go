@@ -558,12 +558,12 @@ func TestLoginIsRateLimitedPerClientIP(t *testing.T) {
 	}
 }
 
-// Behind a trusted proxy each client is limited on its own address; without
-// trust every client shares the proxy's address.
+// Behind a trusted proxy each client is limited on its own address; an
+// untrusted peer's X-Forwarded-For is ignored.
 func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
 	t.Parallel()
 	const proxyIP = "10.42.0.1"
-	exhaust := func(f *apitest.Fixture) {
+	exhaust := func(f *apitest.Fixture, proxyIP string) {
 		t.Helper()
 		for i := 0; i < 60; i++ {
 			if f.LoginVia(proxyIP, "192.0.2.7", fmt.Sprintf("user%d", i), "wrong").Code == http.StatusTooManyRequests {
@@ -574,7 +574,7 @@ func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
 	}
 
 	f := apitest.New(t, apitest.Options{Trusted: []netip.Prefix{netip.MustParsePrefix(proxyIP + "/32")}})
-	exhaust(f)
+	exhaust(f, proxyIP)
 	if w := f.LoginVia(proxyIP, "192.0.2.8", "carol", "wrong"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("other client behind the proxy: %d", w.Code)
 	}
@@ -583,9 +583,13 @@ func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
 		t.Fatalf("spoofed header escaped the limit: %d", w.Code)
 	}
 
+	// An untrusted peer's header is not believed: a public peer is limited as
+	// itself, whatever client it names. (A private untrusted peer keys no
+	// bucket at all: TestOneClientBehindAnUntrustedProxyCannotLockEveryoneOut.)
+	const publicPeer = "198.51.100.1"
 	untrusted := apitest.New(t, apitest.Options{})
-	exhaust(untrusted)
-	if w := untrusted.LoginVia(proxyIP, "192.0.2.8", "carol", "wrong"); w.Code != http.StatusTooManyRequests {
+	exhaust(untrusted, publicPeer)
+	if w := untrusted.LoginVia(publicPeer, "192.0.2.8", "carol", "wrong"); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("untrusted proxy header was believed: %d", w.Code)
 	}
 }

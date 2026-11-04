@@ -250,6 +250,22 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	return client.String()
 }
 
+// SharedPeer reports whether r came straight from a private or loopback
+// address while no proxy is trusted: most likely an ingress or load balancer
+// that every client comes through, so its address tells no client apart and a
+// bucket keyed on it would be one bucket for everybody.
+func SharedPeer(r *http.Request, trusted []netip.Prefix) bool {
+	if len(trusted) > 0 {
+		return false
+	}
+	peer, err := netip.ParseAddrPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	a := peer.Addr().Unmap()
+	return a.IsPrivate() || a.IsLoopback()
+}
+
 func isTrusted(a netip.Addr, trusted []netip.Prefix) bool {
 	for _, p := range trusted {
 		if p.Contains(a) {

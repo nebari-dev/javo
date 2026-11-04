@@ -22,7 +22,7 @@ Values fall in two groups:
 | `publicHost` | The host (and port) browsers use. Panel and Bokeh check websocket origins against it. Defaults to `config.urls.uiHost`. |
 | `ingress.*` | An Ingress for the web UI (and the apps host, when set). `config.urls.uiHost` defaults to `ingress.host`. |
 | `gateway.secureCookies` | Marks the session cookie Secure even when `config.urls.scheme` is `http`. With `https` (the default) it is always Secure. |
-| `gateway.trustedProxies` | CIDRs of reverse proxies in front of the gateway, so sign-in rate limits see the real client address. |
+| `gateway.trustedProxies` | CIDRs of reverse proxies in front of the gateway, so sign-in rate limits see the real client address. List only the proxy's own addresses: anything listed can forge a client address. Left empty behind an ingress, the gateway cannot tell clients apart and turns per-address sign-in limits off (it logs a warning). |
 | `config.auth` | [Sign-in](/admin/sign-in/): local accounts and OpenID Connect. |
 | `config.roles` | Which groups are platform admins, template admins and members. |
 | `config.urls` | [App addresses](/admin/app-addresses/). `uiHost` and `appsHost`, like `config.auth.oidc.issuer` and `clientID`, may be Helm templates such as `javo.{{ .Values.global.domain }}`. |

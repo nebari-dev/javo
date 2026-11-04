@@ -13,6 +13,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -88,6 +89,9 @@ type (
 	// appTokenKey is set (true) when that token was made for an app or a
 	// job (token.Token.Workload).
 	appTokenKey struct{}
+	// sharedPeerKey is set (true) when the client address cannot tell
+	// clients apart (ratelimit.SharedPeer).
+	sharedPeerKey struct{}
 )
 
 // Authenticator turns the javo_session cookie or an API token into a
@@ -136,6 +140,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), tokenKey{}, token)
 		ctx = context.WithValue(ctx, clientKey{}, ratelimit.ClientIP(r, a.Trusted))
 		ctx = context.WithValue(ctx, peerKey{}, r.RemoteAddr)
+		ctx = context.WithValue(ctx, sharedPeerKey{}, ratelimit.SharedPeer(r, a.Trusted))
 		if publicRoutes[r.Method+" "+r.URL.Path] {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -467,6 +472,7 @@ func (m *mounter) Handle(pattern string, h http.Handler) {
 		ctx := context.WithValue(r.Context(), tokenKey{}, token)
 		ctx = context.WithValue(ctx, clientKey{}, ratelimit.ClientIP(r, m.a.Trusted))
 		ctx = context.WithValue(ctx, peerKey{}, r.RemoteAddr)
+		ctx = context.WithValue(ctx, sharedPeerKey{}, ratelimit.SharedPeer(r, m.a.Trusted))
 		h.ServeHTTP(w, r.WithContext(ctx))
 	}))
 }
@@ -477,6 +483,9 @@ func (m *mounter) Reject(status int, code reasons.MessageCode) error {
 	return problem.New(status, reasons.Msg(code))
 }
 
+// sharedPeerWarning logs once that per-address sign-in limits are off.
+var sharedPeerWarning sync.Once
+
 // LimitLogin counts one attempt and waits out recent failures at the
 // username; the peer is logged because behind a proxy it is the address to
 // list in --trusted-proxies.
@@ -485,7 +494,15 @@ func (m *mounter) LimitLogin(ctx context.Context, username string) (func(bool), 
 	peer, _ := ctx.Value(peerKey{}).(string)
 	slog.Info("login attempt", "client", ip, "peer", peer)
 	username = strings.ToLower(username)
-	if wait, ok := m.a.Limiter.Allow(ip, username); !ok {
+	// An address shared by every client (an untrusted ingress) keys no
+	// bucket: one client would spend it for all. The per-username delays and
+	// the hashing cap still apply.
+	if shared, _ := ctx.Value(sharedPeerKey{}).(bool); shared {
+		sharedPeerWarning.Do(func() {
+			slog.Warn("sign-ins come from a private address and no proxy is trusted, so per-address sign-in limits are off; "+
+				"list the ingress or load balancer in trustedProxies", "peer", peer)
+		})
+	} else if wait, ok := m.a.Limiter.Allow(ip, username); !ok {
 		return nil, problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgTooManyAttempts)).
 			WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 	}

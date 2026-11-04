@@ -266,9 +266,14 @@ gateway:
   # CIDRs of reverse proxies in front of the gateway. Login rate limits key
   # on the client address; from these peers the gateway takes it from
   # X-Forwarded-For (the rightmost entry that is not a trusted proxy).
-  # Empty trusts no header, so every client behind a proxy shares the
-  # proxy's limit. To find the address the gateway sees for your proxy, sign
-  # in once and read the "peer" of the "login attempt" log line:
+  # Empty trusts no header. A private or loopback peer is then taken to be a
+  # proxy every client shares, so it keys no per-address sign-in limit (one
+  # client would otherwise lock everyone out) and the gateway logs a warning;
+  # per-username delays and the hashing cap still apply. Behind an ingress,
+  # list exactly its pods' addresses (or the load balancer's), never whole
+  # private ranges: anything listed can forge the client address. To find
+  # the address the gateway sees for your proxy, sign in once and read the
+  # "peer" of the "login attempt" log line:
   #   kubectl -n <release namespace> logs deploy/javo | grep 'login attempt'
   trustedProxies: []
   # Name of a Secret in the release namespace whose key client-secret is the

@@ -44,8 +44,15 @@ type Receiver struct {
 // ServeHTTP checks one delivery's rate and signature and records it for
 // the app's previews.
 func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Every delivery counts, right or wrong, before any database work.
-	if wait, ok := h.Limiter.Take(ratelimit.Bucket{Key: ratelimit.ClientIP(r, h.Trusted), Spec: hookLimit}); !ok {
+	// Every delivery counts, right or wrong, before any database work: by
+	// client, or, when the client cannot be told apart (an untrusted
+	// ingress), by the hook address, so a flood at other addresses does not
+	// spend the bucket of a real one.
+	key := ratelimit.ClientIP(r, h.Trusted)
+	if ratelimit.SharedPeer(r, h.Trusted) {
+		key = "hook:" + r.PathValue("host") + "/" + r.PathValue("hook")
+	}
+	if wait, ok := h.Limiter.Take(ratelimit.Bucket{Key: key, Spec: hookLimit}); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		problem.Write(w, http.StatusTooManyRequests, reasons.Msg(reasons.MsgWebhookRateLimited))
 		return

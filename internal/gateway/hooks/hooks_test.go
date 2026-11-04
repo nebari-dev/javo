@@ -295,3 +295,31 @@ func TestWebhookIsRateLimitedPerClientAddress(t *testing.T) {
 		t.Fatalf("another address: %d, want 404", got)
 	}
 }
+
+// Behind an untrusted ingress every delivery comes from one in-cluster
+// address: a flood at made-up hook addresses must not spend the bucket the
+// real deliveries need, or previews stop syncing.
+func TestAFloodThroughASharedIngressDoesNotStopRealDeliveries(t *testing.T) {
+	t.Parallel()
+	f := apitest.NewHookFixture(t)
+	deliver := func(path, secret string) int {
+		r := httptest.NewRequest("POST", path, strings.NewReader("{}"))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-GitHub-Event", "ping")
+		if secret != "" {
+			r.Header.Set("X-Hub-Signature-256", apitest.Signature("{}", secret))
+		}
+		r.RemoteAddr = "10.42.0.9:40000"
+		w := httptest.NewRecorder()
+		f.Srv.ServeHTTP(w, r)
+		return w.Code
+	}
+	real := apitest.HookPath(t, f.Site)
+	bogus := strings.Replace(real, "/hooks/github/", "/hooks/github/x", 1)
+	for range 200 {
+		deliver(bogus, "")
+	}
+	if code := deliver(real, f.Site.Secret); code != http.StatusAccepted {
+		t.Fatalf("a real delivery after the flood: %d", code)
+	}
+}
