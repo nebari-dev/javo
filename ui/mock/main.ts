@@ -811,7 +811,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     return reply(200, { path: p, entries, count: entries.length, truncated: false, stale, ageSeconds: stale ? 40 : 0 })
   }
   if (key === 'POST /api/files/warm') return reply(204, null)
-  if (key === 'GET /api/info') return reply(200, { apiDocs: tokenParams.get('docs') !== '0' })
+  if (key === 'GET /api/info') return reply(200, { apiDocs: tokenParams.get('docs') !== '0', tokenMaxDays: 90 })
   if (key === 'GET /api/tokens') return reply(200, tokens)
   if (key === 'POST /api/tokens') {
     const b = await req.json()

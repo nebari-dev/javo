@@ -11,15 +11,27 @@ import { More } from '../../components/More'
 import { PartIcon, PartTitle, type Part } from '../../components/Section'
 import { Segmented } from '../../components/Segmented'
 import { fieldErrors, problemText } from '../../lib/http'
-import { useCreateToken, useRevokeToken, useServerInfo, useTokens } from '../../lib/queries'
+import { useCreateToken, useMe, useRevokeToken, useServerInfo, useTokens } from '../../lib/queries'
 import { useIsAdmin } from './admin/queries'
 
 const SCOPES = [
   { value: 'read', label: 'Read' },
+  { value: 'propose', label: 'Propose' },
   { value: 'read-write', label: 'Read and write' },
+  { value: 'admin', label: 'Admin' },
 ] as const
 
 type Scope = (typeof SCOPES)[number]['value']
+
+/** The longest an admin token may live, as the server enforces it. */
+const ADMIN_MAX_DAYS = 30
+
+const SCOPE_HINTS: Record<Scope, string> = {
+  read: 'Read can only look.',
+  propose: 'Propose can look and propose changes that you approve in the browser: the one to give a coding agent over MCP.',
+  'read-write': 'Read and write can also start, change and delete things, as a member: full access to your apps, jobs and files.',
+  admin: 'Admin is read and write with your admin roles. It must expire within 30 days.',
+}
 
 const EXPIRIES = [
   { value: '7', label: '7 days' },
@@ -48,12 +60,19 @@ function FieldError({ id, msg }: { id: string; msg?: string }) {
   ) : null
 }
 
-function TokenForm({ onCreated, onCancel }: { onCreated: (t: CreatedToken) => void; onCancel: () => void }) {
+function TokenForm({ onCreated, onCancel, maxDays }: { onCreated: (t: CreatedToken) => void; onCancel: () => void; maxDays: number }) {
   const create = useCreateToken()
+  const roles = useMe().data?.roles ?? []
+  const admin = roles.includes('platform-admin') || roles.includes('template-admin')
+  const scopes = SCOPES.filter((o) => o.value !== 'admin' || admin)
   const ids = { name: useId(), nameErr: useId(), scope: useId(), scopeErr: useId(), exp: useId(), expErr: useId() }
   const [name, setName] = useState('')
   const [scope, setScope] = useState<Scope>('read')
   const [expiry, setExpiry] = useState('30')
+  // The server's limit, and 30 days for an admin token; 0 is none.
+  const limit = scope === 'admin' ? (maxDays > 0 ? Math.min(maxDays, ADMIN_MAX_DAYS) : ADMIN_MAX_DAYS) : maxDays
+  const expiries = EXPIRIES.filter((o) => limit === 0 || Number(o.value) <= limit)
+  const chosen = expiry === NEVER ? (limit === 0 ? NEVER : '30') : expiries.some((o) => o.value === expiry) ? expiry : (expiries.at(-1)?.value ?? '7')
   const errs = create.isError ? fieldErrors(create.error) : { fields: {} as Record<string, string>, other: [] as string[] }
   const other = [...errs.other, ...Object.entries(errs.fields).filter(([f]) => !FORM_FIELDS.has(f)).map(([, m]) => m)]
 
@@ -61,7 +80,7 @@ function TokenForm({ onCreated, onCancel }: { onCreated: (t: CreatedToken) => vo
     e.preventDefault()
     if (!name.trim()) return
     create.mutate(
-      { name: name.trim(), scope, ...(expiry === NEVER ? {} : { expiresInDays: Number(expiry) }) },
+      { name: name.trim(), scope, ...(chosen === NEVER ? {} : { expiresInDays: Number(chosen) }) },
       { onSuccess: onCreated },
     )
   }
@@ -97,21 +116,23 @@ function TokenForm({ onCreated, onCancel }: { onCreated: (t: CreatedToken) => vo
           <span id={ids.scope} className="field-label">
             Access
           </span>
-          <Segmented label="Scope" value={scope} options={[...SCOPES]} onChange={setScope} />
-          <span className="hint">Read can only look. Read and write can also start, change and delete things.</span>
+          <Segmented label="Scope" value={scope} options={[...scopes]} onChange={setScope} />
+          <span className="hint">{SCOPE_HINTS[scope]}</span>
           <FieldError id={ids.scopeErr} msg={errs.fields.scope} />
         </div>
         <div className="field" role="group" aria-labelledby={ids.exp}>
           <span id={ids.exp} className="field-label">
             Expires
           </span>
-          <Segmented label="Expires after" value={expiry === NEVER ? '' : expiry} options={EXPIRIES} onChange={setExpiry} />
-          <More closed="Create a token that never expires" open="Hide the never-expires choice" defaultOpen={expiry === NEVER}>
-            <div className="tok-never">
-              <Segmented label="No expiry" value={expiry === NEVER ? NEVER : ''} options={[{ value: NEVER, label: 'Never' }]} onChange={setExpiry} />
-              <span className="hint">A token that never expires works until you revoke it.</span>
-            </div>
-          </More>
+          <Segmented label="Expires after" value={chosen === NEVER ? '' : chosen} options={expiries} onChange={setExpiry} />
+          {limit === 0 && (
+            <More closed="Create a token that never expires" open="Hide the never-expires choice" defaultOpen={chosen === NEVER}>
+              <div className="tok-never">
+                <Segmented label="No expiry" value={chosen === NEVER ? NEVER : ''} options={[{ value: NEVER, label: 'Never' }]} onChange={setExpiry} />
+                <span className="hint">A token that never expires works until you revoke it.</span>
+              </div>
+            </More>
+          )}
           <FieldError id={ids.expErr} msg={errs.fields.expiresInDays} />
         </div>
         <div className="row tok-form-act">
@@ -252,6 +273,7 @@ export function ApiTokens() {
         creating && (
           <div className="section-sm">
             <TokenForm
+              maxDays={info.data?.tokenMaxDays ?? 0}
               onCreated={(t) => {
                 setCreating(false)
                 setMade(t)

@@ -21,6 +21,10 @@ import (
 // maxTokenName is the longest token name.
 const maxTokenName = 64
 
+// MaxTokensPerPerson is how many personal tokens one person may hold (app
+// and job tokens are not counted: the controller makes those).
+const MaxTokensPerPerson = 50
+
 // tokensRoute is where tokens are created, listed and revoked.
 const tokensRoute = "/api/tokens"
 
@@ -53,6 +57,8 @@ type TokenBody struct {
 // Info says which optional parts of the server are on.
 type Info struct {
 	APIDocs bool `json:"apiDocs" doc:"The API docs page is served at /api/docs/"`
+	// TokenMaxDays is api.tokens.maxLifetime in days.
+	TokenMaxDays int `json:"tokenMaxDays" doc:"The longest expiry a new token may have, in days; 0 allows tokens that never expire"`
 }
 
 // TokensAPI serves /api/tokens: a person's personal API tokens. MaxLifetime
@@ -151,7 +157,7 @@ func (t *TokensAPI) Register(api huma.API) {
 			"with an expiry of at most 30 days, keeps their admin roles. A read token may only GET; a propose token may also " +
 			"propose changes (POST /api/plans) that you approve in the browser. Needs a browser session.",
 		DefaultStatus: http.StatusCreated,
-		Errors:        []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusUnprocessableEntity},
+		Errors:        []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *struct{ Body TokenBody }) (*struct{ Body CreatedToken }, error) {
 		if err := sessionRequired(ctx); err != nil {
 			return nil, err
@@ -169,6 +175,9 @@ func (t *TokensAPI) Register(api huma.API) {
 		}
 		expires, err := t.expiry(in.Body.ExpiresInDays, scope)
 		if err != nil {
+			return nil, err
+		}
+		if err := t.roomForOneMore(ctx, User(ctx).ID); err != nil {
 			return nil, err
 		}
 		text, tok, err := t.Store.Create(ctx, Actor(ctx), token.Token{Name: name, Owner: User(ctx).ID, Scope: scope, ExpiresAt: expires})
@@ -211,8 +220,27 @@ func (t *TokensAPI) Register(api huma.API) {
 		Summary: "Which optional parts of the server are on", Tags: []string{"auth"},
 		Errors: []int{http.StatusUnauthorized},
 	}, func(context.Context, *struct{}) (*struct{ Body Info }, error) {
-		return &struct{ Body Info }{Body: Info{APIDocs: t.Docs}}, nil
+		return &struct{ Body Info }{Body: Info{APIDocs: t.Docs, TokenMaxDays: int(t.MaxLifetime / (24 * time.Hour))}}, nil
 	})
+}
+
+// roomForOneMore refuses a new token when owner already holds
+// MaxTokensPerPerson personal tokens.
+func (t *TokensAPI) roomForOneMore(ctx context.Context, owner string) error {
+	list, err := t.Store.List(ctx, owner)
+	if err != nil {
+		return problem.Internal("list tokens", err)
+	}
+	n := 0
+	for _, tok := range list {
+		if !tok.Workload() {
+			n++
+		}
+	}
+	if n >= MaxTokensPerPerson {
+		return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgTokenTooMany, MaxTokensPerPerson))
+	}
+	return nil
 }
 
 // noteRevoked records on the app's row that its token id was revoked, so the

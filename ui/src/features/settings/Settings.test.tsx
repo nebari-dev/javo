@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CreatedToken, TokenView } from '../../api'
 import { mockApi, renderApp } from '../../test/api'
-import { me } from '../../test/fixtures'
+import { adminMe, me } from '../../test/fixtures'
 
 const laptop: TokenView = {
   id: 't-1',
@@ -44,7 +44,7 @@ const createdView: TokenView = { id: created.id, name: created.name, scope: crea
 function setup(routes: Parameters<typeof mockApi>[0] = {}) {
   return mockApi({
     'GET /api/me': { body: me },
-    'GET /api/info': { body: { apiDocs: false } },
+    'GET /api/info': { body: { apiDocs: false, tokenMaxDays: 0 } },
     'GET /api/tokens': { body: [laptop, ci, agent] },
     ...routes,
   })
@@ -151,6 +151,37 @@ describe('Settings', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create token' }))
     await screen.findByText(SECRET)
     expect(api.calls.find((c) => c.method === 'POST')?.body).toEqual({ name: 'deploy', scope: 'read-write' })
+  })
+
+  it('offers Propose, and Admin only to an admin', async () => {
+    setup()
+    renderApp('/settings')
+    await userEvent.click(await screen.findByRole('button', { name: 'New token' }))
+    expect(screen.getByRole('radio', { name: 'Propose' })).toBeTruthy()
+    expect(screen.queryByRole('radio', { name: 'Admin' })).toBeNull()
+  })
+
+  it('makes an admin token expire within 30 days', async () => {
+    const api = setup({ 'GET /api/me': { body: adminMe }, 'POST /api/tokens': { status: 201, body: { ...created, scope: 'admin' } } })
+    renderApp('/settings')
+    await userEvent.click(await screen.findByRole('button', { name: 'New token' }))
+    await userEvent.type(screen.getByLabelText('Name'), 'ops')
+    await userEvent.click(screen.getByRole('radio', { name: 'Admin' }))
+    expect(screen.queryByRole('radio', { name: '90 days' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create a token that never expires' })).toBeNull()
+    await userEvent.click(screen.getByRole('radio', { name: '7 days' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Create token' }))
+    await screen.findByText(SECRET)
+    expect(api.calls.find((c) => c.method === 'POST')?.body).toEqual({ name: 'ops', scope: 'admin', expiresInDays: 7 })
+  })
+
+  it('offers no expiry past the server limit', async () => {
+    setup({ 'GET /api/info': { body: { apiDocs: false, tokenMaxDays: 90 } } })
+    renderApp('/settings')
+    await userEvent.click(await screen.findByRole('button', { name: 'New token' }))
+    expect(screen.getByRole('radio', { name: '90 days' })).toBeTruthy()
+    expect(screen.queryByRole('radio', { name: '1 year' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create a token that never expires' })).toBeNull()
   })
 
   it('shows field errors from the server under their fields', async () => {

@@ -999,7 +999,7 @@ export const listTokens = <ThrowOnError extends boolean = false>(options?: Optio
 /**
  * Create a personal API token
  *
- * The token in the answer is shown once and never again. Send it as `Authorization: Bearer <token>`. It acts as you, with the groups from your last sign-in; a read token may only GET. Needs a browser session.
+ * The token in the answer is shown once and never again. Send it as `Authorization: Bearer <token>`. It acts as you, with the groups from your last sign-in, as a member: only an admin token, which an admin makes with an expiry of at most 30 days, keeps their admin roles. A read token may only GET; a propose token may also propose changes (POST /api/plans) that you approve in the browser. Needs a browser session.
  */
 export const createToken = <ThrowOnError extends boolean = false>(options: Options<CreateTokenData, ThrowOnError>): RequestResult<CreateTokenResponses, CreateTokenErrors, ThrowOnError> => (options.client ?? client).post<CreateTokenResponses, CreateTokenErrors, ThrowOnError>({
     security: [{

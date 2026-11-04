@@ -333,7 +333,7 @@ export type CreatedToken = {
      * The start of the token, enough to recognise it
      */
     prefix: string;
-    scope: 'read' | 'read-write';
+    scope: 'read' | 'propose' | 'read-write' | 'admin';
     /**
      * The token. It is not stored and cannot be shown again.
      */
@@ -693,6 +693,10 @@ export type Info = {
      * The API docs page is served at /api/docs/
      */
     apiDocs: boolean;
+    /**
+     * The longest expiry a new token may have, in days; 0 allows tokens that never expire
+     */
+    tokenMaxDays: number;
 };
 
 export type Item = {
@@ -1620,7 +1624,7 @@ export type TokenBody = {
     expiresInDays?: number;
     name: string;
     /**
-     * read (GET and HEAD only) or read-write
+     * read (GET and HEAD only), propose (read, and propose changes for you to approve), read-write (everything you may do as a member) or admin (read-write with your admin roles; admins only, expiring within 30 days)
      */
     scope: string;
 };
@@ -1652,7 +1656,7 @@ export type TokenView = {
      * The start of the token, enough to recognise it
      */
     prefix: string;
-    scope: 'read' | 'read-write';
+    scope: 'read' | 'propose' | 'read-write' | 'admin';
 };
 
 export type TotalsStruct = {
@@ -4523,6 +4527,10 @@ export type CreateTokenErrors = {
      * Forbidden
      */
     403: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
     /**
      * Unprocessable Entity
      */

@@ -507,8 +507,10 @@ config:
       # one day after it. Tokens stop at once when the provider says the
       # person is gone.
       groupsMaxAge: 168h
-      # The longest expiry a new token may have; 0s allows tokens that never expire.
-      maxLifetime: 0s
+      # The longest expiry a new token may have; 0s allows tokens that never
+      # expire. A leaked token works until it expires or is revoked, so keep
+      # this short. Admin tokens never live longer than 30 days.
+      maxLifetime: 2160h
     docs:
       # Serve a Swagger UI page for the API at /api/docs/ (assets from the
       # pinned swagger-ui-dist package in the image, never a CDN). People
