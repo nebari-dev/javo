@@ -2,7 +2,7 @@
 # (make rbac renders them to config/rbac/); test/helm fails if they differ.
 #
 # Controller in the release namespace: the leader election Lease. Failure
-# notices read only the notifications ConfigMap and Secret, by name. No pod
+# notices (when on) read only the notifications ConfigMap and Secret, by name. No pod
 # rights here: a pod could mount the Secrets of this namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -18,10 +18,12 @@ rules:
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
+  {{- if .Values.notifications.enabled }}
   - apiGroups: [""]
     resources: [configmaps]
     resourceNames: [{{ .Values.notifications.configMapName | quote }}]
     verbs: [get, list, watch]
+  {{- end }}
   {{- with .Values.imagePullSecrets }}
   # The image's pull secrets, copied into each namespace apps run in.
   - apiGroups: [""]
@@ -29,10 +31,14 @@ rules:
     resourceNames: [{{ range $i, $s := . }}{{ if $i }}, {{ end }}{{ $s.name | quote }}{{ end }}]
     verbs: [get]
   {{- end }}
+  {{- if .Values.notifications.enabled }}
+  # Only while notifications are on: a Secret the controller may read by name
+  # is one it could otherwise create itself and read back.
   - apiGroups: [""]
     resources: [secrets]
     resourceNames: [{{ .Values.notifications.secretName | quote }}]
     verbs: [get, list, watch]
+  {{- end }}
   # The key of people's secrets and the key of their fingerprints, read at
   # start (--secrets-key-secret, --secret-fingerprint-key-secret).
   - apiGroups: [""]

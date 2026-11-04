@@ -107,3 +107,26 @@ func TestExampleNotificationConfigSendsAFailedRun(t *testing.T) {
 		t.Fatalf("no runs triggered: %+v", res)
 	}
 }
+
+// The controller may create Secrets in the release namespace (its keys, on
+// the first start). A Secret it can also read by name is one it could make
+// itself and read back, so it is granted reading the notifications Secret
+// only while notifications are on.
+func TestControllerReadsTheNotificationsSecretOnlyWhenOn(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"--set", "notifications.enabled=true"}, true},
+	} {
+		out, err := render(t, c.args...)
+		if err != nil {
+			t.Fatalf("%v: render: %v\n%s", c.args, err, out)
+		}
+		if got := canIn(t, out, "javo-controller", "javo-system", "secrets", "get", "javo-notifications"); got != c.want {
+			t.Errorf("%v: controller may get the notifications Secret = %v, want %v", c.args, got, c.want)
+		}
+	}
+}

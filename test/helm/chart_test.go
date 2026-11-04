@@ -302,7 +302,9 @@ func markerGrants(t *testing.T, component, mode string) grants {
 }
 
 func checkRBACMatchesMarkers(t *testing.T, engine, mode string) {
-	args := append(modeArgs(mode), engineArgs(engine)...)
+	// The markers declare every right the code can use, so the chart is
+	// rendered with the optional features that add rules turned on.
+	args := append(append(modeArgs(mode), engineArgs(engine)...), "--set", "notifications.enabled=true")
 	if mode == "per-team" {
 		args = append(args, "--set", "config.namespaces.teams[0].group=/org/ds", "--set", "config.namespaces.teams[0].slug=ds")
 	}
