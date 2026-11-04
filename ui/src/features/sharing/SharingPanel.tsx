@@ -136,7 +136,7 @@ function PrivateOnly() {
         Only you can open this app
       </h2>
       <p className="muted tight">
-        Terminals, JupyterLab and coding agents cannot be shared: anyone who opens it can run code as you, with your files. To share
+        Terminals, JupyterLab and coding agents cannot be shared: anyone who opens one can run code as you, with your files. To share
         your work, run it as an app that shows results, such as Streamlit, Panel or Voila.
       </p>
     </Card>

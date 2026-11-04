@@ -142,7 +142,7 @@ describe('Sharing tab', () => {
     open(view({ access: 'Private', maxAccess: 'Private', tooOpen: MESSAGES.ShareTooOpen }), {}, lab)
     await userEvent.click(await screen.findByRole('tab', { name: 'Sharing' }))
     expect(await screen.findByRole('heading', { name: 'Only you can open this app' })).toBeTruthy()
-    expect(screen.getByText(/anyone who opens it can run code as you, with your files/)).toBeTruthy()
+    expect(screen.getByText(/anyone who opens one can run code as you, with your files/)).toBeTruthy()
     expect(screen.queryByRole('radio')).toBeNull()
     expect(screen.queryByRole('combobox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull()
