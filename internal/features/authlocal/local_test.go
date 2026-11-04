@@ -26,9 +26,14 @@ type fakeUsers struct {
 	users map[string]local.User
 	pw    map[string]string
 	err   error // returned by Lookup when set
+	// verifyErr is returned by Verify when set.
+	verifyErr error
 }
 
 func (f *fakeUsers) Verify(_ context.Context, name, pw string) (local.User, error) {
+	if f.verifyErr != nil {
+		return local.User{}, f.verifyErr
+	}
 	if u, ok := f.users[name]; ok && f.pw[name] == pw {
 		return u, nil
 	}
@@ -54,15 +59,15 @@ type fakeHost struct {
 	sessions  []session.Session
 }
 
-func (h *fakeHost) API() huma.API                            { return h.api }
-func (h *fakeHost) Handle(string, http.Handler)              { panic("local provider has no browser routes") }
+func (h *fakeHost) API() huma.API               { return h.api }
+func (h *fakeHost) Handle(string, http.Handler) { panic("local provider has no browser routes") }
 func (h *fakeHost) LimitLogin(context.Context, string) (func(bool), error) {
 	if h.limit != nil {
 		return nil, h.limit
 	}
 	return func(right bool) { h.outcomes = append(h.outcomes, right) }, nil
 }
-func (h *fakeHost) Now() time.Time                           { return now }
+func (h *fakeHost) Now() time.Time { return now }
 func (h *fakeHost) Reject(status int, c reasons.MessageCode) error {
 	return huma.NewError(status, reasons.Msg(c))
 }
@@ -183,5 +188,16 @@ func TestRevalidateWhenSecretUnreadableIsUnavailable(t *testing.T) {
 	users.err = errors.New("apiserver down")
 	if _, _, err := p.Revalidate(context.Background(), liveSession()); !errors.Is(err, authprovider.ErrUnavailable) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// A sign-in refused because hashing is busy answers 429 with a Retry-After,
+// counts as no attempt, and completes nothing.
+func TestBusyHashingIs429(t *testing.T) {
+	h, users, _ := setup(t)
+	users.verifyErr = local.ErrBusy
+	resp := h.api.Post("/api/auth/local/login", map[string]any{"username": "alice", "password": "alice-password"})
+	if resp.Code != http.StatusTooManyRequests || resp.Header().Get("Retry-After") == "" || len(h.completed) != 0 || len(h.outcomes) != 0 {
+		t.Fatalf("status %d, Retry-After %q, completed %d, outcomes %v", resp.Code, resp.Header().Get("Retry-After"), len(h.completed), h.outcomes)
 	}
 }

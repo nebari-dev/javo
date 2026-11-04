@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 
@@ -35,7 +36,40 @@ const (
 	maxThreads = 16
 )
 
+// MaxConcurrentHashes is how many argon2id hashes run at once, each taking
+// argonMemory: a burst of sign-ins waits for a slot instead of running the
+// gateway out of memory. hashWait is how long a sign-in waits for one before
+// it is refused with ErrBusy.
+const MaxConcurrentHashes = 4
+
 var (
+	hashSlots = make(chan struct{}, MaxConcurrentHashes)
+	hashWait  = 2 * time.Second
+	// idKey is argon2.IDKey; tests watch the hashes through it.
+	idKey = argon2.IDKey
+)
+
+// withHashSlot runs f while holding one of the MaxConcurrentHashes slots,
+// or returns ErrBusy when none frees up within hashWait, or ctx's error.
+func withHashSlot(ctx context.Context, f func()) error {
+	t := time.NewTimer(hashWait)
+	defer t.Stop()
+	select {
+	case hashSlots <- struct{}{}:
+	case <-t.C:
+		return ErrBusy
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-hashSlots }()
+	f()
+	return nil
+}
+
+var (
+	// ErrBusy is a sign-in refused because every hashing slot stayed busy:
+	// too many sign-ins at once. Try again in a moment.
+	ErrBusy = errors.New("too many sign-ins at once")
 	// ErrInvalidCredentials is returned for every failed login: unknown
 	// user, bad username and wrong password all yield this same value.
 	ErrInvalidCredentials = errors.New("invalid username or password")
@@ -72,7 +106,7 @@ func HashPassword(pw string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate salt: %w", err)
 	}
-	key := argon2.IDKey([]byte(pw), salt, argonTime, argonMemory, argonThreads, keyLen)
+	key := idKey([]byte(pw), salt, argonTime, argonMemory, argonThreads, keyLen)
 	b64 := base64.RawStdEncoding
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argonMemory, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
@@ -106,7 +140,7 @@ func VerifyPassword(encoded, pw string) bool {
 	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false
 	}
-	got := argon2.IDKey([]byte(pw), salt, t, m, p, uint32(len(want)))
+	got := idKey([]byte(pw), salt, t, m, p, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
@@ -150,11 +184,17 @@ func (u *DBUsers) Verify(ctx context.Context, username, password string) (User, 
 	if err != nil {
 		return User{}, err
 	}
-	if !ok {
-		burnHash(password)
-		return User{}, ErrInvalidCredentials
+	match := false
+	if err := withHashSlot(ctx, func() {
+		if !ok {
+			burnHash(password)
+			return
+		}
+		match = VerifyPassword(a.Hash, password)
+	}); err != nil {
+		return User{}, err
 	}
-	if !VerifyPassword(a.Hash, password) {
+	if !match {
 		return User{}, ErrInvalidCredentials
 	}
 	return User{ID: UserID(username), Name: username, Groups: a.Groups}, nil

@@ -85,6 +85,9 @@ func (p *Provider) Mount(m authprovider.Mounter) {
 			done(false)
 			return nil, m.Reject(http.StatusUnauthorized, reasons.MsgWrongCredentials)
 		}
+		if errors.Is(err, local.ErrBusy) {
+			return nil, huma.ErrorWithHeaders(m.Reject(http.StatusTooManyRequests, reasons.MsgSignInBusy), http.Header{"Retry-After": {"2"}})
+		}
 		if err != nil {
 			slog.Error("verify credentials", "err", err)
 			return nil, m.Reject(http.StatusInternalServerError, reasons.MsgServerError)

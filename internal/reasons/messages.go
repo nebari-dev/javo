@@ -147,6 +147,7 @@ const (
 	MsgTokenExpiryTooLong      MessageCode = "TokenExpiryTooLong" // arg: the most days allowed
 	MsgTokenAdminNotAllowed    MessageCode = "TokenAdminNotAllowed"
 	MsgTokenTooMany            MessageCode = "TokenTooMany" // arg: the most tokens a person may have
+	MsgSignInBusy              MessageCode = "SignInBusy"
 	MsgModeWordsPerUser        MessageCode = "ModeWordsPerUser"   // where files are, inside a sentence
 	MsgModeWordsShared         MessageCode = "ModeWordsShared"
 	MsgHomeLabelPerUser        MessageCode = "HomeLabelPerUser" // the sidebar line
@@ -397,6 +398,7 @@ var messages = map[MessageCode]string{
 	MsgTokenNameInvalid:        "Give the token a name of up to 64 characters.",
 	MsgTokenScopeInvalid:       "Pick read, propose, read and write, or admin.",
 	MsgTokenAdminNotAllowed:    "Only an admin can make an admin token.",
+	MsgSignInBusy:              "Too many sign-ins are being checked right now. Try again in a moment.",
 	MsgTokenTooMany:            "You have %d API tokens, the most allowed. Revoke one you no longer use first.",
 	MsgTokenExpiryInvalid:      "Pick an expiry of 1 day or more.",
 	MsgTokenExpiryTooLong:      "Tokens here expire within %d days. Pick a shorter expiry.",

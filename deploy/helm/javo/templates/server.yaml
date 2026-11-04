@@ -81,6 +81,11 @@ spec:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef: {fieldPath: metadata.namespace}
+            # The Go runtime collects garbage harder as it nears the
+            # container's memory limit instead of being OOM-killed past it.
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef: {containerName: javo, resource: limits.memory}
             {{- include "javo.aiEnv" . | nindent 12 }}
           ports:
             - {name: http, containerPort: {{ .Values.gateway.port }}}
