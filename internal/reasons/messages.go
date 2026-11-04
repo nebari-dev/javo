@@ -93,6 +93,7 @@ const (
 	MsgDSTRuns                    MessageCode = "DSTRuns"     // args: first and last wall time
 	MsgLogsGone                   MessageCode = "LogsGone"
 	MsgOutputTooLarge             MessageCode = "OutputTooLarge"
+	MsgToolAnswerTooLarge         MessageCode = "ToolAnswerTooLarge" // arg: the cap in MiB
 	MsgRunStillActive             MessageCode = "RunStillActive"
 	MsgNotAMember                 MessageCode = "NotAMember"
 	MsgShareNotAllowed            MessageCode = "ShareNotAllowed"
@@ -355,6 +356,7 @@ var messages = map[MessageCode]string{
 	MsgDSTRuns:                    "the runs from %s to %s",
 	MsgLogsGone:                   "This run's log is gone. The run may have ended before it printed anything, or its log file was deleted from your home folder.",
 	MsgOutputTooLarge:             "This output is too large to show. Download it from your home folder.",
+	MsgToolAnswerTooLarge:         "This answer is larger than %d MiB, too large for an agent tool. Ask for less, or call the API directly.",
 	MsgRunStillActive:             "This run is still going. Cancel it first.",
 	MsgNotAMember:                 "Your account can open apps shared with you, but cannot create apps. Ask an admin to add you to a member group.",
 	MsgShareNotAllowed:            "Only the owner can change who an app is shared with.",

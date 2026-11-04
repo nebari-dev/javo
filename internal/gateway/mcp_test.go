@@ -92,6 +92,54 @@ func TestToolsComeFromTheAPIDocument(t *testing.T) {
 	}
 }
 
+// A read operation is a tool only when it answers JSON: streams (job run
+// logs that follow a running job, step logs, raw files) would be held in
+// the gateway's memory for as long as they run.
+func TestOnlyOperationsThatAnswerJSONAreTools(t *testing.T) {
+	t.Parallel()
+	f := newMCPFixture(t)
+	cs := f.connect(t, f.NewToken(f.alice, `{"name":"agent","scope":"read"}`).Token)
+	list, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := map[string]bool{}
+	for _, tl := range list.Tools {
+		tools[tl.Name] = true
+	}
+	for _, name := range []string{"get_job_run_log", "stream_workspace_step_log", "get_raw_file"} {
+		if tools[name] {
+			t.Errorf("tool %s streams and must not exist", name)
+		}
+	}
+	for _, item := range f.Srv.API.OpenAPI().Paths {
+		op := item.Get
+		if op == nil {
+			continue
+		}
+		var json bool
+		if r := op.Responses["200"]; r != nil {
+			_, json = r.Content["application/json"]
+		}
+		if name := mcpToolName(op.OperationID); !json && tools[name] {
+			t.Errorf("tool %s answers %v, not JSON", name, op.Responses["200"])
+		}
+	}
+}
+
+// mcpToolName is the tool name for an operation id: getJob is get_job.
+func mcpToolName(id string) string {
+	var b strings.Builder
+	for _, r := range id {
+		if r >= 'A' && r <= 'Z' {
+			b.WriteByte('_')
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func TestMutatingToolNeverApplies(t *testing.T) {
 	t.Parallel()
 	f := newMCPFixture(t)

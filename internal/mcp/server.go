@@ -9,6 +9,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/actions"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/reasons"
 )
 
 // Route is where the server is mounted; MetadataRoute serves its RFC 9728
@@ -70,8 +72,10 @@ const (
 	SessionIdle          = 10 * time.Minute
 )
 
-// skipped are read operations that are not tools: streams and documents.
-var skipped = map[string]bool{"streamWorkspaceLogs": true}
+// maxResult is the most bytes of an API answer a tool call keeps. The call
+// is cancelled past it, so a route that keeps writing cannot fill the
+// gateway's memory.
+const maxResult = 1 << 20
 
 // NewHandler returns the /mcp handler, behind bearer-token auth and
 // cross-origin protection. A cookie alone is never enough.
@@ -181,12 +185,24 @@ func readTools(cfg Config) []tool {
 	slices.Sort(paths)
 	for _, path := range paths {
 		op := cfg.Doc.Paths[path].Get
-		if op == nil || skipped[op.OperationID] || !tokenMay(cfg.Doc, op) {
+		if op == nil || !answersJSON(op) || !tokenMay(cfg.Doc, op) {
 			continue
 		}
 		out = append(out, readTool(cfg, path, op))
 	}
 	return out
+}
+
+// answersJSON is true when op's 200 answer is a JSON document. Others are
+// streams (logs that follow a running container, raw files, exports) that a
+// tool call would have to hold in memory whole.
+func answersJSON(op *huma.Operation) bool {
+	r := op.Responses["200"]
+	if r == nil {
+		return false
+	}
+	_, ok := r.Content["application/json"]
+	return ok
 }
 
 // tokenMay is true when a personal token may call op.
@@ -346,6 +362,8 @@ func (cfg Config) call(ctx context.Context, req *sdk.CallToolRequest, method, ta
 	if body != nil {
 		rd = strings.NewReader(string(body))
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	r, err := http.NewRequestWithContext(ctx, method, target, rd)
 	if err != nil {
 		return nil, err
@@ -356,8 +374,11 @@ func (cfg Config) call(ctx context.Context, req *sdk.CallToolRequest, method, ta
 	if body != nil {
 		r.Header.Set("Content-Type", "application/json")
 	}
-	w := httptest.NewRecorder()
+	w := &cappedRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
 	cfg.API.ServeHTTP(w, r)
+	if w.over {
+		return errorResult(reasons.Msg(reasons.MsgToolAnswerTooLarge, maxResult>>20)), nil
+	}
 	text := w.Body.String()
 	if w.Code >= 400 {
 		var p struct {
@@ -379,3 +400,24 @@ func (cfg Config) call(ctx context.Context, req *sdk.CallToolRequest, method, ta
 func errorResult(text string) *sdk.CallToolResult {
 	return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: text}}}
 }
+
+// cappedRecorder keeps at most maxResult bytes of an answer. A write past
+// that fails and cancels the request, so the route stops.
+type cappedRecorder struct {
+	*httptest.ResponseRecorder
+	cancel context.CancelFunc
+	over   bool
+}
+
+var errAnswerTooLarge = errors.New("mcp: answer larger than the tool cap")
+
+func (c *cappedRecorder) Write(b []byte) (int, error) {
+	if c.over || c.Body.Len()+len(b) > maxResult {
+		c.over = true
+		c.cancel()
+		return 0, errAnswerTooLarge
+	}
+	return c.ResponseRecorder.Write(b)
+}
+
+func (c *cappedRecorder) WriteString(s string) (int, error) { return c.Write([]byte(s)) }
