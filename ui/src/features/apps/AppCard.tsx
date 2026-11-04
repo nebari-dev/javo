@@ -52,9 +52,9 @@ export function AppCard({ ws }: { ws: Workspace }) {
             <h3>{ws.displayName}</h3>
           </Link>
           <div className="acard-sub">
-            <span>{template}</span>
-            {specs && <> · <span>{specs}</span></>} <Uptime ws={ws} />
+            <span>{template}</span> <Uptime ws={ws} />
           </div>
+          {specs && <div className="acard-sub">{specs}</div>}
         </div>
         <StatusIcon status={pillStatus(ws.phase)} />
       </div>
