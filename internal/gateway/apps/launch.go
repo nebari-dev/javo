@@ -132,7 +132,7 @@ func (s *Workspaces) registerLaunch(api huma.API) {
 		}
 		if app.Command != l.command || app.Image != l.image || app.Port != l.port {
 			u := authn.User(ctx)
-			if err := envvars.MayRewrite(ctx, s.db, u, s.rolesOf(u), authz.Object{App: app, Template: &t}); err != nil {
+			if err := envvars.MayChangeCode(ctx, u, s.rolesOf(u), authz.Object{App: app}); err != nil {
 				return nil, err
 			}
 			if app, err = s.updateApp(ctx, app, func(a *model.App) { a.Command, a.Image, a.Port = l.command, l.image, l.port }); err != nil {

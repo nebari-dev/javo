@@ -264,8 +264,9 @@ const rewrite = `{"displayName":"Nightly sales","template":"lab","engine":"comma
 
 // A platform admin may manage alice's job but not choose its secrets, so
 // neither may they change what runs next to the secrets she bound: the
-// stored job and its next run stay hers. Without secrets, or for a change
-// that runs nothing new, the admin's edit goes through.
+// stored job and its next run stay hers. A change that runs nothing new
+// goes through; a change of what runs is hers alone even without secrets
+// (TestOnlyTheOwnerChangesWhatAJobRuns).
 func TestAdminCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
 	t.Parallel()
 	f := apitest.JobFixture(t, apitest.Options{})
@@ -281,7 +282,7 @@ func TestAdminCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
 	}
 
 	w := f.Do("PUT", "/api/jobs/nightly-sales?owner="+apitest.AliceID, rewrite, admin)
-	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsHeldOwnerOnly) {
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgRewriteOwnerOnly) {
 		t.Fatalf("admin rewrite of a job with secrets: %d %s", w.Code, w.Body)
 	}
 	job, err := f.Db.Jobs().GetByOwnerName(context.Background(), apitest.AliceID, "nightly-sales")
@@ -297,7 +298,7 @@ func TestAdminCannotRewriteAJobThatHoldsSecrets(t *testing.T) {
 		t.Fatalf("admin rename and retries of a job with secrets: %d %s", w.Code, w.Body)
 	}
 	plain := strings.Replace(rewrite, "Nightly sales", "Plain", 1)
-	if w := f.Do("PUT", "/api/jobs/plain?owner="+apitest.AliceID, plain, admin); w.Code != http.StatusOK {
+	if w := f.Do("PUT", "/api/jobs/plain?owner="+apitest.AliceID, plain, admin); w.Code != http.StatusForbidden {
 		t.Fatalf("admin rewrite of a job without secrets: %d %s", w.Code, w.Body)
 	}
 	if w := f.Do("PUT", "/api/jobs/nightly-sales", rewrite, alice); w.Code != http.StatusOK {
@@ -319,7 +320,7 @@ func TestAdminCannotRewriteAJobWithAnAPIToken(t *testing.T) {
 
 	body := `{"displayName":"nightly","template":"agent-jobs","engine":"command","command":"sh -c 'echo $JAVO_TOKEN'"}`
 	w := f.Do("PUT", "/api/jobs/nightly?owner="+apitest.AliceID, body, admin)
-	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgSecretsHeldOwnerOnly) {
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgRewriteOwnerOnly) {
 		t.Fatalf("admin rewrite of a job with an API token: %d %s", w.Code, w.Body)
 	}
 	if w := f.Do("PUT", "/api/jobs/nightly", body, f.Session(apitest.AliceID)); w.Code != http.StatusOK {

@@ -26,9 +26,21 @@ func refusedAsHeld(t *testing.T, what string, w *httptest.ResponseRecorder) {
 	}
 }
 
+// refusedRewrite checks w is the refusal of a change of what an app runs by
+// anyone but its owner.
+func refusedRewrite(t *testing.T, what string, w *httptest.ResponseRecorder) {
+	t.Helper()
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("%s: %d %s", what, w.Code, w.Body)
+	}
+	if got := apitest.Decode[apitest.Problem](t, w).Title; got != reasons.Msg(reasons.MsgRewriteOwnerOnly) {
+		t.Fatalf("%s: title %q", what, got)
+	}
+}
+
 // A platform admin, or the app's own token, cannot change the command of an
-// app that holds its owner's secrets: the new command would see them. An
-// app without secrets or API access stays theirs to fix.
+// app that holds its owner's secrets: the new command would see them. Nor
+// can an admin change it once it holds none (TestOnlyTheOwnerChangesWhatAnAppRuns).
 func TestOnlyTheOwnerChangesWhatRunsNextToSecrets(t *testing.T) {
 	t.Parallel()
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
@@ -44,7 +56,7 @@ func TestOnlyTheOwnerChangesWhatRunsNextToSecrets(t *testing.T) {
 	}
 	owner := "?owner=" + apitest.LocalAlice()
 	w := f.Do("PUT", "/api/workspaces/bot/launch"+owner, `{"command":"sh -c 'echo $K'"}`, root)
-	refusedAsHeld(t, "admin", w)
+	refusedRewrite(t, "admin", w)
 
 	text, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{Name: "agent", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
 		App: &token.App{Namespace: ws.Namespace, Name: ws.ObjectName(), Short: "agent"}})
@@ -59,9 +71,7 @@ func TestOnlyTheOwnerChangesWhatRunsNextToSecrets(t *testing.T) {
 		t.Fatalf("stored %q", got)
 	}
 
-	if w := f.Do("PUT", "/api/workspaces/plain/launch"+owner, `{"command":"python b.py"}`, root); w.Code != http.StatusOK {
-		t.Fatalf("admin on an app without secrets: %d %s", w.Code, w.Body)
-	}
+	refusedRewrite(t, "admin on an app without secrets", f.Do("PUT", "/api/workspaces/plain/launch"+owner, `{"command":"python b.py"}`, root))
 	if w := f.Do("PUT", "/api/workspaces/bot/launch", `{"command":"python b.py"}`, alice); w.Code != http.StatusOK {
 		t.Fatalf("owner: %d %s", w.Code, w.Body)
 	}
@@ -81,13 +91,11 @@ func TestAPIAccessCountsAsASecret(t *testing.T) {
 	owner := "?owner=" + apitest.AliceID
 
 	w := f.Do("PUT", "/api/workspaces/agent/launch"+owner, `{"command":"sh -c 'echo $JAVO_TOKEN'"}`, root)
-	refusedAsHeld(t, "launch with API access", w)
+	refusedRewrite(t, "launch with API access", w)
 	if w := f.Do("PUT", "/api/workspaces/agent/api-access"+owner, `{"apiAccess":"None"}`, root); w.Code != http.StatusOK {
 		t.Fatalf("admin lowers API access: %d %s", w.Code, w.Body)
 	}
-	if w := f.Do("PUT", "/api/workspaces/agent/launch"+owner, `{"command":"sh -c 'echo $JAVO_TOKEN'"}`, root); w.Code != http.StatusOK {
-		t.Fatalf("launch without API access: %d %s", w.Code, w.Body)
-	}
+	refusedRewrite(t, "launch without API access", f.Do("PUT", "/api/workspaces/agent/launch"+owner, `{"command":"sh -c 'echo $JAVO_TOKEN'"}`, root))
 	w = f.Do("PUT", "/api/workspaces/agent/api-access"+owner, `{"apiAccess":"ReadWrite"}`, root)
 	refusedAsHeld(t, "admin raises API access", w)
 	if got := f.GetWorkspace(apitest.AliceID, "agent").APIAccess; got != model.APIAccessNone {
@@ -110,7 +118,7 @@ func TestANebiTokenCountsAsASecret(t *testing.T) {
 	root := f.Session(admin, "javo-admins")
 
 	w := f.Do("PUT", "/api/workspaces/nebi/launch?owner="+apitest.AliceID, `{"command":"sh -c 'cat $NEBI_TOKEN_FILE'"}`, root)
-	refusedAsHeld(t, "launch with a Nebi token", w)
+	refusedRewrite(t, "launch with a Nebi token", w)
 	if w := f.Do("PUT", "/api/workspaces/nebi/launch", `{"command":"python b.py"}`, f.Session(apitest.AliceID)); w.Code != http.StatusOK {
 		t.Fatalf("owner: %d %s", w.Code, w.Body)
 	}

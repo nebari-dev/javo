@@ -141,13 +141,26 @@ func MayChange(ctx context.Context, u authz.Principal, roles []authz.Role, targe
 	return nil
 }
 
-// MayRewrite guards a change of what target runs: a job's engine, command,
-// source or template, an app's command, image or port, turning on its
-// previews. While target holds any of its owner's credentials (a secret as a
-// variable or as its repository token, an API token from a job's template, or
-// for an app with target.Template set, an API or Nebi token), that change
-// decides which code sees them, so only the owner may make it (OwnerOnly).
-// Without them, whoever manages target may.
+// MayChangeCode guards a change of what target runs: a job's engine,
+// command, file or template, an app's command, image or port. Only the owner
+// may make it, never a platform admin and never with an app's or job's own
+// token, whatever target holds: every app and job runs in its owner's home,
+// where the files their secret-holding jobs and apps run sit, so a command
+// someone else picks could rewrite those files (and read the whole home).
+func MayChangeCode(ctx context.Context, u authz.Principal, roles []authz.Role, target authz.Object) error {
+	if err := OwnerOnly(ctx, u, roles, target); err != nil {
+		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgRewriteOwnerOnly))
+	}
+	return nil
+}
+
+// MayRewrite guards a change that decides which code sees target's
+// credentials without running in its owner's home: turning on its pull
+// request previews, a run with other parameter values. While target holds
+// any of its owner's credentials (a secret as a variable or as its
+// repository token, an API token from a job's template, or for an app with
+// target.Template set, an API or Nebi token), only the owner may make it
+// (OwnerOnly). Without them, whoever manages target may.
 func MayRewrite(ctx context.Context, db *store.Store, u authz.Principal, roles []authz.Role, target authz.Object) error {
 	held, err := holdsCredentials(ctx, db, target)
 	if err != nil {

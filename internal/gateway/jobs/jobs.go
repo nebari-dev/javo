@@ -539,7 +539,7 @@ func (s *API) update(ctx context.Context, in *updateJobInput) (*jobOutput, error
 		return nil, err
 	}
 	if !runsTheSame(job.Spec, spec) {
-		if err := envvars.MayRewrite(ctx, s.DB, u, authz.RolesOf(u, s.Roles), authz.Object{Job: job}); err != nil {
+		if err := envvars.MayChangeCode(ctx, u, authz.RolesOf(u, s.Roles), authz.Object{Job: job}); err != nil {
 			return nil, err
 		}
 	}
