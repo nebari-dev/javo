@@ -21,7 +21,14 @@ import (
 // its owner controls; a kernel list or status is far smaller.
 const probeReplyLimit = 1 << 20
 
+// The probe never follows a redirect: the app's owner controls the reply, and
+// a Location would send the gateway, with the template's proxy headers, to
+// any address it can reach (cloud metadata, in-cluster services). A redirect
+// is a non-200 answer like any other.
 func jupyterProbe(client *http.Client, b Backend, now func() time.Time) activity.Probe {
+	noRedirects := *client
+	noRedirects.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client = &noRedirects
 	api := *b.URL
 	if !b.StripPrefix {
 		api.Path = b.Prefix

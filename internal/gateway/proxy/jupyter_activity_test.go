@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -119,5 +120,29 @@ func TestJupyterProbeRejectsAnOversizedReply(t *testing.T) {
 	probe := jupyterProbe(srv.Client(), Backend{URL: u, Prefix: "/u/alice/lab"}, time.Now)
 	if _, err := probe(context.Background()); err == nil {
 		t.Fatal("want an error from an oversized kernel list")
+	}
+}
+
+// The app's owner controls the server the probe asks. A redirect must not
+// send the gateway to another address (cloud metadata, the controller's
+// metrics, any in-cluster service) with the template's proxy headers.
+func TestJupyterProbeDoesNotFollowRedirects(t *testing.T) {
+	var hit atomic.Bool
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit.Store(true)
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer internal.Close()
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internal.URL+"/latest/meta-data/iam/security-credentials/", http.StatusFound)
+	}))
+	defer app.Close()
+	u, _ := url.Parse(app.URL)
+	probe := jupyterProbe(app.Client(), Backend{URL: u, Prefix: "/u/alice/lab", Headers: http.Header{"X-Tpl": {"1"}}}, time.Now)
+	if _, err := probe(context.Background()); err == nil {
+		t.Error("a redirect answered the probe; want an error")
+	}
+	if hit.Load() {
+		t.Error("the probe followed the app's redirect to another server")
 	}
 }
