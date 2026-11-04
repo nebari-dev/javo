@@ -156,8 +156,9 @@ describe('the file view', () => {
   it('goes up to the folder from its breadcrumbs', async () => {
     mockApi({ 'GET /api/me': ME, 'GET /api/files/raw': text('x\n'), 'GET /api/files': { body: { path: 'notes', entries: [], count: 0, truncated: false, stale: false, ageSeconds: 0 } } })
     renderApp('/files/view?path=notes/a.py')
-    // The page loads as its own chunk, which can take over a second while the whole suite runs.
-    await userEvent.click(await screen.findByRole('link', { name: 'notes' }, { timeout: 5000 }))
-    expect(location()).toBe('/files?path=notes')
+    // Click once the file has loaded: the page re-renders when it arrives, which can drop an earlier click.
+    await screen.findByRole('region', { name: 'Contents of a.py' })
+    await userEvent.click(screen.getByRole('link', { name: 'notes' }))
+    await waitFor(() => expect(location()).toBe('/files?path=notes'))
   })
 })
