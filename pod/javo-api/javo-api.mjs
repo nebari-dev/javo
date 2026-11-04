@@ -15,7 +15,12 @@ export async function run(args, env, write) {
   }
   if (!env.JAVO_URL || !env.JAVO_TOKEN) return usage('JAVO_URL and JAVO_TOKEN must be set (they are, inside a coding-agent app).')
   const [method, path, body] = METHODS.has((args[0] ?? '').toUpperCase()) ? [args[0].toUpperCase(), args[1], args[2]] : ['GET', args[0], args[1]]
-  if (!path || !path.startsWith('/')) return usage('Give a path such as /api/me.')
+  if (!path || !path.startsWith('/api/')) return usage('Give a path such as /api/me.')
+  // The token goes to the javo API only: never to another host (a path such
+  // as //host/x or /\host/x resolves to one) nor outside /api/.
+  const url = new URL(path, env.JAVO_URL)
+  if (url.origin !== new URL(env.JAVO_URL).origin || !url.pathname.startsWith('/api/') || /[\\\s]/.test(path))
+    return usage('Give a path on the javo API, such as /api/me.')
   if (body !== undefined) {
     try {
       JSON.parse(body)
@@ -23,7 +28,7 @@ export async function run(args, env, write) {
       return usage('The body is not JSON.')
     }
   }
-  const res = await fetch(new URL(path, env.JAVO_URL), {
+  const res = await fetch(url, {
     method,
     headers: { Authorization: `Bearer ${env.JAVO_TOKEN}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body,

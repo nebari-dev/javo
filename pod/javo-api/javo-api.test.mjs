@@ -74,3 +74,18 @@ test('the token never appears in what is printed', async () => {
   s.close()
   assert.doesNotMatch(o.out.join(''), /javo_secret_value/)
 })
+
+test('the token never goes to another host or outside /api/', async () => {
+  const evil = await server(() => [200, '{}'])
+  const javo = await server(() => [200, '{}'])
+  const port = new URL(evil.url).port
+  for (const path of [`//127.0.0.1:${port}/x`, `/\\127.0.0.1:${port}/x`, `/\t/127.0.0.1:${port}/x`, '/healthz', '/api/../u/x']) {
+    const o = capture()
+    const code = await run([path], { JAVO_URL: javo.url, JAVO_TOKEN: 'javo_FAKE_0123456789abcdef' }, o.write)
+    assert.equal(code, 2, `${JSON.stringify(path)}: exit ${code}`)
+  }
+  evil.close()
+  javo.close()
+  assert.equal(evil.seen.length, 0)
+  assert.equal(javo.seen.length, 0)
+})
