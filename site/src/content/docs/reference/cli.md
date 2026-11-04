@@ -1030,6 +1030,8 @@ Use "javo user [command] --help" for more information about a command.
 ```text
 Creates a local account with a random 24-byte password. The argon2id hash goes into the database; the password is written (mode 0600) to --password-file and never printed. With --password-file - it goes to standard output alone, for a pod without a shell: kubectl exec deploy/javo -- /javo user add alice --password-file - > alice.password
 
+The username of a removed local account is refused: the new account would sign in as the removed person, with their kept home files and the apps shared with them. Pass --reuse-person only when it is the same person coming back.
+
 Usage:
   javo user add <name> [flags]
 
@@ -1038,6 +1040,7 @@ Flags:
       --group stringArray      group the account belongs to, as an identity provider would emit it (repeatable)
   -h, --help                   help for add
       --password-file string   file to write the generated password to (mode 0600); - for standard output
+      --reuse-person           give the username of a removed local account to the same person coming back: they get its kept home files and the apps still shared with it
 
 Global Flags:
       --database-dsn-file string   file holding the Postgres connection string
@@ -1054,7 +1057,7 @@ A local account is deleted, so it cannot sign in again. Someone who signs in thr
 
 While the person has apps or jobs nothing is removed, unless --delete-apps-and-jobs deletes them too.
 
-The person's home folder is forgotten: it is no longer listed or backed up. Its files stay on their claim, and the same person coming back gets them back, unless --delete-home deletes them too.
+The person's home folder is forgotten: it is no longer listed or backed up. Its files stay on their claim, and the same person coming back gets them back (for a local account, `javo user add --reuse-person`), unless --delete-home deletes them too.
 
 Usage:
   javo user remove <identity name | username | email> [flags]

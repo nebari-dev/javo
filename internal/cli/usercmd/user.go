@@ -35,14 +35,17 @@ func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 func newUserAddCmd(openStore dbflag.Opener) *cobra.Command {
 	var passwordFile, namespace string
 	var groups []string
-	var force bool
+	var force, reusePerson bool
 	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Create a local account with a generated password",
 		Long: "Creates a local account with a random 24-byte password. The argon2id hash goes into the database; " +
 			"the password is written (mode 0600) to --password-file and never printed. " +
 			"With --password-file - it goes to standard output alone, for a pod without a shell: " +
-			"kubectl exec deploy/javo -- /javo user add alice --password-file - > alice.password",
+			"kubectl exec deploy/javo -- /javo user add alice --password-file - > alice.password\n\n" +
+			"The username of a removed local account is refused: the new account would sign in as the removed " +
+			"person, with their kept home files and the apps shared with them. Pass --reuse-person only when it " +
+			"is the same person coming back.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openStore(cmd.Context())
@@ -50,7 +53,7 @@ func newUserAddCmd(openStore dbflag.Opener) *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			if err := addUser(cmd, db, args[0], passwordFile, groups, force); err != nil {
+			if err := addUser(cmd, db, args[0], passwordFile, groups, force, reusePerson); err != nil {
 				return err
 			}
 			if passwordFile == stdoutFile {
@@ -66,6 +69,7 @@ func newUserAddCmd(openStore dbflag.Opener) *cobra.Command {
 	_ = cmd.Flags().MarkDeprecated("namespace", "accounts live in the database; the flag is ignored")
 	cmd.Flags().StringArrayVar(&groups, "group", nil, "group the account belongs to, as an identity provider would emit it (repeatable)")
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing user and password file; ends their sessions and revokes their API tokens")
+	cmd.Flags().BoolVar(&reusePerson, "reuse-person", false, "give the username of a removed local account to the same person coming back: they get its kept home files and the apps still shared with it")
 	_ = cmd.MarkFlagRequired("password-file")
 	return cmd
 }
@@ -73,11 +77,29 @@ func newUserAddCmd(openStore dbflag.Opener) *cobra.Command {
 // stdoutFile as --password-file sends the password to standard output.
 const stdoutFile = "-"
 
-func addUser(cmd *cobra.Command, db *store.Store, name, passwordFile string, groups []string, force bool) error {
+func addUser(cmd *cobra.Command, db *store.Store, name, passwordFile string, groups []string, force, reusePerson bool) error {
 	if !local.ValidUsername(name) {
 		return fmt.Errorf("invalid username %q: use letters, digits, '.', '_' or '-', up to 63 characters", name)
 	}
 	users := &local.DBUsers{Accounts: db.LocalAccounts()}
+	// The person this account signs in as, when there has been one: a
+	// local sign-in's subject is the username.
+	person, err := db.People(store.IDRange{}).BySubject(cmd.Context(), local.Issuer, name)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return fmt.Errorf("look up the person of %q: %w", name, err)
+	default:
+		if _, err := users.Lookup(cmd.Context(), name); errors.Is(err, local.ErrUserNotFound) && !reusePerson {
+			return fmt.Errorf("%q was the username of %s, whose account was removed; a new account would sign in as them, "+
+				"with their kept home files and the apps shared with them. Pick another username, or pass --reuse-person "+
+				"if this is the same person coming back", name, person.Name)
+		}
+	}
+	personName := local.UserID(name)
+	if person.Name != "" {
+		personName = person.Name
+	}
 	toStdout := passwordFile == stdoutFile
 	if !force && !toStdout {
 		if _, err := os.Lstat(passwordFile); err == nil {
@@ -124,7 +146,7 @@ func addUser(cmd *cobra.Command, db *store.Store, name, passwordFile string, gro
 	if force {
 		// A replaced password or group list must not leave the old sessions
 		// signed in, nor API tokens made with them working.
-		id := local.UserID(name)
+		id := personName
 		sessions := &session.DBStore{Sessions: db.Sessions()}
 		n, err := sessions.DeleteFor(cmd.Context(), id)
 		if err != nil {

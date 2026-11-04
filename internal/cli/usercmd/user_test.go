@@ -349,3 +349,31 @@ func TestUserAddWritesThePasswordToStdoutForDash(t *testing.T) {
 		t.Fatalf("second add without --force = %v, want already exists", err)
 	}
 }
+
+// A removed local account's username is not handed to someone new by
+// accident: the new account would sign in as the old person, with their kept
+// home files and the apps shared with them. Only --reuse-person, for the
+// same person coming back, gives it out again.
+func TestUserAddRefusesTheUsernameOfARemovedPerson(t *testing.T) {
+	e := newEnv(t)
+	dir := t.TempDir()
+	if _, _, err := runUserAdd(t, e, "intern", "--password-file", filepath.Join(dir, "pw1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.People(store.IDRange{}).Ensure(context.Background(), store.Claims{Issuer: "local", Subject: "intern", Username: "intern"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runUser(t, e, "remove", "intern"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := runUserAdd(t, e, "intern", "--password-file", filepath.Join(dir, "pw2"))
+	if err == nil || !strings.Contains(err.Error(), "--reuse-person") {
+		t.Fatalf("re-adding a removed person's username: %v", err)
+	}
+	if _, err := e.users().Lookup(context.Background(), "intern"); !errors.Is(err, local.ErrUserNotFound) {
+		t.Fatalf("the account was made: %v", err)
+	}
+	if _, _, err := runUserAdd(t, e, "intern", "--password-file", filepath.Join(dir, "pw3"), "--reuse-person"); err != nil {
+		t.Fatalf("--reuse-person: %v", err)
+	}
+}

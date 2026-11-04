@@ -38,7 +38,8 @@ func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *co
 			"provider can sign in again, as the same person, until the provider stops them.\n\n" +
 			"While the person has apps or jobs nothing is removed, unless --delete-apps-and-jobs deletes them too.\n\n" +
 			"The person's home folder is forgotten: it is no longer listed or backed up. Its files stay on " +
-			"their claim, and the same person coming back gets them back, unless --delete-home deletes them too.",
+			"their claim, and the same person coming back gets them back (for a local account, `javo user add --reuse-person`), " +
+			"unless --delete-home deletes them too.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openStore(cmd.Context())
