@@ -200,3 +200,20 @@ func TestAStoppedAppIsAnsweredWithoutWaitingToDial(t *testing.T) {
 		t.Fatalf("stopped app: %d after %s", w.Code, took)
 	}
 }
+
+// The proxy's own pages (not found, refused, unreachable) run no script and
+// cannot be framed by another site.
+func TestTheProxysOwnPagesCarryAPolicy(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	notFound(w)
+	csp := w.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'none'", "frame-ancestors 'self'"} {
+		if !strings.Contains(csp, want) {
+			t.Fatalf("CSP %q lacks %q", csp, want)
+		}
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("no nosniff")
+	}
+}

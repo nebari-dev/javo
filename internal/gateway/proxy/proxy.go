@@ -658,8 +658,13 @@ a{color:inherit}@media(prefers-color-scheme:dark){body{background:#111;color:#ee
 {{with .What}}<p>{{.}}</p>{{end}}{{with .Todo}}<p>{{.}}</p>{{end}}
 <p><a href="{{.Link}}">{{.LinkText}}</a></p></body></html>`))
 
+// pageCSP lets a page show its inline style and the favicon, and nothing else.
+const pageCSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+
 func writePage(w http.ResponseWriter, status int, p page) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", pageCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_ = pageTmpl.Execute(w, p)
 }
