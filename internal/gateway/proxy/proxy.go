@@ -211,7 +211,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	if p.startedByAnotherApp(r, t) {
+	if p.startedByAnotherApp(r, t) || foreignOrigin(r) {
 		refuseFromAnotherApp(w, r)
 		return
 	}
@@ -271,8 +271,13 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// Nobody is signed in: the app gets nothing that says who is asking.
 				pr.Out.Header.Del("Cookie")
 			}
-			// Only the gateway says what prefix the app sits under.
+			// Only the gateway says what prefix the app sits under, and
+			// nobody but the front proxy says who the client is or what
+			// address they asked for.
 			pr.Out.Header.Del("X-Forwarded-Prefix")
+			for _, h := range clientClaimHeaders {
+				pr.Out.Header.Del(h)
+			}
 			if backend.StripPrefix && backend.Prefix != "" {
 				pr.Out.URL.Path = stripPrefix(pr.Out.URL.Path, backend.Prefix)
 				if pr.Out.URL.RawPath != "" {
@@ -533,10 +538,48 @@ func stripSessionCookie(r *http.Request) {
 // stripAPIToken removes an Authorization header that carries a personal API
 // token: tokens never open apps, and an app must not receive its visitor's
 // token. Any other Authorization (an app's own scheme) is passed on.
+// Every Authorization value that names one is removed, whatever its scheme
+// or spacing, so a second header or a tab cannot carry one past.
 func stripAPIToken(r *http.Request) {
-	if t, ok := authn.BearerToken(r); ok && strings.HasPrefix(t, token.Prefix) {
-		r.Header.Del("Authorization")
+	var kept []string
+	for _, v := range r.Header.Values("Authorization") {
+		if !strings.Contains(v, token.Prefix) {
+			kept = append(kept, v)
+		}
 	}
+	r.Header.Del("Authorization")
+	for _, v := range kept {
+		r.Header.Add("Authorization", v)
+	}
+}
+
+// clientClaimHeaders are request headers some proxies and frameworks read as
+// the client's address, scheme or original URL. ReverseProxy's Rewrite
+// already drops X-Forwarded-* and Forwarded; these come only from the client
+// here, so they are dropped too.
+var clientClaimHeaders = []string{
+	"Forwarded", "X-Real-Ip", "X-Client-Ip", "True-Client-Ip", "X-Scheme", "X-Forwarded-Scheme", "X-Forwarded-Ssl",
+	"X-Original-Url", "X-Rewrite-Url", "X-Original-Host",
+}
+
+// foreignOrigin is true for a websocket handshake or a request with an
+// unsafe method whose Origin is not the request's own host (or is "null", an
+// opaque origin). Browsers send Origin on both even where they send no
+// Fetch Metadata, so this holds for them too.
+func foreignOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return false
+	}
+	upgrade := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		if !upgrade {
+			return false
+		}
+	}
+	u, err := url.Parse(origin)
+	return err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host)
 }
 
 // sanitizeResponse stops an app from replacing the gateway session, claiming
@@ -546,16 +589,35 @@ func sanitizeResponse(resp *http.Response) error {
 	resp.Header.Del("Clear-Site-Data")
 	var kept []string
 	for _, line := range resp.Header.Values("Set-Cookie") {
+		// A cookie with no name is sent back as its value alone, so
+		// "=javo_session=x" would come back as the gateway's cookie.
 		name, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		if !isGatewayCookie(strings.TrimSpace(name)) {
+		if name = strings.TrimSpace(name); name != "" && !isGatewayCookie(name) {
 			kept = append(kept, line)
 		}
+	}
+	if !setsFrameAncestors(resp.Header) {
+		// Framing by the app's own origin only, unless the app chose.
+		resp.Header.Add("Content-Security-Policy", "frame-ancestors 'self'")
 	}
 	resp.Header.Del("Set-Cookie")
 	for _, l := range kept {
 		resp.Header.Add("Set-Cookie", l)
 	}
 	return nil
+}
+
+// setsFrameAncestors is true when h already says who may frame the page.
+func setsFrameAncestors(h http.Header) bool {
+	if h.Get("X-Frame-Options") != "" {
+		return true
+	}
+	for _, v := range h.Values("Content-Security-Policy") {
+		if strings.Contains(strings.ToLower(v), "frame-ancestors") {
+			return true
+		}
+	}
+	return false
 }
 
 // page is a small branded HTML answer for browser requests under /u/.
@@ -608,6 +670,16 @@ type activityWriter struct {
 const recheckTimeout = 10 * time.Second
 
 func (a *activityWriter) Unwrap() http.ResponseWriter { return a.ResponseWriter }
+
+// WriteHeader drops the app's informational answers (103 Early Hints and
+// the like): ReverseProxy sends their headers straight on, past
+// sanitizeResponse. 101, the websocket upgrade, goes through.
+func (a *activityWriter) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		return
+	}
+	a.ResponseWriter.WriteHeader(code)
+}
 
 func (a *activityWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn, rw, err := http.NewResponseController(a.ResponseWriter).Hijack()
