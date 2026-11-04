@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -76,8 +75,7 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 	switch {
 	case !has:
 		if app.ParentID == "" && (pod == nil || pod.Annotations[model.AnnotationGitToken] != "") {
-			sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: app.Namespace, Name: secretName}}
-			if err := r.Delete(ctx, sec); client.IgnoreNotFound(err) != nil {
+			if err := r.deleteAppSecret(ctx, app, secretName); err != nil {
 				return "", "", "", err
 			}
 		}
@@ -116,12 +114,11 @@ func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, na
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	sec := &corev1.Secret{}
-	err = r.Secrets.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: name}, sec)
-	if client.IgnoreNotFound(err) != nil {
+	sec, err := r.appSecret(ctx, app, name)
+	if err != nil {
 		return "", err
 	}
-	if err == nil && sec.Annotations[model.AnnotationGitToken] == gen {
+	if sec != nil && sec.Annotations[model.AnnotationGitToken] == gen {
 		return "", nil
 	}
 	data, unreadable := bound.Open(ctx, r.SecretKeys)
@@ -159,12 +156,11 @@ func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, name, t
 	if r.Secrets == nil {
 		return errors.New("the app has a repository token, but the controller has no Secret reader")
 	}
-	sec := &corev1.Secret{}
-	err := r.Secrets.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: name}, sec)
-	create := apierrors.IsNotFound(err)
-	if err != nil && !create {
+	sec, err := r.appSecret(ctx, app, name)
+	if err != nil {
 		return err
 	}
+	create := sec == nil
 	if create {
 		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
 	}
@@ -198,12 +194,12 @@ func commitOf(pod *corev1.Pod) string {
 }
 
 // ReadGitToken returns the repository token the app's clone uses, read live
-// from its Secret, or "" when the app has none. Callers must never log it.
+// from its Secret, or "" when the app has none. A Secret of that name that is
+// not labelled as the app's is an error. Callers must never log the token.
 func ReadGitToken(ctx context.Context, secrets client.Reader, app *model.App) (string, error) {
-	sec := &corev1.Secret{}
-	key := client.ObjectKey{Namespace: app.Namespace, Name: GitTokenSecretName(app.ObjectName())}
-	if err := secrets.Get(ctx, key, sec); err != nil {
-		return "", client.IgnoreNotFound(err)
+	sec, err := ownedSecret(ctx, secrets, app, GitTokenSecretName(app.ObjectName()))
+	if err != nil || sec == nil {
+		return "", err
 	}
 	return string(sec.Data[gitTokenKey]), nil
 }

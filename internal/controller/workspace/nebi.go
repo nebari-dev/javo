@@ -7,10 +7,8 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -42,10 +40,8 @@ const (
 )
 
 // NebiTokenSecretName is the Secret holding the Nebi token of the app whose
-// Pod and Service are called objectName.
-func NebiTokenSecretName(objectName string) string {
-	return objectName + "-" + model.ProductName + "-nebi"
-}
+// Pod and Service are called objectName (see SecretName).
+func NebiTokenSecretName(objectName string) string { return SecretName(objectName, "nebi") }
 
 // WithNebi gives the app container of pod the owner's Nebi token file, the
 // Nebi address nebiURL and the nebi CLI from runner (the platform's image).
@@ -103,11 +99,10 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	}
 	name := NebiTokenSecretName(app.ObjectName())
 	stamp := expires.UTC().Format(time.RFC3339Nano)
-	sec := &corev1.Secret{}
-	err = r.Secrets.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: name}, sec)
-	create := apierrors.IsNotFound(err)
+	sec, err := r.appSecret(ctx, app, name)
+	create := sec == nil
 	switch {
-	case err != nil && !create:
+	case err != nil:
 		return err
 	case !create && sec.Annotations[annotationNebiExpires] == stamp:
 		return nil

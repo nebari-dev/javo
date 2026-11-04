@@ -51,10 +51,8 @@ type Images struct {
 }
 
 // GitTokenSecretName is the Secret holding the repository token of the app
-// whose Pod and Service are called objectName.
-func GitTokenSecretName(objectName string) string {
-	return objectName + "-" + model.ProductName + "-git"
-}
+// whose Pod and Service are called objectName (see SecretName).
+func GitTokenSecretName(objectName string) string { return SecretName(objectName, "git") }
 
 // sourceFolder is the folder of the clone the app runs from.
 func sourceFolder(s *model.Source) string {

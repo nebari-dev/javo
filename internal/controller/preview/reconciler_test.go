@@ -473,10 +473,13 @@ func TestAPreviewRowIsNotSyncedAsAParent(t *testing.T) {
 	}
 }
 
-func repoSecret(owner string, token string) *corev1.Secret {
+// repoSecret is the parent's repository token Secret, labelled as its own
+// as the app reconciler writes it.
+func repoSecret(parent model.App, token string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "javo-apps", Name: workspace.GitTokenSecretName(owner + "-site")},
-		Data:       map[string][]byte{"token": []byte(token)},
+		ObjectMeta: metav1.ObjectMeta{Namespace: parent.Namespace, Name: workspace.GitTokenSecretName(parent.ObjectName()),
+			Labels: map[string]string{model.LabelApp: parent.ID}},
+		Data: map[string][]byte{"token": []byte(token)},
 	}
 }
 
@@ -488,7 +491,7 @@ func TestTheParentsRepoTokenIsReadLiveAndPassedToTheHost(t *testing.T) {
 		t.Fatalf("tokens = %q, want none for a public repository", f.host.tokens)
 	}
 	secrets := f.rec.Secrets.(client.WithWatch)
-	if err := secrets.Create(bg, repoSecret("alice", "ghp_testtoken123")); err != nil {
+	if err := secrets.Create(bg, repoSecret(f.app, "ghp_testtoken123")); err != nil {
 		t.Fatal(err)
 	}
 	f.sync()
@@ -497,9 +500,27 @@ func TestTheParentsRepoTokenIsReadLiveAndPassedToTheHost(t *testing.T) {
 	}
 }
 
+// A Secret at the parent's token name that is not labelled as the parent's
+// (a job's, another app's) is never sent to the code host.
+func TestARepoTokenSecretOfAnotherAppIsNotUsed(t *testing.T) {
+	f := newFixture(t, model.Previews{Enabled: true, Max: 3})
+	foreign := repoSecret(f.app, "ghp_someoneelse")
+	foreign.Labels[model.LabelApp] = "another-app"
+	if err := f.rec.Secrets.(client.WithWatch).Create(bg, foreign); err != nil {
+		t.Fatal(err)
+	}
+	f.host.set(pr(1, "a"))
+	if _, err := f.rec.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: f.app.ID}}); err == nil {
+		t.Fatal("the reconcile went on with another app's Secret")
+	}
+	if slices.Contains(f.host.tokens, "ghp_someoneelse") {
+		t.Fatal("another app's token reached the code host")
+	}
+}
+
 func TestTheTokenNeverReachesTheStoredSyncOrTheChild(t *testing.T) {
 	f := newFixture(t, model.Previews{Enabled: true, Max: 3})
-	if err := f.rec.Secrets.(client.WithWatch).Create(bg, repoSecret("alice", "ghp_testtoken123")); err != nil {
+	if err := f.rec.Secrets.(client.WithWatch).Create(bg, repoSecret(f.app, "ghp_testtoken123")); err != nil {
 		t.Fatal(err)
 	}
 	f.host.fail(errors.New("boom"))
@@ -812,7 +833,7 @@ func TestANewTokenAsksTheHostAtOnce(t *testing.T) {
 	f := newFixture(t, model.Previews{Enabled: true, Max: 3})
 	f.host.fail(fmt.Errorf("%w: private", codehost.ErrNotFound))
 	f.sync()
-	if err := f.rec.Secrets.(client.WithWatch).Create(bg, repoSecret("alice", "ghp_testtoken123")); err != nil {
+	if err := f.rec.Secrets.(client.WithWatch).Create(bg, repoSecret(f.app, "ghp_testtoken123")); err != nil {
 		t.Fatal(err)
 	}
 	f.host.set(pr(1, "a"))

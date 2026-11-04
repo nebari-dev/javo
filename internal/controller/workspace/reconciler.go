@@ -248,6 +248,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
+	if pod == nil {
+		// No pod reads the app's Secrets under their old names any more.
+		if err := r.dropLegacySecrets(ctx, &app); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	home, err := r.ensureHome(ctx, &app)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -330,6 +336,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		appSecrets, err := r.secretsOf(ctx, &app)
 		if err != nil {
 			return ctrl.Result{}, err
+		}
+		obj := app.ObjectName()
+		if pod != nil && readsOtherSecrets(pod, APITokenSecretName(obj), AppSecretsName(obj), NebiTokenSecretName(obj), gitSecret) {
+			// Built before the Secrets' names changed: built again once,
+			// after which the old Secrets go (dropLegacySecrets).
+			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
+				return ctrl.Result{}, err
+			}
+			phase, conds, _ := status.Derive(&app, obs)
+			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
 		}
 		if pod != nil && r.podOutdated(&app, pod, access, gitGen, appSecrets.Fingerprint, layoutFP) {
 			// The next reconcile, once the old pod is gone, builds the new one.
@@ -438,11 +454,13 @@ func (r *Reconciler) finalize(ctx context.Context, app *model.App) error {
 			return err
 		}
 	}
-	for _, name := range []string{APITokenSecretName(app.ObjectName()), GitTokenSecretName(app.ObjectName()), AppSecretsName(app.ObjectName()), NebiTokenSecretName(app.ObjectName())} {
-		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: app.Namespace, Name: name}}
-		if err := r.Delete(ctx, secret); client.IgnoreNotFound(err) != nil {
+	for _, use := range secretUses {
+		if err := r.deleteAppSecret(ctx, app, SecretName(app.ObjectName(), use)); err != nil {
 			return err
 		}
+	}
+	if err := r.dropLegacySecrets(ctx, app); err != nil {
+		return err
 	}
 	if err := r.Store.Usage().Stop(ctx, app.ID, time.Now()); err != nil {
 		return err

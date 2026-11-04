@@ -8,9 +8,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/model"
@@ -34,10 +32,10 @@ const (
 //go:embed agents_guide.md
 var apiGuide []byte
 
-// TokenMinter stores a new API token and returns its text, and says whether a
-// token id still has a record. The controller never lists or deletes tokens.
+// TokenMinter stores a new API token and returns its text, and reads a
+// token's record. The controller never lists tokens.
 type TokenMinter interface {
-	Exists(ctx context.Context, id string) (bool, error)
+	Get(ctx context.Context, id string) (token.Token, error)
 	Create(ctx context.Context, actor model.Actor, t token.Token) (string, token.Token, error)
 	Revoke(ctx context.Context, actor model.Actor, owner, id string) (token.Token, error)
 }
@@ -57,10 +55,8 @@ func podAPIAccess(pod *corev1.Pod) string {
 }
 
 // APITokenSecretName is the Secret holding the API token of the app whose Pod
-// and Service are called objectName.
-func APITokenSecretName(objectName string) string {
-	return objectName + "-" + model.ProductName + "-api"
-}
+// and Service are called objectName (see SecretName).
+func APITokenSecretName(objectName string) string { return SecretName(objectName, "api") }
 
 // WithAPIToken gives the app container of pod, built from template t with
 // API access, the owner's API token from the Secret secretName as
@@ -90,8 +86,10 @@ func WithAPIToken(pod *corev1.Pod, t *model.Template, access, secretName, apiURL
 // ensureAPIToken makes sure the app has a live token of its owner with scope
 // in its Secret and returns the Secret's name. A new token is made when the
 // Secret is missing, holds a token of another scope, holds the token the
-// gateway marked revoked (App.TokenRevoked) or names a token that has no
-// record. The token it replaces is revoked by the gateway, which refuses and
+// gateway marked revoked (App.TokenRevoked), names a token that has no
+// record, or names one whose record is not this app's (another app's or a
+// job's is never adopted). A Secret of that name labelled for another app is
+// refused. The token it replaces is revoked by the gateway, which refuses and
 // sweeps app tokens whose scope no longer matches their app. The token
 // record is written first: a failure after it leaves a record no one holds,
 // which the owner sees in Settings and the janitor removes with the app.
@@ -100,21 +98,24 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 		return "", errors.New("the template gives apps an API token, but the controller has no token store")
 	}
 	name := APITokenSecretName(app.ObjectName())
-	sec := &corev1.Secret{}
-	err := r.Secrets.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: name}, sec)
+	sec, err := r.appSecret(ctx, app, name)
 	switch {
-	case apierrors.IsNotFound(err):
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
 	case err != nil:
 		return "", err
+	case sec == nil:
+		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
 	default:
 		id := sec.Annotations[model.AnnotationTokenID]
 		live := false
 		if id != "" && secretScope(sec) == scope && id != app.TokenRevoked && len(sec.Data[APITokenKey]) > 0 {
 			// A Secret can name a token whose record is gone (an upgrade, or
 			// `javo user remove`): its token gets 401, so it is replaced.
-			if live, err = r.Tokens.Exists(ctx, id); err != nil {
+			switch tok, err := r.Tokens.Get(ctx, id); {
+			case errors.Is(err, token.ErrNotFound):
+			case err != nil:
 				return "", fmt.Errorf("look up the app's API token: %w", err)
+			default:
+				live = tokenOfApp(tok, app)
 			}
 		}
 		if live {
@@ -170,6 +171,5 @@ func secretScope(sec *corev1.Secret) token.Scope {
 // removeAPIToken deletes the app's token Secret, if any. Its token record
 // is the gateway's to revoke (see ensureAPIToken).
 func (r *Reconciler) removeAPIToken(ctx context.Context, app *model.App) error {
-	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: APITokenSecretName(app.ObjectName()), Namespace: app.Namespace}}
-	return client.IgnoreNotFound(r.Delete(ctx, sec))
+	return r.deleteAppSecret(ctx, app, APITokenSecretName(app.ObjectName()))
 }

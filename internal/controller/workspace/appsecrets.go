@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -16,10 +15,9 @@ import (
 )
 
 // AppSecretsName is the Secret holding the secret values of the app whose
-// Pod and Service are called objectName, one key per environment variable.
-func AppSecretsName(objectName string) string {
-	return objectName + "-" + model.ProductName + "-secrets"
-}
+// Pod and Service are called objectName, one key per environment variable
+// (see SecretName).
+func AppSecretsName(objectName string) string { return SecretName(objectName, "secrets") }
 
 // secretsOf reads the secrets app gets that pass secretenv.For.
 func (r *Reconciler) secretsOf(ctx context.Context, app *model.App) (secretenv.Set, error) {
@@ -37,17 +35,15 @@ func (r *Reconciler) secretsOf(ctx context.Context, app *model.App) (secretenv.S
 func (r *Reconciler) writeAppSecrets(ctx context.Context, app *model.App, want secretenv.Set) (unreadable string, err error) {
 	name := AppSecretsName(app.ObjectName())
 	if want.Fingerprint == "" {
-		sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: app.Namespace, Name: name}}
-		return "", client.IgnoreNotFound(r.Delete(ctx, sec))
+		return "", r.deleteAppSecret(ctx, app, name)
 	}
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	sec := &corev1.Secret{}
-	err = r.Secrets.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: name}, sec)
-	create := apierrors.IsNotFound(err)
+	sec, err := r.appSecret(ctx, app, name)
+	create := sec == nil
 	switch {
-	case err != nil && !create:
+	case err != nil:
 		return "", err
 	case !create && sec.Annotations[model.AnnotationSecrets] == want.Fingerprint:
 		return "", nil
