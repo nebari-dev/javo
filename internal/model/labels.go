@@ -102,9 +102,6 @@ const (
 	// AnnotationOwnerID carries the full owner ID on a home claim, so two
 	// users whose slugs collide cannot share a home.
 	AnnotationOwnerID = Group + "/owner-id"
-	// AnnotationImportedFrom carries, on a home claim, the JupyterHub claim
-	// ("<namespace>/<claim>") whose files were imported into it.
-	AnnotationImportedFrom = Group + "/imported-from"
 	// AnnotationGroup carries the verbatim group on a folder claim. Claims
 	// outlive their folder, so a new folder of the same name for another
 	// group must not take one over.

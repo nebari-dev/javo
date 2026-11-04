@@ -715,7 +715,9 @@ func (r *BackupReconciler) volumeJob(v volume, name, role string, readOnly bool,
 							{Name: "RESTIC_PROGRESS_FPS", Value: "1"},
 						},
 						VolumeMounts:             mounts,
-						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						// Only what the step wrote counts as its result, never its
+						// log tail (which may carry file names from the home).
+						TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
 							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},

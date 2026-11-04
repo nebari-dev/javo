@@ -394,7 +394,9 @@ func (r *MigrationReconciler) copyJob(h *model.Home, uid, gid int64, groups []in
 							{Name: "old", MountPath: CopyOldMount, ReadOnly: true},
 							{Name: "new", MountPath: CopyNewMount},
 						},
-						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						// Only what the step wrote counts as its result, never its
+						// log tail (which may carry file names from the home).
+						TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: ptr.To(false),
 							ReadOnlyRootFilesystem:   ptr.To(true),
