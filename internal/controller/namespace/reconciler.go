@@ -77,6 +77,9 @@ type Reconciler struct {
 	// PullSecrets are copied into every namespace kept; none: no Secret is
 	// read or made.
 	PullSecrets PullSecrets
+	// Limits are the ResourceQuota and LimitRange every namespace kept gets;
+	// set only when each namespace is one person's or one team's.
+	Limits Limits
 }
 
 // RBAC: see internal/controller/workspace/reconciler.go for how the chart's
@@ -198,6 +201,9 @@ func (r *Reconciler) ensure(ctx context.Context, spec placement.NamespaceSpec) e
 		return err
 	}
 	if err := r.ensurePullSecrets(ctx, spec.Name); err != nil {
+		return err
+	}
+	if err := r.ensureLimits(ctx, spec.Name); err != nil {
 		return err
 	}
 	return r.ensurePolicies(ctx, spec.Name)

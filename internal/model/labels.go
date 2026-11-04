@@ -170,6 +170,9 @@ const (
 	// RoleStorageQuota is the LabelRole value of the ResourceQuota that caps a
 	// team namespace's storage.
 	RoleStorageQuota = "storage-quota"
+	// RoleNamespaceLimits is the LabelRole value of the ResourceQuota and
+	// LimitRange of limits.namespace in a per-user or per-team namespace.
+	RoleNamespaceLimits = "namespace-limits"
 
 	// SampleCopyContainer is the init container that copies a template's
 	// sample into the home; its failure is reported as SampleMissing.

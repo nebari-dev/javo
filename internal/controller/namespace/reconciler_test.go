@@ -10,6 +10,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -443,5 +444,50 @@ func TestNoPullSecretsMakesNoSecrets(t *testing.T) {
 	var l corev1.SecretList
 	if err := k8s.List(context.Background(), &l, client.InNamespace("javo-"+jack.Name)); err != nil || len(l.Items) != 0 {
 		t.Fatalf("secrets = %v, %v", l.Items, err)
+	}
+}
+
+// With limits.namespace set, a person's namespace gets a ResourceQuota (what
+// all their pods together may ask for) and a LimitRange (what a container
+// that names nothing gets); clearing the setting removes both.
+func TestPerUserNamespaceGetsTheComputeQuotaAndContainerDefaults(t *testing.T) {
+	bob := newPerson(t, "bob")
+	r := perUser()
+	r.Limits = Limits{
+		Quota:                    corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("20")},
+		ContainerDefaults:        corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("10Gi")},
+		ContainerDefaultRequests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+	}
+	reconcilePerson(t, r, bob)
+	ns := "javo-" + bob.Name
+	var q corev1.ResourceQuota
+	if err := k8s.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: limitsName}, &q); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.Spec.Hard[corev1.ResourceRequestsCPU]; got.Cmp(resource.MustParse("8")) != 0 {
+		t.Errorf("quota = %v", q.Spec.Hard)
+	}
+	var lr corev1.LimitRange
+	if err := k8s.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: limitsName}, &lr); err != nil {
+		t.Fatal(err)
+	}
+	if len(lr.Spec.Limits) != 1 || lr.Spec.Limits[0].Type != corev1.LimitTypeContainer {
+		t.Fatalf("limit range = %+v", lr.Spec)
+	}
+	l := lr.Spec.Limits[0]
+	if got := l.Default[corev1.ResourceEphemeralStorage]; got.Cmp(resource.MustParse("10Gi")) != 0 {
+		t.Errorf("default = %v", l.Default)
+	}
+	if got := l.DefaultRequest[corev1.ResourceCPU]; got.Cmp(resource.MustParse("100m")) != 0 {
+		t.Errorf("defaultRequest = %v", l.DefaultRequest)
+	}
+
+	r.Limits = Limits{}
+	reconcilePerson(t, r, bob)
+	if err := k8s.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: limitsName}, &corev1.ResourceQuota{}); !apierrors.IsNotFound(err) {
+		t.Errorf("quota after clearing: %v, want not found", err)
+	}
+	if err := k8s.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: limitsName}, &corev1.LimitRange{}); !apierrors.IsNotFound(err) {
+		t.Errorf("limit range after clearing: %v, want not found", err)
 	}
 }

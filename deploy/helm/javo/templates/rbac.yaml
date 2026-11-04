@@ -119,7 +119,7 @@ so neither component can create pods or services in other namespaces. */ -}}
   "javo-gateway" (list
     (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "list")))
   "javo-controller" (list
-    (dict "apiGroups" (list "") "resources" (list "pods" "services" "persistentvolumeclaims" "resourcequotas") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "") "resources" (list "pods" "services" "persistentvolumeclaims" "resourcequotas" "limitranges") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "list" "watch"))
     (dict "apiGroups" (list "batch") "resources" (list "cronjobs" "jobs") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "networking.k8s.io") "resources" (list "networkpolicies") "verbs" (list "get" "list" "watch")))
@@ -137,7 +137,7 @@ so neither component can create pods or services in other namespaces. */ -}}
     (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "create" "delete"))
     (dict "apiGroups" (list "") "resources" (list "services") "verbs" (list "create" "update" "delete"))
     (dict "apiGroups" (list "") "resources" (list "persistentvolumeclaims") "verbs" (list "create" "patch" "delete"))
-    (dict "apiGroups" (list "") "resources" (list "resourcequotas") "verbs" (list "create" "update" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "resourcequotas" "limitranges") "verbs" (list "create" "update" "delete"))
     (dict "apiGroups" (list "") "resources" (list "secrets") "verbs" (list "get" "list" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "networking.k8s.io") "resources" (list "networkpolicies") "verbs" (list "create" "update")))
 }}

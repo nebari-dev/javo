@@ -226,6 +226,9 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		Gateway:       namespace.GatewayPods{Namespace: o.gatewayNS, Labels: o.gatewayPods},
 		NetworkPolicy: o.networkPol, Egress: egress, Bindings: bindings, Extra: extra,
 		PullSecrets: namespace.PullSecrets{Namespace: releaseNS, Names: o.pullSecrets},
+		// Config validation allows these only in per-user and per-team mode.
+		Limits: namespace.Limits{Quota: platform.Limits.Namespace.Quota, ContainerDefaults: platform.Limits.Namespace.ContainerDefaults,
+			ContainerDefaultRequests: platform.Limits.Namespace.ContainerDefaultRequests},
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}

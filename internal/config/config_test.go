@@ -449,3 +449,21 @@ func TestLimitsHaveDefaultsAndRefuseNonPositiveValues(t *testing.T) {
 		t.Fatalf("err = %v, want limits.jobs and limits.jobMaxTimeout refused", err)
 	}
 }
+
+func TestNamespaceLimitsAreReadAndOnlyForOwnNamespaces(t *testing.T) {
+	const limits = "limits:\n  namespace:\n    quota: {requests.cpu: \"8\", pods: \"20\"}\n    containerDefaults: {ephemeral-storage: 10Gi}\n"
+	p, err := load(t, "auth:\n  local:\n    enabled: true\nnamespaces:\n  mode: per-user\n"+limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := p.Limits.Namespace.Quota["requests.cpu"]; q.String() != "8" {
+		t.Errorf("quota = %v", p.Limits.Namespace.Quota)
+	}
+	if d := p.Limits.Namespace.ContainerDefaults["ephemeral-storage"]; d.String() != "10Gi" {
+		t.Errorf("containerDefaults = %v", p.Limits.Namespace.ContainerDefaults)
+	}
+	// In the shared namespace one quota would cap everyone together.
+	if _, err := load(t, "auth:\n  local:\n    enabled: true\n"+limits); err == nil || !strings.Contains(err.Error(), "limits.namespace") {
+		t.Fatalf("shared mode: err = %v, want limits.namespace refused", err)
+	}
+}

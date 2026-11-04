@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -92,6 +93,28 @@ type LimitsCfg struct {
 	// JobMaxTimeout is the longest any run may take; a job or template that
 	// sets a longer time limit, or none, gets this one.
 	JobMaxTimeout metav1.Duration `json:"jobMaxTimeout"`
+	// Namespace is what each per-user or per-team namespace gets; empty is
+	// nothing. Not allowed in shared mode.
+	Namespace NamespaceLimitsCfg `json:"namespace"`
+}
+
+// NamespaceLimitsCfg is a ResourceQuota and a LimitRange for each namespace
+// of one person or one team.
+type NamespaceLimitsCfg struct {
+	// Quota is the ResourceQuota's hard limits (requests.cpu, limits.memory,
+	// pods, requests.ephemeral-storage and so on). A quota on a resource
+	// makes Kubernetes refuse pods that do not ask for it, so give
+	// ContainerDefaultRequests (or ContainerDefaults) for each.
+	Quota corev1.ResourceList `json:"quota,omitempty"`
+	// ContainerDefaults and ContainerDefaultRequests are the limits and
+	// requests the LimitRange gives a container that names none.
+	ContainerDefaults        corev1.ResourceList `json:"containerDefaults,omitempty"`
+	ContainerDefaultRequests corev1.ResourceList `json:"containerDefaultRequests,omitempty"`
+}
+
+// IsSet reports whether any part is given.
+func (c NamespaceLimitsCfg) IsSet() bool {
+	return len(c.Quota) > 0 || len(c.ContainerDefaults) > 0 || len(c.ContainerDefaultRequests) > 0
 }
 
 // The defaults of LimitsCfg.
@@ -801,6 +824,9 @@ func (p Platform) Validate() error {
 	}
 	p.Branding.validate(bad)
 	p.Limits.validate(bad)
+	if p.Limits.Namespace.IsSet() && p.Namespaces.Mode == "shared" {
+		bad("limits.namespace", "only applies when namespaces.mode is per-user or per-team: in the shared namespace one quota would cap everyone together")
+	}
 	for i, r := range p.ContainerImages.AllowedRegistries {
 		if r == "" || strings.Contains(r, "://") || strings.ContainsAny(r, " \t\n") {
 			bad(fmt.Sprintf("containerImages.allowedRegistries[%d]", i), "%q is not a registry host such as ghcr.io or a host and path such as ghcr.io/example", r)
