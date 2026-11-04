@@ -1,7 +1,7 @@
-import { File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
+import { Bot, File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
-import { useAiFeature, useDraft } from '../ai/ai'
+import { useAgentStatus, useBuildWithAgent } from '../ai/ai'
 import type { DraftView, Template } from '../../api'
 import { ApiAccessChoices, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
@@ -92,12 +92,12 @@ function AiMark({ show }: { show: boolean }) {
   ) : null
 }
 
-/** Describe it: plain words in, the form below filled in. Nothing is created here. */
-function DescribeIt({ onFill }: { onFill: (r: DraftView) => void }) {
-  const draft = useDraft()
+/** Describe it: plain words go to the coding agent, which builds and deploys the app; its page opens. */
+function DescribeIt({ agent }: { agent: { template: string; templateName: string } }) {
+  const build = useBuildWithAgent()
+  const navigate = useNavigate()
   const [text, setText] = useState('')
   const id = useId()
-  const res = draft.data
   return (
     <Card className="pad describe" aria-label="Describe it">
       <PartTitle part="ai" className="card-h">
@@ -110,27 +110,25 @@ function DescribeIt({ onFill }: { onFill: (r: DraftView) => void }) {
           className="input"
           rows={2}
           value={text}
-          placeholder="A Streamlit app from sales/app.py called Sales"
+          placeholder="A Streamlit dashboard of sales/data.csv"
           onChange={(e) => setText(e.target.value)}
         />
       </div>
       <div className="row describe-foot">
         <Button
-          icon={Sparkles}
-          disabled={!text.trim() || draft.isPending}
-          onClick={() => draft.mutate(text.trim(), { onSuccess: (r) => !r.message && onFill(r) })}
+          icon={Bot}
+          disabled={!text.trim() || build.isPending}
+          onClick={() => build.mutate(text.trim(), { onSuccess: (w) => navigate(`/apps/${encodeURIComponent(w.name)}`) })}
         >
-          Fill the form
+          Build with {agent.template}
         </Button>
-        <span className="faint small">AI fills the form; nothing is created until you press Create.</span>
+        <span className="faint small">{agent.templateName || agent.template} writes the code and deploys the app.</span>
       </div>
-      {draft.isError && <p role="alert">{problemText(draft.error)}</p>}
-      {res?.message && <p role="status">{res.message}</p>}
+      {build.isError && <p role="alert">{problemText(build.error)}</p>}
     </Card>
   )
 }
 
-/** One way to bring the code in, as a card like the template cards. */
 function SourceCard({ value, title, line, checked, onPick }: { value: 'home' | 'repo'; title: string; line: string; checked: boolean; onPick: (v: 'home' | 'repo') => void }) {
   return (
     <label className={`card choice tpl${checked ? ' sel' : ''}`}>
@@ -222,7 +220,8 @@ export function NewApp() {
   const [pickedIdle, setPickedIdle] = useState<number | null>(null)
   // Fields the AI filled (shown with a note until edited) and the field
   // errors its filled form would get from Create.
-  const describe = useAiFeature('draft')
+  const agentStatus = useAgentStatus().data
+  const agent = agentStatus?.available && agentStatus.mode !== 'login' ? agentStatus : undefined
   const [filledBy, setFilledBy] = useState<Set<string>>(new Set())
   const [draftErrs, setDraftErrs] = useState<Record<string, string>>({})
   const edited = (field: string) => {
@@ -458,14 +457,14 @@ export function NewApp() {
       )}
       <div className="two section">
         <div className="stack">
-          {describe &&
+          {agent &&
             (wanted ? (
               // Arriving with a template chosen, describing is a detour: kept behind a toggle.
-              <More closed="Describe it with AI" open="Hide describe it">
-                <DescribeIt onFill={fill} />
+              <More closed={`Build it with ${agent.template}`} open="Hide describe it">
+                <DescribeIt agent={agent} />
               </More>
             ) : (
-              <DescribeIt onFill={fill} />
+              <DescribeIt agent={agent} />
             ))}
           <Section part="app" title="App">
           {tpl && !listOpen ? (
