@@ -16,7 +16,7 @@ func emittedByJobs() []Code {
 	codes := []Code{
 		CellError, KernelDied, KernelMissing, EngineMissing, SourceMissing,
 		OutputWriteFailed, RunSkipped, RunMissed,
-		RunCancelled, RunInterrupted, ParametersInvalid,
+		RunCancelled, RunInterrupted, ParametersInvalid, RunLimitReached,
 		JobsNotAllowed, OwnerLostAccess, SchedulePaused, ScheduleInvalid, NotificationFailed, JobSizeUnknown, EnvironmentUnavailable,
 		TemplateMissing, NetworkPolicyNotEnforced, CommandFailed,
 	}

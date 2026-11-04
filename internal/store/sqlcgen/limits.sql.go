@@ -115,6 +115,24 @@ func (q *Queries) CountRunningAppsByOwner(ctx context.Context, owner string) (in
 	return count, err
 }
 
+const countRunningRunsByOwner = `-- name: CountRunningRunsByOwner :one
+SELECT COUNT(*) FROM job_runs r JOIN jobs j ON j.id = r.job_id
+WHERE j.owner = $1 AND j.deleted_at IS NULL AND r.finished_at IS NULL AND r.outcome = $2
+`
+
+type CountRunningRunsByOwnerParams struct {
+	Owner   string
+	Outcome string
+}
+
+// Runs whose Job exists and has not finished, of every job of the person.
+func (q *Queries) CountRunningRunsByOwner(ctx context.Context, arg CountRunningRunsByOwnerParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningRunsByOwner, arg.Owner, arg.Outcome)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const lockPerson = `-- name: LockPerson :exec
 
 UPDATE people SET name = name WHERE name = $1

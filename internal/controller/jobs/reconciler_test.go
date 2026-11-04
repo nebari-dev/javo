@@ -1433,3 +1433,55 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 		}
 	}
 }
+
+// At limits.activeRunsPerJob the job's CronJob is suspended, so the
+// Kubernetes CronJob controller starts no more runs (also with concurrency
+// Allow); when a run ends, the schedule goes on.
+func TestScheduleIsHeldWhileTheJobIsAtItsRunCap(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.db.SetLimits(store.Limits{RunsPerJob: 1})
+	tpl := h.template(nil)
+	d := h.definition("nightly", func(j *model.Job) { j.Spec.Schedule.Concurrency = "Allow" })
+	h.waitPhase(d, model.JobPhaseReady)
+	if h.suspended(d) {
+		t.Fatal("suspended before any run")
+	}
+	k := h.scheduledJob(d, tpl, "nightly-1")
+	h.waitRun(d, k.Name)
+	eventually(t, "the CronJob held at the cap", func() bool { return h.suspended(d) })
+	eventually(t, "the Scheduled condition says why", func() bool {
+		return condReason(h.job(d.ID), model.ConditionScheduled) == string(reasons.RunLimitReached)
+	})
+	h.failJob(k, cellErrorMessage)
+	eventually(t, "the CronJob resumed after the run ended", func() bool { return !h.suspended(d) })
+}
+
+// The person's cap (limits.activeRunsPerPerson) holds the schedules of all
+// their jobs, and a run asked for while at it fails as RunLimitReached
+// instead of starting a pod.
+func TestThePersonsRunCapHoldsSchedulesAndFailsRequests(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.stop()
+	tpl := h.template(nil)
+	busy := h.definition("busy", nil)
+	other := h.definition("other", nil)
+	k := h.scheduledJob(busy, tpl, "busy-1")
+	if _, err := h.db.Jobs().RecordRun(bg, model.Run{JobID: busy.ID, K8sJob: k.Name, Trigger: TriggerSchedule,
+		ScheduledTime: fixedNow, Outcome: model.RunOutcomeRunning, Reason: string(reasons.Running)}); err != nil {
+		t.Fatal(err)
+	}
+	// The request is let in first, as by a gateway that saw no run going.
+	run, err := h.db.Jobs().RequestRun(bg, actor, other.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db.SetLimits(store.Limits{RunsPerPerson: 1})
+	h.start()
+	got := h.waitRunWhere(other, run.ID, " to fail", func(r model.Run) bool { return final(r.Outcome) })
+	if got.Outcome != model.RunOutcomeFailed || got.Reason != string(reasons.RunLimitReached) || got.K8sJob != "" {
+		t.Fatalf("run = %+v, want failed as RunLimitReached without a Job", got)
+	}
+	eventually(t, "the other job's schedule held", func() bool { return h.suspended(other) })
+}

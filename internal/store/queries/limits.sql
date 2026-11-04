@@ -33,3 +33,8 @@ WHERE p.name = $1 AND t.app_id IS NULL AND t.job_id IS NULL
 
 -- name: CountPendingPlans :one
 SELECT COUNT(*) FROM plans WHERE owner = $1 AND state = $2 AND expires_at > $3;
+
+-- Runs whose Job exists and has not finished, of every job of the person.
+-- name: CountRunningRunsByOwner :one
+SELECT COUNT(*) FROM job_runs r JOIN jobs j ON j.id = r.job_id
+WHERE j.owner = $1 AND j.deleted_at IS NULL AND r.finished_at IS NULL AND r.outcome = $2;

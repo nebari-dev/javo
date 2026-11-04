@@ -134,6 +134,9 @@ const (
 	RunLost           Code = "RunLost"
 	RunInterrupted    Code = "RunInterrupted"
 	ParametersInvalid Code = "ParametersInvalid"
+	// RunLimitReached: the job or its owner has as many runs going as the
+	// platform allows (limits.activeRunsPerJob, limits.activeRunsPerPerson).
+	RunLimitReached Code = "RunLimitReached"
 	Succeeded         Code = "Succeeded"
 	Running           Code = "Running"
 )
@@ -674,6 +677,11 @@ var catalog = []Reason{
 		Todo:  "Correct the parameter named in the message, then run it again.",
 		Blame: "Your parameter values.",
 		Who:   "You.", Blamed: PartyUser},
+	{Code: RunLimitReached, Title: "Too many runs going",
+		What:  "This job, or all your jobs together, already have as many runs going as the platform allows, so no more start until one ends. Scheduled runs due meanwhile are skipped.",
+		Todo:  "Wait for a run to finish, or cancel one. Your platform admin sets the limit.",
+		Blame: "The platform's limit on runs going at once.",
+		Who:   "You, or your platform admin.", Blamed: PartyPlatform},
 	{Code: Succeeded, Title: "Succeeded",
 		What:  "The run finished and its outputs were saved.",
 		Todo:  "Open the outputs.",

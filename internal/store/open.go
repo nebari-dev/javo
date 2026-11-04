@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -72,8 +73,8 @@ type Store struct {
 	// backup is chosen once in Open for the engine (backup.go).
 	backup backuper
 
-	// limits are the per-person caps (SetLimits).
-	limits Limits
+	// limits are the per-person caps (SetLimits); nil is none.
+	limits atomic.Pointer[Limits]
 }
 
 // StartFeed starts delivering announcements on Changes until ctx ends. With

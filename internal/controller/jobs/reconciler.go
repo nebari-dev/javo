@@ -159,6 +159,11 @@ type verdict struct {
 	api API
 	// env is the files of the job's environment; nil when it names none.
 	env *model.EnvironmentFiles
+	// active counts the job's Jobs not finished and running the owner's runs
+	// with a Job (store.Jobs.RunningRuns); held is RunLimitReached when either
+	// is at its cap (store.Limits), which holds the schedule (runCaps).
+	active, running int64
+	held            reasons.Code
 }
 
 // Reconcile makes the cluster match one job row (the request names its id)
@@ -190,6 +195,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	if err := r.prepareSecrets(ctx, &job, &v); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.runCaps(ctx, &job, &v); err != nil {
 		return ctrl.Result{}, err
 	}
 	cj, err := r.syncCronJob(ctx, &job, v)
@@ -297,6 +305,39 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 	return v, nil
 }
 
+// runCaps counts what the per-person run caps (store.Limits) are checked
+// against and holds the schedule when one is reached: the Kubernetes CronJob
+// controller would otherwise start a run at every slot whatever the
+// concurrency (Allow) or the owner's other jobs.
+func (r *Reconciler) runCaps(ctx context.Context, job *model.Job, v *verdict) error {
+	l := r.Store.Limits()
+	if l.RunsPerJob <= 0 && l.RunsPerPerson <= 0 {
+		return nil
+	}
+	jobs, err := r.jobsOf(ctx, job)
+	if err != nil {
+		return err
+	}
+	for i := range jobs.Items {
+		if !Finished(&jobs.Items[i]) {
+			v.active++
+		}
+	}
+	if v.running, err = r.Store.Jobs().RunningRuns(ctx, job.Owner); err != nil {
+		return err
+	}
+	if atRunCap(l, v.active, v.running) {
+		v.held = reasons.RunLimitReached
+	}
+	return nil
+}
+
+// atRunCap reports whether a job with active runs going, of an owner with
+// running runs, may start no more.
+func atRunCap(l store.Limits, active, running int64) bool {
+	return l.RunsPerJob > 0 && active >= l.RunsPerJob || l.RunsPerPerson > 0 && running >= l.RunsPerPerson
+}
+
 // inputs is what renders the job's runs under verdict v.
 func (r *Reconciler) inputs(job *model.Job, v verdict) Inputs {
 	return Inputs{Job: job, Template: v.tpl, RunnerImage: r.RunnerImage, Layout: v.layout, Secrets: v.secrets, Size: v.size, API: v.api,
@@ -346,6 +387,9 @@ func (r *Reconciler) syncCronJob(ctx context.Context, job *model.Job, v verdict)
 	want, err := BuildCronJob(r.inputs(job, v))
 	if err != nil {
 		return nil, err
+	}
+	if v.held != "" {
+		want.Spec.Suspend = ptr.To(true)
 	}
 	hash, err := specHash(want)
 	if err != nil {
@@ -409,6 +453,14 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 			}
 			continue
 		}
+		// The gateway counted this request against the caps; scheduled runs
+		// may have taken the room since.
+		if atRunCap(r.Store.Limits(), v.active, v.running) {
+			if err := r.endRequest(ctx, run, model.RunOutcomeFailed, reasons.RunLimitReached, now); err != nil {
+				return err
+			}
+			continue
+		}
 		manual, err := BuildManualJob(r.inputs(job, v), run.ID, run.Parameters)
 
 		if errors.Is(err, ErrParameterNotDeclared) {
@@ -438,6 +490,7 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 		if err := r.ownRunSecret(ctx, v, manual); err != nil {
 			return err
 		}
+		v.active, v.running = v.active+1, v.running+1
 		run.K8sJob, run.Outcome, run.Reason = manual.Name, model.RunOutcomeRunning, string(reasons.Running)
 		if _, err := r.Store.Jobs().RecordRun(ctx, run); err != nil {
 			return err
@@ -810,6 +863,8 @@ func conditions(job *model.Job, v verdict, now time.Time) []metav1.Condition {
 		out = append(out, cond(model.ConditionScheduled, metav1.ConditionFalse, v.code))
 	case v.phase == model.JobPhasePaused:
 		out = append(out, cond(model.ConditionScheduled, metav1.ConditionFalse, reasons.SchedulePaused))
+	case v.held != "":
+		out = append(out, cond(model.ConditionScheduled, metav1.ConditionFalse, v.held))
 	default:
 		out = append(out, cond(model.ConditionScheduled, metav1.ConditionTrue, reasons.Ready))
 	}

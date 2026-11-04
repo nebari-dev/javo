@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store/dbtime"
 	"github.com/nebari-dev/javo/internal/store/sqlcgen"
 )
@@ -26,9 +27,16 @@ type Limits struct {
 	PendingPlans int64
 }
 
-// SetLimits sets the caps every later write is checked against. Call it once,
-// before the store is used.
-func (s *Store) SetLimits(l Limits) { s.limits = l }
+// SetLimits sets the caps every later write is checked against.
+func (s *Store) SetLimits(l Limits) { s.limits.Store(&l) }
+
+// Limits are the caps SetLimits set; the zero value (no cap) before.
+func (s *Store) Limits() Limits {
+	if l := s.limits.Load(); l != nil {
+		return *l
+	}
+	return Limits{}
+}
 
 // Limit names one of the caps in Limits.
 type Limit string
@@ -92,9 +100,9 @@ func within(ctx context.Context, q *sqlcgen.Queries, owner string, checks ...cap
 // RunningApps.
 func (s *Store) appCaps(ctx context.Context, q *sqlcgen.Queries, owner string, preview, running bool) []capCheck {
 	if preview {
-		return []capCheck{{LimitPreviews, s.limits.Previews, func() (int64, error) { return q.CountPreviewsByOwner(ctx, owner) }}}
+		return []capCheck{{LimitPreviews, s.Limits().Previews, func() (int64, error) { return q.CountPreviewsByOwner(ctx, owner) }}}
 	}
-	out := []capCheck{{LimitApps, s.limits.Apps, func() (int64, error) { return q.CountAppsByOwner(ctx, owner) }}}
+	out := []capCheck{{LimitApps, s.Limits().Apps, func() (int64, error) { return q.CountAppsByOwner(ctx, owner) }}}
 	if running {
 		out = append(out, s.runningCap(ctx, q, owner))
 	}
@@ -102,30 +110,36 @@ func (s *Store) appCaps(ctx context.Context, q *sqlcgen.Queries, owner string, p
 }
 
 func (s *Store) runningCap(ctx context.Context, q *sqlcgen.Queries, owner string) capCheck {
-	return capCheck{LimitRunningApps, s.limits.RunningApps, func() (int64, error) { return q.CountRunningAppsByOwner(ctx, owner) }}
+	return capCheck{LimitRunningApps, s.Limits().RunningApps, func() (int64, error) { return q.CountRunningAppsByOwner(ctx, owner) }}
 }
 
 func (s *Store) jobCap(ctx context.Context, q *sqlcgen.Queries, owner string) capCheck {
-	return capCheck{LimitJobs, s.limits.Jobs, func() (int64, error) { return q.CountJobsByOwner(ctx, owner) }}
+	return capCheck{LimitJobs, s.Limits().Jobs, func() (int64, error) { return q.CountJobsByOwner(ctx, owner) }}
 }
 
 func (s *Store) runCaps(ctx context.Context, q *sqlcgen.Queries, owner, jobID string) []capCheck {
 	return []capCheck{
-		{LimitRunsPerJob, s.limits.RunsPerJob, func() (int64, error) { return q.CountActiveRunsByJob(ctx, jobID) }},
-		{LimitRunsPerPerson, s.limits.RunsPerPerson, func() (int64, error) { return q.CountActiveRunsByOwner(ctx, owner) }},
+		{LimitRunsPerJob, s.Limits().RunsPerJob, func() (int64, error) { return q.CountActiveRunsByJob(ctx, jobID) }},
+		{LimitRunsPerPerson, s.Limits().RunsPerPerson, func() (int64, error) { return q.CountActiveRunsByOwner(ctx, owner) }},
 	}
 }
 
 // tokenCap counts owner's personal tokens still valid at at.
 func (s *Store) tokenCap(ctx context.Context, q *sqlcgen.Queries, owner string, at time.Time) capCheck {
-	return capCheck{LimitAPITokens, s.limits.APITokens, func() (int64, error) {
+	return capCheck{LimitAPITokens, s.Limits().APITokens, func() (int64, error) {
 		return q.CountPersonalTokens(ctx, sqlcgen.CountPersonalTokensParams{Name: owner, ExpiresAt: nullTime(at)})
 	}}
 }
 
 // planCap counts owner's plans still pending at at.
 func (s *Store) planCap(ctx context.Context, q *sqlcgen.Queries, owner string, at time.Time) capCheck {
-	return capCheck{LimitPendingPlans, s.limits.PendingPlans, func() (int64, error) {
+	return capCheck{LimitPendingPlans, s.Limits().PendingPlans, func() (int64, error) {
 		return q.CountPendingPlans(ctx, sqlcgen.CountPendingPlansParams{Owner: owner, State: PlanPending, ExpiresAt: dbtime.From(at)})
 	}}
+}
+
+// RunningRuns counts owner's runs that have a Job and have not finished: the
+// pods their jobs run now (requested runs not yet started are left out).
+func (j *Jobs) RunningRuns(ctx context.Context, owner string) (int64, error) {
+	return j.s.q.CountRunningRunsByOwner(ctx, sqlcgen.CountRunningRunsByOwnerParams{Owner: owner, Outcome: model.RunOutcomeRunning})
 }
