@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/nebari-dev/javo/internal/cmdline"
-	"github.com/nebari-dev/javo/internal/homepath"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -275,18 +274,12 @@ func appFolder(ws *model.App) string {
 // Size keeps the template's resources). An app with a Source clones it with
 // img first; the file it opens is then inside the clone, not the home.
 func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layout podstorage.Layout, size sizes.Size, img Images) (*corev1.Pod, error) {
-	port := AppPortOf(ws, t)
-	data := templateData{BaseURL: baseURL, Port: port, Home: homeDir, Host: publicHost}
+	p, err := runOf(ws, t, baseURL, publicHost, img.Pixi)
+	if err != nil {
+		return nil, err
+	}
+	port, data, image, command, args := p.port, p.data, p.image, p.command, p.args
 	base := appFolder(ws)
-	if ws.Source != nil {
-		data.Source = base
-	}
-	if ws.File != "" {
-		if err := homepath.Check(ws.File); err != nil {
-			return nil, fmt.Errorf("spec.file: %w", err)
-		}
-		data.File = FilePath(ws)
-	}
 	// inits run first; site, the copy of a home page a site serves, runs
 	// after the pod files and the sample, which may be that page.
 	var inits, site []corev1.Container
@@ -301,36 +294,12 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 			return nil, err
 		}
 	}
-	image := t.Spec.RunImage(img.Pixi)
-	if image == "" && !t.Spec.UserImage {
-		return nil, fmt.Errorf("workspace template %q: it runs in the platform's pixi image, and none is set (environments.pixiImage)", t.Name)
-	}
 	var samples []corev1.Container
 	if ws.Sample {
-		if t.Spec.Sample == nil || t.Spec.Sample.Path == "" {
-			return nil, fmt.Errorf("workspace template %q: spec.sample is set on the workspace but the template has no sample folder to copy", t.Name)
-		}
 		samples = sampleInitContainers(t, image)
-		data.Sample = sampleHome(t)
 	}
 	if t.Spec.UsesPodFiles() && img.Runner.Ref == "" {
 		return nil, fmt.Errorf("workspace template %q: its pods get the platform's files, and the platform has no image to copy them from (the controller's --runner-image)", t.Name)
-	}
-	if t.Spec.UserImage && ws.Image == "" {
-		return nil, fmt.Errorf("spec.image: template %q runs the image each app names, and this app names none", t.Name)
-	}
-	command, err := renderAll(t.Name, "command", t.Spec.Command, data)
-	if err != nil {
-		return nil, err
-	}
-	var args []string
-	if ws.Command != "" {
-		args, err = CommandWords(t.Name, ws.Command, data)
-	} else {
-		args, err = renderAll(t.Name, "args", t.Spec.Args, data)
-	}
-	if err != nil {
-		return nil, err
 	}
 	probe, err := readinessProbe(t, data)
 	if err != nil {

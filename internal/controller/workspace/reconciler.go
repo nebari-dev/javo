@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -322,11 +321,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if unreadable == "" {
 				unreadable = gitUnreadable
 			}
+			base, host := r.platform().address(&app)
 			if !ok {
 				obs.SizeUnknown = app.Size
 			} else if unreadable != "" {
 				obs.SecretsUnreadable = unreadable
-			} else if want, buildErr := BuildPod(&app, tpl, r.Exposure.BasePath(owner, short), r.appHost(appURL), layout, size, Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig}); buildErr != nil {
+			} else if want, buildErr := BuildPod(&app, tpl, base, host, layout, size, Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig}); buildErr != nil {
 				obs.TemplateError = buildErr.Error()
 			} else {
 				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL)
@@ -422,14 +422,9 @@ func (r *Reconciler) finalize(ctx context.Context, app *model.App) error {
 	return err
 }
 
-// appHost is the host browsers load the app from, for apps that check the
-// websocket Origin: the app's own host when it has one (a separate apps host
-// or subdomain), else the public host of the UI it shares.
-func (r *Reconciler) appHost(appURL url.URL) string {
-	if appURL.Host != "" {
-		return appURL.Host
-	}
-	return r.PublicHost
+// platform is what apps' runs take from the install (Platform).
+func (r *Reconciler) platform() Platform {
+	return Platform{Exposure: r.Exposure, PublicHost: r.PublicHost, PixiImage: r.PixiImage}
 }
 
 // podOutdated reports whether pod was built with another size, command,

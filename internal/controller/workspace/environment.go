@@ -20,6 +20,30 @@ func managerName(id string) string {
 	return id
 }
 
+// EnvironmentOf says in words which environment app runs in on t, the
+// way withEnvironment installs it; empty when it runs in the image's own.
+func EnvironmentOf(app *model.App, t *model.Template) string {
+	def := t.Spec.Environment
+	if e := app.Environment; e != nil {
+		picked := e.Name
+		if e.Version != "" {
+			picked += ", version " + e.Version + ","
+		}
+		picked += " from " + managerName(e.Source)
+		if t.Spec.ServesKernels && def != "" {
+			return "The template's environment " + def + ", with " + picked + " beside it"
+		}
+		return picked
+	}
+	switch {
+	case def == "":
+		return ""
+	case app.Source != nil:
+		return "The repository's pixi.lock when it has one, else the template's environment " + def
+	}
+	return "The template's environment " + def
+}
+
 // withEnvironment adds to pod the step that installs the app's environment:
 // the one picked for it, else (on a template with an environment of its
 // own) the pixi.lock at the root of its repository when there is one, else
