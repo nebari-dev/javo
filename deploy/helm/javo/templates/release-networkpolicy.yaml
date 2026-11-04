@@ -1,0 +1,34 @@
+{{- if .Values.networkPolicy.enabled }}
+# Javo's own pods in the release namespace: anyone may reach the gateway's
+# HTTP port (the ingress, apps calling the API, the network probe) and the
+# controller's health port (kubelet probes), nothing else. The controller's
+# metrics are reachable only from the namespaces in controller.metricsFrom;
+# with none, the controller serves them on loopback only. Other pods in this
+# namespace (a database placed here, say) are not selected, so this policy
+# leaves them as they are.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: javo-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "javo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: javo
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: {{ .Values.gateway.port }}}
+        - {protocol: TCP, port: {{ .Values.controller.probePort }}}
+    {{- with .Values.controller.metricsFrom }}
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: kubernetes.io/metadata.name, operator: In, values: {{ toJson . }}}
+      ports:
+        - {protocol: TCP, port: {{ $.Values.controller.metricsPort }}}
+    {{- end }}
+{{- end }}

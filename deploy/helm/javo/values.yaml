@@ -265,6 +265,10 @@ controller:
   # More than one needs database.engine=postgres.
   replicas: 1
   metricsPort: 8081
+  # Namespaces whose pods may scrape the controller's metrics (plain HTTP,
+  # no authentication), for example [monitoring]. Empty: the controller
+  # serves them on 127.0.0.1 only, reachable with kubectl port-forward.
+  metricsFrom: []
   probePort: 8082
   resources:
     requests: {cpu: 50m, memory: 64Mi}

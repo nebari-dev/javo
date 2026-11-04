@@ -109,8 +109,9 @@ func TestUpgradeKeepsSharedPoliciesUntilTheControllerOwnsThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
-	if strings.Contains(out, "kind: NetworkPolicy") {
-		t.Fatal("per-user mode renders a NetworkPolicy; the controller owns them there")
+	// The release namespace's own policy (javo-ingress) is the chart's.
+	if n := kindNames(t, out, "NetworkPolicy"); !slices.Equal(n, []string{"javo-ingress"}) {
+		t.Fatalf("per-user mode renders NetworkPolicies %v; the controller owns the workspace ones there", n)
 	}
 }
 

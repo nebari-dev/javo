@@ -291,7 +291,7 @@ true
 - --app-role-binding={{ include "javo.appRoleName" (list $ $sa) }}={{ $.Release.Namespace }}/{{ include "javo.account" (list $ $sa) }}
 {{- end }}
 {{- end }}
-- --metrics-bind-address=:{{ .Values.controller.metricsPort }}
+- --metrics-bind-address={{ if not .Values.controller.metricsFrom }}127.0.0.1{{ end }}:{{ .Values.controller.metricsPort }}
 - --health-probe-bind-address=:{{ .Values.controller.probePort }}
 - --runner-image={{ include "javo.image" . }}
 {{- range .Values.imagePullSecrets }}
