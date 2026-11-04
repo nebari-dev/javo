@@ -56,6 +56,8 @@ Each run writes to `~/jobs/<job>/<run>/` in your home folder:
 - `output.ipynb` and `output.html` for notebooks, `output.html` for marimo.
 - `result.json`: the run's result.
 
+HTML and SVG files of your home open in the browser in a sandbox: their own inline scripts, styles and embedded (`data:`) images work, but they cannot load anything from the network or send anything to it, so a page that code left in your home cannot pose as a sign-in form. A report that loads its scripts from a CDN shows blank there; export it with its assets inlined (for example `jupyter nbconvert --embed-images`, or Plotly's `include_plotlyjs=True`), or download it.
+
 ## Size, environment variables and secrets
 
 A job's size and environment variables can be changed on the job page after it is created. Secrets reach the run by reference, never in its spec: a scheduled run gets the values current at its start, so a changed secret applies from the next run; a run already going keeps what it started with.

@@ -253,6 +253,13 @@ var rawTypes = map[string]string{
 // user, nor reach another user's files.
 const rawSandbox = "sandbox allow-scripts allow-popups"
 
+// rawDocumentCSP is the policy of HTML and SVG, which can script: their own
+// inline script, style and embedded images run, but nothing loads from or
+// sends to the network, so a page code left in the home cannot pose as a
+// sign-in form on the platform's address and post what is typed elsewhere.
+const rawDocumentCSP = rawSandbox + "; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+	"img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-ancestors 'self'"
+
 type rawInput struct {
 	Team string `query:"team" maxLength:"63" doc:"Team whose home the file is in; needed only when namespaces are per team and the user is in several"`
 	Path string `query:"path" maxLength:"4096" doc:"File relative to the home folder"`
@@ -301,7 +308,11 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
 				hc.SetHeader("Content-Type", "application/octet-stream")
 				hc.SetHeader("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": info.Name}))
 			}
-			hc.SetHeader("Content-Security-Policy", rawSandbox)
+			csp := rawSandbox
+			if typ == rawTypes[".html"] || typ == rawTypes[".svg"] {
+				csp = rawDocumentCSP
+			}
+			hc.SetHeader("Content-Security-Policy", csp)
 			hc.SetHeader("X-Content-Type-Options", "nosniff")
 			hc.SetHeader("Cross-Origin-Resource-Policy", "same-origin")
 			hc.SetHeader("Cache-Control", "private, no-store")

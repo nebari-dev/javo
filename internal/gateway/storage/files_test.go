@@ -225,6 +225,22 @@ func TestRawServesHTMLSandboxed(t *testing.T) {
 	}
 }
 
+// A home's HTML or SVG may run its own script, but it cannot send anything
+// anywhere: a page someone's code left in the home cannot pose as a sign-in
+// form on the platform's address and post what is typed to another host.
+func TestRawHTMLCannotReachTheNetwork(t *testing.T) {
+	t.Parallel()
+	for _, file := range []string{"report.html", "chart.svg"} {
+		rec := apitest.GetFiles(t, &apitest.StubFilesLister{Content: "x"}, false, http.MethodGet, "/api/files/raw?path="+file)
+		csp := rec.Header().Get("Content-Security-Policy")
+		for _, want := range []string{"sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "form-action 'none'", "frame-ancestors 'self'"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s: CSP %q lacks %q", file, csp, want)
+			}
+		}
+	}
+}
+
 func TestRawContentTypesComeFromAnAllowList(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ file, typ string }{
