@@ -1,9 +1,9 @@
-import { ChevronRight, ChevronUp, CircleCheck, Clock3, FileText, Play, RotateCcw, ScrollText, Trash2, X } from 'lucide-react'
+import { ChevronRight, ChevronUp, CircleCheck, Clock3, FileText, Play, RotateCcw, ScrollText, Terminal, Trash2, X } from 'lucide-react'
 import { PartIcon } from '../../components/Section'
 import { OpenAppLink } from './OpenAppLink'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import type { Event as KubeEvent, Step, Workspace } from '../../api'
+import type { Event as KubeEvent, PodRun, Step, Workspace } from '../../api'
 import { ApiAccessChoices, apiAccessLabel, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
@@ -22,6 +22,7 @@ import { DiagnosedFailure } from '../ai/Diagnosis'
 import { IdleStopChoice, idleStopLabel } from './IdleStop'
 import { KindLogo } from '../../components/KindLogo'
 import { LaunchFields, launchBody, type Launch } from './LaunchFields'
+import { CommandLine, StartedWith } from './RunCommand'
 import { LiveLogs } from '../logs/LiveLogs'
 import { StepLog } from '../logs/StepLog'
 import { LogView } from '../logs/LogView'
@@ -311,7 +312,7 @@ function StartedSteps({ started, hold, children }: { started: string; hold: bool
 const LOGS_CARD_TAIL = 20
 
 /** The running app's own log: folded until asked for, then followed live. */
-function LogsCard({ name }: { name: string }) {
+function LogsCard({ name, run }: { name: string; run?: PodRun }) {
   const [open, setOpen] = useState(false)
   const logs = useWorkspaceLogs(name, { tail: LOGS_CARD_TAIL, enabled: open })
   if (!open)
@@ -328,6 +329,7 @@ function LogsCard({ name }: { name: string }) {
     <LiveLogs
       name={name}
       title="Running app's log"
+      top={run && <StartedWith run={run} />}
       restarts={logs.data?.restarts ?? 0}
       hide={<IconButton icon={ChevronUp} label="Hide the running app's log" onClick={() => setOpen(false)} />}
     />
@@ -587,6 +589,43 @@ function PreviewOfBanner({ of }: { of: NonNullable<Workspace['previewOf']> }) {
   )
 }
 
+/** The image, environment and exact command line the app's pod runs. */
+function WhatRuns({ run }: { run: PodRun }) {
+  return (
+    <Card className="pad">
+      <div className="label">
+        <Terminal size={15} aria-hidden="true" />
+        What runs
+      </div>
+      <dl className="kv">
+        <dt className="wide">
+          <PartIcon part="image" />
+          Image
+        </dt>
+        <dd className="wide">
+          <CodeBlock text={run.image} label="Copy image" />
+        </dd>
+        <dt>
+          <PartIcon part="environment" />
+          Environment
+        </dt>
+        <dd className={run.environment ? undefined : 'muted'}>{run.environment || "The image's own"}</dd>
+        <dt className={run.line ? 'wide' : undefined}>
+          <PartIcon part="start" />
+          Command
+        </dt>
+        {run.line ? (
+          <dd className="wide">
+            <CommandLine line={run.line} />
+          </dd>
+        ) : (
+          <dd className="muted">The image&apos;s own</dd>
+        )}
+      </dl>
+    </Card>
+  )
+}
+
 function TemplateName({ id }: { id: string }) {
   return <>{useTemplateName(id)}</>
 }
@@ -654,7 +693,7 @@ export function AppDetail() {
               <Progress ws={ws} justStarted={justStarted.hold} />
             </Card>
           )}
-          {!stopped && !migrating && <LogsCard name={ws.name} />}
+          {!stopped && !migrating && <LogsCard name={ws.name} run={ws.run} />}
         </div>
         <div className="stack">
           <SourceCard ws={ws} />
@@ -691,6 +730,7 @@ export function AppDetail() {
             </dl>
             <ScratchFolders />
           </Card>
+          {ws.run && <WhatRuns run={ws.run} />}
           {ws.source?.previewsAvailable && !managed && <PreviewsCard ws={ws} />}
           {!managed && <ThumbnailCard ws={ws} />}
         </div>

@@ -33,6 +33,8 @@ interface LogViewProps {
   compact?: boolean
   /** Stands on the page as a card of its own, its title a heading. */
   card?: boolean
+  /** Shown above the lines and kept there as they scroll (what the app started with); not part of the copied log. */
+  top?: ReactNode
 }
 
 function lineCount(n: number): string {
@@ -44,7 +46,7 @@ function lineCount(n: number): string {
  * where it comes from, how many lines, and icon actions: copy, wrap, jump to
  * latest), then the highlighted lines under a time or line number gutter.
  */
-export function LogView({ title, label, lines, empty, status, follow = false, loading = false, error, actions, compact = false, card = false }: LogViewProps) {
+export function LogView({ title, label, lines, empty, status, follow = false, loading = false, error, actions, compact = false, card = false, top }: LogViewProps) {
   const [following, setFollowing] = useState(true)
   const [wrap, setWrap] = useState(true)
   const box = useRef<HTMLDivElement>(null)
@@ -89,6 +91,7 @@ export function LogView({ title, label, lines, empty, status, follow = false, lo
           <CopyButton label="Copy log" disabled={!shown} text={() => lines.map((l) => plainText(l.text)).join('\n')} />
         </span>
       </header>
+      {top && <div className="lv-top">{top}</div>}
       <div
         ref={box}
         className="lv-body"

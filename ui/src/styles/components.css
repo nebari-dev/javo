@@ -453,3 +453,10 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .fold-inner{overflow:hidden;min-height:0}
 .fold[data-open="true"]>.fold-inner{padding-top:8px}
 @media (prefers-reduced-motion:reduce){.fold{transition:none}}
+/* What an app started with: a fixed strip between the log's header and its lines. */
+.lv-top{padding:8px 10px;border-bottom:1px solid var(--border);background:var(--log-bg)}
+.started-with{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+.started-with-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.started-with-label{font-size:var(--fs-xs);font-weight:600;color:var(--text-2)}
+.started-with-image{overflow-wrap:anywhere}
+.codeblock.cmdline code{color:var(--code-foreground,var(--text));overflow-wrap:anywhere}

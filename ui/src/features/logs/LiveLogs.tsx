@@ -19,7 +19,7 @@ function streamURL(name: string): string {
  * (re)connect, so each open starts from an empty list. The view follows the
  * newest line until the user scrolls up, and "Jump to latest" resumes it.
  */
-export function LiveLogs({ name, restarts, title = 'Logs', hide }: { name: string; restarts: number; title?: string; hide?: ReactNode }) {
+export function LiveLogs({ name, restarts, title = 'Logs', hide, top }: { name: string; restarts: number; title?: string; hide?: ReactNode; top?: ReactNode }) {
   const [lines, setLines] = useState<LogLine[]>([])
   const [previous, setPrevious] = useState(false)
   const prev = useWorkspaceLogs(name, { tail: 500, previous: true, enabled: previous })
@@ -42,6 +42,7 @@ export function LiveLogs({ name, restarts, title = 'Logs', hide }: { name: strin
   return (
     <LogView
       card
+      top={top}
       title={title}
       label={previous ? 'Previous run log' : 'App log'}
       status={previous ? 'previous' : 'live'}

@@ -363,6 +363,35 @@ describe('App status page', () => {
     expect(FakeEventSource.latest().closed).toBe(true)
   })
 
+  const run = {
+    image: 'ghcr.io/example/pixi:1',
+    command: ['/opt/javo/pod-user.sh', 'streamlit', 'run', '/home/user/sales/app.py'],
+    line: '/opt/javo/pod-user.sh streamlit run /home/user/sales/app.py',
+    environment: "The template's environment streamlit",
+  }
+
+  it('shows the image, environment and command the app runs', async () => {
+    detail(ws('sales-app', 'Sales app', 'Running', allReady(), { run }))
+    renderApp('/apps/sales-app')
+    const card = (await screen.findByText('What runs')).closest('.card') as HTMLElement
+    expect(within(card).getByText(run.image)).toBeTruthy()
+    expect(within(card).getByText(run.environment)).toBeTruthy()
+    expect(within(card).getByText(run.line)).toBeTruthy()
+    expect(within(card).getByRole('button', { name: 'Copy command' })).toBeTruthy()
+  })
+
+  it("starts the running app's log with the command it started with", async () => {
+    detail(ws('sales-app', 'Sales app', 'Running', allReady(), { run }))
+    renderApp('/apps/sales-app')
+    await userEvent.click(await screen.findByRole('button', { name: "Show the running app's log" }))
+    const log = screen.getByRole('heading', { name: "Running app's log" }).closest('section') as HTMLElement
+    const started = within(log).getByRole('group', { name: 'Started with' })
+    expect(within(started).getByText(run.line)).toBeTruthy()
+    expect(within(started).getByText(run.image)).toBeTruthy()
+    // It stands above the lines, not among them.
+    expect(started.compareDocumentPosition(within(log).getByRole('log')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows the API message for an app that does not exist', async () => {
     mockApi({
       'GET /api/me': { body: me },
