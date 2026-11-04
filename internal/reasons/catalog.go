@@ -201,6 +201,9 @@ const (
 	BuildOutputMissing  Code = "BuildOutputMissing"
 	PreviewRateLimited  Code = "PreviewRateLimited"
 	PreviewLimitReached Code = "PreviewLimitReached"
+	// PreviewOwnerLimitReached is the platform's cap on all of a person's
+	// previews (limits.previews).
+	PreviewOwnerLimitReached Code = "PreviewOwnerLimitReached"
 	PreviewForkSkipped  Code = "PreviewForkSkipped"
 	PreviewsUnavailable Code = "PreviewsUnavailable"
 )
@@ -931,6 +934,11 @@ var catalog = []Reason{
 		Todo:  "Close a pull request, or raise the limit in the app's preview settings.",
 		Blame: "Your preview limit.",
 		Who:   "You.", Blamed: PartyUser},
+	{Code: PreviewOwnerLimitReached, Title: "Your preview limit reached",
+		What:  "Your apps together already have the most previews the platform allows one person, so this pull request has none.",
+		Todo:  "Close a pull request, or turn previews off on an app you do not need them for. Your platform admin sets the limit.",
+		Blame: "The platform's limit on previews per person.",
+		Who:   "You, or your platform admin.", Blamed: PartyPlatform},
 	{Code: PreviewForkSkipped, Title: "Pull request from a fork skipped",
 		What:  "This pull request comes from a fork, and previews of forks are off because they run code you have not reviewed.",
 		Todo:  "Turn on previews of forks in the app's preview settings only if you trust everyone who can open pull requests.",

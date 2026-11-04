@@ -842,3 +842,27 @@ func TestANewTokenAsksTheHostAtOnce(t *testing.T) {
 		t.Fatalf("calls %d, live %v after the token was pasted", f.host.callCount(), f.live())
 	}
 }
+
+// The owner's cap on previews (limits.previews) counts every app of theirs:
+// past it, a pull request gets no preview and says why, and the sync does not fail.
+func TestTheOwnersPreviewCapStopsNewPreviews(t *testing.T) {
+	f := newFixture(t, model.Previews{Enabled: true, Max: 5})
+	f.db.SetLimits(store.Limits{Previews: 2})
+	for n := int32(1); n <= 3; n++ {
+		f.host.pulls = append(f.host.pulls, pr(n, fmt.Sprintf("sha%d", n)))
+	}
+	f.sync()
+	if got := f.live(); len(got) != 2 {
+		t.Fatalf("previews for %v, want the owner's cap of 2", got)
+	}
+	got := reasonsOf(f.lastSync().Items)
+	capped := 0
+	for _, r := range got {
+		if r == string(reasons.PreviewOwnerLimitReached) {
+			capped++
+		}
+	}
+	if capped != 1 {
+		t.Fatalf("reasons %v, want one PreviewOwnerLimitReached", got)
+	}
+}

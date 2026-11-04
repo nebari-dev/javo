@@ -287,7 +287,12 @@ func (r *Reconciler) apply(ctx context.Context, parent *model.App, pulls []codeh
 			child := Child(parent, pr)
 			item.App = child.Name
 			_, err := r.Store.Previews().Put(ctx, &child)
+			var capped *store.LimitError
 			switch {
+			case errors.As(err, &capped):
+				// The owner's previews across all their apps are at the cap.
+				delete(wanted, pr.Number)
+				item.App, item.Reason = "", string(reasons.PreviewOwnerLimitReached)
 			case errors.Is(err, store.ErrExists):
 				res.RequeueAfter = min(res.RequeueAfter, busyRetry)
 			case errors.Is(err, store.ErrConflict):
