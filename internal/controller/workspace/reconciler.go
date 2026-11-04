@@ -88,6 +88,9 @@ type Reconciler struct {
 	Tokens  TokenMinter
 	Secrets client.Reader
 	APIURL  string
+	// APIInternalURL is the gateway inside the cluster, given as
+	// JAVO_API_URL; the agents' model endpoint is reached there too.
+	APIInternalURL string
 	// CloneImage (git-sync) and RunnerImage (the javo image) run the init
 	// containers of apps from Git. Required when any app has a source.
 	CloneImage, CloneGitConfig string
@@ -400,7 +403,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				}
 				want.Annotations[model.AnnotationLayout] = layoutFP
 				r.Isolation.Apply(&want.Spec)
-				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL)
+				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL, r.APIInternalURL)
 				WithGitToken(want, &app, gitSecret, gitGen)
 				WithEnv(want, app.Env)
 				WithAppSecrets(want, secretsName, appSecrets)

@@ -56,9 +56,34 @@ function wanted(env) {
   }
 }
 
+// signedIn is whether pi holds credentials of its own (/login): pi writes an
+// empty auth file at its first start.
+function signedIn(dir) {
+  try {
+    return Object.keys(JSON.parse(readText(join(dir, 'auth.json')) ?? '{}')).length > 0
+  } catch {
+    return true
+  }
+}
+
+// ourSettings is cur with pi's default model set to want's, while pi still
+// defaults to the javo provider (or names none); undefined when the person
+// picked another provider. pi adds keys of its own (lastChangelogVersion),
+// which are kept.
+function ourSettings(cur, want) {
+  let s
+  try {
+    s = JSON.parse(cur)
+  } catch {
+    return undefined
+  }
+  if (s.defaultProvider !== undefined && s.defaultProvider !== PROVIDER) return undefined
+  return JSON.stringify({ ...s, ...JSON.parse(want) }, null, 2) + '\n'
+}
+
 export function configure(env) {
   const dir = agentDir(env)
-  if (existsSync(join(dir, 'auth.json'))) return
+  if (signedIn(dir)) return
   let managed = {}
   try {
     managed = JSON.parse(readText(join(dir, MANAGED)) ?? '{}')
@@ -70,12 +95,18 @@ export function configure(env) {
   for (const name of ['models.json', 'settings.json']) {
     const path = join(dir, name)
     const cur = readText(path)
+    let content = want?.[name]
     const ours = cur === undefined || managed[name] === sha(cur)
-    if (!ours) continue
+    if (!ours) {
+      // pi edits its settings itself; they stay ours while it defaults to javo.
+      if (name !== 'settings.json' || !managed[name] || !want) continue
+      content = ourSettings(cur, want[name])
+      if (content === undefined) continue
+    }
     if (want) {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
-      writeFileSync(path, want[name], { mode: 0o600 })
-      next[name] = sha(want[name])
+      writeFileSync(path, content, { mode: 0o600 })
+      next[name] = sha(content)
     } else if (cur !== undefined) {
       rmSync(path)
     }

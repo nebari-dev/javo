@@ -275,7 +275,7 @@ func TestPlatformVariablesAreReserved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithAPIToken(pod, tpl, model.APIAccessReadWrite, "tok", "https://javo.example.com")
+	WithAPIToken(pod, tpl, model.APIAccessReadWrite, "tok", "https://javo.example.com", "")
 	WithGitToken(pod, ws, "git", "1")
 	var names []string
 	for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {

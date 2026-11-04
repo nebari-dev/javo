@@ -26,6 +26,7 @@ const (
 
 	apiGuideVolume = "javo-api-guide"
 	envURL         = "JAVO_URL"
+	envInternalURL = "JAVO_API_URL"
 	envToken       = "JAVO_TOKEN"
 )
 
@@ -62,13 +63,18 @@ func APITokenSecretName(objectName string) string { return SecretName(objectName
 // API access, the owner's API token from the Secret secretName as
 // JAVO_TOKEN, the UI's public URL as JAVO_URL and the API guide, and records
 // access on the pod. With access None it only records it. The token is
-// never in the pod spec in clear and never a file.
-func WithAPIToken(pod *corev1.Pod, t *model.Template, access, secretName, apiURL string) {
+// never in the pod spec in clear and never a file. internalURL, when set, is
+// the gateway inside the cluster, as JAVO_API_URL: the public address may
+// resolve to one the pod may not reach.
+func WithAPIToken(pod *corev1.Pod, t *model.Template, access, secretName, apiURL, internalURL string) {
 	metav1.SetMetaDataAnnotation(&pod.ObjectMeta, model.AnnotationAPIAccess, access)
 	if token.ScopeFor(access) == "" {
 		return
 	}
 	app := &pod.Spec.Containers[0]
+	if internalURL != "" {
+		app.Env = append(app.Env, corev1.EnvVar{Name: envInternalURL, Value: internalURL})
+	}
 	app.Env = append(app.Env,
 		corev1.EnvVar{Name: envURL, Value: apiURL},
 		corev1.EnvVar{Name: envToken, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{

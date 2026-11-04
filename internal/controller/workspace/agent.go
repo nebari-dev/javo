@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"strings"
@@ -36,7 +37,8 @@ func (r *Reconciler) agentModelOf(ctx context.Context, app *model.App, tpl *mode
 		return agentModel{}, nil
 	}
 	if r.AgentModel != "" {
-		return agentModel{mode: model.AgentModePlatform, model: r.AgentModel, baseURL: strings.TrimRight(r.APIURL, "/") + agentproxy.Route}, nil
+		base := cmp.Or(r.APIInternalURL, r.APIURL)
+		return agentModel{mode: model.AgentModePlatform, model: r.AgentModel, baseURL: strings.TrimRight(base, "/") + agentproxy.Route}, nil
 	}
 	own, err := r.Store.AgentSettings().Get(ctx, app.Owner)
 	switch {

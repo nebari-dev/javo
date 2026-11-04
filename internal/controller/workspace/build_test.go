@@ -694,7 +694,7 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithAPIToken(pod, tpl, model.APIAccessOf(ws, tpl), "sales-app-javo-api", "https://javo.example.com")
+	WithAPIToken(pod, tpl, model.APIAccessOf(ws, tpl), "sales-app-javo-api", "https://javo.example.com", "http://javo-gateway.javo-system.svc:80")
 	c := pod.Spec.Containers[0]
 	env := map[string]corev1.EnvVar{}
 	for _, e := range c.Env {
@@ -702,6 +702,11 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 	}
 	if env["JAVO_URL"].Value != "https://javo.example.com" {
 		t.Fatalf("JAVO_URL %+v", env["JAVO_URL"])
+	}
+	// The public address may be out of the pod's reach: the API is also at
+	// the gateway's Service.
+	if env["JAVO_API_URL"].Value != "http://javo-gateway.javo-system.svc:80" {
+		t.Fatalf("JAVO_API_URL %+v", env["JAVO_API_URL"])
 	}
 	tok := env["JAVO_TOKEN"]
 	if tok.Value != "" || tok.ValueFrom == nil || tok.ValueFrom.SecretKeyRef == nil ||
@@ -738,7 +743,7 @@ func TestNoAPITokenWithoutTheTemplateField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithAPIToken(pod, tpl, model.APIAccessOf(ws, tpl), "sales-app-javo-api", "https://javo.example.com")
+	WithAPIToken(pod, tpl, model.APIAccessOf(ws, tpl), "sales-app-javo-api", "https://javo.example.com", "")
 	for _, e := range pod.Spec.Containers[0].Env {
 		if e.Name == envURL || e.Name == envToken {
 			t.Fatalf("env %s on a template without apiToken", e.Name)

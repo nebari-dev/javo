@@ -461,6 +461,19 @@ func TestTheUIHostIsNotAnAppsHost(t *testing.T) {
 	}
 }
 
+// Pods inside the cluster reach the API at the gateway's own Service: that
+// host is the UI's for /api/, never an app's.
+func TestTheInternalHostServesTheAPI(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
+	if w := f.serve(f.srv, "GET", "http://javo-gateway.javo-system.svc/api/auth/options"); w.Code != 200 {
+		t.Fatalf("internal host /api: %d %s", w.Code, w.Body)
+	}
+	if w := f.serve(f.srv, "GET", "http://"+uiHost+salesURL[len("https://"+appsHost):]); w.Code != 404 {
+		t.Fatalf("an app path on the ui host: %d", w.Code)
+	}
+}
+
 // A kubelet probe sends the pod's address as Host, not either configured host.
 func TestHealthzAnswersWhateverHostTheProbeSends(t *testing.T) {
 	t.Parallel()
@@ -756,7 +769,7 @@ func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.A
 	providers.Register(f.idp)
 	rv := authn.NewRevalidator(providers, f.store, f.db.People(store.IDRange{}), 0, func() time.Time { return f.now })
 	f.rv = rv
-	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp,
+	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp, InternalHost: "javo-gateway.javo-system.svc",
 		Providers: providers, Revalidator: rv, Now: func() time.Time { return f.now },
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},
 		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: capacity.Nodes{Reader: f.c}, Diagnose: diagnose.NewEngine()})

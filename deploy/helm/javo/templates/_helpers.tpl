@@ -261,6 +261,7 @@ true
 {{/* The gateway's own flags. */}}
 {{- define "javo.gatewayArgs" -}}
 - --listen=:{{ .Values.gateway.port }}
+- --internal-host=javo-gateway.{{ .Release.Namespace }}.svc
 - --ui-dir=/ui
 - --secure-cookies={{ .Values.gateway.secureCookies }}
 - --files-image={{ .Values.files.image }}

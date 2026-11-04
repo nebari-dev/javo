@@ -79,6 +79,17 @@ test("the person's own key keeps its provider's address, for pi to recognise it"
   assert.equal(p.compat, undefined)
 })
 
+test('what pi writes on its own first start (an empty auth.json, its changelog mark) does not count as the person configuring it', () => {
+  const h = home()
+  configure(platform(h))
+  writeFileSync(join(h, '.pi/agent', 'auth.json'), '{}')
+  const s = read(h, 'settings.json')
+  writeFileSync(join(h, '.pi/agent/settings.json'), JSON.stringify({ ...s, lastChangelogVersion: '1.4.0' }))
+  configure({ ...platform(h), JAVO_AGENT_MODEL: 'other/model' })
+  assert.deepEqual(read(h, 'settings.json'), { defaultProvider: 'javo', defaultModel: 'other/model', lastChangelogVersion: '1.4.0' })
+  assert.deepEqual(read(h, 'models.json').providers.javo.models.map((m) => m.id), ['other/model'])
+})
+
 test('the first prompt runs on the first start of the app only', () => {
   const h = home()
   const env = { HOME: h, HOSTNAME: 'pi-app-1', JAVO_AGENT_PROMPT: 'build a dashboard' }

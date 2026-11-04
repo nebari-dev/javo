@@ -89,3 +89,11 @@ test('the token never goes to another host or outside /api/', async () => {
   assert.equal(evil.seen.length, 0)
   assert.equal(javo.seen.length, 0)
 })
+
+test('JAVO_API_URL, the gateway inside the cluster, is called instead of the public address', async () => {
+  const s = await server(() => [200, '{"id":"alice-1"}'])
+  const code = await run(['/api/me'], { JAVO_URL: 'http://127.0.0.1:9', JAVO_API_URL: s.url, JAVO_TOKEN: 't' }, () => {})
+  s.close()
+  assert.equal(code, 0)
+  assert.equal(s.seen[0].url, '/api/me')
+})

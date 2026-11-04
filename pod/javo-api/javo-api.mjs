@@ -18,8 +18,10 @@ export async function run(args, env, write) {
   if (!path || !path.startsWith('/api/')) return usage('Give a path such as /api/me.')
   // The token goes to the javo API only: never to another host (a path such
   // as //host/x or /\host/x resolves to one) nor outside /api/.
-  const url = new URL(path, env.JAVO_URL)
-  if (url.origin !== new URL(env.JAVO_URL).origin || !url.pathname.startsWith('/api/') || /[\\\s]/.test(path))
+  // Inside the cluster the API is at JAVO_API_URL, the gateway's own address.
+  const base = env.JAVO_API_URL || env.JAVO_URL
+  const url = new URL(path, base)
+  if (url.origin !== new URL(base).origin || !url.pathname.startsWith('/api/') || /[\\\s]/.test(path))
     return usage('Give a path on the javo API, such as /api/me.')
   if (body !== undefined) {
     try {

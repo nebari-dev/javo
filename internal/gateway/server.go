@@ -49,6 +49,7 @@ import (
 	"github.com/nebari-dev/javo/internal/store"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -167,6 +168,11 @@ type Config struct {
 	AI *ai.Service
 	// AIFeatures turns single AI features off while AI is on.
 	AIFeatures config.AIFeatures
+	// InternalHost is the gateway's Service host inside the cluster (such as
+	// javo-gateway.javo-system.svc): pods call the API there, since the
+	// public address may not be reachable from them. It serves /api/ as the
+	// UI host does; browsers cannot reach it.
+	InternalHost string
 	// Agent is the admin's agent model ("" while off) and template.
 	Agent apps.AgentConfig
 	// AgentModel is the coding agents' model endpoint; nil serves none. Only
@@ -203,7 +209,9 @@ type Server struct {
 	// exp and uiHost send requests for another host to apps.
 	exp    exposure.Backend
 	uiHost string
-	apps   http.Handler
+	// internalHost serves /api/ like uiHost (Config.InternalHost).
+	internalHost string
+	apps         http.Handler
 	// https says the install is served over TLS, so its hosts get HSTS.
 	https bool
 }
@@ -348,7 +356,7 @@ func NewServer(cfg Config) *Server {
 		}
 		bodies.ServeHTTP(w, r)
 	})
-	return &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, https: cfg.URLs.URLScheme() == "https"}
+	return &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, internalHost: cfg.InternalHost, https: cfg.URLs.URLScheme() == "https"}
 }
 
 // readyFor is how long one answer of the readiness check is reused.
@@ -444,6 +452,11 @@ func (s *Server) forApps(r *http.Request) bool {
 		return false
 	}
 	_, isApp := s.exp.Match(r)
+	if s.internalHost != "" && strings.HasPrefix(r.URL.Path, "/api/") {
+		if h, _, err := net.SplitHostPort(r.Host); (err == nil && strings.EqualFold(h, s.internalHost)) || strings.EqualFold(r.Host, s.internalHost) {
+			return false
+		}
+	}
 	if s.uiHost != "" {
 		if strings.EqualFold(r.Host, s.uiHost) {
 			return false

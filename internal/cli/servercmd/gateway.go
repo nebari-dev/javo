@@ -80,6 +80,8 @@ import (
 // controller are in commonFlags.
 type gatewayOptions struct {
 	listen, uiDir, filesImage, templatesDir string
+	// internalHost is the gateway's Service host, for pods calling the API.
+	internalHost string
 	// sessionsKeySecret names the Secret in the release namespace with the
 	// key the sessions' provider tokens are sealed with; sessionsKeyCreate
 	// makes it.
@@ -97,6 +99,7 @@ type gatewayOptions struct {
 func (o *gatewayOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.listen, "listen", ":8080", "address to listen on")
 	f.StringVar(&o.uiDir, "ui-dir", "/ui", "directory with the built UI")
+	f.StringVar(&o.internalHost, "internal-host", "", "the gateway's Service host inside the cluster (such as javo-gateway.javo-system.svc): /api/ answers there as on the UI host, for pods whose public address is out of reach")
 	f.StringVar(&o.filesImage, "files-image", defaultFilesImage, "rclone image for file picker pods, pinned by digest")
 	f.DurationVar(&o.filesIdleAfter, "files-idle-after", 10*time.Minute,
 		"how long a user's file picker pod is kept after their last request from the UI")
@@ -281,6 +284,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Plans:           proposals,
 		AI:              aiSvc,
 		AgentModel:      wiring.AgentModel(platform.AI),
+		InternalHost:    o.internalHost,
 		Agent:           apps.AgentConfig{Model: platform.AI.AgentModel(), Template: platform.AI.Agent.Template},
 		AIFeatures:      platform.AI.Features,
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
