@@ -552,6 +552,8 @@ type appRequest struct {
 	tokenSecret string
 	// environment is the pixi environment picked, not yet fetched; nil for none.
 	environment *environments.EnvironmentPick
+	// agentPrompt is the first prompt of a coding-agent app; "" for none.
+	agentPrompt string
 	launch
 }
 
@@ -667,10 +669,13 @@ func (s *Workspaces) check(ctx context.Context, u authz.Principal, b appRequest)
 	if err != nil {
 		return nil, err
 	}
+	if b.agentPrompt != "" && !t.Spec.AgentModel {
+		return nil, problem.FieldError("agentPrompt", reasons.MsgAgentPromptNotTaken)
+	}
 	app := &model.App{
 		Name: name, Owner: u.ID, DisplayName: b.displayName, Template: b.template,
 		File: file, Sample: b.sample, Command: run.command, Image: run.image, Port: run.port,
-		APIAccess: b.apiAccess, IdleStopMinutes: idle, Source: b.source,
+		APIAccess: b.apiAccess, IdleStopMinutes: idle, Source: b.source, AgentPrompt: b.agentPrompt,
 	}
 	app.Size, app.Resources = sz.Stored()
 	return app, nil
@@ -867,7 +872,9 @@ func (s *Workspaces) rolesOf(u authz.Principal) []authz.Role { return authz.Role
 // "Stop when idle", import and export, variables, pictures, source and
 // sharing).
 type Config struct {
-	Store         *store.Store
+	Store *store.Store
+	// Agent is config.ai.agent as the coding-agent routes use it.
+	Agent         AgentConfig
 	Client        client.Reader
 	Namespaces    *namespaces.Finder
 	Homes         storage.Homes
@@ -924,6 +931,7 @@ func New(c Config) *Workspaces {
 func (s *Workspaces) Register(api huma.API) {
 	c := s.cfg
 	s.registerWorkspaces(api)
+	s.registerAgent(api)
 	s.registerDiagnosis(api)
 	pa := &plansAPI{ws: s, plans: c.Plans}
 	pa.register(api)

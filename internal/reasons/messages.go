@@ -265,6 +265,13 @@ const (
 	MsgSecretsHeldOwnerOnly   MessageCode = "SecretsHeldOwnerOnly"
 	MsgWorkloadTokenReadOnly  MessageCode = "WorkloadTokenReadOnly"
 	MsgAgentNeedsPerson       MessageCode = "AgentNeedsPerson"
+	MsgAgentBrowserOnly       MessageCode = "AgentBrowserOnly"
+	MsgAgentBaseURLInvalid    MessageCode = "AgentBaseURLInvalid"
+	MsgAgentModelInvalid      MessageCode = "AgentModelInvalid"
+	MsgAgentKeyRequired       MessageCode = "AgentKeyRequired"
+	MsgAgentRequestInvalid    MessageCode = "AgentRequestInvalid"
+	MsgAgentUnavailable       MessageCode = "AgentUnavailable"
+	MsgAgentPromptNotTaken    MessageCode = "AgentPromptNotTaken"
 	MsgRewriteOwnerOnly       MessageCode = "RewriteOwnerOnly"
 	MsgEnvValueInvalid        MessageCode = "EnvValueInvalid"
 	MsgEnvValueOrSecret       MessageCode = "EnvValueOrSecret"
@@ -534,6 +541,13 @@ var messages = map[MessageCode]string{
 	MsgEnvValueOrSecret:       "Type a value or pick a secret, not both.",
 	MsgSecretsNotForAppTokens: "An app's or job's own API token cannot use secrets. Use the browser, or a personal token from Settings.",
 	MsgSecretsHeldOwnerOnly:   "This uses its owner's secrets, so only its owner can change what it runs, and not with an app's or job's own API token. Ask the owner, or have them remove its secrets first.",
+	MsgAgentBrowserOnly:       "Only you can do this, in the browser or with a personal token; an app's or job's own token cannot.",
+	MsgAgentBaseURLInvalid:    "Give the https address of an OpenAI-compatible API, such as https://openrouter.ai/api/v1.",
+	MsgAgentModelInvalid:      "Name the model in up to 200 characters, such as anthropic/claude-sonnet-5.5.",
+	MsgAgentKeyRequired:       "Paste the API key.",
+	MsgAgentRequestInvalid:    "Say what to build in up to 4000 characters of text.",
+	MsgAgentUnavailable:       "The coding agent is not available to you. Ask your admin to turn it on.",
+	MsgAgentPromptNotTaken:    "This kind of app takes no first prompt.",
 	MsgAgentNeedsPerson:       "A coding agent cannot do this itself: the app or job holds a secret, an API token or a Nebi token, belongs to someone else, or the change would give it one. Ask the person to do it in the browser, or propose it as a plan (POST /api/plans) for them to approve.",
 	MsgWorkloadTokenReadOnly:  "An app's or job's own API token can read, start, stop and run, but cannot change files or create or change apps and jobs. Use the browser, or a personal token from Settings.",
 	MsgRewriteOwnerOnly:       "Only its owner can change what it runs: its command, image, port, file, engine or template. It runs in their home folder, so a change could read or rewrite their files. Ask the owner.",

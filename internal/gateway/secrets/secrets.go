@@ -112,6 +112,36 @@ func sealValue(sealer *seal.Sealer, owner, name, value string) func(id string) (
 	}
 }
 
+// Put stores value as owner's secret called name, created or replaced, for
+// a platform feature that keeps a value of the person's (such as their own
+// agent key); name may be one the person cannot use themselves.
+func Put(ctx context.Context, db *store.Store, actor model.Actor, owner, name, note, value string) error {
+	if err := checkSecretValue(value); err != nil {
+		return err
+	}
+	sealer, err := sealerFor(ctx, db)
+	if err != nil {
+		return err
+	}
+	switch _, err := db.Secrets().Get(ctx, owner, name); {
+	case errors.Is(err, store.ErrNotFound):
+		_, err = db.Secrets().Create(ctx, actor, owner, name, note, sealValue(sealer, owner, name, value))
+		if errors.Is(err, store.ErrTooManySecrets) {
+			return problem.New(http.StatusUnprocessableEntity, reasons.Msg(reasons.MsgSecretsTooMany))
+		}
+		if err != nil {
+			return problem.Internal("create secret", err)
+		}
+		return nil
+	case err != nil:
+		return problem.Internal("read secret", err)
+	}
+	if _, err := db.Secrets().SetValue(ctx, actor, owner, name, sealValue(sealer, owner, name, value)); err != nil {
+		return problem.Internal("replace secret value", err)
+	}
+	return nil
+}
+
 // secretNameError checks a new secret's name: a variable name the platform
 // does not set.
 func secretNameError(name string) error {

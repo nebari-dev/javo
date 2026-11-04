@@ -322,8 +322,8 @@ func (a *App) Validate() error {
 		v.add("spec.port", "port must be between 0 and 65535")
 	}
 	v.oneOf("spec.apiAccess", a.APIAccess, true, apiAccessLevels...)
-	if charLen(a.AgentPrompt) > MaxAgentPrompt || strings.ContainsFunc(a.AgentPrompt, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
-		v.add("spec.agentPrompt", fmt.Sprintf("agentPrompt must be text of at most %d characters", MaxAgentPrompt))
+	if err := a.ValidateAgentPrompt(); err != nil {
+		v.add("spec.agentPrompt", err.Error())
 	}
 	if a.IdleStopMinutes < 0 {
 		v.add("spec.idleStopMinutes", "idleStopMinutes must not be negative")
@@ -334,6 +334,15 @@ func (a *App) Validate() error {
 	}
 	a.Environment.validate(&v, "spec.environment")
 	return v.err()
+}
+
+// ValidateAgentPrompt checks AgentPrompt: text of at most MaxAgentPrompt
+// characters, with line breaks and tabs but no other control characters.
+func (a *App) ValidateAgentPrompt() error {
+	if charLen(a.AgentPrompt) > MaxAgentPrompt || strings.ContainsFunc(a.AgentPrompt, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
+		return fmt.Errorf("agentPrompt must be text of at most %d characters", MaxAgentPrompt)
+	}
+	return nil
 }
 
 // ValidateUpdate is Validate plus the rules for changing old into a: the

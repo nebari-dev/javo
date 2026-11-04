@@ -281,6 +281,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Plans:           proposals,
 		AI:              aiSvc,
 		AgentModel:      wiring.AgentModel(platform.AI, db),
+		Agent:           apps.AgentConfig{Model: platform.AI.AgentModel(), Template: platform.AI.Agent.Template},
 		AIFeatures:      platform.AI.Features,
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
 		MCP:             platform.MCP,

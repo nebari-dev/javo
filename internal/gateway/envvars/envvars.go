@@ -122,6 +122,10 @@ func Check(ctx context.Context, db *store.Store, u authz.Principal, roles []auth
 // to target (their own app or job, not a preview). A name they have no
 // secret of is unknown, a field error on field; a refusal is the error.
 func UsableSecret(ctx context.Context, db *store.Store, u authz.Principal, roles []authz.Role, target authz.Object, name, field string) (model.Secret, *problem.Field, error) {
+	if name == model.AgentKeySecret {
+		// Only the person's agent apps get it, never as a variable they bind.
+		return model.Secret{}, &problem.Field{Name: field, Msg: reasons.Msg(reasons.MsgSecretUnknown, name)}, nil
+	}
 	sec, err := db.Secrets().Get(ctx, u.ID, name)
 	switch {
 	case errors.Is(err, store.ErrNotFound):

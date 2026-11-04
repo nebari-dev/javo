@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
+	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -134,6 +135,8 @@ type Options struct {
 	Mcp bool
 	// AgentModel serves the coding agents' model endpoint.
 	AgentModel *agentproxy.Proxy
+	// Agent is the admin's agent model and template.
+	Agent apps.AgentConfig
 	// Usage reads a home's usage and groups tells a person's groups; nil
 	// leaves each out of the gateway.
 	Usage  storage.HomeUsages
@@ -245,7 +248,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Logs: o.Logs, Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
 		URLs: o.Urls, Exposure: exposurepath.New(o.Urls), Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
-		AI:       o.Ai, AgentModel: o.AgentModel, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
+		AI:       o.Ai, AgentModel: o.AgentModel, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
 		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage,
 	})

@@ -167,6 +167,8 @@ type Config struct {
 	AI *ai.Service
 	// AIFeatures turns single AI features off while AI is on.
 	AIFeatures config.AIFeatures
+	// Agent is the admin's agent model ("" while off) and template.
+	Agent apps.AgentConfig
 	// AgentModel is the coding agents' model endpoint; nil serves none. Only
 	// the token of an app whose template has agentModel may call it.
 	AgentModel *agentproxy.Proxy
@@ -280,7 +282,7 @@ func NewServer(cfg Config) *Server {
 		Now: now, URLs: cfg.URLs, CodeHosts: cfg.CodeHosts,
 		Plans: cfg.Plans, AI: cfg.AI, AIFeatures: cfg.AIFeatures, AIIncludeOwners: cfg.AIIncludeOwners,
 		People: cfg.People, Sharing: cfg.Sharing, StaleAfter: cfg.StaleAfter,
-		Streams: logStreams, ThumbnailDecodes: limits.ThumbnailDecodes,
+		Streams: logStreams, ThumbnailDecodes: limits.ThumbnailDecodes, Agent: cfg.Agent,
 	})
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)

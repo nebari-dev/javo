@@ -178,6 +178,84 @@
         ],
         "type": "object"
       },
+      "AgentBuildInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "description": "What to build or do, in your words; the agent gets it as its first prompt",
+            "maxLength": 16000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "AgentSettingsInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "Write-only; leave out to keep the stored key",
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "baseURL": {
+            "description": "https address of an OpenAI-compatible API, such as https://openrouter.ai/api/v1",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "model": {
+            "description": "The model, such as anthropic/claude-sonnet-5.5",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseURL",
+          "model"
+        ],
+        "type": "object"
+      },
+      "AgentStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "baseURL": {
+            "type": "string"
+          },
+          "keyLast4": {
+            "type": "string"
+          },
+          "mode": {
+            "description": "platform: the admin's model, through the gateway; own: your key from Settings; login: neither, the agent asks you to sign in",
+            "enum": [
+              "platform",
+              "own",
+              "login"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          },
+          "templateName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "template",
+          "templateName",
+          "available"
+        ],
+        "type": "object"
+      },
       "Amount": {
         "additionalProperties": false,
         "properties": {
@@ -6544,6 +6622,263 @@
         "summary": "How long apps ran in the last days, per person or group (platform admins)",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/ai/agent": {
+      "get": {
+        "operationId": "getAgentStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Where your coding agents get their model",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/agent/build": {
+      "post": {
+        "description": "Makes a new app of the coding agent template, named after the request, that starts with the request as its first prompt, in the home folder or in the folder the request names when it exists.",
+        "operationId": "buildWithAgent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBuildInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Start a coding-agent app on a request",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/agent/settings": {
+      "delete": {
+        "operationId": "deleteAgentSettings",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Stop using your own model and key for your coding agents",
+        "tags": [
+          "ai"
+        ]
+      },
+      "put": {
+        "description": "Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps.",
+        "operationId": "setAgentSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSettingsInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Use your own model and key for your coding agents",
+        "tags": [
+          "ai"
         ]
       }
     },

@@ -56,6 +56,41 @@ export type AdminStorageOutputBody = {
     summary: string;
 };
 
+export type AgentBuildInputBody = {
+    /**
+     * What to build or do, in your words; the agent gets it as its first prompt
+     */
+    request: string;
+};
+
+export type AgentSettingsInputBody = {
+    /**
+     * Write-only; leave out to keep the stored key
+     */
+    apiKey?: string;
+    /**
+     * https address of an OpenAI-compatible API, such as https://openrouter.ai/api/v1
+     */
+    baseURL: string;
+    /**
+     * The model, such as anthropic/claude-sonnet-5.5
+     */
+    model: string;
+};
+
+export type AgentStatus = {
+    available: boolean;
+    baseURL?: string;
+    keyLast4?: string;
+    /**
+     * platform: the admin's model, through the gateway; own: your key from Settings; login: neither, the agent asks you to sign in
+     */
+    mode: 'platform' | 'own' | 'login';
+    model?: string;
+    template: string;
+    templateName: string;
+};
+
 export type Amount = {
     /**
      * CPU cores, e.g. 2.5 (whole thousandths)
@@ -2740,6 +2775,154 @@ export type AdminUsageResponses = {
 };
 
 export type AdminUsageResponse = AdminUsageResponses[keyof AdminUsageResponses];
+
+export type GetAgentStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/ai/agent';
+};
+
+export type GetAgentStatusErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type GetAgentStatusError = GetAgentStatusErrors[keyof GetAgentStatusErrors];
+
+export type GetAgentStatusResponses = {
+    /**
+     * OK
+     */
+    200: AgentStatus;
+};
+
+export type GetAgentStatusResponse = GetAgentStatusResponses[keyof GetAgentStatusResponses];
+
+export type BuildWithAgentData = {
+    body: AgentBuildInputBody;
+    path?: never;
+    query?: never;
+    url: '/api/ai/agent/build';
+};
+
+export type BuildWithAgentErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorModel;
+};
+
+export type BuildWithAgentError = BuildWithAgentErrors[keyof BuildWithAgentErrors];
+
+export type BuildWithAgentResponses = {
+    /**
+     * Created
+     */
+    201: Workspace;
+};
+
+export type BuildWithAgentResponse = BuildWithAgentResponses[keyof BuildWithAgentResponses];
+
+export type DeleteAgentSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/ai/agent/settings';
+};
+
+export type DeleteAgentSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type DeleteAgentSettingsError = DeleteAgentSettingsErrors[keyof DeleteAgentSettingsErrors];
+
+export type DeleteAgentSettingsResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type DeleteAgentSettingsResponse = DeleteAgentSettingsResponses[keyof DeleteAgentSettingsResponses];
+
+export type SetAgentSettingsData = {
+    body: AgentSettingsInputBody;
+    path?: never;
+    query?: never;
+    url: '/api/ai/agent/settings';
+};
+
+export type SetAgentSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorModel;
+};
+
+export type SetAgentSettingsError = SetAgentSettingsErrors[keyof SetAgentSettingsErrors];
+
+export type SetAgentSettingsResponses = {
+    /**
+     * OK
+     */
+    200: AgentStatus;
+};
+
+export type SetAgentSettingsResponse = SetAgentSettingsResponses[keyof SetAgentSettingsResponses];
 
 export type AiCommandData = {
     body: CommandInputBody;
