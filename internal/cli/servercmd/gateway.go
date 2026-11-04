@@ -199,7 +199,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Client: c, Namespace: wsNamespace, Image: o.filesImage, IdleAfter: o.filesIdleAfter,
 		// The sessions key is the one key every replica shares; a sealed
 		// login is bound to its pod and Secret, so it opens nothing else.
-		Seal: sessionsKey,
+		Seal:    sessionsKey,
 		Storage: wiring.StorageResolver(db, platform),
 		UIDs:    ids.People{People: db.People(store.IDRange{}), Mode: platform.Identity.UIDMode},
 		ReapIn:  namespaces.New(pl, c).All,

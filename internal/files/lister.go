@@ -56,18 +56,18 @@ const (
 	rcPort = 5572
 	// rcUser and the env vars rclone reads its remote control user and
 	// password from.
-	rcUser      = "javo"
-	envRCUser   = "RCLONE_RC_USER"
-	envRCPass   = "RCLONE_RC_PASS"
+	rcUser    = "javo"
+	envRCUser = "RCLONE_RC_USER"
+	envRCPass = "RCLONE_RC_PASS"
 	// annotationLogin holds the pod's rclone password sealed with the
 	// gateway's key (PodsConfig.Seal); passwordKey is its key in the pod's
 	// password Secret, named <pod>-rc-<16 hex>.
 	annotationLogin = model.Group + "/rclone-login"
 	passwordKey     = "password"
-	dataDir     = podstorage.HomeDir
-	scratchDir  = podstorage.ScratchDir
-	defaultIdle = 10 * time.Minute
-	reapEvery   = time.Minute
+	dataDir         = podstorage.HomeDir
+	scratchDir      = podstorage.ScratchDir
+	defaultIdle     = 10 * time.Minute
+	reapEvery       = time.Minute
 	// MaxEntries is the most entries one folder listing returns.
 	MaxEntries = 5000
 	// maxListing bounds how much of an rclone answer is read: MaxEntries

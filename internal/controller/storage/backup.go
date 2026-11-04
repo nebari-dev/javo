@@ -714,7 +714,7 @@ func (r *BackupReconciler) volumeJob(v volume, name, role string, readOnly bool,
 							{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"}}},
 							{Name: "RESTIC_PROGRESS_FPS", Value: "1"},
 						},
-						VolumeMounts:             mounts,
+						VolumeMounts: mounts,
 						// Only what the step wrote counts as its result, never its
 						// log tail (which may carry file names from the home).
 						TerminationMessagePolicy: corev1.TerminationMessageReadFile,
