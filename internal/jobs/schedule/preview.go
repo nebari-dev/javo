@@ -13,6 +13,9 @@ import (
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
+// MinInterval is the shortest time between two runs a schedule may ask for.
+const MinInterval = time.Minute
+
 var (
 	// ErrCronInvalid wraps a cron expression the parser rejects.
 	ErrCronInvalid = errors.New("invalid cron expression")
@@ -71,6 +74,10 @@ func parse(spec, zone string) (cron.Schedule, *time.Location, error) {
 	sched, err := parseStandard(spec)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrCronInvalid, err)
+	}
+	// Five fields fire at most once a minute; only "@every" can go faster.
+	if every, ok := sched.(cron.ConstantDelaySchedule); ok && every.Delay < MinInterval {
+		return nil, nil, fmt.Errorf("%w: it runs more often than once a minute", ErrCronInvalid)
 	}
 	return sched, loc, nil
 }

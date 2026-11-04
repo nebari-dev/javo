@@ -153,3 +153,23 @@ func TestPreviousRejectsBadInput(t *testing.T) {
 		t.Errorf("bad zone err = %v", err)
 	}
 }
+
+// A schedule may fire at most once a minute: "@every" below a minute would
+// start a pod every few seconds, so it is refused like any invalid cron, by
+// the gateway and by the controller, which both parse with Validate or Next.
+func TestScheduleFasterThanAMinuteIsRefused(t *testing.T) {
+	from := at(t, "2026-01-01T00:00:00Z")
+	for _, spec := range []string{"@every 5s", "@every 59s"} {
+		if _, err := Next(spec, "UTC", from, 3); !errors.Is(err, ErrCronInvalid) {
+			t.Errorf("Next(%q) err = %v, want ErrCronInvalid", spec, err)
+		}
+		if err := Validate(spec, "UTC"); !errors.Is(err, ErrCronInvalid) {
+			t.Errorf("Validate(%q) err = %v, want ErrCronInvalid", spec, err)
+		}
+	}
+	for _, spec := range []string{"@every 1m", "@every 90s", "* * * * *", "@hourly"} {
+		if err := Validate(spec, "UTC"); err != nil {
+			t.Errorf("Validate(%q) = %v, want nil", spec, err)
+		}
+	}
+}
