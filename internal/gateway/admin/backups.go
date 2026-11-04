@@ -254,12 +254,14 @@ func (a *API) restoreApps(ctx context.Context, name string, scope restoreScope, 
 				Image: app.Image, Port: app.Port, APIAccess: app.APIAccess, IdleStopMinutes: app.IdleStopMinutes,
 				Paused: app.Paused, Sharing: app.Sharing, Source: app.Source, RestoreHold: name,
 			}
-			switch _, err := a.DB.Apps().Create(ctx, authn.Actor(ctx), &back); {
+			_, err := a.DB.Apps().Create(ctx, authn.Actor(ctx), &back)
+			capped := problem.Limit(err)
+			switch {
 			case errors.Is(err, store.ErrExists):
 				row.Outcome, row.Message = apps.OutcomeExists, reasons.Msg(reasons.MsgRestoreExists)
-			case problem.Limit(err) != nil:
+			case capped != nil:
 				// The owner is at a cap: this app stays out, the rest go on.
-				row.Outcome, row.Message = apps.OutcomeInvalid, problem.Limit(err).Title
+				row.Outcome, row.Message = apps.OutcomeInvalid, capped.Title
 			case err != nil:
 				return nil, problem.Internal("restore app", err)
 			default:
