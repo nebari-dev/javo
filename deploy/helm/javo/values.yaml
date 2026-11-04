@@ -501,9 +501,12 @@ config:
   # Personal API tokens (Settings in the UI) and the API docs page.
   api:
     tokens:
-      # A token acts with the groups of its owner's last sign-in and stops
-      # working this long after it, until they sign in again.
-      groupsMaxAge: 720h
+      # A token acts with the groups of its owner's last sign-in (or the
+      # last revalidation of their session) and stops working this long
+      # after it, until they sign in again. An admin token acts as a member
+      # one day after it. Tokens stop at once when the provider says the
+      # person is gone.
+      groupsMaxAge: 168h
       # The longest expiry a new token may have; 0s allows tokens that never expire.
       maxLifetime: 0s
     docs:

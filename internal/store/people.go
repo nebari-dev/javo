@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/nebari-dev/javo/internal/model"
@@ -180,6 +181,20 @@ func (p *People) Reconfirm(ctx context.Context, name string, groups, providerRol
 		_, err = refreshLogin(ctx, q, row, c, l)
 		return nil, err
 	})
+}
+
+// Revoked records that the person's provider said they are gone: their
+// groups and provider roles are forgotten and their last sign-in moves to the
+// epoch, so every API token of theirs pauses (groupsMaxAge) until they sign in
+// again, which the provider must allow. An unknown name is ErrNotFound.
+func (p *People) Revoked(ctx context.Context, name string) error {
+	n, err := p.s.q.RevokePersonLogin(ctx, sqlcgen.RevokePersonLoginParams{
+		Groups: "[]", ProviderRoles: "[]", LastLoginAt: dbtime.From(time.Unix(0, 0)), Name: name,
+	})
+	if err == nil && n == 0 {
+		err = ErrNotFound
+	}
+	return err
 }
 
 func personBySubject(ctx context.Context, q *sqlcgen.Queries, issuer, subject string) (sqlcgen.Person, error) {

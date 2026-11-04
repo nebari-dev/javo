@@ -50,3 +50,8 @@ INSERT INTO person_subjects (person_id, issuer, subject) VALUES ($1, $2, $3);
 -- $1 is lower-cased: everyone whose username or email is exactly it.
 -- name: ListPeopleByLogin :many
 SELECT * FROM people WHERE username_lower = $1 OR email_lower = $1 ORDER BY name;
+
+-- The provider said the person is gone: forget their groups and date their
+-- last sign-in to the epoch, so their tokens pause until they sign in again.
+-- name: RevokePersonLogin :execrows
+UPDATE people SET groups = $1, provider_roles = $2, last_login_at = $3 WHERE name = $4;

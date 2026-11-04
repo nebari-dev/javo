@@ -524,7 +524,7 @@ func (p *Platform) applyDefaults() {
 	setDur(&p.Identity.StaleAfter, 90*24*time.Hour)
 	setDur(&p.Sessions.TTL, 12*time.Hour)
 	setDur(&p.Sessions.SweepEvery, 5*time.Minute)
-	setDur(&p.API.Tokens.GroupsMaxAge, 30*24*time.Hour)
+	setDur(&p.API.Tokens.GroupsMaxAge, 7*24*time.Hour)
 	setDur(&p.AI.Timeout, 60*time.Second)
 	setDur(&p.Plans.TTL, 10*time.Minute)
 	if p.AI.DailyTokensPerUser == 0 {

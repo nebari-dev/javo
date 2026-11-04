@@ -310,6 +310,32 @@ func (q *Queries) ListPersonIDs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const revokePersonLogin = `-- name: RevokePersonLogin :execrows
+UPDATE people SET groups = $1, provider_roles = $2, last_login_at = $3 WHERE name = $4
+`
+
+type RevokePersonLoginParams struct {
+	Groups        string
+	ProviderRoles string
+	LastLoginAt   dbtime.Time
+	Name          string
+}
+
+// The provider said the person is gone: forget their groups and date their
+// last sign-in to the epoch, so their tokens pause until they sign in again.
+func (q *Queries) RevokePersonLogin(ctx context.Context, arg RevokePersonLoginParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokePersonLogin,
+		arg.Groups,
+		arg.ProviderRoles,
+		arg.LastLoginAt,
+		arg.Name,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const searchPeople = `-- name: SearchPeople :many
 SELECT id, name, issuer, subject, username, email, display_name, username_lower, email_lower, uid, groups, last_login_at, created_at, provider_roles FROM people
 WHERE $1 = substr(username_lower, 1, $2) OR $1 = substr(email_lower, 1, $2)

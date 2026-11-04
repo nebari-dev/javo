@@ -158,7 +158,7 @@ func TestLoadReadsAPITokensAndDocs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.API.Docs.Enabled || p.API.Tokens.GroupsMaxAge.Duration != 30*24*time.Hour || p.API.Tokens.MaxLifetime.Duration != 0 {
+	if p.API.Docs.Enabled || p.API.Tokens.GroupsMaxAge.Duration != 7*24*time.Hour || p.API.Tokens.MaxLifetime.Duration != 0 {
 		t.Fatalf("api defaults = %+v", p.API)
 	}
 	if _, err := load(t, "auth:\n  local:\n    enabled: true\napi:\n  tokens:\n    maxLifetime: -1h\n"); err == nil || !strings.Contains(err.Error(), "api.tokens.maxLifetime") {

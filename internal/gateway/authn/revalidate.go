@@ -13,6 +13,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
+	"github.com/nebari-dev/javo/internal/store"
 )
 
 // defaultOutageGrace is how long a session outlives a provider outage when
@@ -99,10 +100,13 @@ func (k *keyedLock) lock(key string) (unlock func()) {
 // configured any more, or an outage outlasted the grace period.
 var ErrSessionEnded = errors.New("session ended")
 
-// Reconfirmer records the groups and provider roles a revalidation
-// confirmed for a person (store.People), which their API tokens act with.
+// Reconfirmer records on a person (store.People) what a revalidation
+// learnt, which their API tokens act with: the groups and provider roles it
+// confirmed, or that the provider said the person is gone (Revoked), which
+// pauses their tokens until they sign in again.
 type Reconfirmer interface {
 	Reconfirm(ctx context.Context, name string, groups, providerRoles []string) error
+	Revoked(ctx context.Context, name string) error
 }
 
 // Revalidator asks a ui session's provider whether the person is still valid.
@@ -243,6 +247,10 @@ func (v *Revalidator) check(ctx context.Context, id string, sess session.Session
 		}
 		return fresh, time.Time{}, nil
 	case errors.Is(err, authprovider.ErrRevoked):
+		// The person's API tokens end with the session, not groupsMaxAge later.
+		if err := v.people.Revoked(ctx, sess.Principal.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			slog.Error("pause the revoked person's tokens", "person", sess.Principal.ID, "err", err)
+		}
 		return end()
 	case errors.Is(err, authprovider.ErrUnavailable):
 		v.outages.set(id, v.now(), v.now().Add(outageRetry))
