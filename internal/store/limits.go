@@ -70,7 +70,7 @@ type capCheck struct {
 	count func() (int64, error)
 }
 
-// within locks owner's row and refuses with a *LimitError the first check
+// within takes owner's lock row and refuses with a *LimitError the first check
 // whose count is at its cap. Checks without a cap cost no query.
 func within(ctx context.Context, q *sqlcgen.Queries, owner string, checks ...capCheck) error {
 	locked := false
@@ -79,7 +79,7 @@ func within(ctx context.Context, q *sqlcgen.Queries, owner string, checks ...cap
 			continue
 		}
 		if !locked {
-			if err := q.LockPerson(ctx, owner); err != nil {
+			if err := q.LockOwner(ctx, owner); err != nil {
 				return err
 			}
 			locked = true

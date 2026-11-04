@@ -1,9 +1,12 @@
 -- The per-person counts the caps in limits.go are checked against.
 
--- Takes the person's row lock, so two writes that count the same person's
--- rows run one after the other (Postgres; SQLite has one writer anyway).
--- name: LockPerson :exec
-UPDATE people SET name = name WHERE name = $1;
+-- Takes the owner's lock row (inserting it the first time), so two writes
+-- that count the same owner's rows run one after the other: the upsert locks
+-- the row on Postgres even when another transaction inserted it first.
+-- SQLite has one writer anyway.
+-- name: LockOwner :exec
+INSERT INTO owner_locks (owner) VALUES ($1)
+ON CONFLICT (owner) DO UPDATE SET owner = excluded.owner;
 
 -- name: CountAppsByOwner :one
 SELECT COUNT(*) FROM apps WHERE owner = $1 AND deleted_at IS NULL AND parent_id IS NULL;

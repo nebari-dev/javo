@@ -215,6 +215,10 @@ type Meta struct {
 	UpdatedAt dbtime.Time
 }
 
+type OwnerLock struct {
+	Owner string
+}
+
 type Person struct {
 	ID            string
 	Name          string

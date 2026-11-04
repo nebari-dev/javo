@@ -133,15 +133,18 @@ func (q *Queries) CountRunningRunsByOwner(ctx context.Context, arg CountRunningR
 	return count, err
 }
 
-const lockPerson = `-- name: LockPerson :exec
+const lockOwner = `-- name: LockOwner :exec
 
-UPDATE people SET name = name WHERE name = $1
+INSERT INTO owner_locks (owner) VALUES ($1)
+ON CONFLICT (owner) DO UPDATE SET owner = excluded.owner
 `
 
 // The per-person counts the caps in limits.go are checked against.
-// Takes the person's row lock, so two writes that count the same person's
-// rows run one after the other (Postgres; SQLite has one writer anyway).
-func (q *Queries) LockPerson(ctx context.Context, name string) error {
-	_, err := q.db.ExecContext(ctx, lockPerson, name)
+// Takes the owner's lock row (inserting it the first time), so two writes
+// that count the same owner's rows run one after the other: the upsert locks
+// the row on Postgres even when another transaction inserted it first.
+// SQLite has one writer anyway.
+func (q *Queries) LockOwner(ctx context.Context, owner string) error {
+	_, err := q.db.ExecContext(ctx, lockOwner, owner)
 	return err
 }
