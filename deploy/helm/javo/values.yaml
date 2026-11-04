@@ -525,6 +525,23 @@ config:
       # pinned swagger-ui-dist package in the image, never a CDN). People
       # can try calls there with a token (Authorize).
       enabled: false
+    # Bounds on what requests may hold in the gateway, so one person (or a
+    # slow client) cannot use up its connections or memory.
+    limits:
+      # How many followed logs (an app's live log, a startup step's log, a
+      # running job's log) one person may have open at once, all kinds
+      # together. Each holds a connection to the cluster. More are refused
+      # with "429 Too Many Requests" until one is closed.
+      streamsPerPerson: 8
+      # How many uploaded app pictures the gateway decodes at once, for
+      # everyone. Each may take up to 64 MB of memory; more uploads at that
+      # moment are told to try again ("503", Retry-After).
+      thumbnailDecodes: 4
+      # How long a request to the API or sign-in may take to send its body
+      # (an upload, a saved file). A slower client is cut off. Requests
+      # without a body, such as log streams, and apps' own traffic are not
+      # affected.
+      bodyReadTimeout: 60s
   # Model features: Explain more on a failure, Describe it on New app, Ask
   # AI in the search palette and the admin's cluster question. Off by
   # default: then nothing connects to a model and no AI control shows. The

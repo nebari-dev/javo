@@ -166,6 +166,32 @@ func TestLoadReadsAPITokensAndDocs(t *testing.T) {
 	}
 }
 
+func TestLoadReadsAPILimitsWithSafeDefaults(t *testing.T) {
+	p, err := load(t, "auth:\n  local:\n    enabled: true\napi:\n  limits:\n    streamsPerPerson: 3\n    thumbnailDecodes: 2\n    bodyReadTimeout: 15s\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := p.API.Limits; l.StreamsPerPerson != 3 || l.ThumbnailDecodes != 2 || l.BodyReadTimeout.Duration != 15*time.Second {
+		t.Fatalf("limits = %+v", l)
+	}
+	p, err = load(t, "auth:\n  local:\n    enabled: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := p.API.Limits; l.StreamsPerPerson != 8 || l.ThumbnailDecodes != 4 || l.BodyReadTimeout.Duration != time.Minute {
+		t.Fatalf("limit defaults = %+v", l)
+	}
+	for key, yaml := range map[string]string{
+		"api.limits.streamsPerPerson": "streamsPerPerson: -1",
+		"api.limits.thumbnailDecodes": "thumbnailDecodes: -1",
+		"api.limits.bodyReadTimeout":  "bodyReadTimeout: -1s",
+	} {
+		if _, err := load(t, "auth:\n  local:\n    enabled: true\napi:\n  limits:\n    "+yaml+"\n"); err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: err = %v", yaml, err)
+		}
+	}
+}
+
 func TestIdleStopDefaultsToOffWithAWeekAtMost(t *testing.T) {
 	p, err := load(t, "auth:\n  local:\n    enabled: true\n")
 	if err != nil {

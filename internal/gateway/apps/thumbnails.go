@@ -57,14 +57,19 @@ func (s *Workspaces) registerThumbnails(api huma.API) {
 		Summary: "Set the picture shown on the app's card (owner or platform admin)",
 		Description: "The image is checked by its bytes, not the Content-Type, decoded and encoded again, " +
 			"and shrunk to at most " + strconv.Itoa(thumbnail.MaxSide) + " pixels on its longest side.",
-		Errors:       []int{http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity},
+		Errors:       []int{http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 		MaxBodyBytes: thumbnail.MaxBytes,
 	}), func(ctx context.Context, in *thumbnailPutInput) (*workspaceOutput, error) {
 		app, err := s.authorized(ctx, &nameInput{Name: in.Name, Owner: in.Owner}, authz.ActManageApp)
 		if err != nil {
 			return nil, err
 		}
+		release, ok := s.decodes.Acquire("")
+		if !ok {
+			return nil, problem.New(http.StatusServiceUnavailable, reasons.Msg(reasons.MsgThumbnailBusy)).WithHeader("Retry-After", "2")
+		}
 		data, typ, err := thumbnail.Normalize(in.RawBody)
+		release()
 		switch {
 		case errors.Is(err, thumbnail.ErrTooLarge):
 			return nil, problem.New(http.StatusRequestEntityTooLarge, reasons.Msg(reasons.MsgThumbnailTooLarge))

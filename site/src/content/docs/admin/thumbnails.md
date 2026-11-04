@@ -13,4 +13,4 @@ config:
     enabled: true
 ```
 
-Uploads are checked by their bytes (not their name), encoded again, shrunk and stored in the database. An upload may be at most 4 MB and 16 megapixels. Removing a thumbnail brings the logo back.
+Uploads are checked by their bytes (not their name), encoded again, shrunk and stored in the database. An upload may be at most 4 MB and 16 megapixels. The gateway decodes at most `config.api.limits.thumbnailDecodes` uploads at once (4 by default); one beyond that is asked to try again in a moment. Removing a thumbnail brings the logo back.

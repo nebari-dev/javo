@@ -33,6 +33,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/gateway/sizing"
 	"github.com/nebari-dev/javo/internal/gateway/storage"
+	"github.com/nebari-dev/javo/internal/gateway/streams"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
 	"github.com/nebari-dev/javo/internal/jobs/engine"
 	"github.com/nebari-dev/javo/internal/jobs/schedule"
@@ -64,6 +65,8 @@ type API struct {
 	Engines *engine.Registry
 	// Environments copies in the environment a new job picks.
 	Environments *environments.API
+	// Streams caps each person's followed logs, shared with the app API.
+	Streams *streams.Limit
 }
 
 // Engine is a way of running a file, from the registry.
@@ -252,7 +255,7 @@ func (s *API) Register(api huma.API) {
 		OperationID: "cancelJobRun", Method: http.MethodPost, Path: "/api/jobs/{name}/runs/{run}/cancel",
 		Summary: "Cancel a run that is still going", Errors: []int{http.StatusNotFound},
 	}), s.cancel)
-	huma.Register(api, tagged(huma.Operation{
+	huma.Register(api, s.Streams.Op(api, tagged(huma.Operation{
 		OperationID: "getJobRunLog", Method: http.MethodGet, Path: "/api/jobs/{name}/runs/{run}/log",
 		Summary: "A run's log as plain text, followed live while the run is going",
 		Errors:  []int{http.StatusNotFound, http.StatusGone},
@@ -266,7 +269,7 @@ func (s *API) Register(api huma.API) {
 				Schema: api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[string](), true, "RunLogText"),
 			}},
 		}},
-	}), s.log)
+	})), s.log)
 }
 
 func (s *API) listEngines(_ context.Context, _ *struct{}) (*engineListOutput, error) {

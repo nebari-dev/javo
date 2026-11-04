@@ -173,7 +173,7 @@ func (s *Workspaces) registerLogs(api huma.API) {
 
 	// huma's sse package cannot answer 404 before the stream starts, so the
 	// stream is written here: one "line" event per log line, JSON encoded.
-	huma.Register(api, huma.Operation{
+	huma.Register(api, s.cfg.Streams.Op(api, huma.Operation{
 		OperationID: "streamWorkspaceLogs", Method: http.MethodGet, Path: "/api/workspaces/{name}/logs/stream",
 		Summary: "Follow the app's log live (server-sent events, one line event per log line)", Tags: []string{"workspaces"},
 		Errors: []int{http.StatusUnauthorized, http.StatusNotFound},
@@ -183,7 +183,7 @@ func (s *Workspaces) registerLogs(api huma.API) {
 				Schema: api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[podlogs.LogLine](), true, "LogLine"),
 			}},
 		}},
-	}, s.streamLogs)
+	}), s.streamLogs)
 
 	s.registerStepLogs(api)
 }

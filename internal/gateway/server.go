@@ -4,7 +4,6 @@ package gateway
 
 import (
 	"context"
-	"errors"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/nebari-dev/javo/internal/ai"
@@ -36,6 +35,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/secrets"
 	"github.com/nebari-dev/javo/internal/gateway/sizing"
 	"github.com/nebari-dev/javo/internal/gateway/storage"
+	"github.com/nebari-dev/javo/internal/gateway/streams"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
 	"github.com/nebari-dev/javo/internal/jobs/engine"
 	"github.com/nebari-dev/javo/internal/mcp"
@@ -192,6 +192,8 @@ type Server struct {
 	// it. Every /api route needs a session unless it is in publicRoutes.
 	API huma.API
 	mux *http.ServeMux
+	// handler is mux behind the request body deadline.
+	handler http.Handler
 	// exp and uiHost send requests for another host to apps.
 	exp    exposure.Backend
 	uiHost string
@@ -261,6 +263,8 @@ func NewServer(cfg Config) *Server {
 	if cfg.Plans == nil {
 		cfg.Plans = &plans.Service{DB: cfg.Store, Now: cfg.Now}
 	}
+	limits := cfg.API.Limits.WithDefaults()
+	logStreams := streams.New(limits.StreamsPerPerson)
 	run := workspace.Platform{Exposure: cfg.Exposure, PublicHost: cfg.PublicHost, PixiImage: cfg.PixiImage}
 	ws := apps.New(apps.Config{
 		Run:   run,
@@ -272,6 +276,7 @@ func NewServer(cfg Config) *Server {
 		Now: now, URLs: cfg.URLs, CodeHosts: cfg.CodeHosts,
 		Plans: cfg.Plans, AI: cfg.AI, AIFeatures: cfg.AIFeatures, AIIncludeOwners: cfg.AIIncludeOwners,
 		People: cfg.People, Sharing: cfg.Sharing, StaleAfter: cfg.StaleAfter,
+		Streams: logStreams, ThumbnailDecodes: limits.ThumbnailDecodes,
 	})
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
@@ -285,7 +290,7 @@ func NewServer(cfg Config) *Server {
 	storage.RegisterFiles(api, listings, nss, st)
 
 	(&authn.TokensAPI{Store: cfg.Tokens, Roles: cfg.Roles, Apps: cfg.Store.Apps(), MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, Now: now, Docs: cfg.API.Docs.Enabled}).Register(api)
-	(&jobs.API{DB: cfg.Store, Client: cfg.Client, Namespaces: nss, Rules: sz, Logs: cfg.Logs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs}).Register(api)
+	(&jobs.API{DB: cfg.Store, Client: cfg.Client, Namespaces: nss, Rules: sz, Logs: cfg.Logs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs, Streams: logStreams}).Register(api)
 
 	if cfg.CodeHosts != nil {
 		mux.Handle("POST "+hooks.Route, &hooks.Receiver{
@@ -323,7 +328,17 @@ func NewServer(cfg Config) *Server {
 	if cfg.UIDir != "" {
 		mux.Handle("/", uiHandler(cfg.UIDir, cfg.Branding.ImageOrigins()))
 	}
-	return &Server{API: api, mux: mux, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, https: cfg.URLs.URLScheme() == "https"}
+	// App requests on the UI host (/u/) carry the app's own uploads; only
+	// the platform's routes get the body deadline.
+	bodies := bodyDeadline(limits.BodyReadTimeout.Duration, mux)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, appsPath) {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		bodies.ServeHTTP(w, r)
+	})
+	return &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, https: cfg.URLs.URLScheme() == "https"}
 }
 
 // readyFor is how long one answer of the readiness check is reused.
@@ -356,6 +371,10 @@ func readiness(ready func(context.Context) error, now func() time.Time) http.Han
 	})
 }
 
+// appsPath is where apps are served on the UI host when they have no host
+// of their own.
+const appsPath = "/u/"
+
 // Handle mounts h at pattern (http.ServeMux syntax).
 func (s *Server) Handle(pattern string, h http.Handler) { s.mux.Handle(pattern, h) }
 
@@ -365,40 +384,7 @@ func (s *Server) Handle(pattern string, h http.Handler) { s.mux.Handle(pattern, 
 func (s *Server) Apps(h http.Handler) {
 	s.apps = h
 	if !s.exp.SeparateHost() {
-		s.mux.Handle("/u/", h)
-	}
-}
-
-// bodyReadTimeout is how long the gateway's own routes wait for a request
-// body: the bodies they take are small, and a client that trickles one would
-// otherwise hold a connection for good. App requests are left alone (an
-// upload to an app may be long).
-var bodyReadTimeout = time.Minute
-
-// deadlineBody clears the connection's read deadline once the whole body is
-// read (only then: after a timeout the server still drains the rest),
-// so a long answer (a followed log) is not cut when it passes.
-type deadlineBody struct {
-	io.ReadCloser
-	rc *http.ResponseController
-}
-
-func (b *deadlineBody) Read(p []byte) (int, error) {
-	n, err := b.ReadCloser.Read(p)
-	if errors.Is(err, io.EOF) {
-		_ = b.rc.SetReadDeadline(time.Time{})
-	}
-	return n, err
-}
-
-// limitBodyTime gives r's body bodyReadTimeout to arrive.
-func limitBodyTime(w http.ResponseWriter, r *http.Request) {
-	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
-		return
-	}
-	rc := http.NewResponseController(w)
-	if rc.SetReadDeadline(time.Now().Add(bodyReadTimeout)) == nil {
-		r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
+		s.mux.Handle(appsPath, h)
 	}
 }
 
@@ -426,7 +412,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p := r.URL.Path; p != "/u" && !strings.HasPrefix(p, "/u/") {
-		limitBodyTime(w, r)
 		h := w.Header()
 		for k, v := range gatewayHeaders {
 			h.Set(k, v)
@@ -437,7 +422,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.Set("Cache-Control", "no-store")
 		}
 	}
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 // forApps is true for a request that arrived on the apps' host. The UI and
@@ -507,4 +492,44 @@ func noSniff(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bodyDeadline gives a request with a body d to send all of it; a client
+// that sends it slower is cut off instead of holding the connection. The
+// deadline ends once the body is read, so the answer may take as long as it
+// needs, and requests without a body (log streams, websocket upgrades) get
+// none: a read deadline left on the connection would end them.
+func bodyDeadline(d time.Duration, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body == nil || r.Body == http.NoBody || r.Header.Get("Upgrade") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rc := http.NewResponseController(w)
+		if err := rc.SetReadDeadline(time.Now().Add(d)); err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// A body left unread keeps the deadline: the server reads the rest
+		// after the handler, and must not wait forever for it either. The
+		// server sets its own deadlines again for the connection's next
+		// request.
+		r.Body = &deadlineBody{ReadCloser: r.Body, done: func() { _ = rc.SetReadDeadline(time.Time{}) }}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// deadlineBody calls done once its body has been read to the end.
+type deadlineBody struct {
+	io.ReadCloser
+	done func()
+	once sync.Once
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		b.once.Do(b.done)
+	}
+	return n, err
 }

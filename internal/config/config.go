@@ -341,13 +341,41 @@ type IdleStopCfg struct {
 // MayTurnOff reports whether people may set an app's idle stop to Off.
 func (c IdleStopCfg) MayTurnOff() bool { return c.AllowOff == nil || *c.AllowOff }
 
-// APICfg configures personal API tokens and the optional API docs page.
+// APICfg configures personal API tokens, the optional API docs page and
+// the limits on what requests may hold.
 type APICfg struct {
 	Tokens TokensCfg `json:"tokens"`
+	Limits LimitsCfg `json:"limits"`
 	Docs   struct {
 		// Enabled serves the Swagger UI page at /api/docs.
 		Enabled bool `json:"enabled"`
 	} `json:"docs"`
+}
+
+// LimitsCfg bounds what one person, or everyone at once, may hold in the
+// gateway. Zero values take the defaults (WithDefaults).
+type LimitsCfg struct {
+	// StreamsPerPerson is how many followed logs (app, startup step and job
+	// run logs) one person may have open at once. Default 8.
+	StreamsPerPerson int `json:"streamsPerPerson"`
+	// ThumbnailDecodes is how many uploaded pictures the gateway decodes at
+	// once, for everyone; each may take up to 64 MB. Default 4.
+	ThumbnailDecodes int `json:"thumbnailDecodes"`
+	// BodyReadTimeout is how long a request to the API or sign-in may take
+	// to send its body. Default 60s.
+	BodyReadTimeout metav1.Duration `json:"bodyReadTimeout"`
+}
+
+// WithDefaults is l with every zero value set to its default.
+func (l LimitsCfg) WithDefaults() LimitsCfg {
+	if l.StreamsPerPerson == 0 {
+		l.StreamsPerPerson = 8
+	}
+	if l.ThumbnailDecodes == 0 {
+		l.ThumbnailDecodes = 4
+	}
+	setDur(&l.BodyReadTimeout, 60*time.Second)
+	return l
 }
 
 // TokensCfg limits personal API tokens.
@@ -525,6 +553,7 @@ func (p *Platform) applyDefaults() {
 	setDur(&p.Sessions.TTL, 12*time.Hour)
 	setDur(&p.Sessions.SweepEvery, 5*time.Minute)
 	setDur(&p.API.Tokens.GroupsMaxAge, 7*24*time.Hour)
+	p.API.Limits = p.API.Limits.WithDefaults()
 	setDur(&p.AI.Timeout, 60*time.Second)
 	setDur(&p.Plans.TTL, 10*time.Minute)
 	if p.AI.DailyTokensPerUser == 0 {
@@ -583,6 +612,13 @@ func (p Platform) Validate() error {
 	positive("sessions.sweepEvery", p.Sessions.SweepEvery)
 	positive("identity.staleAfter", p.Identity.StaleAfter)
 	positive("api.tokens.groupsMaxAge", p.API.Tokens.GroupsMaxAge)
+	if l := p.API.Limits; l.StreamsPerPerson < 1 {
+		bad("api.limits.streamsPerPerson", "%d must be at least 1", l.StreamsPerPerson)
+	}
+	if l := p.API.Limits; l.ThumbnailDecodes < 1 {
+		bad("api.limits.thumbnailDecodes", "%d must be at least 1", l.ThumbnailDecodes)
+	}
+	positive("api.limits.bodyReadTimeout", p.API.Limits.BodyReadTimeout)
 	if p.API.Tokens.MaxLifetime.Duration < 0 {
 		bad("api.tokens.maxLifetime", "%s must not be negative (zero allows tokens that never expire)", p.API.Tokens.MaxLifetime.Duration)
 	}

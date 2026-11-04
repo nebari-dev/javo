@@ -94,6 +94,8 @@ const (
 	MsgLogsGone                   MessageCode = "LogsGone"
 	MsgOutputTooLarge             MessageCode = "OutputTooLarge"
 	MsgToolAnswerTooLarge         MessageCode = "ToolAnswerTooLarge" // arg: the cap in MiB
+	MsgTooManyStreams             MessageCode = "TooManyStreams"     // arg: how many logs one person may follow at once
+	MsgThumbnailBusy              MessageCode = "ThumbnailBusy"
 	MsgRunStillActive             MessageCode = "RunStillActive"
 	MsgNotAMember                 MessageCode = "NotAMember"
 	MsgShareNotAllowed            MessageCode = "ShareNotAllowed"
@@ -357,6 +359,8 @@ var messages = map[MessageCode]string{
 	MsgLogsGone:                   "This run's log is gone. The run may have ended before it printed anything, or its log file was deleted from your home folder.",
 	MsgOutputTooLarge:             "This output is too large to show. Download it from your home folder.",
 	MsgToolAnswerTooLarge:         "This answer is larger than %d MiB, too large for an agent tool. Ask for less, or call the API directly.",
+	MsgTooManyStreams:             "You are following %d logs at once, the most allowed. Close a log you no longer watch, then try again.",
+	MsgThumbnailBusy:              "Too many pictures are being processed right now. Try again in a moment.",
 	MsgRunStillActive:             "This run is still going. Cancel it first.",
 	MsgNotAMember:                 "Your account can open apps shared with you, but cannot create apps. Ask an admin to add you to a member group.",
 	MsgShareNotAllowed:            "Only the owner can change who an app is shared with.",

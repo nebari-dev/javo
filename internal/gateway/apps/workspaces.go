@@ -39,6 +39,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
 	"github.com/nebari-dev/javo/internal/gateway/sizing"
 	"github.com/nebari-dev/javo/internal/gateway/storage"
+	"github.com/nebari-dev/javo/internal/gateway/streams"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -157,8 +158,10 @@ type Workspaces struct {
 	actions *actions.Catalog
 	// previews is gateway.Config.PreviewsEnabled; now is the clock.
 	previews bool
-	// thumbnails is gateway.Config.Thumbnails.
+	// thumbnails is gateway.Config.Thumbnails; decodes bounds how many
+	// uploaded pictures are decoded at once.
 	thumbnails bool
+	decodes    *ratelimit.Concurrent
 	// previewsCap is the most previews one app may ask for.
 	previewsCap int32
 	now         func() time.Time
@@ -859,6 +862,11 @@ type Config struct {
 	People            authn.People
 	Sharing           config.SharingCfg
 	StaleAfter        time.Duration
+	// Streams caps each person's followed logs (app and step logs here,
+	// job run logs in the jobs API: one Limit for both).
+	Streams *streams.Limit
+	// ThumbnailDecodes is how many pictures are decoded at once.
+	ThumbnailDecodes int
 	// Run fills in what each app runs; its Exposure is the one above.
 	Run workspace.Platform
 }
@@ -871,7 +879,7 @@ func New(c Config) *Workspaces {
 		idle: c.IdleStop, engine: c.Diagnose,
 		envs: c.Environments,
 		nebi: c.NebiTokens, idToken: c.IDToken,
-		previews: c.PreviewsEnabled, thumbnails: c.Thumbnails, previewsCap: min(cmp.Or(c.PreviewsMaxPerApp, model.MaxPreviewMax), model.MaxPreviewMax), now: c.Now, urls: c.URLs, hosts: c.CodeHosts,
+		previews: c.PreviewsEnabled, thumbnails: c.Thumbnails, decodes: ratelimit.NewConcurrent(c.ThumbnailDecodes), previewsCap: min(cmp.Or(c.PreviewsMaxPerApp, model.MaxPreviewMax), model.MaxPreviewMax), now: c.Now, urls: c.URLs, hosts: c.CodeHosts,
 		cfg: c,
 	}
 	ws.actions = actions.NewCatalog(ws.appActions()...)

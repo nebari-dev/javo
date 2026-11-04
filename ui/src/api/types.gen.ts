@@ -3616,6 +3616,10 @@ export type GetJobRunLogErrors = {
      */
     422: ErrorModel;
     /**
+     * Too Many Requests
+     */
+    429: ErrorModel;
+    /**
      * Internal Server Error
      */
     500: ErrorModel;
@@ -5317,6 +5321,10 @@ export type StreamWorkspaceLogsErrors = {
      */
     422: ErrorModel;
     /**
+     * Too Many Requests
+     */
+    429: ErrorModel;
+    /**
      * Internal Server Error
      */
     500: ErrorModel;
@@ -5894,6 +5902,10 @@ export type StreamWorkspaceStepLogErrors = {
      */
     422: ErrorModel;
     /**
+     * Too Many Requests
+     */
+    429: ErrorModel;
+    /**
      * Internal Server Error
      */
     500: ErrorModel;
@@ -6088,6 +6100,10 @@ export type SetWorkspaceThumbnailErrors = {
      * Internal Server Error
      */
     500: ErrorModel;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorModel;
 };
 
 export type SetWorkspaceThumbnailError = SetWorkspaceThumbnailErrors[keyof SetWorkspaceThumbnailErrors];

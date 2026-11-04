@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/config"
-	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // The gateway's own answers (the UI, the API, health checks) carry the
@@ -67,11 +67,8 @@ func TestAppAnswersKeepTheirOwnHeaders(t *testing.T) {
 
 // A client that sends a request body slowly is cut off. The API's own
 // routes already give a body 5 s (huma); this covers the rest, such as /mcp.
-func TestASlowRequestBodyIsCutOff(t *testing.T) {
-	old := *gateway.BodyReadTimeout
-	*gateway.BodyReadTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { *gateway.BodyReadTimeout = old })
-	f := apitest.New(t, apitest.Options{Mcp: true})
+func TestASlowRequestBodyToMcpIsCutOff(t *testing.T) {
+	f := apitest.New(t, apitest.Options{Mcp: true, Limits: config.LimitsCfg{BodyReadTimeout: metav1.Duration{Duration: 300 * time.Millisecond}}})
 	tok := f.NewToken(f.LoginAlice(), `{"name":"agent","scope":"read","expiresInDays":1}`).Token
 	s := httptest.NewServer(f.Srv)
 	t.Cleanup(s.Close)

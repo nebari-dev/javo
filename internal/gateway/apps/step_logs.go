@@ -56,7 +56,7 @@ type stepLogInput struct {
 var StepPollEvery = time.Second
 
 func (s *Workspaces) registerStepLogs(api huma.API) {
-	huma.Register(api, huma.Operation{
+	huma.Register(api, s.cfg.Streams.Op(api, huma.Operation{
 		OperationID: "streamWorkspaceStepLog", Method: http.MethodGet, Path: "/api/workspaces/{name}/steps/{step}/log",
 		Summary: "Follow the log of the containers doing a startup step's work, one after another, as they write it " +
 			"(newline-delimited JSON records; ends once every one of them has finished)",
@@ -68,7 +68,7 @@ func (s *Workspaces) registerStepLogs(api huma.API) {
 				Schema: api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[StepLogRecord](), true, "StepLogRecord"),
 			}},
 		}},
-	}, s.stepLog)
+	}), s.stepLog)
 }
 
 func (s *Workspaces) stepLog(ctx context.Context, in *stepLogInput) (*huma.StreamResponse, error) {
