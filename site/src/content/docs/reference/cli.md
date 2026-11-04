@@ -279,9 +279,10 @@ Flags:
       --egress-allow-cidrs strings             if set, the only address ranges app and job pods may reach instead of the public internet, besides DNS, the gateway, their own namespace and the allowed cluster ranges and namespaces
       --egress-allow-cluster-cidrs strings     private address ranges app and job pods may reach anyway (less --egress-deny-cidrs)
       --egress-allow-namespaces strings        namespaces whose pods app and job pods may reach
-      --egress-deny-cidrs strings              address ranges app and job pods may not reach, besides the private ranges; empty denies only those (default [169.254.169.254/32,fd00:ec2::254/128,100.100.100.200/32,168.63.129.16/32])
+      --egress-deny-cidrs strings              address ranges app and job pods may not reach, besides the private ranges; empty denies only those (default [169.254.169.254/32,fd00:ec2::254/128,fd20:ce::254/128,100.100.100.200/32,168.63.129.16/32])
       --gateway-namespace string               namespace of the gateway pods, the only ones allowed to reach apps
       --gateway-pod-labels stringToString      labels of the gateway pods (key=value,...) (default [])
+      --gateway-port int32                     the gateway pods' HTTP port, the only one app and job pods may connect to
       --health-probe-bind-address string       health probe address (default ":8082")
   -h, --help                                   help for controller
       --image-pull-secret strings              Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
@@ -422,6 +423,7 @@ Flags:
       --sizes-file string                      YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
       --templates-dir string                   directory of built-in template files (*.yaml) to install into the database at start
       --trusted-proxies strings                CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
+      --trusted-proxy-secret-file string       file holding the secret trusted proxies send in X-Javo-Proxy-Secret; set, X-Forwarded-For is believed only on requests that carry it
       --ui-dir string                          directory with the built UI (default "/ui")
       --workspace-namespace string             namespace holding apps and their pods (default "javo-apps")
 ```
@@ -635,11 +637,12 @@ Flags:
       --egress-allow-cidrs strings             if set, the only address ranges app and job pods may reach instead of the public internet, besides DNS, the gateway, their own namespace and the allowed cluster ranges and namespaces
       --egress-allow-cluster-cidrs strings     private address ranges app and job pods may reach anyway (less --egress-deny-cidrs)
       --egress-allow-namespaces strings        namespaces whose pods app and job pods may reach
-      --egress-deny-cidrs strings              address ranges app and job pods may not reach, besides the private ranges; empty denies only those (default [169.254.169.254/32,fd00:ec2::254/128,100.100.100.200/32,168.63.129.16/32])
+      --egress-deny-cidrs strings              address ranges app and job pods may not reach, besides the private ranges; empty denies only those (default [169.254.169.254/32,fd00:ec2::254/128,fd20:ce::254/128,100.100.100.200/32,168.63.129.16/32])
       --files-idle-after duration              how long a user's file picker pod is kept after their last request from the UI (default 10m0s)
       --files-image string                     rclone image for file picker pods, pinned by digest (default "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5")
       --gateway-namespace string               namespace of the gateway pods, the only ones allowed to reach apps
       --gateway-pod-labels stringToString      labels of the gateway pods (key=value,...) (default [])
+      --gateway-port int32                     the gateway pods' HTTP port, the only one app and job pods may connect to
       --health-probe-bind-address string       health probe address (default ":8082")
   -h, --help                                   help for server
       --image-pull-secret strings              Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
@@ -667,6 +670,7 @@ Flags:
       --sizes-file string                      YAML file with the app sizes users pick from ({default, sizes: [{name, displayName, cpu, memory}]}); empty offers none and keeps template resources
       --templates-dir string                   directory of built-in template files (*.yaml) to install into the database at start
       --trusted-proxies strings                CIDRs of reverse proxies whose X-Forwarded-For is believed for the client address (login rate limits)
+      --trusted-proxy-secret-file string       file holding the secret trusted proxies send in X-Javo-Proxy-Secret; set, X-Forwarded-For is believed only on requests that carry it
       --ui-dir string                          directory with the built UI (default "/ui")
       --workspace-namespace string             namespace holding apps and their pods (default "javo-apps")
 ```
