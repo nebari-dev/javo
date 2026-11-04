@@ -112,8 +112,8 @@ type Options struct {
 	GroupsMaxAge time.Duration
 	MaxLifetime  time.Duration
 	ApiDocs      bool
-	// Limits is api.limits; zero values are the defaults.
-	Limits config.LimitsCfg
+	// APILimits is api.limits; zero values are the defaults.
+	APILimits config.APILimitsCfg
 	// Previews is Config.PreviewsEnabled.
 	Previews bool
 	// Thumbnails is Config.Thumbnails.
@@ -218,7 +218,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	tokens := &token.DBStore{Tokens: db.Tokens(), Now: o.Now}
 	var api config.APICfg
 	api.Tokens.GroupsMaxAge.Duration, api.Tokens.MaxLifetime.Duration, api.Docs.Enabled = o.GroupsMaxAge, o.MaxLifetime, o.ApiDocs
-	api.Limits = o.Limits
+	api.Limits = o.APILimits
 	if api.Tokens.GroupsMaxAge.Duration == 0 {
 		api.Tokens.GroupsMaxAge.Duration = 30 * 24 * time.Hour
 	}

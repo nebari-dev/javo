@@ -445,17 +445,17 @@ func (c IdleStopCfg) MayTurnOff() bool { return c.AllowOff == nil || *c.AllowOff
 // APICfg configures personal API tokens, the optional API docs page and
 // the limits on what requests may hold.
 type APICfg struct {
-	Tokens TokensCfg `json:"tokens"`
-	Limits LimitsCfg `json:"limits"`
+	Tokens TokensCfg    `json:"tokens"`
+	Limits APILimitsCfg `json:"limits"`
 	Docs   struct {
 		// Enabled serves the Swagger UI page at /api/docs.
 		Enabled bool `json:"enabled"`
 	} `json:"docs"`
 }
 
-// LimitsCfg bounds what one person, or everyone at once, may hold in the
+// APILimitsCfg bounds what one person, or everyone at once, may hold in the
 // gateway. Zero values take the defaults (WithDefaults).
-type LimitsCfg struct {
+type APILimitsCfg struct {
 	// StreamsPerPerson is how many followed logs (app, startup step and job
 	// run logs) one person may have open at once. Default 8.
 	StreamsPerPerson int `json:"streamsPerPerson"`
@@ -468,7 +468,7 @@ type LimitsCfg struct {
 }
 
 // WithDefaults is l with every zero value set to its default.
-func (l LimitsCfg) WithDefaults() LimitsCfg {
+func (l APILimitsCfg) WithDefaults() APILimitsCfg {
 	if l.StreamsPerPerson == 0 {
 		l.StreamsPerPerson = 8
 	}

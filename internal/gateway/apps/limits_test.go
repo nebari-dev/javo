@@ -55,7 +55,7 @@ func open(t *testing.T, srv *httptest.Server, path string, c *http.Cookie) (*htt
 func TestOnePersonMayFollowOnlySoManyLogsAtOnce(t *testing.T) {
 	t.Parallel()
 	alice, bob := "alice-aaaaaaaa", apitest.BobID
-	f := apitest.New(t, apitest.Options{Logs: heldLogs{}, Limits: config.LimitsCfg{StreamsPerPerson: 2},
+	f := apitest.New(t, apitest.Options{Logs: heldLogs{}, APILimits: config.APILimitsCfg{StreamsPerPerson: 2},
 		People: []apitest.TestPerson{apitest.SignedIn("bob", time.Time{})}},
 		gatewaytest.Workspace("app", alice, "App"), gatewaytest.Workspace("app", bob, "App"),
 		gatewaytest.Template("streamlit", "streamlit"),
@@ -116,7 +116,7 @@ func bigPNG(t *testing.T) []byte {
 func TestPictureDecodesAreBoundedAcrossTheGateway(t *testing.T) {
 	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts, Thumbnails: true,
-		Limits: config.LimitsCfg{ThumbnailDecodes: 1}})
+		APILimits: config.APILimitsCfg{ThumbnailDecodes: 1}})
 	alice := f.Session(apitest.AliceID)
 	pic := bigPNG(t)
 	const n = 8

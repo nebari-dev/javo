@@ -23,7 +23,7 @@ import (
 // sign-in route too.
 func TestASlowRequestBodyIsCutOff(t *testing.T) {
 	t.Parallel()
-	f := apitest.New(t, apitest.Options{Limits: config.LimitsCfg{BodyReadTimeout: metav1.Duration{Duration: 200 * time.Millisecond}}})
+	f := apitest.New(t, apitest.Options{APILimits: config.APILimitsCfg{BodyReadTimeout: metav1.Duration{Duration: 200 * time.Millisecond}}})
 	srv := httptest.NewServer(f.Srv)
 	defer srv.Close()
 	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
@@ -47,7 +47,7 @@ func TestALogStreamOutlivesTheBodyDeadline(t *testing.T) {
 	t.Parallel()
 	const timeout = 100 * time.Millisecond
 	logs := apitest.NewPipeLogs()
-	f := apitest.New(t, apitest.Options{Logs: logs, Limits: config.LimitsCfg{BodyReadTimeout: metav1.Duration{Duration: timeout}}},
+	f := apitest.New(t, apitest.Options{Logs: logs, APILimits: config.APILimitsCfg{BodyReadTimeout: metav1.Duration{Duration: timeout}}},
 		gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 0))
 	srv := httptest.NewServer(f.Srv)
