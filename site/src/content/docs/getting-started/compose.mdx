@@ -28,6 +28,13 @@ What you get:
 The installer mounts the Docker socket to copy locally built images into k3s. Like the privileged k3s container, that is root on the Docker host. Use a machine you are happy to give that access to.
 </Aside>
 
+What that means for security:
+
+- **One trust boundary.** k3s runs `privileged`, so an app that escapes its container (a kernel or runtime bug) is root on the Docker host, not just on a node. Apps still run under the restricted pod security (non-root, no capabilities, seccomp), but keep untrusted people off a Compose install, or use the [Helm install](/getting-started/helm/) on a real cluster.
+- **`route_localnet`.** The k3s container sets `net.ipv4.conf.all.route_localnet=1` so the cluster's DNS can reach Docker's resolver at `127.0.0.11`. It applies in the k3s container's network namespace, which is the node every pod runs on. This is the setting behind CVE-2020-8558: with it, packets from pods may reach services the node binds to `127.0.0.1`. kube-proxy adds a firewall rule that drops such packets unless they are DNAT replies; do not remove it, and do not bind anything sensitive to loopback inside the k3s container.
+- **Plain HTTP on every interface.** The web UI is published on `0.0.0.0:${JAVO_PORT}` without TLS, so passwords and session cookies cross the network in clear. On anything but your own laptop, put a TLS proxy in front (see [Serve it over HTTPS](#serve-it-over-https)) or publish the port on `127.0.0.1` only.
+- **Disk.** Homes, the database and its backups share the Docker host's disk, and `local-path` does not enforce home sizes; see [Storage that ignores sizes](/admin/storage/#storage-that-ignores-sizes).
+
 ## Install
 
 <Steps>
