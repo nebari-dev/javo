@@ -261,8 +261,9 @@ func PodNeed(p *corev1.Pod) Need {
 }
 
 // Trim is a cache transform for Nodes: it keeps the name, resource version,
-// labels (node selectors match them) and allocatable, and drops the rest
-// (image lists can be large).
+// labels (node selectors match them), allocatable, and the addresses and pod
+// ranges (the egress policy denies them to pods), and drops the rest (image
+// lists can be large).
 func Trim(obj any) (any, error) {
 	n, ok := obj.(*corev1.Node)
 	if !ok {
@@ -271,6 +272,7 @@ func Trim(obj any) (any, error) {
 	return &corev1.Node{
 		TypeMeta:   n.TypeMeta,
 		ObjectMeta: metav1.ObjectMeta{Name: n.Name, UID: n.UID, ResourceVersion: n.ResourceVersion, Labels: n.Labels},
-		Status:     corev1.NodeStatus{Allocatable: n.Status.Allocatable},
+		Spec:       corev1.NodeSpec{PodCIDR: n.Spec.PodCIDR, PodCIDRs: n.Spec.PodCIDRs},
+		Status:     corev1.NodeStatus{Allocatable: n.Status.Allocatable, Addresses: n.Status.Addresses},
 	}, nil
 }

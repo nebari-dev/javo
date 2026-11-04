@@ -153,18 +153,24 @@ networkPolicy:
   # at all). The controller keeps this as the limit-egress NetworkPolicy in
   # every workspace namespace. By default pods reach the public internet,
   # the cluster's DNS (port 53 of the kube-dns pods and of the name servers
-  # pods are given), the gateway pods and the pods of their own namespace,
-  # and nothing else in the cluster: no pod in another namespace, and no
-  # private, carrier-grade NAT, link-local or loopback address (10.0.0.0/8,
-  # 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16,
-  # 127.0.0.0/8, fc00::/7, fe80::/10), where nodes, the API server and
-  # storage servers are.
+  # pods are given), the gateway pods on their HTTP port only and the pods of
+  # their own namespace, and nothing else in the cluster: no pod in another
+  # namespace, no private, carrier-grade NAT, link-local or loopback address
+  # (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10,
+  # 169.254.0.0/16, 127.0.0.0/8, fc00::/7, fe80::/10), where nodes, the API
+  # server and storage servers usually are, no reserved range (0.0.0.0/8,
+  # 192.0.0.0/24, 198.18.0.0/15, multicast, 240.0.0.0/4, ::/128, ::1/128,
+  # the NAT64 ranges 64:ff9b::/96 and 64:ff9b:1::/48, 6to4 2002::/16,
+  # ff00::/8), and none of the nodes' own addresses and pod ranges, public
+  # ones included (the controller follows the nodes as they come and go). A
+  # Service range outside all of these must be added to denyCIDRs.
   egress:
     # Address ranges no pod may reach, on top of the private ranges above.
-    # The default are the cloud metadata addresses (AWS, GCP, Azure, Alibaba
-    # and others) and Azure's WireServer, which hand out the node's cloud
-    # credentials or configuration. [] denies only the private ranges.
-    denyCIDRs: [169.254.169.254/32, "fd00:ec2::254/128", 100.100.100.200/32, 168.63.129.16/32]
+    # The default are the cloud metadata addresses (AWS, GCP and its IPv6
+    # address, Azure, Alibaba and others) and Azure's WireServer, which hand
+    # out the node's cloud credentials or configuration; they stay denied with
+    # allowCIDRs too. [] denies only the private ranges.
+    denyCIDRs: [169.254.169.254/32, "fd00:ec2::254/128", "fd20:ce::254/128", 100.100.100.200/32, 168.63.129.16/32]
     # When set, the only address ranges pods may reach (less denyCIDRs),
     # instead of the public internet; DNS, the gateway, their own namespace
     # and the two lists below stay reachable. The ingress address (apps call
@@ -172,7 +178,8 @@ networkPolicy:
     # to the gateway pods. Empty: the public internet.
     allowCIDRs: []
     # In-cluster services pods may reach anyway: private address ranges
-    # (less denyCIDRs), such as a database on the private network, and
+    # (less denyCIDRs), such as a database on the private network, or a
+    # node's own address for a service that runs on the nodes, and
     # namespaces whose pods they may reach, such as a package mirror or an
     # ingress controller apps reach the API through. Name pods by namespace:
     # some network plugins (Cilium) never match pods by address.

@@ -76,9 +76,14 @@ func TestControllerIsToldToKeepNetworkPolicies(t *testing.T) {
 	if !slices.Contains(args, "--network-policy=true") {
 		t.Fatalf("controller args %v lack --network-policy=true", args)
 	}
-	want := "--gateway-pod-labels=app.kubernetes.io/component=gateway,app.kubernetes.io/instance=javo,app.kubernetes.io/name=javo"
-	if !slices.Contains(args, want) {
-		t.Fatalf("controller args %v lack %s", args, want)
+	for _, want := range []string{
+		"--gateway-pod-labels=app.kubernetes.io/component=gateway,app.kubernetes.io/instance=javo,app.kubernetes.io/name=javo",
+		// Pods may reach the gateway pods on this port only.
+		"--gateway-port=8080",
+	} {
+		if !slices.Contains(args, want) {
+			t.Errorf("controller args %v lack %s", args, want)
+		}
 	}
 }
 
@@ -705,7 +710,7 @@ func TestControllerCannotListSecretsInReleaseNamespace(t *testing.T) {
 // denies the cloud metadata addresses, and the allow lists are passed on.
 func TestEgressValuesReachTheController(t *testing.T) {
 	t.Parallel()
-	const metadata = "169.254.169.254/32,fd00:ec2::254/128,100.100.100.200/32,168.63.129.16/32"
+	const metadata = "169.254.169.254/32,fd00:ec2::254/128,fd20:ce::254/128,100.100.100.200/32,168.63.129.16/32"
 	for _, c := range []struct {
 		args []string
 		want []string

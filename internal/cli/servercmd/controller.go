@@ -59,6 +59,7 @@ type netprobeFlags struct {
 type controllerOptions struct {
 	gatewayNS    string
 	gatewayPods  map[string]string
+	gatewayPort  int32
 	networkPol   bool
 	egressDeny   []string
 	egressAllow  []string
@@ -94,8 +95,9 @@ type backupClaimFlags struct {
 func (o *controllerOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.gatewayNS, "gateway-namespace", os.Getenv("POD_NAMESPACE"), "namespace of the gateway pods, the only ones allowed to reach apps")
 	f.StringToStringVar(&o.gatewayPods, "gateway-pod-labels", nil, "labels of the gateway pods (key=value,...)")
+	f.Int32Var(&o.gatewayPort, "gateway-port", 0, "the gateway pods' HTTP port, the only one app and job pods may connect to")
 	f.BoolVar(&o.networkPol, "network-policy", true, "keep the default-deny NetworkPolicies in every workspace namespace")
-	f.StringSliceVar(&o.egressDeny, "egress-deny-cidrs", []string{"169.254.169.254/32", "fd00:ec2::254/128", "100.100.100.200/32", "168.63.129.16/32"},
+	f.StringSliceVar(&o.egressDeny, "egress-deny-cidrs", []string{"169.254.169.254/32", "fd00:ec2::254/128", "fd20:ce::254/128", "100.100.100.200/32", "168.63.129.16/32"},
 		"address ranges app and job pods may not reach, besides the private ranges; empty denies only those")
 	f.StringSliceVar(&o.egressAllow, "egress-allow-cidrs", nil,
 		"if set, the only address ranges app and job pods may reach instead of the public internet, besides DNS, the gateway, their own namespace and the allowed cluster ranges and namespaces")
@@ -155,8 +157,8 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if o.runnerImage == "" || o.probe.controlURL == "" {
 		return errors.New("the controller needs --runner-image and --netprobe-control-url")
 	}
-	if o.networkPol && (o.gatewayNS == "" || len(o.gatewayPods) == 0) {
-		return errors.New("--network-policy needs --gateway-namespace (or POD_NAMESPACE) and --gateway-pod-labels")
+	if o.networkPol && (o.gatewayNS == "" || len(o.gatewayPods) == 0 || o.gatewayPort <= 0) {
+		return errors.New("--network-policy needs --gateway-namespace (or POD_NAMESPACE), --gateway-pod-labels and --gateway-port")
 	}
 	if releaseNS == "" {
 		return errors.New("--namespace is required (or set POD_NAMESPACE)")
@@ -223,7 +225,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	probeNS, extra := netprobeNamespace(shared, wsNamespace, releaseNS)
 	if err := (&namespace.Reconciler{
 		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Store: db, Placement: wiring.Placement(platform),
-		Gateway:       namespace.GatewayPods{Namespace: o.gatewayNS, Labels: o.gatewayPods},
+		Gateway:       namespace.GatewayPods{Namespace: o.gatewayNS, Labels: o.gatewayPods, Port: o.gatewayPort},
 		NetworkPolicy: o.networkPol, Egress: egress, Bindings: bindings, Extra: extra,
 		PullSecrets: namespace.PullSecrets{Namespace: releaseNS, Names: o.pullSecrets},
 		// Config validation allows these only in per-user and per-team mode.

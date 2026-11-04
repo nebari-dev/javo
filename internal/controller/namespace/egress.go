@@ -1,6 +1,7 @@
 package namespace
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"net/netip"
@@ -119,27 +120,52 @@ var privateRanges = []netip.Prefix{
 	netip.MustParsePrefix("fe80::/10"),
 }
 
+// reservedRanges are not private but are no public host either: "this
+// network", IETF protocol assignments, benchmarking, multicast and the
+// reserved class E (some clusters run pods or services on these), and on
+// IPv6 the unspecified and loopback addresses, NAT64 (64:ff9b::/96 and the
+// local-use 64:ff9b:1::/48 reach IPv4 addresses, private ones included,
+// through the cluster's NAT64 gateway), 6to4 (deprecated, also carries IPv4
+// addresses) and multicast.
+var reservedRanges = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("ff00::/8"),
+}
+
 // limitEgress lets every pod but the file pods (deny-egress-files keeps those
 // off the network; policies add up, so this one must not select them) reach
-// what Egress allows.
-func (r *Reconciler) limitEgress(ns string) *networkingv1.NetworkPolicy {
+// what Egress allows. nodes are the cluster's own machines (their addresses
+// and pod ranges), denied in the public internet and in the allow list alike.
+func (r *Reconciler) limitEgress(ns string, nodes []netip.Prefix) *networkingv1.NetworkPolicy {
 	var blocks []networkingv1.NetworkPolicyPeer
 	if len(r.Egress.Allow) == 0 {
 		// The public internet.
-		deny := append(slices.Clone(privateRanges), uncovered(r.Egress.Deny, privateRanges)...)
+		deny := slices.Concat(privateRanges, reservedRanges)
+		deny = append(deny, uncovered(r.Egress.Deny, deny)...)
+		deny = append(deny, uncovered(nodes, deny)...)
 		blocks = []networkingv1.NetworkPolicyPeer{
 			ipBlock(netip.MustParsePrefix("0.0.0.0/0"), deny),
 			ipBlock(netip.MustParsePrefix("::/0"), deny),
 		}
 	} else {
+		deny := append(slices.Clone(r.Egress.Deny), uncovered(nodes, r.Egress.Deny)...)
 		for _, a := range r.Egress.Allow {
-			blocks = append(blocks, ipBlock(a, r.Egress.Deny))
+			blocks = append(blocks, ipBlock(a, deny))
 		}
 	}
 	for _, a := range r.Egress.AllowCluster {
 		blocks = append(blocks, ipBlock(a, r.Egress.Deny))
 	}
-	udp, tcp, dns := corev1.ProtocolUDP, corev1.ProtocolTCP, intstr.FromInt32(53)
+	udp, tcp, dns, gwPort := corev1.ProtocolUDP, corev1.ProtocolTCP, intstr.FromInt32(53), intstr.FromInt32(r.Gateway.Port)
 	// DNS only from the cluster's servers: port 53 open to any host would
 	// carry anything. CoreDNS and kube-dns pods carry k8s-app=kube-dns on
 	// kubeadm, k3s, EKS, GKE and AKS. The name servers pods are told to use
@@ -153,7 +179,9 @@ func (r *Reconciler) limitEgress(ns string) *networkingv1.NetworkPolicy {
 	}
 	rules := []networkingv1.NetworkPolicyEgressRule{
 		{Ports: []networkingv1.NetworkPolicyPort{{Protocol: &udp, Port: &dns}, {Protocol: &tcp, Port: &dns}}, To: dnsPeers},
-		{To: []networkingv1.NetworkPolicyPeer{{
+		// The gateway's HTTP port only: with SQLite the same pod serves the
+		// controller's metrics and health ports, which are not for apps.
+		{Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &gwPort}}, To: []networkingv1.NetworkPolicyPeer{{
 			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": r.Gateway.Namespace}},
 			PodSelector:       &metav1.LabelSelector{MatchLabels: maps.Clone(r.Gateway.Labels)},
 		}}},
@@ -202,4 +230,39 @@ func ipBlock(cidr netip.Prefix, deny []netip.Prefix) networkingv1.NetworkPolicyP
 		}
 	}
 	return networkingv1.NetworkPolicyPeer{IPBlock: b}
+}
+
+// nodeRanges are the cluster's own machines outside the private ranges, which
+// pods must not reach: every node's internal and external addresses and its
+// pod ranges. Sorted, so an unchanged cluster gives an unchanged policy.
+func (r *Reconciler) nodeRanges(ctx context.Context) ([]netip.Prefix, error) {
+	var nodes corev1.NodeList
+	if err := r.Client.List(ctx, &nodes); err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	var out []netip.Prefix
+	for _, n := range nodes.Items {
+		for _, a := range n.Status.Addresses {
+			if a.Type != corev1.NodeInternalIP && a.Type != corev1.NodeExternalIP {
+				continue
+			}
+			if ip, err := netip.ParseAddr(a.Address); err == nil {
+				ip = ip.Unmap().WithZone("")
+				out = append(out, netip.PrefixFrom(ip, ip.BitLen()))
+			}
+		}
+		for _, c := range n.Spec.PodCIDRs {
+			if p, err := netip.ParsePrefix(c); err == nil {
+				out = append(out, p.Masked())
+			}
+		}
+	}
+	out = uncovered(out, slices.Concat(privateRanges, reservedRanges))
+	slices.SortFunc(out, func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	return slices.Compact(out), nil
 }

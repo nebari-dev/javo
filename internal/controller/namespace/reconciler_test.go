@@ -74,7 +74,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-var gateway = GatewayPods{Namespace: "javo-system", Labels: map[string]string{"app.kubernetes.io/component": "gateway"}}
+var gateway = GatewayPods{Namespace: "javo-system", Labels: map[string]string{"app.kubernetes.io/component": "gateway"}, Port: 8080}
 
 func perUser() *Reconciler {
 	return &Reconciler{Client: k8s, Store: db, Placement: placementperuser.New(config.Namespaces{Prefix: "javo"}), Gateway: gateway, NetworkPolicy: true}

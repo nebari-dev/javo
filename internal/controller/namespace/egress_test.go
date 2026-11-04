@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -99,8 +100,9 @@ func TestNamespaceEgressReachesTheInternetButNotTheCluster(t *testing.T) {
 	pol := egressPolicy(t, "javo-"+gina.Name)
 	checkSelectsAllButFilePods(t, pol)
 	want := []networkingv1.IPBlock{
-		{CIDR: "0.0.0.0/0", Except: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "127.0.0.0/8", "168.63.129.16/32"}},
-		{CIDR: "::/0", Except: []string{"fc00::/7", "fe80::/10"}},
+		{CIDR: "0.0.0.0/0", Except: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "127.0.0.0/8",
+			"0.0.0.0/8", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "168.63.129.16/32"}},
+		{CIDR: "::/0", Except: []string{"fc00::/7", "fe80::/10", "::/128", "::1/128", "64:ff9b::/96", "64:ff9b:1::/48", "2002::/16", "ff00::/8"}},
 	}
 	if got := ipBlocks(pol); !slices.EqualFunc(got, want, func(a, b networkingv1.IPBlock) bool { return a.String() == b.String() }) {
 		t.Errorf("ip blocks = %v, want %v", got, want)
@@ -150,8 +152,11 @@ func checkKeepsGatewayAndOwnNamespace(t *testing.T, pol *networkingv1.NetworkPol
 		NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": gateway.Namespace}},
 		PodSelector:       &metav1.LabelSelector{MatchLabels: gateway.Labels},
 	}
-	if !hasPeer(pol, gw) {
-		t.Errorf("egress %v does not allow the gateway pods", pol.Spec.Egress)
+	if hasPeer(pol, gw) {
+		t.Errorf("egress %v allows every port of the gateway pods", pol.Spec.Egress)
+	}
+	if ports := gatewayPorts(pol, gw); !slices.Equal(ports, []string{"TCP/8080"}) {
+		t.Errorf("gateway pods reachable on %v, want only its HTTP port TCP/8080", ports)
 	}
 	if !hasPeer(pol, networkingv1.NetworkPolicyPeer{PodSelector: &metav1.LabelSelector{}}) {
 		t.Errorf("egress %v does not allow the namespace's own pods", pol.Spec.Egress)
@@ -206,7 +211,7 @@ func TestEgressDNSGoesOnlyToTheClusterDNS(t *testing.T) {
 		}
 		found := false
 		for _, rule := range pol.Spec.Egress {
-			if len(rule.Ports) == 0 {
+			if len(rule.Ports) == 0 || rule.Ports[0].Port.IntValue() != 53 {
 				continue
 			}
 			var ports, to []string
@@ -299,5 +304,99 @@ func TestReadNameServers(t *testing.T) {
 	}
 	if want := []netip.Addr{netip.MustParseAddr("10.43.0.10"), netip.MustParseAddr("fd00::a")}; !slices.Equal(got, want) {
 		t.Errorf("name servers = %v, want %v", got, want)
+	}
+}
+
+// gatewayPorts are the ports of the rules that allow peer.
+func gatewayPorts(pol *networkingv1.NetworkPolicy, peer networkingv1.NetworkPolicyPeer) []string {
+	var out []string
+	for _, r := range pol.Spec.Egress {
+		if !slices.ContainsFunc(r.To, func(p networkingv1.NetworkPolicyPeer) bool { return p.String() == peer.String() }) {
+			continue
+		}
+		for _, p := range r.Ports {
+			out = append(out, string(*p.Protocol)+"/"+p.Port.String())
+		}
+	}
+	return out
+}
+
+// makeNode creates a node with addresses and pod ranges, deleted when the
+// test ends (nodes are cluster-wide, shared with the other tests).
+func makeNode(t *testing.T, name string, podCIDRs []string, addrs ...corev1.NodeAddress) {
+	t.Helper()
+	ctx := context.Background()
+	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: corev1.NodeSpec{PodCIDRs: podCIDRs}}
+	if len(podCIDRs) > 0 {
+		n.Spec.PodCIDR = podCIDRs[0]
+	}
+	if err := k8s.Create(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = k8s.Delete(context.Background(), n) })
+	n.Status.Addresses = addrs
+	if err := k8s.Status().Update(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func exceptOf(pol *networkingv1.NetworkPolicy, cidr string) []string {
+	for _, b := range ipBlocks(pol) {
+		if b.CIDR == cidr {
+			return b.Except
+		}
+	}
+	return nil
+}
+
+// The nodes' own addresses can be public (a single machine, bare metal, many
+// small clouds). Pods must not reach them: the packets never leave the host,
+// so no cloud firewall stands between a pod and the node's sshd, kubelet or
+// NodePorts. A node's pod range outside the private ones is kept off too.
+// Both hold for the public internet and for an allow list; a node added
+// later is denied once the nodes are reconciled.
+func TestEgressKeepsPodsOffTheNodesOwnAddresses(t *testing.T) {
+	makeNode(t, "node-a", []string{"198.51.100.0/24"},
+		corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "203.0.113.7"},
+		corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: "10.0.0.5"},
+		corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "2001:db8::7"},
+		corev1.NodeAddress{Type: corev1.NodeHostName, Address: "node-a"},
+	)
+	for _, allow := range [][]string{nil, {"203.0.113.0/24"}} {
+		mia := newPerson(t, "mia"+string(rune('a'+len(allow))))
+		r := perUser()
+		r.Egress = mustEgress(t, metadataCIDRs, allow)
+		reconcilePerson(t, r, mia)
+		ns := "javo-" + mia.Name
+		pol := egressPolicy(t, ns)
+		if allow == nil {
+			v4, v6 := exceptOf(pol, "0.0.0.0/0"), exceptOf(pol, "::/0")
+			for _, want := range []string{"203.0.113.7/32", "198.51.100.0/24"} {
+				if !slices.Contains(v4, want) {
+					t.Errorf("IPv4 except %v lacks %s", v4, want)
+				}
+			}
+			if slices.Contains(v4, "10.0.0.5/32") {
+				t.Errorf("IPv4 except %v repeats an address the private ranges cover", v4)
+			}
+			if !slices.Contains(v6, "2001:db8::7/128") {
+				t.Errorf("IPv6 except %v lacks the node's IPv6 address", v6)
+			}
+		} else if got := exceptOf(pol, "203.0.113.0/24"); !slices.Contains(got, "203.0.113.7/32") {
+			t.Errorf("allow list except = %v, want the node's address", got)
+		}
+
+		makeNode(t, "node-b"+string(rune('a'+len(allow))), nil, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: "203.0.113.9"})
+		if _, err := r.reconcileNodes(context.Background(), reconcile.Request{}); err != nil {
+			t.Fatal(err)
+		}
+		pol = egressPolicy(t, ns)
+		cidr := "0.0.0.0/0"
+		if allow != nil {
+			cidr = allow[0]
+		}
+		if got := exceptOf(pol, cidr); !slices.Contains(got, "203.0.113.9/32") {
+			t.Errorf("allow %v: after a node joined, except = %v, want its address", allow, got)
+		}
 	}
 }

@@ -117,6 +117,22 @@ func TestTrimKeepsOnlyAllocatable(t *testing.T) {
 	}
 }
 
+// The controller's egress policy denies pods every node's addresses and pod
+// ranges, read from the same cache: Trim keeps them.
+func TestTrimKeepsTheNodesAddresses(t *testing.T) {
+	n := node("n1", "8", "16Gi")
+	n.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeExternalIP, Address: "203.0.113.7"}}
+	n.Spec.PodCIDRs = []string{"198.51.100.0/24"}
+	got, err := Trim(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tn := got.(*corev1.Node)
+	if len(tn.Status.Addresses) != 1 || tn.Status.Addresses[0].Address != "203.0.113.7" || len(tn.Spec.PodCIDRs) != 1 {
+		t.Fatalf("trimmed node lost its addresses: %+v", tn)
+	}
+}
+
 func gpuNode(name, cpu, mem, gpus string, labels map[string]string) *corev1.Node {
 	n := node(name, cpu, mem)
 	n.Labels = labels

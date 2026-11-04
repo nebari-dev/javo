@@ -20,7 +20,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/authz"
@@ -40,6 +44,8 @@ const (
 type GatewayPods struct {
 	Namespace string
 	Labels    map[string]string
+	// Port is the gateway's HTTP port, the only one pods may connect to.
+	Port int32
 }
 
 // Binding grants a ClusterRole to a service account inside each managed
@@ -173,6 +179,17 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 		Complete(reconcile.Func(r.reconcilePolicy)); err != nil {
 		return err
 	}
+	if r.NetworkPolicy {
+		// Every node event maps to one request, so a burst is one pass.
+		all := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "nodes"}}}
+		})
+		if err := ctrl.NewControllerManagedBy(mgr).Named("namespace-nodes").
+			Watches(&corev1.Node{}, all, builder.WithPredicates(nodeAddressesChanged)).
+			Complete(reconcile.Func(r.reconcileNodes)); err != nil {
+			return err
+		}
+	}
 	return ctrl.NewControllerManagedBy(mgr).Named("namespace").
 		WatchesRawSource(dbsource.For(feed.Subscribe(), "people", r.ResyncEvery, r.allPeople)).
 		Complete(r)
@@ -258,8 +275,11 @@ func (r *Reconciler) ensurePolicies(ctx context.Context, ns string) error {
 	if !r.NetworkPolicy {
 		return nil
 	}
-	for _, build := range []func(string) *networkingv1.NetworkPolicy{r.allowGatewayOnly, denyFilesEgress, r.limitEgress} {
-		want := build(ns)
+	nodes, err := r.nodeRanges(ctx)
+	if err != nil {
+		return err
+	}
+	for _, want := range []*networkingv1.NetworkPolicy{r.allowGatewayOnly(ns), denyFilesEgress(ns), r.limitEgress(ns, nodes)} {
 		got := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: want.Namespace, Name: want.Name}}
 		err := r.reader().Get(ctx, client.ObjectKeyFromObject(got), got)
 		switch {
@@ -361,4 +381,31 @@ func denyFilesEgress(ns string) *networkingv1.NetworkPolicy {
 			Egress:      []networkingv1.NetworkPolicyEgressRule{},
 		},
 	}
+}
+
+// reconcileNodes rewrites the egress policy of every managed namespace when
+// the nodes change: a node's addresses are denied to pods (nodeRanges).
+func (r *Reconciler) reconcileNodes(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
+	var list corev1.NamespaceList
+	if err := r.Client.List(ctx, &list, client.MatchingLabels{model.LabelManaged: "true"}); err != nil {
+		return ctrl.Result{}, err
+	}
+	for _, ns := range list.Items {
+		if err := r.ensurePolicies(ctx, ns.Name); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+// nodeAddressesChanged lets through node events that can change nodeRanges:
+// a node added or removed, or its addresses or pod ranges changed, not the
+// regular status reports.
+var nodeAddressesChanged = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		o, ok1 := e.ObjectOld.(*corev1.Node)
+		n, ok2 := e.ObjectNew.(*corev1.Node)
+		return !ok1 || !ok2 || !equality.Semantic.DeepEqual(o.Status.Addresses, n.Status.Addresses) ||
+			!equality.Semantic.DeepEqual(o.Spec.PodCIDRs, n.Spec.PodCIDRs)
+	},
 }

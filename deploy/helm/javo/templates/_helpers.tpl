@@ -285,6 +285,7 @@ true
 {{- end }}
 {{- end }}
 - --gateway-pod-labels={{ include "javo.gatewayPodLabels" . }}
+- --gateway-port={{ .Values.gateway.port }}
 {{- if ne (include "javo.namespaceMode" .) "shared" }}
 {{- range $sa := list "javo-gateway" "javo-controller" }}
 - --app-role-binding={{ include "javo.appRoleName" (list $ $sa) }}={{ $.Release.Namespace }}/{{ include "javo.account" (list $ $sa) }}
