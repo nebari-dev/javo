@@ -555,3 +555,17 @@ func TestStaticSiteSampleIsCopiedBeforeItIsServed(t *testing.T) {
 		t.Fatalf("the site copy reads %q", got)
 	}
 }
+
+// The shipped pi is the coding agent that "Build with pi" starts: its token
+// may deploy and use the model endpoint, and its window runs the start
+// script that sets the model up and passes the first prompt.
+func TestPiTemplateIsTheCodingAgent(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "pi")
+	if !tpl.Spec.AgentDeploy || !tpl.Spec.AgentModel || model.MaxSharing(tpl) != model.AccessPrivate {
+		t.Fatalf("spec %+v", tpl.Spec)
+	}
+	if last := tpl.Spec.Args[len(tpl.Spec.Args)-1]; last != "/opt/javo/agents/pi-start.sh" {
+		t.Fatalf("tmux runs %q, want the start script", last)
+	}
+}

@@ -9,6 +9,7 @@ on:
     paths:
       - 'ui/**'
       - 'internal/model/template.go'
+      - 'pod/**/*.mjs'
       - '.github/workflows/ui.yml'
 
 permissions:
@@ -90,6 +91,9 @@ jobs:
       # Lifecycle scripts stay off: no dependency runs code at install.
       - run: pnpm install --frozen-lockfile --ignore-scripts --store-dir ~/.pnpm-store
       - run: pnpm build
+      # The scripts the pods run (javo-api, the terminal page, pi-setup).
+      - run: node --test "pod/**/*.test.mjs"
+        working-directory: ${{ github.workspace }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.ref == 'refs/heads/main' && steps.pnpm-store.outputs.cache-hit != 'true'
         with:
