@@ -158,6 +158,12 @@ spec:
     - name: gateway
       expression: request.userInfo.username == '{{ $gateway }}'
   variables:
+    # The home claim of the file pod's owner, or '' for any other pod name.
+    - name: ownHome
+      expression: >-
+        object.metadata.name.startsWith('javo-files-')
+        ? 'home-' + object.metadata.name.substring(size('javo-files-'))
+        : ''
     - name: containers
       expression: >-
         object.spec.containers + object.spec.?initContainers.orValue([])
@@ -169,10 +175,17 @@ spec:
         size(object.spec.?initContainers.orValue([])) == 0
         && variables.containers.all(c, c.image == '{{ .Values.files.image }}')
       message: the Javo gateway's pods may run only the files image, without init containers
+    # A claim is read-only, except the home of the file pod's own owner
+    # (pod javo-files-<owner>, volume "home", claim home-<owner> or
+    # home-<owner>-<generation>): the file editor saves through it.
     - expression: >-
         object.spec.?volumes.orValue([]).all(v, has(v.emptyDir)
-        || (has(v.persistentVolumeClaim) && v.persistentVolumeClaim.?readOnly.orValue(false)))
-      message: the Javo gateway's pods may mount only claims read-only and emptyDir volumes
+        || (has(v.persistentVolumeClaim) && (v.persistentVolumeClaim.?readOnly.orValue(false)
+        || (v.name == 'home' && variables.ownHome != ''
+        && (v.persistentVolumeClaim.claimName == variables.ownHome
+        || (v.persistentVolumeClaim.claimName.startsWith(variables.ownHome + '-')
+        && v.persistentVolumeClaim.claimName.substring(size(variables.ownHome) + 1).matches('^[0-9]+$')))))))
+      message: the Javo gateway's pods may mount only emptyDir volumes and claims read-only, except their owner's own home
     - expression: >-
         variables.containers.all(c, size(c.?envFrom.orValue([])) == 0
         && c.?env.orValue([]).all(e, !has(e.valueFrom)))

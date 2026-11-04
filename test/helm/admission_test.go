@@ -327,6 +327,11 @@ func (noStorage) Input(context.Context, string, string) (podstorage.Input, error
 // picker: a pod creator there could otherwise mount any Secret or claim, or
 // run any image. Its own file pods (made by the real code) still start;
 // anything else from its account is refused.
+// fixedUID gives every owner the same uid, as a single-user install would.
+type fixedUID struct{}
+
+func (fixedUID) UID(context.Context, string) (int64, int64, error) { return 100000, 100000, nil }
+
 func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 	t.Parallel()
 	admin, as, out := admissionCluster(t, "postgres")
@@ -361,7 +366,7 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 		return gw.Create(ctx, other("javo-test-probe-"+strconv.FormatInt(time.Now().UnixNano(), 36)))
 	})
 
-	pods, err := files.NewPods(files.PodsConfig{Client: gw, Namespace: nsName, Image: image, Storage: noStorage{}})
+	pods, err := files.NewPods(files.PodsConfig{Client: gw, Namespace: nsName, Image: image, Storage: noStorage{}, UIDs: fixedUID{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,6 +404,19 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 					pvc.ReadOnly = false
 				}
 			}
+		}},
+		// The home may be writable only in the file pod of the home's own owner.
+		{"writable-other-home", func(p *corev1.Pod) {
+			p.Name = model.FilesPodPrefix + "bob"
+			for i := range p.Spec.Volumes {
+				if pvc := p.Spec.Volumes[i].PersistentVolumeClaim; pvc != nil && p.Spec.Volumes[i].Name == "home" {
+					pvc.ReadOnly = false
+				}
+			}
+		}},
+		{"writable-folder-claim-named-home", func(p *corev1.Pod) {
+			p.Name = model.FilesPodPrefix + "bob"
+			p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: "home2", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "home-bob"}}})
 		}},
 		{"env-from-secret", func(p *corev1.Pod) {
 			ctr(p).EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "javo-db"}}}}
