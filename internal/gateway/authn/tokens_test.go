@@ -4,14 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
-	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -453,21 +451,5 @@ func TestTokenLosesTheGroupsARevalidationDrops(t *testing.T) {
 	}
 	if w := f.Bearer("GET", "/api/admin/report", "", tok, nil); w.Code != http.StatusForbidden {
 		t.Fatalf("admin route with the token: %d", w.Code)
-	}
-}
-
-// One person cannot grow the tokens table without bound.
-func TestTokensPerPersonAreCapped(t *testing.T) {
-	t.Parallel()
-	f := apitest.New(t, apitest.Options{})
-	c := f.LoginAlice()
-	for i := range authn.MaxTokensPerPerson {
-		if w := f.Do("POST", "/api/tokens", `{"name":"t`+strconv.Itoa(i)+`","scope":"read","expiresInDays":1}`, c); w.Code != http.StatusCreated {
-			t.Fatalf("token %d: %d %s", i, w.Code, w.Body)
-		}
-	}
-	w := f.Do("POST", "/api/tokens", `{"name":"one more","scope":"read","expiresInDays":1}`, c)
-	if w.Code != http.StatusConflict || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgTokenTooMany, authn.MaxTokensPerPerson) {
-		t.Fatalf("token past the cap: %d %s", w.Code, w.Body)
 	}
 }

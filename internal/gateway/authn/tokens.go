@@ -21,10 +21,6 @@ import (
 // maxTokenName is the longest token name.
 const maxTokenName = 64
 
-// MaxTokensPerPerson is how many personal tokens one person may hold (app
-// and job tokens are not counted: the controller makes those).
-const MaxTokensPerPerson = 50
-
 // tokensRoute is where tokens are created, listed and revoked.
 const tokensRoute = "/api/tokens"
 
@@ -177,9 +173,6 @@ func (t *TokensAPI) Register(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
-		if err := t.roomForOneMore(ctx, User(ctx).ID); err != nil {
-			return nil, err
-		}
 		text, tok, err := t.Store.Create(ctx, Actor(ctx), token.Token{Name: name, Owner: User(ctx).ID, Scope: scope, ExpiresAt: expires})
 		if err != nil {
 			return nil, problem.Internal("create token", err)
@@ -222,25 +215,6 @@ func (t *TokensAPI) Register(api huma.API) {
 	}, func(context.Context, *struct{}) (*struct{ Body Info }, error) {
 		return &struct{ Body Info }{Body: Info{APIDocs: t.Docs, TokenMaxDays: int(t.MaxLifetime / (24 * time.Hour))}}, nil
 	})
-}
-
-// roomForOneMore refuses a new token when owner already holds
-// MaxTokensPerPerson personal tokens.
-func (t *TokensAPI) roomForOneMore(ctx context.Context, owner string) error {
-	list, err := t.Store.List(ctx, owner)
-	if err != nil {
-		return problem.Internal("list tokens", err)
-	}
-	n := 0
-	for _, tok := range list {
-		if !tok.Workload() {
-			n++
-		}
-	}
-	if n >= MaxTokensPerPerson {
-		return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgTokenTooMany, MaxTokensPerPerson))
-	}
-	return nil
 }
 
 // noteRevoked records on the app's row that its token id was revoked, so the
