@@ -31,7 +31,8 @@ describe('the file browser', () => {
     await userEvent.click(screen.getByRole('link', { name: /notes/ }))
     expect(location()).toBe('/files?path=notes')
     await userEvent.click(await screen.findByRole('link', { name: /a\.py/ }))
-    expect(location()).toBe('/files/view?path=notes%2Fa.py')
+    // The file view loads on first visit; the route changes once it has.
+    await waitFor(() => expect(location()).toBe('/files/view?path=notes%2Fa.py'))
   })
 
   it('creates an empty file and opens it', async () => {
