@@ -25,13 +25,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	"github.com/tink-crypto/tink-go/v2/tink"
+
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
+
+// testKey seals the file pods' logins in these tests.
+var testKey = func() tink.AEAD {
+	k, err := secrets.NewKey()
+	if err != nil {
+		panic(err)
+	}
+	return k
+}()
 
 const (
 	ns    = "javo-apps"
@@ -169,7 +181,7 @@ func TestEnsureUsesTheHomesCurrentClaim(t *testing.T) {
 	moved.Name = naming.HomeClaimNameGen(owner, 2)
 	c := newClient(t, moved)
 	in := podstorage.Input{Home: &model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: moved.Name}}}
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{in}})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{in}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +201,7 @@ func TestEnsureUsesTheHomesCurrentClaim(t *testing.T) {
 
 func newPods(t *testing.T, c client.Client, clk *clock) *files.Pods {
 	t.Helper()
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{}, Now: clk.Now})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{}, Now: clk.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,18 +213,20 @@ func filePod(phase corev1.PodPhase, ready bool, ip string) *corev1.Pod {
 	if ready {
 		st = corev1.ConditionTrue
 	}
-	return &corev1.Pod{
+	p := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: model.FilesPodPrefix + owner, Namespace: ns, UID: "uid-1",
 			Labels: map[string]string{model.LabelRole: "files", model.LabelOwner: owner}},
 		Spec: corev1.PodSpec{
 			SecurityContext: &corev1.PodSecurityContext{RunAsUser: ptr.To[int64](ownerUID)},
 			Containers: []corev1.Container{{Name: "rclone",
-				Env:          []corev1.EnvVar{{Name: "RCLONE_RC_USER", Value: "javo"}, {Name: "RCLONE_RC_PASS", Value: "pw-1"}},
+				Env:          []corev1.EnvVar{{Name: "RCLONE_RC_USER", Value: "javo"}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "home", MountPath: "/home/user"}}}},
 		},
 		Status: corev1.PodStatus{Phase: phase, PodIP: ip,
 			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
 	}
+	files.SealLogin(testKey, p, "pw-1")
+	return p
 }
 
 func event(reason, msg string) *corev1.Event {
@@ -276,7 +290,7 @@ func TestEnsureCreatesHardenedPod(t *testing.T) {
 	// rclone asks for a password of its own (read from RCLONE_RC_USER and
 	// RCLONE_RC_PASS), so the home stays closed to a pod that reaches the
 	// port where the network plugin does not enforce NetworkPolicy.
-	if user, pass := envOf(ctr, "RCLONE_RC_USER"), envOf(ctr, "RCLONE_RC_PASS"); user == "" || len(pass) < 32 {
+	if user, pass := envOf(ctr, "RCLONE_RC_USER"), podPassword(t, c, &p); user == "" || len(pass) < 32 {
 		t.Errorf("rclone user %q, password %q; want a user and a long password", user, pass)
 	}
 	sc := ctr.SecurityContext
@@ -322,6 +336,13 @@ func TestEnsureCreatesHardenedPod(t *testing.T) {
 	}
 }
 
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // envOf is the value of the container's env var name ("" if unset).
 func envOf(ctr corev1.Container, name string) string {
 	for _, e := range ctr.Env {
@@ -330,6 +351,65 @@ func envOf(ctr corev1.Container, name string) string {
 		}
 	}
 	return ""
+}
+
+// podPassword is the rclone password of pod: it must come from a Secret of
+// the pod's own (deleted with it), never from a literal in the pod spec,
+// which anyone who may read pods there would see.
+func podPassword(t *testing.T, c client.Client, pod *corev1.Pod) string {
+	t.Helper()
+	for _, e := range pod.Spec.Containers[0].Env {
+		if e.Name != "RCLONE_RC_PASS" {
+			continue
+		}
+		if e.Value != "" || e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+			t.Fatalf("RCLONE_RC_PASS = %+v, want a Secret reference", e)
+		}
+		ref := e.ValueFrom.SecretKeyRef
+		var sec corev1.Secret
+		if err := c.Get(context.Background(), client.ObjectKey{Namespace: pod.Namespace, Name: ref.Name}, &sec); err != nil {
+			t.Fatalf("the password Secret: %v", err)
+		}
+		if len(sec.OwnerReferences) != 1 || sec.OwnerReferences[0].Kind != "Pod" || sec.OwnerReferences[0].Name != pod.Name {
+			t.Errorf("Secret owners = %+v, want the pod", sec.OwnerReferences)
+		}
+		for k, v := range pod.Annotations {
+			if strings.Contains(v, string(sec.Data[ref.Key])) {
+				t.Errorf("annotation %s holds the password", k)
+			}
+		}
+		return string(sec.Data[ref.Key])
+	}
+	t.Fatal("no RCLONE_RC_PASS")
+	return ""
+}
+
+// The gateway reads the password back from the pod (it cannot read Secrets
+// there), so a ready pod made by another replica or before a restart still
+// opens; a ready pod whose login does not open with the gateway's key is
+// replaced.
+func TestEnsureOpensThePasswordOfAPodItMade(t *testing.T) {
+	ctx := context.Background()
+	c := newClient(t, homeClaim())
+	if _, err := newPods(t, c, &clock{time.Now()}).Ensure(ctx, owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatal(err)
+	}
+	var p corev1.Pod
+	must(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: model.FilesPodPrefix + owner}, &p))
+	pass := podPassword(t, c, &p)
+	p.Status = corev1.PodStatus{Phase: corev1.PodRunning, PodIP: "10.0.0.5", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}
+	must(t, c.Status().Update(ctx, &p))
+	addr, err := newPods(t, c, &clock{time.Now()}).Ensure(ctx, owner)
+	if err != nil || addr != "javo:"+pass+"@10.0.0.5:5572" {
+		t.Fatalf("Ensure = %q, %v", addr, err)
+	}
+	other, err := secrets.NewKey()
+	must(t, err)
+	p2, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: other, Storage: stubStorage{}})
+	must(t, err)
+	if _, err := p2.Ensure(ctx, owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatalf("another key: err = %v, want the pod replaced", err)
+	}
 }
 
 // Each file pod gets its own random password: knowing one opens no other.
@@ -345,7 +425,7 @@ func TestEachFilePodHasItsOwnPassword(t *testing.T) {
 		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: model.FilesPodPrefix + owner}, &p); err != nil {
 			t.Fatal(err)
 		}
-		passwords = append(passwords, envOf(p.Spec.Containers[0], "RCLONE_RC_PASS"))
+		passwords = append(passwords, podPassword(t, c, &p))
 	}
 	if passwords[0] == "" || passwords[0] == passwords[1] {
 		t.Errorf("passwords = %q, want two different ones", passwords)
@@ -361,10 +441,17 @@ func TestEnsureReadyPodReturnsAddress(t *testing.T) {
 }
 
 // A file pod an earlier version made without a password serves the home to
-// anyone who reaches it; it is replaced rather than used.
+// anyone who reaches it, and one with its password written in its spec shows
+// it to anyone who may read pods; either is replaced rather than used.
 func TestEnsureReplacesAFilePodWithoutAPassword(t *testing.T) {
+	for _, env := range [][]corev1.EnvVar{nil, {{Name: "RCLONE_RC_USER", Value: "javo"}, {Name: "RCLONE_RC_PASS", Value: "pw-1"}}} {
+		replacesFilePodWith(t, env)
+	}
+}
+
+func replacesFilePodWith(t *testing.T, env []corev1.EnvVar) {
 	old := filePod(corev1.PodRunning, true, "10.0.0.5")
-	old.Spec.Containers[0].Env = nil
+	old.Spec.Containers[0].Env = env
 	c := newClient(t, homeClaim(), old)
 	if _, err := newPods(t, c, &clock{time.Now()}).Ensure(context.Background(), owner); !errors.Is(err, files.ErrHomeStarting) {
 		t.Fatalf("err = %v, want ErrHomeStarting", err)
@@ -425,7 +512,7 @@ func TestEnsureLetsGoOfTheFilePodWhileTheHomeIsHeld(t *testing.T) {
 	for _, cond := range []string{model.ConditionRestoring, model.ConditionMigrating} {
 		c := newClient(t, homeClaim(), filePod(corev1.PodRunning, true, "10.0.0.5"))
 		home := &model.Home{Status: model.HomeStatus{Conditions: []metav1.Condition{{Type: cond, Status: metav1.ConditionTrue}}}}
-		p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{podstorage.Input{Home: home}}})
+		p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{podstorage.Input{Home: home}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -822,7 +909,7 @@ func (s stubStorage) Input(context.Context, string, string) (podstorage.Input, e
 func filePodWith(t *testing.T, in podstorage.Input) corev1.Pod {
 	t.Helper()
 	c := newClient(t, homeClaim())
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{in}})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{in}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -924,7 +1011,7 @@ func TestReapSweepsEveryNamespaceItIsGiven(t *testing.T) {
 	old.Namespace = other
 	old.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
 	c := newClient(t, old)
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{},
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{},
 		ReapIn: func(context.Context) ([]string, error) { return []string{ns, other}, nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -967,7 +1054,7 @@ func TestReapGoesOnPastANamespaceThatFails(t *testing.T) {
 			}
 			return c.List(ctx, l, opts...)
 		}}).Build()
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{},
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{},
 		ReapIn: func(context.Context) ([]string, error) { return []string{broken, fine}, nil }})
 	if err != nil {
 		t.Fatal(err)
@@ -994,7 +1081,7 @@ func TestReapAcrossAllNamespacesIsOneCall(t *testing.T) {
 			lists++
 			return c.List(ctx, l, opts...)
 		}}).Build()
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Storage: stubStorage{}, ReapAcrossNamespaces: true,
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: fixedUID(ownerUID), Seal: testKey, Storage: stubStorage{}, ReapAcrossNamespaces: true,
 		ReapIn: func(context.Context) ([]string, error) { return []string{"javo-a", "javo-b"}, nil }})
 	if err != nil {
 		t.Fatal(err)

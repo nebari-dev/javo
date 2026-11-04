@@ -289,7 +289,7 @@ func TestEnsureReplacesAPodThatCannotWriteAsTheOwner(t *testing.T) {
 // first sign-in; no pod is made until they do.
 func TestEnsureWaitsForTheOwnersUID(t *testing.T) {
 	c := newClient(t, homeClaim())
-	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: noUID{}, Storage: stubStorage{}})
+	p, err := files.NewPods(files.PodsConfig{Client: c, Namespace: ns, Image: image, UIDs: noUID{}, Seal: testKey, Storage: stubStorage{}})
 	if err != nil {
 		t.Fatal(err)
 	}

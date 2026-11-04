@@ -61,6 +61,8 @@ import (
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create
 // File picker pods: created, read, reaped and released; their events and
 // the owner's home claim are read, and so are the pods of runs and apps.
+// Each file pod's password is a Secret the gateway creates (create only, by
+// the marker above; it never reads one there) and the pod owns.
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=list
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get
@@ -195,6 +197,9 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	// c reads straight from the API server (no cache), as files.Pods needs.
 	pods, err := files.NewPods(files.PodsConfig{
 		Client: c, Namespace: wsNamespace, Image: o.filesImage, IdleAfter: o.filesIdleAfter,
+		// The sessions key is the one key every replica shares; a sealed
+		// login is bound to its pod and Secret, so it opens nothing else.
+		Seal: sessionsKey,
 		Storage: wiring.StorageResolver(db, platform),
 		UIDs:    ids.People{People: db.People(store.IDRange{}), Mode: platform.Identity.UIDMode},
 		ReapIn:  namespaces.New(pl, c).All,

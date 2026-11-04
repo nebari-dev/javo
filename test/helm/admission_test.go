@@ -17,12 +17,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
@@ -518,7 +520,11 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 		return gw.Create(ctx, other("javo-test-probe-"+strconv.FormatInt(time.Now().UnixNano(), 36)))
 	})
 
-	pods, err := files.NewPods(files.PodsConfig{Client: gw, Namespace: nsName, Image: image, Storage: noStorage{}, UIDs: fixedUID{}})
+	key, err := secrets.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pods, err := files.NewPods(files.PodsConfig{Client: gw, Namespace: nsName, Image: image, Storage: noStorage{}, UIDs: fixedUID{}, Seal: key})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,21 +535,69 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 	if err := admin.Get(ctx, client.ObjectKey{Namespace: nsName, Name: model.FilesPodPrefix + owner}, &made); err != nil {
 		t.Fatalf("file pod not created: %v", err)
 	}
+	var secretList corev1.SecretList
+	if err := admin.List(ctx, &secretList, client.InNamespace(nsName)); err != nil || len(secretList.Items) != 1 {
+		t.Fatalf("the file pod's password Secret: %v, %d Secrets", err, len(secretList.Items))
+	}
 
-	// Each case is the real file pod with one thing changed.
-	variant := func(name string, change func(*corev1.Pod)) *corev1.Pod {
-		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: nsName, Name: "javo-test-" + name, Labels: maps.Clone(made.Labels)}, Spec: *made.Spec.DeepCopy()}
+	// Each case is the real file pod with one thing changed, made for
+	// another owner (its name, owner label, home claim and password Secret
+	// follow), so only the change can make the policy refuse it.
+	n := 0
+	variant := func(change func(*corev1.Pod)) *corev1.Pod {
+		n++
+		o := "v" + strconv.Itoa(n)
+		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: nsName, Name: model.FilesPodPrefix + o, Labels: maps.Clone(made.Labels)}, Spec: *made.Spec.DeepCopy()}
+		p.Labels[model.LabelOwner] = o
 		p.Spec.NodeName = ""
+		for i := range p.Spec.Volumes {
+			if v := p.Spec.Volumes[i]; v.Name == "home" {
+				v.PersistentVolumeClaim.ClaimName = naming.HomeClaimName(o)
+			}
+		}
+		for i, e := range p.Spec.Containers[0].Env {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+				ref := e.ValueFrom.SecretKeyRef.DeepCopy()
+				ref.Name = p.Name + "-rc-0123456789abcdef"
+				p.Spec.Containers[0].Env[i].ValueFrom = &corev1.EnvVarSource{SecretKeyRef: ref}
+			}
+		}
 		change(p)
 		return p
 	}
 	ctr := func(p *corev1.Pod) *corev1.Container { return &p.Spec.Containers[0] }
+	homeClaim := func(p *corev1.Pod) *corev1.PersistentVolumeClaimVolumeSource {
+		for i := range p.Spec.Volumes {
+			if p.Spec.Volumes[i].Name == "home" {
+				return p.Spec.Volumes[i].PersistentVolumeClaim
+			}
+		}
+		t.Fatal("no home volume")
+		return nil
+	}
+	if err := gw.Create(ctx, variant(func(*corev1.Pod) {})); err != nil {
+		t.Fatalf("an unchanged file pod for another owner: %v", err)
+	}
+	if err := gw.Create(ctx, variant(func(p *corev1.Pod) { homeClaim(p).ClaimName += "-2" })); err != nil {
+		t.Fatalf("a home's second generation: %v", err)
+	}
 	for _, c := range []struct {
 		name   string
 		change func(*corev1.Pod)
 	}{
 		{"no-role-label", func(p *corev1.Pod) { delete(p.Labels, "javo.nebari.dev/role") }},
+		{"other-owner-label", func(p *corev1.Pod) { p.Labels[model.LabelOwner] = owner }},
+		// Another app's Service selects its pods by this label.
+		{"app-label", func(p *corev1.Pod) { p.Labels[model.LabelApp] = "a-1" }},
+		{"not-named-for-an-owner", func(p *corev1.Pod) { p.Name = "javo-test-x" }},
 		{"other-image", func(p *corev1.Pod) { ctr(p).Image = "example.org/tool:1" }},
+		{"command", func(p *corev1.Pod) { ctr(p).Command = []string{"sh", "-c", "id"} }},
+		{"other-args", func(p *corev1.Pod) { ctr(p).Args = []string{"serve", "http", "/"} }},
+		{"rcd-without-auth", func(p *corev1.Pod) { ctr(p).Args = append(ctr(p).Args, "--rc-no-auth") }},
+		{"second-container", func(p *corev1.Pod) {
+			p.Spec.Containers = append(p.Spec.Containers, *ctr(p).DeepCopy())
+			p.Spec.Containers[1].Name = "two"
+		}},
 		{"init-container", func(p *corev1.Pod) {
 			p.Spec.InitContainers = []corev1.Container{{Name: "i", Image: image}}
 		}},
@@ -552,22 +606,18 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 		}},
 		{"writable-claim", func(p *corev1.Pod) {
 			for i := range p.Spec.Volumes {
-				if pvc := p.Spec.Volumes[i].PersistentVolumeClaim; pvc != nil {
+				if pvc := p.Spec.Volumes[i].PersistentVolumeClaim; pvc != nil && p.Spec.Volumes[i].Name != "home" {
 					pvc.ReadOnly = false
 				}
 			}
+			p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: "x", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "folder-x"}}})
 		}},
 		// The home may be writable only in the file pod of the home's own owner.
-		{"writable-other-home", func(p *corev1.Pod) {
-			p.Name = model.FilesPodPrefix + "bob"
-			for i := range p.Spec.Volumes {
-				if pvc := p.Spec.Volumes[i].PersistentVolumeClaim; pvc != nil && p.Spec.Volumes[i].Name == "home" {
-					pvc.ReadOnly = false
-				}
-			}
-		}},
+		{"writable-other-home", func(p *corev1.Pod) { homeClaim(p).ClaimName = naming.HomeClaimName(owner) }},
+		// A person named after another's slug: home-<slug>-<8 hex> is theirs,
+		// even when the hex happens to be all digits.
+		{"writable-home-of-a-longer-name", func(p *corev1.Pod) { homeClaim(p).ClaimName += "-12345678" }},
 		{"writable-folder-claim-named-home", func(p *corev1.Pod) {
-			p.Name = model.FilesPodPrefix + "bob"
 			p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: "home2", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "home-bob"}}})
 		}},
 		{"env-from-secret", func(p *corev1.Pod) {
@@ -578,10 +628,46 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 				SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "javo-db"}, Key: "dsn"},
 			}})
 		}},
+		{"password-from-another-secret", func(p *corev1.Pod) {
+			for i, e := range ctr(p).Env {
+				if e.ValueFrom != nil {
+					ctr(p).Env[i].ValueFrom.SecretKeyRef.Name = "javo-db"
+				}
+			}
+		}},
 		{"service-account-token", func(p *corev1.Pod) { p.Spec.AutomountServiceAccountToken = nil }},
+		{"root", func(p *corev1.Pod) { p.Spec.SecurityContext.RunAsUser = ptr.To[int64](0) }},
+		{"uid-outside-the-range", func(p *corev1.Pod) { p.Spec.SecurityContext.RunAsUser = ptr.To[int64](5000) }},
+		{"container-uid", func(p *corev1.Pod) { ctr(p).SecurityContext.RunAsUser = ptr.To[int64](100001) }},
+		{"node-name", func(p *corev1.Pod) { p.Spec.NodeName = "node-1" }},
+		{"toleration", func(p *corev1.Pod) {
+			p.Spec.Tolerations = append(p.Spec.Tolerations, corev1.Toleration{Key: "node-role.kubernetes.io/control-plane", Operator: corev1.TolerationOpExists})
+		}},
 	} {
-		if err := gw.Create(ctx, variant(c.name, c.change)); !deniedByPolicy(err) {
+		if err := gw.Create(ctx, variant(c.change)); !deniedByPolicy(err) {
 			t.Errorf("%s: %v, want a policy denial", c.name, err)
+		}
+	}
+
+	// Secrets: only a file pod's own password.
+	podRef := func(name string) []metav1.OwnerReference {
+		return []metav1.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: name, UID: made.UID}}
+	}
+	pw := map[string][]byte{"password": []byte("x")}
+	for _, c := range []struct {
+		name string
+		sec  *corev1.Secret
+	}{
+		{"app-secrets-name", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "alice-1a2b3c4d-lab-javo-secrets", OwnerReferences: podRef(made.Name)}, Data: pw}},
+		{"no-owner", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: made.Name + "-rc-00000000000000aa"}, Data: pw}},
+		{"owned-by-another-pod", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: made.Name + "-rc-00000000000000bb", OwnerReferences: podRef("javo-files-bob")}, Data: pw}},
+		{"other-key", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: made.Name + "-rc-00000000000000cc", OwnerReferences: podRef(made.Name)}, Data: map[string][]byte{"token": []byte("x")}}},
+		{"token-type", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: made.Name + "-rc-00000000000000dd", OwnerReferences: podRef(made.Name),
+			Annotations: map[string]string{corev1.ServiceAccountNameKey: "default"}}, Type: corev1.SecretTypeServiceAccountToken}},
+	} {
+		c.sec.Namespace = nsName
+		if err := gw.Create(ctx, c.sec); !deniedByPolicy(err) {
+			t.Errorf("secret %s: %v, want a policy denial", c.name, err)
 		}
 	}
 }

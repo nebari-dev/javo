@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/tink-crypto/tink-go/v2/tink"
+
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -56,6 +59,11 @@ const (
 	rcUser      = "javo"
 	envRCUser   = "RCLONE_RC_USER"
 	envRCPass   = "RCLONE_RC_PASS"
+	// annotationLogin holds the pod's rclone password sealed with the
+	// gateway's key (PodsConfig.Seal); passwordKey is its key in the pod's
+	// password Secret, named <pod>-rc-<16 hex>.
+	annotationLogin = model.Group + "/rclone-login"
+	passwordKey     = "password"
 	dataDir     = podstorage.HomeDir
 	scratchDir  = podstorage.ScratchDir
 	defaultIdle = 10 * time.Minute
@@ -749,6 +757,12 @@ type PodsConfig struct {
 	ReapAcrossNamespaces bool
 	// Image is the rclone image, pinned by digest.
 	Image string
+	// Seal seals each file pod's rclone password into an annotation of the
+	// pod, so the gateway (which cannot read Secrets in workspace namespaces)
+	// can read it back after a restart or from another replica; the
+	// container gets it from a Secret, never from the pod spec. Required:
+	// the sessions key, shared by all replicas.
+	Seal tink.AEAD
 	// UIDs gives the uid and gid the owner's apps run as; the file pod runs
 	// as them too, so a file it writes belongs to the owner. Required;
 	// ids.People is the implementation.
@@ -785,8 +799,8 @@ type Pods struct {
 
 // NewPods returns a file pod manager. Call Run to delete idle pods.
 func NewPods(cfg PodsConfig) (*Pods, error) {
-	if cfg.Client == nil || cfg.Namespace == "" || cfg.Image == "" || cfg.Storage == nil || cfg.UIDs == nil {
-		return nil, errors.New("files: client, namespace, image, storage and uids are required")
+	if cfg.Client == nil || cfg.Namespace == "" || cfg.Image == "" || cfg.Storage == nil || cfg.UIDs == nil || cfg.Seal == nil {
+		return nil, errors.New("files: client, namespace, image, storage, uids and seal are required")
 	}
 	if cfg.IdleAfter == 0 {
 		cfg.IdleAfter = defaultIdle
@@ -867,10 +881,7 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 		return "", ErrHomeBusy
 	}
 	if apierrors.IsNotFound(err) {
-		if err := c.Create(ctx, buildPod(userID, ns, p.cfg.Image, in)); err != nil && !apierrors.IsAlreadyExists(err) {
-			return "", err
-		}
-		return "", ErrHomeStarting
+		return "", p.create(ctx, buildPod(userID, ns, p.cfg.Image, in))
 	}
 	if err != nil {
 		return "", err
@@ -881,7 +892,7 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	if pod.DeletionTimestamp != nil {
 		return "", ErrHomeStarting
 	}
-	login := rcloneLogin(&pod)
+	login := rcloneLogin(p.cfg.Seal, &pod)
 	// A pod without a password (made by an earlier version) is replaced
 	// too: its rclone answers anyone who reaches it.
 	if login == nil || !writesAs(&pod, uid) || !hasFolders(&pod, in, dir) {
@@ -919,6 +930,70 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 		}
 	}
 	return "", ErrHomeStarting
+}
+
+// create makes pod with a new password: sealed in its annotation, and for
+// the container in a Secret the pod owns (deleted with it). It returns
+// ErrHomeStarting once both exist.
+func (p *Pods) create(ctx context.Context, pod *corev1.Pod) error {
+	pass := newPassword()
+	secretName, err := sealLogin(p.cfg.Seal, pod, pass)
+	if err != nil {
+		return err
+	}
+	c := p.cfg.Client
+	if err := c.Create(ctx, pod); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return ErrHomeStarting
+		}
+		return err
+	}
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: secretName, Namespace: pod.Namespace,
+			Labels: map[string]string{model.LabelRole: roleFiles},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "v1", Kind: "Pod", Name: pod.Name, UID: pod.UID,
+				BlockOwnerDeletion: ptr.To(false),
+			}},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{passwordKey: []byte(pass)},
+	}
+	if err := c.Create(ctx, sec); err != nil {
+		// A pod whose password never got a Secret cannot start; it goes.
+		return errors.Join(fmt.Errorf("create the file pod's password: %w", err), deleteExact(ctx, c, pod))
+	}
+	return ErrHomeStarting
+}
+
+// sealLogin points pod's rclone at a new password Secret and records pass,
+// sealed with seal and bound to the namespace, the pod and that Secret, in
+// the pod's annotation. It returns the Secret's name.
+func sealLogin(seal tink.AEAD, pod *corev1.Pod, pass string) (string, error) {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b) // never fails
+	name := pod.Name + "-rc-" + hex.EncodeToString(b)
+	sealed, err := seal.Encrypt([]byte(pass), loginContext(pod, name))
+	if err != nil {
+		return "", fmt.Errorf("seal the file pod's password: %w", err)
+	}
+	ctr := &pod.Spec.Containers[0]
+	ctr.Env = slices.DeleteFunc(ctr.Env, func(e corev1.EnvVar) bool { return e.Name == envRCPass })
+	ctr.Env = append(ctr.Env, corev1.EnvVar{Name: envRCPass, ValueFrom: &corev1.EnvVarSource{
+		SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: name}, Key: passwordKey},
+	}})
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations[annotationLogin] = base64.StdEncoding.EncodeToString(sealed)
+	return name, nil
+}
+
+// loginContext binds a sealed password to where it belongs, so one copied
+// onto another pod does not open.
+func loginContext(pod *corev1.Pod, secretName string) []byte {
+	return []byte(pod.Namespace + "/" + pod.Name + "/" + secretName)
 }
 
 // Touch records that the user is active, so their file pod (if any) is
@@ -1088,13 +1163,12 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 				Image: image,
 				// rclone asks every call for the pod's own password, so the
 				// home stays closed where the network plugin does not enforce
-				// the gateway-only NetworkPolicy. The password is in the pod
-				// spec: only the gateway and controller read pods there (app
-				// pods get no API token), and both can read homes anyway.
+				// the gateway-only NetworkPolicy. The password comes from a
+				// Secret (create adds it), so whoever may read pods there
+				// does not see it.
 				Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-serve"},
 				Env: []corev1.EnvVar{
 					{Name: envRCUser, Value: rcUser},
-					{Name: envRCPass, Value: newPassword()},
 					{Name: "HOME", Value: scratchDir},
 					{Name: "RCLONE_CONFIG", Value: scratchDir + "/rclone.conf"},
 					{Name: "RCLONE_CACHE_DIR", Value: scratchDir + "/cache"},
@@ -1134,23 +1208,30 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 }
 
 // rcloneLogin is the user and password the file pod's rclone asks for, or
-// nil if it has no password.
-func rcloneLogin(pod *corev1.Pod) *url.Userinfo {
-	var user, pass string
+// nil if it has none the gateway can open: an older pod with no password or
+// with it in its spec, or one sealed with another key.
+func rcloneLogin(seal tink.AEAD, pod *corev1.Pod) *url.Userinfo {
+	var user, secretName string
 	for _, ctr := range pod.Spec.Containers {
 		for _, e := range ctr.Env {
-			switch e.Name {
-			case envRCUser:
+			switch {
+			case e.Name == envRCUser:
 				user = e.Value
-			case envRCPass:
-				pass = e.Value
+			case e.Name == envRCPass && e.Value == "" && e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil &&
+				e.ValueFrom.SecretKeyRef.Key == passwordKey:
+				secretName = e.ValueFrom.SecretKeyRef.Name
 			}
 		}
 	}
-	if pass == "" {
+	sealed, err := base64.StdEncoding.DecodeString(pod.Annotations[annotationLogin])
+	if secretName == "" || err != nil || len(sealed) == 0 {
 		return nil
 	}
-	return url.UserPassword(user, pass)
+	pass, err := seal.Decrypt(sealed, loginContext(pod, secretName))
+	if err != nil || len(pass) == 0 {
+		return nil
+	}
+	return url.UserPassword(user, string(pass))
 }
 
 // newPassword is 256 random bits, URL-safe.

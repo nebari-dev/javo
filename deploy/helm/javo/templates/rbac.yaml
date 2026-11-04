@@ -133,6 +133,7 @@ so neither component can create pods or services in other namespaces. */ -}}
 {{- $writeRules := dict
   "javo-gateway" (list
     (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "get" "create" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "secrets") "verbs" (list "create"))
     (dict "apiGroups" (list "") "resources" (list "pods/log") "verbs" (list "get"))
     (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "list"))
     (dict "apiGroups" (list "") "resources" (list "persistentvolumeclaims") "verbs" (list "get")))
