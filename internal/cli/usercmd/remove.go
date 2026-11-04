@@ -183,6 +183,9 @@ func (r remover) remove(ctx context.Context, who string) (string, error) {
 	if _, err := r.db.Secrets().DeleteFor(ctx, cliActor, m.name); err != nil {
 		return "", failed("deleting their secrets", err)
 	}
+	if err := r.db.AgentSettings().Delete(ctx, m.name); err != nil {
+		return "", failed("deleting their agent model setting", err)
+	}
 	homes, err := r.db.Homes().ListByOwner(ctx, m.name)
 	if err != nil {
 		return "", failed("reading their home", err)

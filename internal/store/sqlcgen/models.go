@@ -10,6 +10,14 @@ import (
 	"github.com/nebari-dev/javo/internal/store/dbtime"
 )
 
+type AgentSetting struct {
+	Owner     string
+	BaseUrl   string
+	Model     string
+	KeyLast4  string
+	UpdatedAt dbtime.Time
+}
+
 type AiUsage struct {
 	Person string
 	Day    string
