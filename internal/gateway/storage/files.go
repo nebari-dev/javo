@@ -253,12 +253,16 @@ var rawTypes = map[string]string{
 // user, nor reach another user's files.
 const rawSandbox = "sandbox allow-scripts allow-popups"
 
-// rawDocumentCSP is the policy of HTML and SVG, which can script: their own
-// inline script, style and embedded images run, but nothing loads from or
-// sends to the network, so a page code left in the home cannot pose as a
-// sign-in form on the platform's address and post what is typed elsewhere.
-const rawDocumentCSP = rawSandbox + "; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
-	"img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-ancestors 'self'"
+// rawDocumentPolicy is the policy for files a browser runs as a page (HTML,
+// SVG). The page sits on the platform's own address, so it could pass for a
+// sign-in prompt; it gets no network at all: no fetch or websocket, no form
+// post, no external script, style, font, image or frame that could carry what
+// the viewer types elsewhere, and no other site may frame it. Inline script
+// and data: or blob: resources still work, which is what self-contained
+// reports use.
+const rawDocumentPolicy = rawSandbox + "; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data: blob:; " +
+	"style-src 'unsafe-inline' data:; img-src data: blob:; font-src data:; media-src data: blob:; " +
+	"connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
 
 type rawInput struct {
 	Team string `query:"team" maxLength:"63" doc:"Team whose home the file is in; needed only when namespaces are per team and the user is in several"`
@@ -310,7 +314,7 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
 			}
 			csp := rawSandbox
 			if typ == rawTypes[".html"] || typ == rawTypes[".svg"] {
-				csp = rawDocumentCSP
+				csp = rawDocumentPolicy
 			}
 			hc.SetHeader("Content-Security-Policy", csp)
 			hc.SetHeader("X-Content-Type-Options", "nosniff")

