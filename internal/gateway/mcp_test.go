@@ -12,8 +12,11 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
+	"github.com/nebari-dev/javo/internal/mcp"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -221,4 +224,65 @@ func jsonEqual(a, b any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
+}
+
+// initialize opens one MCP session with tok and returns the answer's status.
+func (f *mcpFixture) initialize(t *testing.T, tok string) int {
+	t.Helper()
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}`
+	r, _ := http.NewRequest("POST", f.url+"/mcp", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// One person cannot pile up MCP sessions until the gateway runs out of
+// memory: past the cap a new session is refused, while other people still
+// get theirs.
+func TestMCPSessionsPerPersonAreCapped(t *testing.T) {
+	t.Parallel()
+	f := newMCPFixture(t)
+	tok := f.NewToken(f.alice, `{"name":"agent","scope":"read"}`).Token
+	for i := range mcp.MaxSessionsPerPerson {
+		if code := f.initialize(t, tok); code != http.StatusOK {
+			t.Fatalf("session %d: %d", i, code)
+		}
+	}
+	if code := f.initialize(t, tok); code != http.StatusTooManyRequests {
+		t.Fatalf("session past the cap: %d", code)
+	}
+	bob := f.NewToken(f.Session(apitest.PersonID("bob")), `{"name":"agent","scope":"read"}`).Token
+	if code := f.initialize(t, bob); code != http.StatusOK {
+		t.Fatalf("bob's session: %d", code)
+	}
+}
+
+// The MCP endpoint checks a token as the API does: an app's token stops
+// opening sessions when its app is gone.
+func TestMCPRefusesATokenTheAPIRefuses(t *testing.T) {
+	t.Parallel()
+	f := newMCPFixture(t)
+	text, _, err := f.Tokens.Create(context.Background(), model.Actor{System: model.SystemController}, token.Token{Name: "gone", Owner: apitest.LocalAlice(),
+		Scope: token.ScopeRead, App: &token.App{Namespace: gatewaytest.Namespace, Name: "no-such-app", Short: "gone"}})
+	if err == nil {
+		t.Fatal("made a token for an app that does not exist")
+	}
+	ws := gatewaytest.Workspace("gone", apitest.LocalAlice(), "Gone")
+	gatewaytest.Seed(t, f.Db, []any{ws})
+	text, _, err = f.Tokens.Create(context.Background(), model.Actor{System: model.SystemController}, token.Token{Name: "gone", Owner: apitest.LocalAlice(),
+		Scope: token.ScopeRead, App: &token.App{Namespace: ws.Namespace, Name: ws.ObjectName(), Short: "gone"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The app gives no API access, so its token is not wanted.
+	if code := f.initialize(t, text); code != http.StatusUnauthorized {
+		t.Fatalf("unwanted app token: %d", code)
+	}
 }

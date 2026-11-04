@@ -16,7 +16,10 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -60,6 +63,13 @@ type Config struct {
 	Version string
 }
 
+// MaxSessionsPerPerson is how many MCP sessions one person may hold open at
+// once; SessionIdle closes a session no request used for that long.
+const (
+	MaxSessionsPerPerson = 16
+	SessionIdle          = 10 * time.Minute
+)
+
 // skipped are read operations that are not tools: streams and documents.
 var skipped = map[string]bool{"streamWorkspaceLogs": true}
 
@@ -74,15 +84,68 @@ func NewHandler(cfg Config) http.Handler {
 		t := proposeTool(cfg, a)
 		server.AddTool(t.tool, t.handle)
 	}
-	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, &sdk.StreamableHTTPOptions{SessionTimeout: SessionIdle})
 	authed := auth.RequireBearerToken(cfg.Verify, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: strings.TrimRight(cfg.PublicURL, "/") + MetadataRoute,
 		Scopes:              []string{ScopeRead},
 		// Tokens without an expiry are allowed; the verifier checks revocation.
 		AllowMissingExpiration: true,
-	})(h)
+	})(capSessions(h, server))
 	return http.NewCrossOriginProtection().Handler(authed)
 }
+
+// capSessions refuses a request that would open a new session (one without
+// an Mcp-Session-Id) while the person already holds MaxSessionsPerPerson,
+// with 429. Sessions are counted from the server's own list, which the SDK
+// trims after SessionIdle; requests still opening one count too, so parallel
+// requests cannot slip past the cap.
+func capSessions(next http.Handler, server *sdk.Server) http.Handler {
+	var mu sync.Mutex
+	owner := map[string]string{} // session id: person
+	opening := map[string]int{}  // person: requests still opening a session
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := auth.TokenInfoFromContext(r.Context())
+		if r.Method != http.MethodPost || r.Header.Get(sessionHeader) != "" || info == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		who := info.UserID
+		mu.Lock()
+		live := map[string]bool{}
+		for ss := range server.Sessions() {
+			live[ss.ID()] = true
+		}
+		held := opening[who]
+		for id, p := range owner {
+			switch {
+			case !live[id]:
+				delete(owner, id)
+			case p == who:
+				held++
+			}
+		}
+		if held >= MaxSessionsPerPerson {
+			mu.Unlock()
+			w.Header().Set("Retry-After", strconv.Itoa(int(SessionIdle.Seconds())))
+			http.Error(w, "too many open sessions", http.StatusTooManyRequests)
+			return
+		}
+		opening[who]++
+		mu.Unlock()
+		next.ServeHTTP(w, r)
+		mu.Lock()
+		if opening[who]--; opening[who] == 0 {
+			delete(opening, who)
+		}
+		if id := w.Header().Get(sessionHeader); id != "" {
+			owner[id] = who
+		}
+		mu.Unlock()
+	})
+}
+
+// sessionHeader carries the MCP session id (Streamable HTTP).
+const sessionHeader = "Mcp-Session-Id"
 
 // MetadataHandler serves the protected resource metadata (RFC 9728).
 func MetadataHandler(publicURL string) http.Handler {
