@@ -97,9 +97,10 @@ func TestClusterWithoutSharedStorageSaysSo(t *testing.T) {
 	}
 }
 
-// One machine with its local disk limits nobody: no row asks for anything, and
-// the summary says where files are and that nothing needs attention.
-func TestOneMachineWithALocalDiskNeedsNothing(t *testing.T) {
+// One machine with its local disk limits nobody: only the size row asks for
+// attention, since a home that fills the disk takes the database and every
+// other pod on that disk down with it.
+func TestOneMachineWithALocalDiskNeedsOnlyASizeLimit(t *testing.T) {
 	cs := &model.ClusterStorage{Status: model.ClusterStorageStatus{
 		Nodes: 1,
 		Classes: []model.ClassCapability{{Name: "local-path", Provisioner: "rancher.io/local-path", IsDefault: true,
@@ -108,11 +109,14 @@ func TestOneMachineWithALocalDiskNeedsNothing(t *testing.T) {
 	}}
 	rows := report.Build(cs, nil)
 	for _, r := range rows {
-		if r.Attention {
-			t.Errorf("row %q asks for attention on one machine: %+v", r.Fact, r)
+		if r.Attention != (r.Fact == "size") {
+			t.Errorf("row %q attention %v on one machine: %+v", r.Fact, r.Attention, r)
 		}
 	}
-	if s := report.Summary(cs, rows); !contains(s, "this machine's disk") || !contains(s, "Nothing needs attention") {
+	if r := byFact(rows, "size"); r == nil || r.Notice.Code != reasons.AdminSizeNotEnforced || r.Notice.Tone != reasons.ToneWarn {
+		t.Errorf("size row = %+v", r)
+	}
+	if s := report.Summary(cs, rows); !contains(s, "this machine's disk") {
 		t.Errorf("summary = %q", s)
 	}
 }

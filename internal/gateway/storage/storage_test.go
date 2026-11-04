@@ -384,7 +384,7 @@ func TestTheAdminReportStartsWithWhereFilesAre(t *testing.T) {
 	t.Parallel()
 	f := apitest.New(t, apitest.Options{}, apitest.ClusterStorage())
 	v := apitest.Decode[apitest.AdminView](t, f.Do("GET", "/api/admin/storage", "", apitest.AdminSession(f)))
-	if !strings.Contains(v.Summary, "this machine's disk") || !strings.Contains(v.Summary, "Nothing needs attention") {
+	if !strings.HasPrefix(v.Summary, "Files are stored on this machine's disk") {
 		t.Fatalf("summary = %q", v.Summary)
 	}
 }
