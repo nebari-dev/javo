@@ -168,8 +168,8 @@ function Actions({ ws, managed }: { ws: Workspace; managed: boolean }) {
     <div className="actions-col">
       <div className="actions">
         {open && (
-          <OpenAppLink className="btn primary" href={open}>
-            Open
+          <OpenAppLink className="btn primary" href={open} icon={agentOpenIcon(ws.kind)}>
+            {AGENTS[ws.kind] ? `Open ${AGENTS[ws.kind]}` : 'Open'}
           </OpenAppLink>
         )}
         {ws.phase === 'Stopping' || heldStep(ws) ? null : ws.phase === 'Stopped' ? (
@@ -237,6 +237,12 @@ function useJustStarted(phase: string): { started: boolean; hold: boolean; dismi
 // says the agent is running, not that the app it builds is.
 const AGENTS: Record<string, string> = { pi: 'Pi', 'claude-code': 'Claude Code', herdr: 'herdr' }
 
+// The Open button of an agent whose logo reads on the dark button carries
+// that logo (herdr's mark is drawn in the text colour, so it keeps the icon).
+function agentOpenIcon(kind: string): ReactNode {
+  return kind === 'pi' || kind === 'claude-code' ? <KindLogo kind={kind} inline /> : undefined
+}
+
 /**
  * Says an app that just started is ready, with its address, a link to open
  * it and a button to copy the address. For a coding agent it says the agent
@@ -255,7 +261,7 @@ function ReadyCard({ ws, link, building, onDismiss }: { ws: Workspace; link: str
       title={title}
       actions={
         <>
-          <OpenAppLink className="btn primary sm" href={link}>
+          <OpenAppLink className="btn primary sm" href={link} icon={agentOpenIcon(ws.kind)}>
             {agent ? `Open ${agent}` : 'Open app'}
           </OpenAppLink>
           <CopyLink link={address} />
