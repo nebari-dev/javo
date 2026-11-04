@@ -14,6 +14,10 @@ gateway:
   # node's pod-network bridge (cni0), 10.42.0.1 with the k3s default cluster
   # CIDR. Check it: the "peer" in the gateway's "login attempt" log lines,
   #   kubectl -n javo-system logs deploy/javo-gateway | grep 'login attempt'
+  # Every client of the NodePort gets that address, so keep port 30080
+  # reachable from the proxy alone (host firewall): a client reaching it
+  # directly could set X-Forwarded-For and pick the address its sign-in
+  # limits count against.
   trustedProxies: ["10.42.0.1/32"]
   service:
     type: NodePort
