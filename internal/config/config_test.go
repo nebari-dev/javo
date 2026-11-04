@@ -489,3 +489,44 @@ func TestWorkloadsIsolationIsOffByDefaultAndChecked(t *testing.T) {
 		t.Fatalf("bad runtime class: err = %v", err)
 	}
 }
+
+// The coding agents' model is on with AI, on the admin's model, and only for
+// an OpenAI-compatible provider: the gateway forwards their requests as they
+// come, in the OpenAI chat completions format.
+func TestAIAgentDefaultsToTheAIModel(t *testing.T) {
+	p, err := load(t, "auth: {local: {enabled: true}}\nai: {enabled: true, provider: openai, model: m1, baseURL: https://llm.example.com/v1}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.AI.AgentModel(); got != "m1" {
+		t.Fatalf("AgentModel = %q, want the AI model", got)
+	}
+	if p.AI.Agent.Template != "pi" || p.AI.Agent.MaxRequestBytes != 8<<20 {
+		t.Fatalf("agent defaults = %+v", p.AI.Agent)
+	}
+	if !p.AI.AgentAllows("m1") || p.AI.AgentAllows("other") {
+		t.Fatal("only the agent model is allowed by default")
+	}
+
+	p, err = load(t, "auth: {local: {enabled: true}}\nai: {enabled: true, provider: openai, model: m1, agent: {model: m2, models: [m3]}}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.AI.AgentModel() != "m2" || !p.AI.AgentAllows("m2") || !p.AI.AgentAllows("m3") || p.AI.AgentAllows("m1") {
+		t.Fatalf("agent model %q, allow-list %v", p.AI.AgentModel(), p.AI.Agent.Models)
+	}
+
+	for _, off := range []string{
+		"auth: {local: {enabled: true}}\nai: {enabled: false, provider: openai, model: m1}\n",
+		"auth: {local: {enabled: true}}\nai: {enabled: true, provider: openai, model: m1, agent: {enabled: false}}\n",
+		"auth: {local: {enabled: true}}\nai: {enabled: true, provider: anthropic, model: m1}\n",
+	} {
+		p, err := load(t, off)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := p.AI.AgentModel(); got != "" {
+			t.Errorf("%s: AgentModel = %q, want off", off, got)
+		}
+	}
+}

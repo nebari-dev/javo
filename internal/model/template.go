@@ -228,6 +228,23 @@ type TemplateSpec struct {
 	// example /etc/claude-code/CLAUDE.md for Claude Code).
 	APIGuidePaths []string `json:"apiGuidePaths,omitempty"`
 
+	// AgentDeploy lets the own API token of an app from this template, a
+	// coding agent working for its owner, do more than the read-only
+	// workload allow-list: create, change, start, restart and delete the
+	// owner's apps and jobs that hold no secret, API token or Nebi token
+	// (authn.AgentDeployWrites). Anything else stays refused and is left to
+	// the person in the browser. Needs apiToken and apps that are never
+	// shared (maxSharing Private).
+	AgentDeploy bool `json:"agentDeploy,omitempty"`
+
+	// AgentModel gives apps from this template a model to work with: the
+	// gateway's model endpoint, called with the app's own token, while the
+	// admin's agent model is on; otherwise the owner's own agent key, if
+	// they stored one. The app gets JAVO_AGENT_MODE (platform, own or
+	// none), JAVO_AGENT_MODEL and JAVO_AGENT_BASE_URL, and with own,
+	// JAVO_AGENT_KEY. Needs apiToken.
+	AgentModel bool `json:"agentModel,omitempty"`
+
 	// JobOnly marks a template that only runs jobs. It is not offered as an
 	// app and creating an app from it is refused. kind, port and command are
 	// still required by the schema; put placeholders there.
@@ -483,6 +500,15 @@ func (s *TemplateSpec) Validate() error {
 	}
 	if len(s.APIGuidePaths) > 0 && !s.APIToken {
 		v.add("spec.apiGuidePaths", "apiGuidePaths needs apiToken")
+	}
+	if s.AgentDeploy && !s.APIToken {
+		v.add("spec.agentDeploy", "agentDeploy needs apiToken")
+	}
+	if s.AgentModel && !s.APIToken {
+		v.add("spec.agentModel", "agentModel needs apiToken")
+	}
+	if s.AgentDeploy && s.MaxSharing != "" && s.MaxSharing != AccessPrivate {
+		v.add("spec.agentDeploy", "agentDeploy needs maxSharing Private")
 	}
 	v.maxItems("spec.apiGuidePaths", len(s.APIGuidePaths), 8)
 	for i, p := range s.APIGuidePaths {

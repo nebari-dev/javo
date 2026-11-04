@@ -19,6 +19,7 @@ func TestAppRoundTrip(t *testing.T) {
 	in := newApp("alice", "lab")
 	in.Command, in.Image, in.Port, in.File, in.Sample = "run --x", "registry.example.com/app:1", 8080, "a.py", true
 	in.APIAccess = model.APIAccessRead
+	in.AgentPrompt = "build a dashboard"
 	in.Sharing = model.Sharing{Access: model.AccessRestricted, Users: []string{"bob"}, Groups: []string{"data"}}
 	created, err := s.Apps().Create(ctx, alice, in)
 	if err != nil {
@@ -32,7 +33,7 @@ func TestAppRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Command != in.Command || got.Image != in.Image || got.Port != 8080 || got.File != "a.py" || !got.Sample ||
-		got.Size != "small" || got.DisplayName != "lab" || got.APIAccess != model.APIAccessRead {
+		got.Size != "small" || got.DisplayName != "lab" || got.APIAccess != model.APIAccessRead || got.AgentPrompt != in.AgentPrompt {
 		t.Errorf("spec lost in the round trip: %+v", got)
 	}
 	if got.Sharing.Access != model.AccessRestricted || len(got.Sharing.Users) != 1 || got.Sharing.Users[0] != "bob" ||

@@ -1,7 +1,10 @@
 package model
 
 import (
+	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,6 +49,9 @@ func AccessRank(access string) int {
 	}
 	return -1
 }
+
+// MaxAgentPrompt is the longest first prompt a coding-agent app takes.
+const MaxAgentPrompt = 4000
 
 // API access levels of an app, from none to most.
 const (
@@ -226,6 +232,10 @@ type App struct {
 	// ReadWrite. Empty means the template's default (see APIAccessOf).
 	// Changing it restarts a running app.
 	APIAccess string
+	// AgentPrompt is the request a coding-agent app (a template with
+	// agentModel) starts working on: its pod gets it as JAVO_AGENT_PROMPT,
+	// and the agent runs it on the app's first start only. Empty for none.
+	AgentPrompt string
 	// Env are the variables with a plain value the app's container gets
 	// values from secrets are bindings beside the app.
 	// Changing them restarts a running app.
@@ -312,6 +322,9 @@ func (a *App) Validate() error {
 		v.add("spec.port", "port must be between 0 and 65535")
 	}
 	v.oneOf("spec.apiAccess", a.APIAccess, true, apiAccessLevels...)
+	if charLen(a.AgentPrompt) > MaxAgentPrompt || strings.ContainsFunc(a.AgentPrompt, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
+		v.add("spec.agentPrompt", fmt.Sprintf("agentPrompt must be text of at most %d characters", MaxAgentPrompt))
+	}
 	if a.IdleStopMinutes < 0 {
 		v.add("spec.idleStopMinutes", "idleStopMinutes must not be negative")
 	}

@@ -29,6 +29,8 @@ type appSpec struct {
 	Image       string `json:"image,omitempty"`
 	Port        int32  `json:"port,omitempty"`
 	APIAccess   string `json:"apiAccess,omitempty"`
+	// AgentPrompt: see model.App.
+	AgentPrompt string `json:"agentPrompt,omitempty"`
 	// Env: see model.App.
 	Env []model.EnvVar `json:"env,omitempty"`
 	// StoppedIdleAfter: see model.App.
@@ -285,7 +287,7 @@ func resourcesOf(cpuMillis, memoryBytes int64) *model.AppResources {
 }
 
 func specOf(a model.App) appSpec {
-	return appSpec{DisplayName: a.DisplayName, File: a.File, Sample: a.Sample, Command: a.Command, Image: a.Image, Port: a.Port, APIAccess: a.APIAccess, Env: a.Env,
+	return appSpec{DisplayName: a.DisplayName, File: a.File, Sample: a.Sample, Command: a.Command, Image: a.Image, Port: a.Port, APIAccess: a.APIAccess, AgentPrompt: a.AgentPrompt, Env: a.Env,
 		StoppedIdleAfter: a.StoppedIdleAfter, Source: a.Source, StoppedByAdmin: a.StoppedByAdmin, Environment: a.Environment}
 }
 
@@ -555,7 +557,7 @@ func appOf(r sqlcgen.App, shares []sqlcgen.AppShare) (model.App, error) {
 	app := model.App{
 		ID: r.ID, Namespace: r.Namespace, Name: r.Name, Owner: r.Owner, DisplayName: spec.DisplayName,
 		Template: r.Template, File: spec.File, Sample: spec.Sample, Size: r.Size, Resources: resourcesOf(r.CpuMillis, r.MemoryBytes), Command: spec.Command,
-		Image: spec.Image, Port: spec.Port, APIAccess: spec.APIAccess, Env: spec.Env, Source: spec.Source, Environment: spec.Environment, ParentID: r.ParentID.String, PullNumber: int32(r.PullNumber), Paused: r.Paused, Sharing: model.Sharing{Access: r.Access},
+		Image: spec.Image, Port: spec.Port, APIAccess: spec.APIAccess, AgentPrompt: spec.AgentPrompt, Env: spec.Env, Source: spec.Source, Environment: spec.Environment, ParentID: r.ParentID.String, PullNumber: int32(r.PullNumber), Paused: r.Paused, Sharing: model.Sharing{Access: r.Access},
 		RestartRequestedAt: timeOf(r.RestartRequestedAt), TokenRevoked: r.TokenRevoked, Version: r.Version, CreatedAt: r.CreatedAt.Time(),
 		DeletedAt: timeOf(r.DeletedAt), IdleStopMinutes: r.IdleStopMinutes, StoppedIdleAfter: spec.StoppedIdleAfter, StoppedByAdmin: spec.StoppedByAdmin,
 		LastActiveAt: timeOf(r.LastActiveAt), RestoreHold: r.RestoreHold, ReleaseAt: timeOf(r.RestoreReleaseAt),

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -235,6 +236,44 @@ type AICfg struct {
 		// IncludeOwners sends app owners' names to the model in admin questions.
 		IncludeOwners bool `json:"includeOwners"`
 	} `json:"admin"`
+	// Agent is the model coding-agent apps (templates with agentModel) use
+	// through the gateway, with the admin's key.
+	Agent AIAgentCfg `json:"agent"`
+}
+
+// AIAgentCfg configures the coding agents' model endpoint.
+type AIAgentCfg struct {
+	// Enabled defaults to true: on whenever AI is.
+	Enabled *bool `json:"enabled,omitempty"`
+	// Model is the default model; empty means ai.model.
+	Model string `json:"model,omitempty"`
+	// Models are more models an agent may ask for; any other is replaced
+	// by Model.
+	Models []string `json:"models,omitempty"`
+	// Template is the template "Build with pi" in the search bar starts;
+	// default pi.
+	Template string `json:"template,omitempty"`
+	// MaxRequestBytes caps one request body; default 8 MiB.
+	MaxRequestBytes int64 `json:"maxRequestBytes,omitempty"`
+}
+
+// AgentModel is the model coding agents get through the gateway, or "" when
+// that is off: AI off, the agent turned off, or a provider that is not
+// OpenAI-compatible (requests are forwarded in the OpenAI format).
+func (c AICfg) AgentModel() string {
+	if !c.Enabled || c.Provider != "openai" || (c.Agent.Enabled != nil && !*c.Agent.Enabled) {
+		return ""
+	}
+	if c.Agent.Model != "" {
+		return c.Agent.Model
+	}
+	return c.Model
+}
+
+// AgentAllows reports whether an agent may ask for model by name.
+func (c AICfg) AgentAllows(model string) bool {
+	m := c.AgentModel()
+	return m != "" && (model == m || slices.Contains(c.Agent.Models, model))
 }
 
 // AIFeatures turns single AI features off while AI is on.
@@ -692,6 +731,10 @@ func (p *Platform) applyDefaults() {
 	}
 	if p.AI.MaxInputRunes == 0 {
 		p.AI.MaxInputRunes = 24000
+	}
+	setStr(&p.AI.Agent.Template, "pi")
+	if p.AI.Agent.MaxRequestBytes == 0 {
+		p.AI.Agent.MaxRequestBytes = 8 << 20
 	}
 	if p.IdleStop.MinMinutes == 0 {
 		p.IdleStop.MinMinutes = 10
