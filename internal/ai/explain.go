@@ -97,11 +97,13 @@ func toAny(ss []string) []any {
 // where the app owner's stored secret values are in a text (found by their
 // fingerprints) and the typed values of variables named like credentials.
 // Unchecked says some of the owner's secret values cannot be looked for
-// (they have no fingerprint yet): log lines are then not sent.
+// (they have no fingerprint yet): log lines are then not sent. Anonymous
+// hides them without their names, for someone other than the owner.
 type Known struct {
 	Spans     func(text string) []redact.Span
 	Values    []redact.Value
 	Unchecked bool
+	Anonymous bool
 }
 
 // KnownFor is what must not reach the model about an app of owner whose
@@ -130,7 +132,7 @@ func (s *Service) KnownFor(ctx context.Context, owner string, env []model.EnvVar
 func (s *Service) Explain(ctx context.Context, person string, d diagnose.Diagnosis, scope Scope, known Known, preview bool) (ExplainResult, error) {
 	var red Redactor
 	if s.Redactor != nil {
-		red = redact.Known{Spans: known.Spans, Values: known.Values, Next: s.Redactor}
+		red = redact.Known{Spans: known.Spans, Values: known.Values, Next: s.Redactor, Anonymous: known.Anonymous}
 	}
 	b := BuildBundle(d.Bundle, red, known.Unchecked, s.MaxInputRunes)
 	res := ExplainResult{Bundle: b}

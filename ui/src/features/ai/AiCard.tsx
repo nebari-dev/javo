@@ -116,7 +116,7 @@ function Preview({ name }: { name: string }) {
               {n}
             </p>
           ))}
-          <pre className="evidence">{b.text}</pre>
+          {b.text && <pre className="evidence">{b.text}</pre>}
         </>
       )}
     </div>

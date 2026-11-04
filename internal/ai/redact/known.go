@@ -24,12 +24,14 @@ type Redactor interface {
 // Known hides what the platform knows is secret before any pattern runs:
 // the places Spans finds (the owner's stored secret values, found by their
 // fingerprints) and every occurrence of Values (typed values of variables
-// named like credentials). Each becomes [redacted:<name>]. Next, if set,
-// then runs on the result.
+// named like credentials). Each becomes [redacted:<name>], or [redacted]
+// when Anonymous is set (for someone other than the owner, who must not learn
+// which secret a text held). Next, if set, then runs on the result.
 type Known struct {
-	Spans  func(text string) []Span
-	Values []Value
-	Next   Redactor
+	Spans     func(text string) []Span
+	Values    []Value
+	Next      Redactor
+	Anonymous bool
 }
 
 // Redact returns text with what k knows hidden, and how many values it hid.
@@ -49,6 +51,11 @@ func (k Known) Redact(text string) (string, int) {
 			}
 			spans = append(spans, Span{Start: i + j, End: i + j + len(v.Value), Name: v.Name})
 			i += j + len(v.Value)
+		}
+	}
+	if k.Anonymous {
+		for i := range spans {
+			spans[i].Name = ""
 		}
 	}
 	text, n := replace(text, spans)
@@ -84,7 +91,11 @@ func replace(text string, spans []Span) (string, int) {
 			continue
 		}
 		sb.WriteString(text[at:s.Start])
-		sb.WriteString(marker("[redacted:"+s.Name+"]", text[s.Start:s.End]))
+		mark := "[redacted]"
+		if s.Name != "" {
+			mark = "[redacted:" + s.Name + "]"
+		}
+		sb.WriteString(marker(mark, text[s.Start:s.End]))
 		at, n = s.End, n+1
 	}
 	sb.WriteString(text[at:])

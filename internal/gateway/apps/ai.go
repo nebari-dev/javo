@@ -156,15 +156,22 @@ func (a *aiAPI) explain(ctx context.Context, in *explainInput) (*explainOutput, 
 		return out, nil
 	}
 	scope := ai.Scope{Targets: []string{app.Name}, Actions: explainActions(a.ws.actions)}
-	// The owner's secret values and credential-like variables are hidden by
-	// name before the patterns run, whoever asks.
+	// The owner's secret values and credential-like variables are hidden
+	// before the patterns run, whoever asks. Only the owner sees their names
+	// and what is sent: anyone else (a platform admin) could otherwise make
+	// the app log guesses and read which one became a secret's marker.
+	owner := app.Owner == authn.User(ctx).ID
 	known, err := a.svc.KnownFor(ctx, app.Owner, app.Env)
 	if err != nil {
 		return nil, problem.Internal("read the app's secrets", err)
 	}
+	known.Anonymous = !owner
 	res, err := a.svc.Explain(ctx, authn.User(ctx).ID, d, scope, known, in.Body.Preview)
 	if err != nil {
 		return nil, problem.Internal("explain", err)
+	}
+	if !owner {
+		res.Bundle = res.Bundle.ForOthers()
 	}
 	out.Body.ExplainResult = res
 	out.RetryAfter = retryAfter(res.RetryAfter)

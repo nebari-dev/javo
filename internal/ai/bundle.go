@@ -40,6 +40,20 @@ type Bundle struct {
 	Notes []string `json:"notes"`
 }
 
+// ForOthers is b as someone other than the app's owner sees it: no text and
+// no count of hidden values, so it cannot tell which of the values an app was
+// made to log is one of the owner's secrets.
+func (b Bundle) ForOthers() Bundle {
+	out := Bundle{Refs: b.Refs, Withheld: b.Withheld, Trimmed: b.Trimmed, Notes: []string{reasons.Msg(reasons.MsgAIOwnerOnly)}}
+	if b.Withheld > 0 {
+		out.Notes = append(out.Notes, reasons.Msg(reasons.MsgAIWithheld, b.Withheld))
+	}
+	if t := b.Trimmed; t != nil {
+		out.Notes = append(out.Notes, reasons.Msg(reasons.MsgAITrimmed, t.Used, t.Total))
+	}
+	return out
+}
+
 // Trim says how many log lines fit: Used of Total.
 type Trim struct {
 	Used  int `json:"used"`
