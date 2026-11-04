@@ -122,21 +122,23 @@ func (s *Workspaces) diagnosisView(ctx context.Context, app *model.App, d diagno
 	out := Diagnosis{
 		Rule: d.Rule, Code: string(d.Code), Known: d.Known,
 		Title: r.Title, What: r.What, Todo: r.Todo, Blame: r.Blame, Who: r.Who,
-		Evidence: d.Evidence, Bundle: d.Bundle, Proposals: s.proposalViews(ctx, d.Proposals),
+		Evidence: d.Evidence, Bundle: d.Bundle, Proposals: s.proposalViews(ctx, app, d.Proposals),
 	}
 	return out
 }
 
 // proposalViews adds each proposal's summary; one the person in ctx could
-// not make (the action refuses it) is left out.
-func (s *Workspaces) proposalViews(ctx context.Context, ps []actions.Proposal) []ProposalView {
+// not make (the action refuses it) is left out. Each names app's owner, so a
+// plan made from it acts on app even when an admin views it.
+func (s *Workspaces) proposalViews(ctx context.Context, app *model.App, ps []actions.Proposal) []ProposalView {
 	out := []ProposalView{}
 	for _, p := range ps {
+		p.Owner = app.Owner
 		pl, err := s.actions.Plan(ctx, p)
 		if err != nil {
 			continue
 		}
-		out = append(out, ProposalView{Proposal: p, Summary: pl.Summary})
+		out = append(out, ProposalView{Proposal: pl.Proposal, Summary: pl.Summary})
 	}
 	return out
 }

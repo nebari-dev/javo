@@ -127,7 +127,7 @@ func (a *plansAPI) propose(ctx context.Context, source string, p actions.Proposa
 // audit names the app a plan acts on, when it still exists.
 func (a *plansAPI) audit(ctx context.Context, p actions.Proposal) plans.Audit {
 	out := plans.Audit{Kind: "app", Name: p.Target}
-	if app, err := a.ws.authorized(ctx, &nameInput{Name: p.Target}, authz.ActManageApp); err == nil {
+	if app, err := a.ws.authorized(ctx, &nameInput{Name: p.Target, Owner: p.Owner}, authz.ActManageApp); err == nil {
 		out.ID, out.Namespace, out.Owner = app.ID, app.Namespace, app.Owner
 	}
 	return out

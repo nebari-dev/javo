@@ -2851,6 +2851,11 @@
           "destructive": {
             "type": "boolean"
           },
+          "owner": {
+            "description": "Identity name of the app's owner; default the person proposing",
+            "maxLength": 253,
+            "type": "string"
+          },
           "params": {
             "additionalProperties": {
               "type": "string"
@@ -3194,6 +3199,11 @@
           "action": {
             "type": "string"
           },
+          "owner": {
+            "description": "Identity name of the app's owner; default the person proposing",
+            "maxLength": 253,
+            "type": "string"
+          },
           "params": {
             "additionalProperties": {
               "type": "string"
@@ -3214,6 +3224,11 @@
         "additionalProperties": false,
         "properties": {
           "action": {
+            "type": "string"
+          },
+          "owner": {
+            "description": "Identity name of the app's owner; default the person proposing",
+            "maxLength": 253,
             "type": "string"
           },
           "params": {

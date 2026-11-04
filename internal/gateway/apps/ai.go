@@ -169,7 +169,7 @@ func (a *aiAPI) explain(ctx context.Context, in *explainInput) (*explainOutput, 
 	out.Body.ExplainResult = res
 	out.RetryAfter = retryAfter(res.RetryAfter)
 	if res.Explanation != nil {
-		out.Body.Proposals = a.ws.proposalViews(ctx, res.Explanation.Actions)
+		out.Body.Proposals = a.ws.proposalViews(ctx, app, res.Explanation.Actions)
 	}
 	return out, nil
 }

@@ -66,7 +66,7 @@ type appAction struct {
 func (a appAction) Info() actions.Info { return a.info }
 
 func (a appAction) target(ctx context.Context, p actions.Proposal) (*model.App, error) {
-	return a.s.authorized(ctx, &nameInput{Name: p.Target}, authz.ActManageApp)
+	return a.s.authorized(ctx, &nameInput{Name: p.Target, Owner: p.Owner}, authz.ActManageApp)
 }
 
 func (a appAction) Plan(ctx context.Context, p actions.Proposal) (actions.Planned, error) {
@@ -79,6 +79,7 @@ func (a appAction) Plan(ctx context.Context, p actions.Proposal) (actions.Planne
 		return actions.Planned{}, err
 	}
 	pl.Proposal = p
+	pl.Owner = app.Owner
 	return pl, nil
 }
 

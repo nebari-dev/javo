@@ -620,7 +620,7 @@ export function diagnosis(over: Record<string, unknown> = {}) {
       { kind: 'condition', ref: 'condition/Started', excerpt: 'container app terminated: Error, exit code 1' },
       { kind: 'log', ref: 'log/app/prev/41', excerpt: "ModuleNotFoundError: No module named 'plotly'" },
     ],
-    proposals: [{ action: 'restart', target: 'sales-app', summary: 'Restart Sales app' }],
+    proposals: [{ action: 'restart', target: 'sales-app', owner: 'alice-a', summary: 'Restart Sales app' }],
     ...over,
   }
 }

@@ -65,7 +65,7 @@ describe('Failure diagnosis', () => {
     const review = await within(card).findByLabelText('Restart Sales app')
     expect(within(review).getByLabelText('Changes').textContent).toContain('Restarted')
     expect(calls.count('POST', '/api/plans/p1/approve')).toBe(0)
-    expect(calls.calls.find((c) => c.path === '/api/plans')?.body).toEqual({ proposal: { action: 'restart', target: 'sales-app' }, source: 'rules' })
+    expect(calls.calls.find((c) => c.path === '/api/plans')?.body).toEqual({ proposal: { action: 'restart', target: 'sales-app', owner: 'alice-a' }, source: 'rules' })
     await userEvent.click(within(review).getByRole('button', { name: 'Apply' }))
     await within(review).findByText('Done.')
     expect(calls.count('POST', '/api/plans/p1/approve')).toBe(1)

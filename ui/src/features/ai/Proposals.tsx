@@ -24,7 +24,7 @@ export function Proposals({ items, source }: { items: ProposalView[] | null; sou
             size="sm"
             icon={Wrench}
             disabled={create.isPending}
-            onClick={() => create.mutate({ proposal: { action: p.action, target: p.target, params: p.params }, source }, { onSuccess: setPlan })}
+            onClick={() => create.mutate({ proposal: { action: p.action, target: p.target, owner: p.owner, params: p.params }, source }, { onSuccess: setPlan })}
           >
             {p.summary}
           </Button>

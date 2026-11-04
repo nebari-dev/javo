@@ -990,6 +990,10 @@ export type Planned = {
     action: string;
     changes: Array<Change> | null;
     destructive: boolean;
+    /**
+     * Identity name of the app's owner; default the person proposing
+     */
+    owner?: string;
     params?: {
         [key: string]: string;
     };
@@ -1117,6 +1121,10 @@ export type Problem = {
 
 export type Proposal = {
     action: string;
+    /**
+     * Identity name of the app's owner; default the person proposing
+     */
+    owner?: string;
     params?: {
         [key: string]: string;
     };
@@ -1125,6 +1133,10 @@ export type Proposal = {
 
 export type ProposalView = {
     action: string;
+    /**
+     * Identity name of the app's owner; default the person proposing
+     */
+    owner?: string;
     params?: {
         [key: string]: string;
     };
