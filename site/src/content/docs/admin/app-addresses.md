@@ -75,7 +75,7 @@ In subdomain mode every app has an origin of its own, but all apps and the web U
 
 ## Open websockets
 
-Every request is checked when it arrives. A websocket stays open after that, so the gateway checks it again every 30 seconds, with the same rules as a new request, and closes it once the visitor may no longer open the app: a share was removed, the session ended, or the app was deleted. Until that check, up to 30 seconds, an open websocket keeps working. A check that cannot reach the database closes the websocket too.
+Every request is checked when it arrives. A websocket, a stream of server-sent events or a long download stays open after that, so the gateway checks it again every 30 seconds, with the same rules as a new request, and closes it once the visitor may no longer open the app: a share was removed, the session ended, or the app was deleted. Until that check, up to 30 seconds, an open connection keeps working. A check that cannot reach the database closes the connection too.
 
 ## How signing in to an app works on a separate host
 
@@ -83,7 +83,7 @@ The apps host never sees the web UI's session cookie. When a signed-in person op
 
 ## What the gateway does for each request
 
-- Checks again, on every request, that the visitor may open the app (its sharing, its template, the visitor's session), and every 30 seconds for an open websocket.
+- Checks again, on every request, that the visitor may open the app (its sharing, its template, the visitor's session), and every 30 seconds for a websocket, event stream or download still open.
 - While apps share an origin, refuses requests that another app's page starts (see [the cross-app guard](#the-cross-app-guard)).
 - Removes Javo's own cookies and API tokens from the request, so the app never sees them; anonymous visitors send no cookies at all.
 - Removes the app's prefix before forwarding, for templates that serve at `/` (such as Container image), and says what it removed in `X-Forwarded-Prefix`.

@@ -58,9 +58,9 @@ type Config struct {
 	// cannot be reached yet (an app can turn Ready a moment before its
 	// network policy admits the gateway). Zero means 10 seconds.
 	DialWait time.Duration
-	// RecheckEvery is how often an open websocket is decided again, as a new
-	// request would be; it is closed once the answer is no. Zero means 30
-	// seconds.
+	// RecheckEvery is how often a request still open (a websocket,
+	// server-sent events, a long download) is decided again, as a new request
+	// would be; it is ended once the answer is no. Zero means 30 seconds.
 	RecheckEvery time.Duration
 	// Activity records every request and open websocket an app is allowed,
 	// for "Stop when idle". Required: New panics without it.
@@ -222,8 +222,8 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Every request is decided afresh from the session, the app and its
 	// template as they are now, so a revoked share or ended session stops the
-	// very next request. An open websocket is decided again every
-	// RecheckEvery (see activityWriter).
+	// very next request. A request still open (a websocket, server-sent
+	// events, a download) is decided again every RecheckEvery (see recheck).
 	a := p.access(r, t)
 	app, tpl, who, signedIn, d := a.app, a.tpl, a.who, a.signedIn, a.decision
 	if !d.Allowed {
@@ -298,16 +298,38 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ModifyResponse: sanitizeResponse,
 		ErrorHandler:   func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
 	}
-	aw := &activityWriter{ResponseWriter: w, activity: p.cfg.Activity, app: app.ID,
-		recheckEvery: p.cfg.RecheckEvery, allowed: func() bool {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), recheckTimeout)
-			defer cancel()
-			return p.access(r.WithContext(ctx), t).opens()
-		}}
+	aw := &activityWriter{ResponseWriter: w, activity: p.cfg.Activity, app: app.ID}
 	if tpl != nil && tpl.Spec.Activity == model.ActivityJupyter {
 		aw.probe = jupyterProbe(&http.Client{Transport: p.transport}, backend, time.Now)
 	}
-	rp.ServeHTTP(aw, r)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	go recheck(ctx, p.cfg.RecheckEvery, cancel, func() bool {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), recheckTimeout)
+		defer cancel()
+		return p.access(r.WithContext(ctx), t).opens()
+	})
+	rp.ServeHTTP(aw, r.WithContext(ctx))
+}
+
+// recheck asks allowed every interval, for as long as ctx lives, whether the
+// request would still open the app, and calls end the first time it says no.
+// Ending the request's context stops whatever is still open: a websocket (the
+// reverse proxy closes both sides), server-sent events or a long download.
+func recheck(ctx context.Context, every time.Duration, end context.CancelFunc, allowed func() bool) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if !allowed() {
+				end()
+				return
+			}
+		}
+	}
 }
 
 // access is what ServeHTTP decides a request on: the app, the person and
@@ -677,19 +699,15 @@ func badGateway(w http.ResponseWriter, workspace string) {
 
 // activityWriter wraps the ResponseWriter so that an upgraded (websocket)
 // connection counts as use for as long as it is open, or, with a probe, has
-// the app asked about its use for as long as it is open. Every recheckEvery
-// it asks allowed whether the request would still open the app, and closes
-// the connection when not.
+// the app asked about its use for as long as it is open.
 type activityWriter struct {
 	http.ResponseWriter
-	activity     *activity.Tracker
-	app          string
-	probe        activity.Probe
-	recheckEvery time.Duration
-	allowed      func() bool
+	activity *activity.Tracker
+	app      string
+	probe    activity.Probe
 }
 
-// recheckTimeout bounds one recheck of an open websocket: a check that cannot
+// recheckTimeout bounds one recheck of an open request: a check that cannot
 // finish in time (the database is unreachable) counts as a no.
 const recheckTimeout = 10 * time.Second
 
@@ -710,13 +728,12 @@ func (a *activityWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	c := &activityConn{Conn: conn, done: make(chan struct{})}
+	c := &activityConn{Conn: conn}
 	if a.probe != nil {
 		c.closed = a.activity.Watch(a.app, a.probe)
 	} else {
 		c.closed = a.activity.Open(a.app)
 	}
-	go c.recheck(a.recheckEvery, a.allowed)
 	return c, rw, nil
 }
 
@@ -725,31 +742,9 @@ func (a *activityWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 type activityConn struct {
 	net.Conn
 	closed func()
-	done   chan struct{}
-	once   sync.Once
 }
 
 func (c *activityConn) Close() error {
-	c.once.Do(func() { close(c.done) })
 	c.closed()
 	return c.Conn.Close()
-}
-
-// recheck closes the connection the first time allowed says no, asking every
-// interval until the connection is closed. Closing it ends the reverse
-// proxy's copy, which then closes the app's side too.
-func (c *activityConn) recheck(every time.Duration, allowed func() bool) {
-	tick := time.NewTicker(every)
-	defer tick.Stop()
-	for {
-		select {
-		case <-c.done:
-			return
-		case <-tick.C:
-			if !allowed() {
-				_ = c.Close()
-				return
-			}
-		}
-	}
 }
