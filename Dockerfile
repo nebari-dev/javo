@@ -68,16 +68,16 @@ RUN --mount=type=cache,id=javo-go-mod,target=/go/pkg/mod \
 # architecture's release binary (DEPENDENCIES.md).
 FROM restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510 AS restic
 
-# The nebi 0.15 CLI (copied into pods of apps with Nebi access): the upstream
+# The nebi 0.16 CLI (copied into pods of apps with Nebi access): the upstream
 # release tarballs, checked against the sha256 in the release's checksums.txt
 # (DEPENDENCIES.md). Both are fetched on the build machine; the one for the
 # image's architecture is unpacked.
 FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS nebi
 ARG TARGETARCH
-ADD --checksum=sha256:d866977f03e50e1d56d01ae83adcd84120600996a0ff9133f2be0e981de8dd59 \
-    https://github.com/nebari-dev/nebi/releases/download/v0.15/nebi_0.15_linux_x86_64.tar.gz /dl/nebi-amd64.tar.gz
-ADD --checksum=sha256:ff0b0aa61cf29db013efd71659167476f4401fcaa163beb89474b4aa2480facf \
-    https://github.com/nebari-dev/nebi/releases/download/v0.15/nebi_0.15_linux_arm64.tar.gz /dl/nebi-arm64.tar.gz
+ADD --checksum=sha256:f23f55f3ab7f58d7c6a9b94d3db836406320f4763d91aecffc330f83967b4567 \
+    https://github.com/nebari-dev/nebi/releases/download/v0.16/nebi_0.16_linux_x86_64.tar.gz /dl/nebi-amd64.tar.gz
+ADD --checksum=sha256:f4a024cf1cf0c3cdf78697ebefafc760e705cd6e718a4deb6c939093fcfe2ae3 \
+    https://github.com/nebari-dev/nebi/releases/download/v0.16/nebi_0.16_linux_arm64.tar.gz /dl/nebi-arm64.tar.gz
 RUN mkdir -p /out && tar -xzf /dl/nebi-${TARGETARCH}.tar.gz -C /out nebi
 
 # Compose install (deploy/compose): the single-node k3s it runs and the
