@@ -44,11 +44,10 @@ func TestBuildPodAppliesTheStorageLayout(t *testing.T) {
 	}
 }
 
-// An app that runs the image of its creator's choice runs as the image's own
-// user, but keeps the home's group so it can write there. The group is a
-// supplemental one: containerd refuses a pod that sets runAsGroup without
-// runAsUser ("user group is specified without user") and never starts it.
-func TestUserImageRunsAsItsOwnUserInTheHomeGroup(t *testing.T) {
+// An app that runs the image of its creator's choice runs as its owner, in
+// the home's group, like any other app: the image's own USER could name
+// another person's uid or gid 0.
+func TestUserImageRunsAsItsOwner(t *testing.T) {
 	t.Parallel()
 	ws, tpl := fixtures()
 	tpl.Spec.UserImage = true
@@ -57,7 +56,7 @@ func TestUserImageRunsAsItsOwnUserInTheHomeGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sc := pod.Spec.SecurityContext; sc.RunAsUser != nil || sc.RunAsGroup != nil || !slices.Contains(sc.SupplementalGroups, 100) {
+	if sc := pod.Spec.SecurityContext; sc.RunAsUser == nil || *sc.RunAsUser != 100500 || sc.RunAsGroup == nil || *sc.RunAsGroup != 100 {
 		t.Fatalf("security context = %+v", sc)
 	}
 }

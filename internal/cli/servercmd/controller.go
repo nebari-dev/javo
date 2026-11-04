@@ -271,6 +271,9 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		NebiURL:    wiring.NebiURL(platform),
 		SecretKeys: keys,
 		Access:     wiring.JobAccess(db.People(store.IDRange{}), platform.Roles),
+		// Checked again at each pod build, so a tightened list stops
+		// apps saved before.
+		AllowedRegistries: platform.ContainerImages.AllowedRegistries,
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/nebari-dev/javo/internal/cmdline"
+	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -301,6 +302,13 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 	if t.Spec.UsesPodFiles() && img.Runner.Ref == "" {
 		return nil, fmt.Errorf("workspace template %q: its pods get the platform's files, and the platform has no image to copy them from (the controller's --runner-image)", t.Name)
 	}
+	if t.Spec.UserImage {
+		// The gateway checked the image when the app was saved; the list may
+		// have been tightened since.
+		if err := imageref.Check(ws.Image, img.AllowedRegistries); err != nil {
+			return nil, fmt.Errorf("spec.image: %w", err)
+		}
+	}
 	probe, err := readinessProbe(t, data)
 	if err != nil {
 		return nil, err
@@ -345,16 +353,16 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 		pod.Annotations = annotations
 	}
 	if t.Spec.UserImage {
+		// The owner's uid and gid run it, as every other app: the image's
+		// USER could be another person's uid or gid 0, which would open
+		// their files in a shared folder. Always pull: the registry checks
+		// the node's credentials for each pull, so an image cached on the
+		// node for someone else is not reused without that check.
 		app.Image = ws.Image
-		// The image's own user runs it; the kubelet refuses one that is
-		// root (runAsNonRoot), which status reports as ImageRunsAsRoot.
-		// The home's group stays as a supplemental group: containerd refuses
-		// runAsGroup without runAsUser.
-		sc := spec.SecurityContext
-		if sc.RunAsGroup != nil {
-			sc.SupplementalGroups = append(sc.SupplementalGroups, *sc.RunAsGroup)
+		app.ImagePullPolicy = corev1.PullAlways
+		if err := UserImagePullSecrets(spec, t); err != nil {
+			return nil, err
 		}
-		sc.RunAsUser, sc.RunAsGroup = nil, nil
 	}
 	if ws.Command != "" || t.Spec.UserImage || ws.Source != nil {
 		app.Env = append(app.Env, corev1.EnvVar{Name: "PORT", Value: fmt.Sprint(port)})
@@ -419,6 +427,19 @@ func LayoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layo
 // hold the code the owner's secret-holding jobs and apps run.
 func Shared(ws *model.App) bool {
 	return ws.Sharing.Access != "" && ws.Sharing.Access != model.AccessPrivate
+}
+
+// UserImagePullSecrets refuses a pod that would pull the image a person named
+// with the platform's pull secrets (the kubelet offers a pod's secrets for
+// each of its images): those credentials are for the platform's own images,
+// and could open private images the person may not read. A template that
+// runs people's images with platform containers from a private registry
+// (an app from Git, Nebi) cannot run.
+func UserImagePullSecrets(spec *corev1.PodSpec, t *model.Template) error {
+	if !t.Spec.UserImage || len(spec.ImagePullSecrets) == 0 {
+		return nil
+	}
+	return fmt.Errorf("template %q runs the image each app names, and this app also needs the platform's own containers, which pull with the platform's registry credentials; those are never offered for a person's image. Use a template without fromRepo or nebiToken, or a public platform image", t.Name)
 }
 
 // readinessProbe is an HTTP GET of the template's readinessPath, or, for a

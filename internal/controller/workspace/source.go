@@ -44,10 +44,13 @@ const (
 // an app from Git, the javo image (Runner) checks the clone and carries the
 // pod files, and Pixi runs a template with an environment and no image of
 // its own. GitConfig is the platform's git-sync --git-config value; empty
-// adds no flag; Runner's pull secrets go on every pod that runs it.
+// adds no flag; Runner's pull secrets go on every pod that runs it, except
+// a pod that runs an image the person named. AllowedRegistries is
+// containerImages.allowedRegistries, which such an image must still pass.
 type Images struct {
 	Clone, Pixi, GitConfig string
 	Runner                 podspec.Image
+	AllowedRegistries      []string
 }
 
 // GitTokenSecretName is the Secret holding the repository token of the app

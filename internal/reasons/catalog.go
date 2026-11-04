@@ -29,6 +29,9 @@ const (
 	UIDRangeExhausted Code = "UIDRangeExhausted"
 	ImagePullFailed   Code = "ImagePullFailed"
 	ImageRunsAsRoot   Code = "ImageRunsAsRoot"
+	// ImageNotAllowed: the app's image is from a registry the admin no
+	// longer allows (containerImages.allowedRegistries).
+	ImageNotAllowed   Code = "ImageNotAllowed"
 	AppCrashed        Code = "AppCrashed"
 	OutOfMemory       Code = "OutOfMemory"
 	AppNotAnswering   Code = "AppNotAnswering"
@@ -288,6 +291,11 @@ var catalog = []Reason{
 		Todo:  "Pick an image that runs as a non-root user (many have an unprivileged or rootless variant), or build one with a numeric user line such as USER 1000, then change the image.",
 		Blame: "Your choice of image: it is set to run as root.",
 		Who:   "You.", Blamed: PartyUser},
+	{Code: ImageNotAllowed, Title: "Image registry not allowed",
+		What:  "This app runs an image from a registry the platform no longer allows, so it was not started.",
+		Todo:  "Change the app's image to one from an allowed registry (the evidence lists them), then start it again.",
+		Blame: "Your choice of image: its registry is not on the platform's list.",
+		Who:   "You, or a platform admin who can allow the registry.", Blamed: PartyUser},
 	{Code: AppCrashed, Title: "App crashed on start",
 		What:  "The app started and then stopped with an error. It was restarted several times and failed the same way, so we stopped retrying.",
 		Todo:  "Open the evidence to see the app's error, fix it in your code or environment, then press Restart.",

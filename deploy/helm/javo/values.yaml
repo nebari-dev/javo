@@ -363,14 +363,20 @@ workspaceTemplates:
 # The Container image template: people run an image of their choice
 # (reference, port and optional command), served with the URL prefix
 # removed. It runs under the same restricted pod security as every app
-# (never root, no privilege escalation, no capabilities, seccomp
-# RuntimeDefault); an image that needs root fails with a reason saying so.
+# (no privilege escalation, no capabilities, seccomp RuntimeDefault) and as
+# the person's own uid and gid, never the image's USER. The image is pulled
+# with imagePullPolicy Always, and the platform's imagePullSecrets are never
+# offered for it: a template that runs people's images and also needs the
+# platform image (fromRepo, nebiToken) cannot run while imagePullSecrets is set.
 containerImages:
   enabled: true
   # Registries images may come from: a registry host (docker.io,
   # registry.example.com:5000) or a host and path prefix (ghcr.io/example).
   # Short Docker Hub names such as nginx count as docker.io. Empty allows
-  # any registry.
+  # any registry. Set it on EKS, GKE, AKS and any cluster whose nodes can pull
+  # from a private or node-local registry: the kubelet pulls with the node's
+  # own credentials, so an empty list lets every member run any image the
+  # nodes can read. The controller checks it again at every pod build.
   allowedRegistries: []
 
 # Apps that run from a Git repository clone it in an init container of their

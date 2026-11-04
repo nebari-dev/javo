@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +28,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/sweep"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/identity"
+	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -90,6 +92,10 @@ type Reconciler struct {
 	// containers of apps from Git. Required when any app has a source.
 	CloneImage, CloneGitConfig string
 	RunnerImage                podspec.Image
+	// AllowedRegistries is containerImages.allowedRegistries: an app's own
+	// image is checked again when its pod is built, so tightening the list
+	// stops apps saved before. Empty allows any registry.
+	AllowedRegistries []string
 	// PixiImage installs the environment of an app that runs in one
 	// (internal/pixienv). Required when any app names an environment.
 	PixiImage string
@@ -370,17 +376,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				obs.SizeUnknown = app.Size
 			} else if unreadable != "" {
 				obs.SecretsUnreadable = unreadable
-			} else if want, buildErr := BuildPod(&app, tpl, base, host, layout, size, Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig}); buildErr != nil {
-				obs.TemplateError = buildErr.Error()
+			} else if want, buildErr := BuildPod(&app, tpl, base, host, layout, size, Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries}); buildErr != nil {
+				if na := (*imageref.NotAllowedError)(nil); errors.As(buildErr, &na) {
+					obs.ImageNotAllowed = reasons.Msg(reasons.MsgImageRegistryNotAllowed, na.Registry, strings.Join(r.AllowedRegistries, ", "))
+				} else {
+					obs.TemplateError = buildErr.Error()
+				}
+			} else if pullErr := r.withNebi(want, &app, tpl); pullErr != nil {
+				obs.TemplateError = pullErr.Error()
 			} else {
 				if want.Annotations == nil {
 					want.Annotations = map[string]string{}
 				}
 				want.Annotations[model.AnnotationLayout] = layoutFP
 				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL)
-				if r.NebiURL != "" && model.NebiTokenFor(&app, tpl) {
-					WithNebi(want, app.ObjectName(), r.NebiURL, r.RunnerImage)
-				}
 				WithGitToken(want, &app, gitSecret, gitGen)
 				WithEnv(want, app.Env)
 				WithAppSecrets(want, secretsName, appSecrets)
@@ -656,6 +665,16 @@ func (r *Reconciler) writeStatus(ctx context.Context, app *model.App, phase, url
 		return nil
 	}
 	return err
+}
+
+// withNebi gives want the Nebi CLI when the template asks for it, and refuses
+// a pod that would then pull a person's image with the platform's pull
+// secrets (the CLI container carries them).
+func (r *Reconciler) withNebi(want *corev1.Pod, app *model.App, tpl *model.Template) error {
+	if r.NebiURL != "" && model.NebiTokenFor(app, tpl) {
+		WithNebi(want, app.ObjectName(), r.NebiURL, r.RunnerImage)
+	}
+	return UserImagePullSecrets(&want.Spec, tpl)
 }
 
 // SetupWithManager wires the controller: app rows (and the templates and

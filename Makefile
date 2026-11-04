@@ -104,7 +104,7 @@ down dev-down:
 JAVO_CLUSTER ?= compose
 export JAVO_CLUSTER
 E2E_PARALLEL ?= 8
-E2E_QUICK := ^(TestEndToEnd|TestTypedCommand|TestContainerImage|TestImageRunsAsRoot|TestSampleJob|TestJobRunsAtItsSize|TestCustomCommandJob|TestAPITokens|TestAPIDocsPage|TestAppWithReadAPIAccess|TestAppGetsASecret|TestJobGetsASecret|TestPasswordReset|TestSizeBiggerThanTheNode)$$
+E2E_QUICK := ^(TestEndToEnd|TestTypedCommand|TestContainerImage|TestImageUserIsReplacedByTheOwner|TestSampleJob|TestJobRunsAtItsSize|TestCustomCommandJob|TestAPITokens|TestAPIDocsPage|TestAppWithReadAPIAccess|TestAppGetsASecret|TestJobGetsASecret|TestPasswordReset|TestSizeBiggerThanTheNode)$$
 # JAVO_E2E_HEAVY=1 adds the templates slow to start the first time (RStudio's
 # large image, Pluto's precompile).
 ifeq ($(JAVO_CLUSTER),kind)

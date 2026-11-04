@@ -31,6 +31,9 @@ type Observed struct {
 	TemplateNotAllowed bool
 	// TemplateError is the error from building the pod from the template, if any.
 	TemplateError string
+	// ImageNotAllowed is why the app's own image was refused when its pod
+	// was built (its registry is not allowed); empty when it was not.
+	ImageNotAllowed string
 	// SecretsUnreadable is why the app's secrets could not be opened for its
 	// pod (never a value); empty when they could or it has none.
 	SecretsUnreadable string
@@ -202,6 +205,9 @@ func Derive(ws *model.App, o Observed) (phase string, conds []metav1.Condition, 
 	}
 	if o.TemplateError != "" {
 		return build("Failed", model.ConditionScheduled, reasons.TemplateInvalid, o.TemplateError)
+	}
+	if o.ImageNotAllowed != "" {
+		return build("Failed", model.ConditionScheduled, reasons.ImageNotAllowed, o.ImageNotAllowed)
 	}
 	if o.SecretsUnreadable != "" {
 		return build("Failed", model.ConditionScheduled, reasons.SecretsUnreadable, o.SecretsUnreadable)

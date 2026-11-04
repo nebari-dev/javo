@@ -32,7 +32,7 @@ Values fall in two groups:
 | `config.limits` | [Per-person limits](/admin/limits/): apps, running apps, jobs, runs, previews, tokens and plans per person, the longest run, and quotas of per-person and per-team namespaces. |
 | `database.backup`, `backupTarget` | [Backups](/admin/backups/). |
 | `workspaceTemplates` | Turn built-in templates on or off, point one at an image in your own registry, or limit one to groups (`allowedGroups`) or identity provider roles (`allowedProviderRoles`). |
-| `containerImages` | Allow the Container image template, and from which registries. |
+| `containerImages` | Allow the Container image template, and from which registries. On EKS, GKE, AKS and any cluster whose nodes can pull from a private registry (or run a node-local registry), set `allowedRegistries`: the kubelet pulls a person's image with the node's own registry credentials, so an empty list lets every member run any private image the nodes can read. Javo pulls these images with `imagePullPolicy: Always` (a cached image is not reused without the registry's check), runs them as the person's own uid and gid, never offers the platform's `imagePullSecrets` for them, and checks the list again each time a pod is built. |
 | `source.previews` | [Pull request previews](/using/previews/). |
 | `config.namespaces.mode` | Where apps run: one shared namespace (`shared`, default), one per person (`per-user`) or one per team (`per-team`). |
 

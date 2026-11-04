@@ -92,7 +92,7 @@ type env struct {
 	stop func()
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, tune ...func(*Reconciler)) *env {
 	t.Helper()
 	fx := &env{db: storetest.New(t), ns: newNamespace(t, "javo-apps", nil), policy: &stubPolicy{state: netprobe.Enforced}}
 	keys, err := newTestKeys(fx.db, t.TempDir())
@@ -100,7 +100,12 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	fx.keys = keys
-	mgr, feed, r, err := newManager(fx.db, []string{fx.ns}, func(r *Reconciler) { r.SecretKeys, r.NetworkPolicy = keys, fx.policy }, nil)
+	mgr, feed, r, err := newManager(fx.db, []string{fx.ns}, func(r *Reconciler) {
+		r.SecretKeys, r.NetworkPolicy = keys, fx.policy
+		for _, f := range tune {
+			f(r)
+		}
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -962,6 +967,25 @@ func TestTemplateCreatedLaterRecoversApp(t *testing.T) {
 	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
 	fx.newTemplate(t, "lab-late")
 	eventually(t, "phase Starting", fx.phaseIs(app.ID, "Starting"))
+}
+
+// An image saved while its registry was allowed does not start once the
+// admin removes the registry from containerImages.allowedRegistries.
+func TestImageFromARegistryNoLongerAllowedDoesNotStart(t *testing.T) {
+	t.Parallel()
+	fx := newEnv(t, func(r *Reconciler) { r.AllowedRegistries = []string{"ghcr.io/example"} })
+	fx.newTemplate(t, "web-own", func(s *model.TemplateSpec) {
+		s.Image, s.UserImage, s.Command, s.Args, s.ReadinessPath = "", true, nil, nil, ""
+	})
+	app := fx.newApp(t, "ws-own", "kim", "web-own", func(a *model.App) { a.Image = "registry.example.com/private/web:1" })
+	eventually(t, "phase Failed", fx.phaseIs(app.ID, "Failed"))
+	c := condition(fx.getApp(t, app.ID), model.ConditionScheduled)
+	if c == nil || c.Reason != "ImageNotAllowed" || !strings.Contains(c.Message, "registry.example.com") {
+		t.Fatalf("scheduled condition = %+v", c)
+	}
+	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
+		t.Fatal("pod must not exist for an image whose registry is not allowed")
+	}
 }
 
 func TestInvalidTemplateFailsWithTemplateInvalid(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 const (
 	// Runs as uid 101 and serves its welcome page at / on 8080.
 	nonRootImage = "nginxinc/nginx-unprivileged:1.31.6-alpine-slim@sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4"
-	// Names no user, so it runs as root.
+	// Names no user (root); the owner's uid runs it.
 	rootImage = "traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44"
 )
 
@@ -94,8 +94,8 @@ func TestTypedCommand(t *testing.T) {
 }
 
 // An image of the user's choice that serves at / answers through the
-// gateway, which removes the URL prefix; it runs as the image's own non-root
-// user under the restricted pod security.
+// gateway, which removes the URL prefix; it runs as its owner (never the
+// image's own user) under the restricted pod security.
 func TestContainerImage(t *testing.T) {
 	t.Parallel()
 	s := newUser(t)
@@ -111,32 +111,28 @@ func TestContainerImage(t *testing.T) {
 	}
 	p := appPod(t, c, me.ID, a.Name)
 	psc, csc := p.Spec.SecurityContext, p.Spec.Containers[0].SecurityContext
-	if psc.RunAsUser != nil || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot || psc.SeccompProfile == nil ||
+	if psc.RunAsUser == nil || *psc.RunAsUser == 0 || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot || psc.SeccompProfile == nil ||
 		csc.AllowPrivilegeEscalation == nil || *csc.AllowPrivilegeEscalation || len(csc.Capabilities.Drop) != 1 {
 		t.Fatalf("security: pod %+v container %+v", psc, csc)
 	}
 }
 
-// An image that runs as root is not started; the app fails with
-// ImageRunsAsRoot, quoting the kubelet.
-func TestImageRunsAsRoot(t *testing.T) {
+// An image whose user is root runs as its owner's uid and gid instead: the
+// image's user is never used.
+func TestImageUserIsReplacedByTheOwner(t *testing.T) {
 	t.Parallel()
 	s := newUser(t)
+	var me struct{ ID string }
+	s.json(http.MethodGet, "/api/me", nil, http.StatusOK, &me)
 
-	a := s.createApp(map[string]any{"displayName": "e2e root " + time.Now().Format("150405"), "template": "container", "image": rootImage, "port": 80})
-	got := s.waitFor(a.Name, 5*time.Minute, func(a app) bool {
-		if a.Phase == "Running" {
-			t.Fatal("an image that runs as root is running")
-		}
-		return a.Phase == "Failed"
-	})
-	i := slices.IndexFunc(got.Steps, func(st step) bool { return st.Status == "False" })
-	if i < 0 || got.Steps[i].Type != "Started" || got.Steps[i].Reason != "ImageRunsAsRoot" {
-		t.Fatalf("steps: %s", summary(got))
+	a := s.createApp(map[string]any{"displayName": "e2e root " + time.Now().Format("150405"), "template": "container",
+		"image": rootImage, "port": 8080, "command": "--port={{.Port}}"})
+	got := s.waitFor(a.Name, 5*time.Minute, running(t))
+	if resp, body := s.do(http.MethodGet, got.URL, nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: %d %.300s", got.URL, resp.StatusCode, body)
 	}
-	ev := strings.Join(got.Steps[i].Evidence, "\n")
-	t.Logf("evidence: %s", ev)
-	if !strings.Contains(ev, "runAsNonRoot") {
-		t.Fatalf("evidence does not quote the kubelet: %q", ev)
+	psc := appPod(t, kube(t), me.ID, a.Name).Spec.SecurityContext
+	if psc.RunAsUser == nil || *psc.RunAsUser == 0 || psc.RunAsGroup == nil || *psc.RunAsGroup == 0 {
+		t.Fatalf("pod security context = %+v, want the owner's uid and gid", psc)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/nebari-dev/javo/internal/homepath"
+	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/podfiles"
@@ -593,10 +594,17 @@ func TestBuildPodRunsTheChosenImage(t *testing.T) {
 	if p == nil || p.HTTPGet != nil || p.TCPSocket == nil || p.TCPSocket.Port != intstr.FromInt32(9000) {
 		t.Fatalf("probe = %+v", p)
 	}
-	// It runs as the user the image names; the kubelet refuses root.
+	// It runs as the owner, never as the user the image names: an image's
+	// USER could be another person's uid, or gid 0.
 	psc := pod.Spec.SecurityContext
-	if psc.RunAsUser != nil || psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot {
+	if psc.RunAsUser == nil || *psc.RunAsUser != 100500 || psc.RunAsGroup == nil || *psc.RunAsGroup != 100 ||
+		psc.RunAsNonRoot == nil || !*psc.RunAsNonRoot {
 		t.Fatalf("pod security context = %+v", psc)
+	}
+	// A cached image is never reused without the registry checking the
+	// pull: another person's private image stays theirs.
+	if c.ImagePullPolicy != corev1.PullAlways {
+		t.Fatalf("pull policy = %q, want Always", c.ImagePullPolicy)
 	}
 	sc := c.SecurityContext
 	if *sc.AllowPrivilegeEscalation || len(sc.Capabilities.Drop) != 1 || psc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
@@ -1373,5 +1381,64 @@ func TestAppPodAsksForColourUnlessTheAppSetsItsOwn(t *testing.T) {
 	WithEnv(pod, []model.EnvVar{{Name: "FORCE_COLOR", Value: "0"}})
 	if v := effectiveEnv(t, pod.Spec.Containers[0], "FORCE_COLOR"); v != "0" {
 		t.Fatalf("FORCE_COLOR = %q, want the app's own 0", v)
+	}
+}
+
+// The platform's pull secrets are for its own images. A pod that runs an
+// image the person named never carries them, or the person's image would be
+// pulled with the platform's credentials.
+func TestBuildPodNeverGivesAUserImageThePlatformsPullSecrets(t *testing.T) {
+	t.Parallel()
+	ws, tpl := containerFixtures()
+	ws.Source = &model.Source{URL: "https://github.com/example-org/site", Ref: "main"}
+	img := testImages
+	img.Runner = podspec.Image{Ref: "registry.example.com/javo:1", PullSecrets: []string{"platform-pull"}}
+	pod, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, img)
+	if err == nil {
+		t.Fatalf("built a pod for image %s with pull secrets %v", pod.Spec.Containers[0].Image, pod.Spec.ImagePullSecrets)
+	}
+	// Without platform pull secrets the same app builds.
+	if _, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages); err != nil {
+		t.Fatalf("public platform image: %v", err)
+	}
+}
+
+// The gateway checks an image against the allowed registries when the app is
+// saved; the controller checks again when it builds the pod, so tightening
+// the list stops apps saved before.
+func TestBuildPodRefusesAnImageFromARegistryNoLongerAllowed(t *testing.T) {
+	t.Parallel()
+	ws, tpl := containerFixtures()
+	img := testImages
+	img.AllowedRegistries = []string{"ghcr.io/example"}
+	_, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, img)
+	var na *imageref.NotAllowedError
+	if !errors.As(err, &na) || na.Registry != "registry.example.com" {
+		t.Fatalf("err = %v, want images from registry.example.com refused", err)
+	}
+	img.AllowedRegistries = []string{"registry.example.com/team"}
+	if _, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, img); err != nil {
+		t.Fatalf("allowed registry: %v", err)
+	}
+}
+
+// The Nebi CLI container pulls the platform's image with its pull secrets, so
+// a template that runs people's images and asks for Nebi cannot run then.
+func TestNebiNeverGivesAUserImageThePlatformsPullSecrets(t *testing.T) {
+	t.Parallel()
+	ws, tpl := containerFixtures()
+	tpl.Spec.NebiToken = true
+	pod, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &Reconciler{NebiURL: "http://nebi.example.com", RunnerImage: podspec.Image{Ref: "registry.example.com/javo:1", PullSecrets: []string{"platform-pull"}}}
+	if err := r.withNebi(pod, ws, tpl); err == nil {
+		t.Fatalf("Nebi gave image %s pull secrets %v", pod.Spec.Containers[0].Image, pod.Spec.ImagePullSecrets)
+	}
+	r.RunnerImage.PullSecrets = nil
+	pod, _ = BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages)
+	if err := r.withNebi(pod, ws, tpl); err != nil {
+		t.Fatalf("public platform image: %v", err)
 	}
 }
