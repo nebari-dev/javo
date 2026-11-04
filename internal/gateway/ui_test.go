@@ -13,8 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestUIServesFilesWithSPAFallbackAndCSP(t *testing.T) {
@@ -88,27 +90,42 @@ func TestUIServesShippedFaviconsAsImages(t *testing.T) {
 	}
 }
 
-// /readyz is what Kubernetes waits on: it fails with a plain message while the
-// database is not ready (for example the one-time import has not finished),
-// and /healthz stays up so the pod is not restarted meanwhile.
+// /readyz is what Kubernetes waits on: it fails while the database is not
+// ready (for example the one-time import has not finished), and /healthz
+// stays up so the pod is not restarted meanwhile. It is public, so it says
+// nothing of why, and it asks the database at most once a second whoever
+// floods it.
 func TestReadyzFollowsTheDatabase(t *testing.T) {
 	t.Parallel()
 	var notReady atomic.Bool
+	var asked atomic.Int32
 	notReady.Store(true)
-	f := apitest.New(t, apitest.Options{Ready: func(context.Context) error {
+	now := time.Now()
+	var mu sync.Mutex
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	f := apitest.New(t, apitest.Options{Now: clock, Ready: func(context.Context) error {
+		asked.Add(1)
 		if notReady.Load() {
-			return errors.New("the database is being upgraded")
+			return errors.New("pq: relation schema_version at 10.0.0.7 does not exist")
 		}
 		return nil
 	}})
-	w := f.Do("GET", "/readyz", "", nil)
-	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "the database is being upgraded") {
-		t.Fatalf("not ready: status %d body %q", w.Code, w.Body)
+	for range 20 {
+		w := f.Do("GET", "/readyz", "", nil)
+		if w.Code != http.StatusServiceUnavailable || strings.Contains(w.Body.String(), "10.0.0.7") || strings.Contains(w.Body.String(), "schema_version") {
+			t.Fatalf("not ready: status %d body %q", w.Code, w.Body)
+		}
+	}
+	if n := asked.Load(); n != 1 {
+		t.Fatalf("20 probes asked the database %d times", n)
 	}
 	if w := f.Do("GET", "/healthz", "", nil); w.Code != http.StatusOK {
 		t.Fatalf("healthz while not ready: %d", w.Code)
 	}
 	notReady.Store(false)
+	mu.Lock()
+	now = now.Add(2 * time.Second)
+	mu.Unlock()
 	if w := f.Do("GET", "/readyz", "", nil); w.Code != http.StatusOK {
 		t.Fatalf("ready: status %d body %q", w.Code, w.Body)
 	}

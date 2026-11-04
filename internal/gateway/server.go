@@ -45,10 +45,12 @@ import (
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -314,19 +316,41 @@ func NewServer(cfg Config) *Server {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	// /readyz is what the pod waits on before it gets traffic; /healthz only
 	// says the process is alive.
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.Ready != nil {
-			if err := cfg.Ready(r.Context()); err != nil {
-				http.Error(w, "not ready: "+err.Error(), http.StatusServiceUnavailable)
+	mux.Handle("GET /readyz", readiness(cfg.Ready, now))
+	if cfg.UIDir != "" {
+		mux.Handle("/", uiHandler(cfg.UIDir, cfg.Branding.ImageOrigins()))
+	}
+	return &Server{API: api, mux: mux, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, https: cfg.URLs.URLScheme() == "https"}
+}
+
+// readyFor is how long one answer of the readiness check is reused.
+const readyFor = time.Second
+
+// readiness serves /readyz: ready asked at most once per readyFor, however
+// many probes come, and a fixed answer, since the route is public and the
+// error may name the database's internals (they are logged instead).
+func readiness(ready func(context.Context) error, now func() time.Time) http.Handler {
+	var mu sync.Mutex
+	var until time.Time
+	var last error
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ready != nil {
+			mu.Lock()
+			if t := now(); !t.Before(until) {
+				if last = ready(r.Context()); last != nil {
+					slog.Warn("not ready", "err", last)
+				}
+				until = t.Add(readyFor)
+			}
+			err := last
+			mu.Unlock()
+			if err != nil {
+				http.Error(w, "not ready", http.StatusServiceUnavailable)
 				return
 			}
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	if cfg.UIDir != "" {
-		mux.Handle("/", uiHandler(cfg.UIDir, cfg.Branding.ImageOrigins()))
-	}
-	return &Server{API: api, mux: mux, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, https: cfg.URLs.URLScheme() == "https"}
 }
 
 // Handle mounts h at pattern (http.ServeMux syntax).
