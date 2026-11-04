@@ -190,6 +190,7 @@ const (
 	MsgAIWithheld       MessageCode = "AIWithheld"   // arg: count
 	MsgAITrimmed        MessageCode = "AITrimmed"    // args: used, total
 	MsgAIOwnerOnly      MessageCode = "AIOwnerOnly"
+	MsgAILinkRemoved    MessageCode = "AILinkRemoved"
 	MsgAINothingToTell  MessageCode = "AINothingToTell"
 	MsgAITooManyAsks    MessageCode = "AITooManyAsks"
 	MsgAdminOnly        MessageCode = "AdminOnly"
@@ -447,6 +448,7 @@ var messages = map[MessageCode]string{
 	MsgAIRedacted:          "%d values that were or looked like secrets were hidden.",
 	MsgAIWithheld:          "%d log lines were not sent: they could not be checked for secrets.",
 	MsgAITrimmed:           "Only the newest %d of %d log lines fit.",
+	MsgAILinkRemoved:       "(link removed)",
 	MsgAIOwnerOnly:         "What is sent is shown only to the app's owner. Secret values are hidden without their names.",
 	MsgAINothingToTell:     "This app is not failing, so there is nothing to explain.",
 	MsgAITooManyAsks:       "Too many requests to explain a failure. Wait a minute, then try again.",
