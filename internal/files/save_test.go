@@ -201,13 +201,6 @@ func TestSaveRefusesWhatIsNotTextOrTooLong(t *testing.T) {
 	}
 }
 
-func TestSaveWithoutHomeIsNotFound(t *testing.T) {
-	l := files.NewLister(stubEnsurer{err: files.ErrNoHome}, stubRemote{})
-	if _, err := l.Save(context.Background(), owner, "a.txt", nil, ""); !errors.Is(err, files.ErrNotFound) {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 // gatedRemote holds every upload until release is closed.
 type gatedRemote struct {
 	stubRemote

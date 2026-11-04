@@ -470,11 +470,16 @@ func TestControllerPatchesOnlyJavoKeysOnItsNamespaces(t *testing.T) {
 	}
 }
 
-// noStorage gives a file pod just the owner's home claim.
+// noStorage gives a file pod just the owner's home claim, prepared.
 type noStorage struct{}
 
-func (noStorage) Input(context.Context, string, string) (podstorage.Input, error) {
-	return podstorage.Input{}, nil
+func (s noStorage) Input(ctx context.Context, ns, owner string) (podstorage.Input, error) {
+	h, err := s.Home(ctx, ns, owner)
+	return podstorage.Input{Home: &h}, err
+}
+
+func (noStorage) Home(_ context.Context, _, owner string) (model.Home, error) {
+	return model.Home{Spec: model.HomeSpec{Owner: owner}, Status: model.HomeStatus{ClaimName: naming.HomeClaimName(owner), Prepared: true}}, nil
 }
 
 // The gateway may create pods in workspace namespaces only for the file

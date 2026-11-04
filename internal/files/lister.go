@@ -91,8 +91,6 @@ var (
 	ErrPathTooDeep = errors.New("files: path has too many folders")
 	// ErrNotFound means the folder does not exist (or is not a real folder).
 	ErrNotFound = errors.New("files: folder not found")
-	// ErrNoHome means the user has no home claim yet (no app was ever started).
-	ErrNoHome = errors.New("home claim does not exist")
 	// ErrTooLarge means the file is bigger than MaxOpenBytes.
 	ErrTooLarge = errors.New("files: file is too large to open")
 	// ErrChanged means the file is not the version the caller read: it
@@ -102,7 +100,8 @@ var (
 	ErrExists = errors.New("files: a file or folder of that name exists")
 	// ErrNotText means the content to save is not UTF-8 text.
 	ErrNotText = errors.New("files: content is not text")
-	// ErrHomeStarting means the file pod is not ready yet; retry shortly.
+	// ErrHomeStarting means the home or its file pod is not ready yet; retry
+	// shortly.
 	ErrHomeStarting = errors.New("file pod is starting")
 	// ErrHomeBusy means the home is attached to another node (ReadWriteOnce).
 	ErrHomeBusy = errors.New("home is attached to another node")
@@ -550,12 +549,6 @@ func (l *Lister) ListGroup(ctx context.Context, userID, dir, rel string) (Listin
 // list lists rel inside fs; group is the folder fs is, or "" for the home.
 func (l *Lister) list(ctx context.Context, userID, fs, group, rel string) (Listing, error) {
 	addr, err := l.pods.EnsureGroup(ctx, userID, group)
-	if errors.Is(err, ErrNoHome) {
-		if rel == "" {
-			return Listing{Entries: []Entry{}}, nil
-		}
-		return Listing{}, ErrNotFound
-	}
 	if err != nil {
 		return Listing{}, err
 	}
@@ -598,9 +591,6 @@ func (l *Lister) Open(ctx context.Context, userID, rel string) (io.ReadCloser, F
 		return nil, FileInfo{}, ErrNotFound
 	}
 	addr, err := l.pods.Ensure(ctx, userID)
-	if errors.Is(err, ErrNoHome) {
-		return nil, FileInfo{}, ErrNotFound
-	}
 	if err != nil {
 		return nil, FileInfo{}, err
 	}
@@ -656,9 +646,6 @@ func (l *Lister) Save(ctx context.Context, userID, rel string, data []byte, vers
 		return FileInfo{}, ErrNotFound
 	}
 	addr, err := l.pods.Ensure(ctx, userID)
-	if errors.Is(err, ErrNoHome) {
-		return FileInfo{}, ErrNotFound
-	}
 	if err != nil {
 		return FileInfo{}, err
 	}
@@ -703,15 +690,12 @@ func (l *Lister) Touch(userID string) { l.pods.Touch(userID) }
 
 // Usage reports how full the user's home is, but only when sizeEnforced (the
 // home's status.sizeEnforced): otherwise it answers without starting a file
-// pod and without numbers. A user with no home yet has nothing used.
+// pod and without numbers.
 func (l *Lister) Usage(ctx context.Context, userID string, sizeEnforced bool) (HomeUsage, error) {
 	if !sizeEnforced {
 		return HomeUsage{}, nil
 	}
 	addr, err := l.pods.Ensure(ctx, userID)
-	if errors.Is(err, ErrNoHome) {
-		return HomeUsage{Enforced: true}, nil
-	}
 	if err != nil {
 		return HomeUsage{}, err
 	}
@@ -784,10 +768,14 @@ type UserIDs interface {
 	UID(ctx context.Context, ownerID string) (uid, gid int64, err error)
 }
 
-// Storage resolves the storage input of an owner's pods; podstorage.Resolver
-// is the implementation. The file pod mounts all of it read-only but the home.
+// Storage resolves the storage input of an owner's pods and makes a missing
+// home; podstorage.Provisioner is the implementation. The file pod mounts all
+// of it read-only but the home.
 type Storage interface {
 	Input(ctx context.Context, namespace, owner string) (podstorage.Input, error)
+	// Home returns the owner's home, asking for it as an app does when there
+	// is none.
+	Home(ctx context.Context, namespace, owner string) (model.Home, error)
 }
 
 // Pods creates, reports on and reaps file pods.
@@ -822,11 +810,12 @@ func (p *Pods) ns(ctx context.Context) string {
 func podName(userSlug string) string { return model.FilesPodPrefix + userSlug }
 
 // Ensure returns "<user>:<password>@<podIP>:5572", the pod's rclone login
-// and address, when the user's file pod is ready. Otherwise it
-// creates the pod if needed and returns ErrHomeStarting, ErrHomeBusy,
-// ErrNoHome or ErrHomeConflict. The home claim (the one the user's home
-// records, after a mode change the new one) must record userID as its owner,
-// checked on every call because a colliding slug shares the pod name.
+// and address, when the user's file pod is ready. Otherwise it asks for the
+// user's home if they have none (as starting an app does), creates the pod
+// once the home is prepared, and returns ErrHomeStarting, ErrHomeBusy or
+// ErrHomeConflict. The home claim (the one the user's home records, after a
+// mode change the new one) must record userID as its owner, checked on every
+// call because a colliding slug shares the pod name.
 func (p *Pods) Ensure(ctx context.Context, userID string) (string, error) {
 	return p.EnsureGroup(ctx, userID, "")
 }
@@ -839,18 +828,28 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	p.Touch(userID)
 
 	c, ns := p.cfg.Client, p.ns(ctx)
+	home, err := p.cfg.Storage.Home(ctx, ns, userID)
+	if err != nil {
+		return "", err
+	}
+	if cd := meta.FindStatusCondition(home.Status.Conditions, model.ConditionReady); cd != nil && cd.Reason == string(reasons.HomeClaimForeign) {
+		return "", ErrHomeConflict
+	}
+	if home.Status.ClaimName == "" {
+		// The storage controller is making the claim.
+		return "", ErrHomeStarting
+	}
 	in, err := p.cfg.Storage.Input(ctx, ns, userID)
 	if err != nil {
 		return "", err
 	}
-	claimName := naming.HomeClaimName(userID)
-	if in.Home != nil && in.Home.Status.ClaimName != "" {
-		claimName = in.Home.Status.ClaimName
+	if in.Home == nil {
+		return "", ErrHomeStarting
 	}
 	var claim corev1.PersistentVolumeClaim
-	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: claimName}, &claim)
+	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: home.Status.ClaimName}, &claim)
 	if apierrors.IsNotFound(err) {
-		return "", ErrNoHome
+		return "", ErrHomeStarting
 	}
 	if err != nil {
 		return "", err
@@ -881,6 +880,11 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 		return "", ErrHomeBusy
 	}
 	if apierrors.IsNotFound(err) {
+		if !in.Home.Status.Prepared {
+			// As for an app: no new pod mounts a home its one-time Job has
+			// not readied yet.
+			return "", ErrHomeStarting
+		}
 		return "", p.create(ctx, buildPod(userID, ns, p.cfg.Image, in))
 	}
 	if err != nil {
