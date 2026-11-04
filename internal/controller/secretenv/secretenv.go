@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -36,6 +37,25 @@ type Set struct {
 // variable the platform sets is left out, so a secret never replaces one.
 // What is left out is logged, without a value.
 func For(ctx context.Context, all []store.SealedBinding, target authz.Object) Set {
+	return forBindings(ctx, all, nil, target)
+}
+
+// AgentKeyEnv is the variable a coding-agent app gets its owner's own agent
+// key in (model.AgentKeySecret).
+const AgentKeyEnv = model.AgentKeySecret
+
+// ForAgent is For with the owner's own agent key (nil for none) given as
+// AgentKeyEnv, which the platform reserves: no binding of all may set it.
+func ForAgent(ctx context.Context, all []store.SealedBinding, key *store.SealedBinding, target authz.Object) Set {
+	return forBindings(ctx, all, key, target)
+}
+
+func forBindings(ctx context.Context, all []store.SealedBinding, key *store.SealedBinding, target authz.Object) Set {
+	if key != nil {
+		k := *key
+		k.Env = AgentKeyEnv
+		all = append(slices.Clone(all), k)
+	}
 	var out Set
 	type part struct {
 		Env, ID string
@@ -47,7 +67,7 @@ func For(ctx context.Context, all []store.SealedBinding, target authz.Object) Se
 		if b.Env == model.GitTokenEnv {
 			continue // the clone's, not a variable (GitToken)
 		}
-		if model.EnvNameProblem(b.Env) != model.EnvNameOK {
+		if model.EnvNameProblem(b.Env) != model.EnvNameOK && (key == nil || b.Env != AgentKeyEnv || b.Secret.ID != key.Secret.ID) {
 			log.FromContext(ctx).Info("secret not given: reserved variable", "secret", sec.ID, "env", b.Env)
 			continue
 		}

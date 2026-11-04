@@ -269,6 +269,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		CloneImage: platform.Source.CloneImage, CloneGitConfig: platform.Source.GitConfig, RunnerImage: o.platformImage(),
 		PixiImage:  platform.Environments.PixiImage,
 		NebiURL:    wiring.NebiURL(platform),
+		AgentModel: platform.AI.AgentModel(),
 		SecretKeys: keys,
 		Access:     wiring.JobAccess(db.People(store.IDRange{}), platform.Roles),
 		// Checked again at each pod build, so a tightened list stops

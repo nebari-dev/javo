@@ -101,6 +101,10 @@ type Reconciler struct {
 	// PixiImage installs the environment of an app that runs in one
 	// (internal/pixienv). Required when any app names an environment.
 	PixiImage string
+	// AgentModel is the admin's model for coding-agent apps
+	// (config.AICfg.AgentModel); empty while it is off, and then an agent
+	// app uses its owner's own key, if they stored one.
+	AgentModel string
 	// NebiURL is Nebi's address as apps reach it, set while the platform's
 	// Nebi integration is on: apps whose template asks for it then get
 	// their owner's Nebi token (WithNebi). Empty gives no app Nebi.
@@ -341,7 +345,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				return ctrl.Result{}, err
 			}
 		}
-		appSecrets, err := r.secretsOf(ctx, &app)
+		agent, err := r.agentModelOf(ctx, &app, tpl)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		appSecrets, err := r.secretsOf(ctx, &app, agent)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -396,6 +404,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				WithGitToken(want, &app, gitSecret, gitGen)
 				WithEnv(want, app.Env)
 				WithAppSecrets(want, secretsName, appSecrets)
+				WithAgent(want, &app, tpl, agent, tokenSecret)
 				problem, err := r.withEnvironment(ctx, &app, tpl, want)
 				if err != nil {
 					return ctrl.Result{}, err

@@ -19,13 +19,14 @@ import (
 // (see SecretName).
 func AppSecretsName(objectName string) string { return SecretName(objectName, "secrets") }
 
-// secretsOf reads the secrets app gets that pass secretenv.For.
-func (r *Reconciler) secretsOf(ctx context.Context, app *model.App) (secretenv.Set, error) {
+// secretsOf reads the secrets app gets that pass secretenv.For, with the
+// owner's own agent key when agent has one.
+func (r *Reconciler) secretsOf(ctx context.Context, app *model.App, agent agentModel) (secretenv.Set, error) {
 	all, err := r.Store.Secrets().ForApp(ctx, app.ID)
 	if err != nil {
 		return secretenv.Set{}, err
 	}
-	return secretenv.For(ctx, all, authz.Object{App: app}), nil
+	return secretenv.ForAgent(ctx, all, agent.key, authz.Object{App: app}), nil
 }
 
 // writeAppSecrets makes the app's Secret hold want's values, opened with the
