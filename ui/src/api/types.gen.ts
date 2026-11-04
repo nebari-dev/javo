@@ -1992,6 +1992,7 @@ export type WorkspaceWritable = {
     previewOf?: PreviewOf;
     redeployable: boolean;
     resources?: Amount;
+    run?: PodRun;
     size: string;
     source?: SourceView;
     steps: Array<Step> | null;
