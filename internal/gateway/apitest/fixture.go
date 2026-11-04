@@ -145,6 +145,8 @@ type Options struct {
 	PublicHost, PixiImage string
 	// Nebi, when set, gives the gateway a nebi.Tokens over it (Nebi on).
 	Nebi nebi.TokenSource
+	// Limits are the store's per-person caps; the zero value is none.
+	Limits store.Limits
 }
 
 // New builds a gateway over a test database and a fake cluster.
@@ -172,6 +174,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	}
 	c := b.Build()
 	db := storetest.New(t)
+	db.SetLimits(o.Limits)
 	users := &local.DBUsers{Accounts: db.LocalAccounts()}
 	hash, err := aliceHash()
 	if err != nil {

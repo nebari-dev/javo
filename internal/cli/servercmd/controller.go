@@ -136,7 +136,7 @@ func NewController() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			db, err := common.database.Open(ctx)
+			db, err := common.openDB(ctx, platform)
 			if err != nil {
 				return err
 			}

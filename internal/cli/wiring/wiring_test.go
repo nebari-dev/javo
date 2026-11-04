@@ -9,6 +9,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/store"
 )
 
 // With ai.enabled false, no provider is built, so nothing ever connects to a
@@ -160,5 +161,15 @@ func TestNebiOffGivesNoAppANebiToken(t *testing.T) {
 	p.Nebi.Enabled = true
 	if k := NebiTokens(p, nil); k == nil || k.Source == nil || NebiURL(p) != "https://nebi.example.com" {
 		t.Fatalf("nebi on: keeper %v, url %q", k, NebiURL(p))
+	}
+}
+
+// Each limits key reaches the store's cap of the same name.
+func TestStoreLimitsFollowTheConfig(t *testing.T) {
+	got := StoreLimits(config.LimitsCfg{RunningApps: 1, Apps: 2, Previews: 3, Jobs: 4,
+		ActiveRunsPerJob: 5, ActiveRunsPerPerson: 6, APITokens: 7, PendingPlans: 8})
+	want := store.Limits{RunningApps: 1, Apps: 2, Previews: 3, Jobs: 4, RunsPerJob: 5, RunsPerPerson: 6, APITokens: 7, PendingPlans: 8}
+	if got != want {
+		t.Fatalf("StoreLimits = %+v, want %+v", got, want)
 	}
 }

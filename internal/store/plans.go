@@ -50,6 +50,9 @@ func (s *Store) Plans() *Plans { return &Plans{s} }
 // approves, and that decision is.
 func (p *Plans) Create(ctx context.Context, in Plan) error {
 	return p.s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		if err := within(ctx, q, in.Owner, p.s.planCap(ctx, q, in.Owner, in.CreatedAt)); err != nil {
+			return err
+		}
 		return q.InsertPlan(ctx, sqlcgen.InsertPlanParams{
 			ID: in.ID, Owner: in.Owner, Source: in.Source, State: in.State, Body: string(in.Body),
 			CreatedAt: dbtime.From(in.CreatedAt), ExpiresAt: dbtime.From(in.ExpiresAt),

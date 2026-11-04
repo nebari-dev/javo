@@ -54,6 +54,12 @@ func (s *Store) Tokens() *Tokens { return &Tokens{s} }
 // that object name. An unknown person or app is ErrNotFound. It is audited.
 func (t *Tokens) Create(ctx context.Context, actor model.Actor, in APIToken) (APIToken, error) {
 	err := t.s.mutate(ctx, actor, func(q *sqlcgen.Queries) (effect, error) {
+		// Only personal tokens are capped: an app's or job's token goes with it.
+		if in.App == nil && in.Job == "" {
+			if err := within(ctx, q, in.Owner, t.s.tokenCap(ctx, q, in.Owner, in.CreatedAt)); err != nil {
+				return effect{}, err
+			}
+		}
 		err := insertToken(ctx, q, in)
 		if errors.Is(err, sql.ErrNoRows) {
 			return effect{}, ErrNotFound

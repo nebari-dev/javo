@@ -277,6 +277,17 @@ const (
 	MsgEnvironmentRefused     MessageCode = "EnvironmentRefused"
 	MsgEnvironmentUnreachable MessageCode = "EnvironmentUnreachable"
 	MsgEnvironmentTooLarge    MessageCode = "EnvironmentTooLarge" // arg: what does not fit
+
+	// The admin's per-person caps (limits in the platform config); each
+	// takes the cap.
+	MsgLimitApps          MessageCode = "LimitApps"
+	MsgLimitRunningApps   MessageCode = "LimitRunningApps"
+	MsgLimitPreviews      MessageCode = "LimitPreviews"
+	MsgLimitJobs          MessageCode = "LimitJobs"
+	MsgLimitRunsPerJob    MessageCode = "LimitRunsPerJob"
+	MsgLimitRunsPerPerson MessageCode = "LimitRunsPerPerson"
+	MsgLimitAPITokens     MessageCode = "LimitAPITokens"
+	MsgLimitPendingPlans  MessageCode = "LimitPendingPlans"
 )
 
 var messages = map[MessageCode]string{
@@ -534,6 +545,15 @@ var messages = map[MessageCode]string{
 	MsgEnvironmentRefused:     "The environment manager did not accept your sign-in. Sign out and in again; if that does not help, ask your admin.",
 	MsgEnvironmentUnreachable: "The environment manager could not be reached. Try again in a moment.",
 	MsgEnvironmentTooLarge:    "That environment cannot run here: %s.",
+
+	MsgLimitApps:          "You have %d apps, the most allowed. Delete one you no longer need to make another.",
+	MsgLimitRunningApps:   "You have %d apps running, the most allowed at once. Stop one to start another.",
+	MsgLimitPreviews:      "Your apps have %d previews, the most allowed. Close a pull request or turn previews off on an app to free one.",
+	MsgLimitJobs:          "You have %d jobs, the most allowed. Delete one you no longer need to make another.",
+	MsgLimitRunsPerJob:    "This job has %d runs going, the most allowed at once. Wait for one to finish, or cancel one.",
+	MsgLimitRunsPerPerson: "You have %d job runs going, the most allowed at once. Wait for one to finish, or cancel one.",
+	MsgLimitAPITokens:     "You have %d API tokens, the most allowed. Revoke one you no longer use.",
+	MsgLimitPendingPlans:  "%d proposed changes are waiting for your approval, the most allowed. Approve or reject some first.",
 }
 
 // Msg returns the text for code, formatted with args. An unknown code

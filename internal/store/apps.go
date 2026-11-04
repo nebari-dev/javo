@@ -135,6 +135,9 @@ func (a *Apps) create(ctx context.Context, actor model.Actor, in *model.App, als
 	id := newID()
 	var out model.App
 	err = a.s.mutate(ctx, actor, func(q *sqlcgen.Queries) (effect, error) {
+		if err := within(ctx, q, app.Owner, a.s.appCaps(ctx, q, app.Owner, app.ParentID != "", !app.Paused)...); err != nil {
+			return effect{}, err
+		}
 		if err := insertApp(ctx, q, id, app, spec, now()); err != nil {
 			return effect{}, err
 		}
@@ -180,6 +183,13 @@ var appKind = rowKind[model.App]{
 	},
 	prepare:  func(a *model.App) { a.ApplyDefaults() },
 	validate: func(next, old *model.App) error { return next.ValidateUpdate(old) },
+	// Starting a stopped app (not a preview) counts against RunningApps.
+	guard: func(ctx context.Context, s *Store, q *sqlcgen.Queries, next, old *model.App) error {
+		if !old.Paused || next.Paused || next.ParentID != "" {
+			return nil
+		}
+		return within(ctx, q, next.Owner, s.runningCap(ctx, q, next.Owner))
+	},
 	writeSpec: func(ctx context.Context, q *sqlcgen.Queries, id string, version int64, next *model.App) (int64, error) {
 		spec, err := marshal(specOf(*next), "{}")
 		if err != nil {

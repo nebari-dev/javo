@@ -201,7 +201,7 @@ func (s *API) Register(api huma.API) {
 	}), s.get)
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "createJob", Method: http.MethodPost, Path: "/api/jobs",
-		Summary: "Create a job", DefaultStatus: http.StatusCreated, Errors: []int{http.StatusUnprocessableEntity},
+		Summary: "Create a job", DefaultStatus: http.StatusCreated, Errors: []int{http.StatusConflict, http.StatusUnprocessableEntity},
 	}), s.create)
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "startJobSample", Method: http.MethodPost, Path: "/api/job-samples/{template}",
@@ -237,7 +237,7 @@ func (s *API) Register(api huma.API) {
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "runJob", Method: http.MethodPost, Path: "/api/jobs/{name}/run",
 		Summary: "Run a job now", DefaultStatus: http.StatusCreated,
-		Errors: []int{http.StatusNotFound, http.StatusUnprocessableEntity},
+		Errors: []int{http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity},
 	}), s.runNow)
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "pauseJob", Method: http.MethodPost, Path: "/api/jobs/{name}/pause",

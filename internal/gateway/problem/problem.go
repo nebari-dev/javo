@@ -16,6 +16,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/placement"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
+	"github.com/nebari-dev/javo/internal/store"
 )
 
 // Details is a problem whose text comes from the catalog. Errors huma
@@ -60,10 +61,36 @@ func Reason(status int, code reasons.Code) *Details {
 	return e
 }
 
-// Internal logs err and returns the generic catalog 500.
+// Internal logs err and returns the generic catalog 500, except for a write a
+// per-person cap refused (*store.LimitError), which is its 409 (Limit).
 func Internal(what string, err error) error {
+	if l := Limit(err); l != nil {
+		return l
+	}
 	slog.Error(what, "err", err)
 	return New(http.StatusInternalServerError, reasons.Msg(reasons.MsgServerError))
+}
+
+// limitMessages are the catalog messages of the per-person caps.
+var limitMessages = map[store.Limit]reasons.MessageCode{
+	store.LimitApps:          reasons.MsgLimitApps,
+	store.LimitRunningApps:   reasons.MsgLimitRunningApps,
+	store.LimitPreviews:      reasons.MsgLimitPreviews,
+	store.LimitJobs:          reasons.MsgLimitJobs,
+	store.LimitRunsPerJob:    reasons.MsgLimitRunsPerJob,
+	store.LimitRunsPerPerson: reasons.MsgLimitRunsPerPerson,
+	store.LimitAPITokens:     reasons.MsgLimitAPITokens,
+	store.LimitPendingPlans:  reasons.MsgLimitPendingPlans,
+}
+
+// Limit is the 409 for a write a per-person cap refused, with the cap in its
+// catalog message; nil when err is not a *store.LimitError.
+func Limit(err error) *Details {
+	var le *store.LimitError
+	if !errors.As(err, &le) {
+		return nil
+	}
+	return New(http.StatusConflict, reasons.Msg(limitMessages[le.Limit], le.Max))
 }
 
 // Field is one form field error; Name is the request body field.

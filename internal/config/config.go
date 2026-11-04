@@ -62,6 +62,84 @@ type Platform struct {
 	Environments EnvironmentsCfg `json:"environments"`
 	// Branding is the white-label name, logo, favicon and accent of the UI.
 	Branding BrandingCfg `json:"branding"`
+	// Limits caps what one person may have and run at a time.
+	Limits LimitsCfg `json:"limits"`
+}
+
+// LimitsCfg is the admin's caps per person, so one person cannot fill the
+// cluster or the database. A count left out (or 0) gets its default; every
+// cap applies to platform admins too.
+type LimitsCfg struct {
+	// RunningApps is how many of a person's apps (previews not counted) may
+	// run at once: creating, starting or importing one more is refused.
+	RunningApps int32 `json:"runningApps"`
+	// Apps is how many apps a person may have, running or stopped.
+	Apps int32 `json:"apps"`
+	// Previews is how many previews of pull requests a person's apps may
+	// have in total; previews past it are not started.
+	Previews int32 `json:"previews"`
+	// Jobs is how many jobs a person may have.
+	Jobs int32 `json:"jobs"`
+	// ActiveRunsPerJob and ActiveRunsPerPerson cap the runs going at once,
+	// of one job and of all of a person's jobs. Run now is refused at a cap,
+	// and scheduled runs are skipped until a run ends.
+	ActiveRunsPerJob    int32 `json:"activeRunsPerJob"`
+	ActiveRunsPerPerson int32 `json:"activeRunsPerPerson"`
+	// APITokens is how many personal API tokens a person may have.
+	APITokens int32 `json:"apiTokens"`
+	// PendingPlans is how many proposed changes may wait for a person's approval.
+	PendingPlans int32 `json:"pendingPlans"`
+	// JobMaxTimeout is the longest any run may take; a job or template that
+	// sets a longer time limit, or none, gets this one.
+	JobMaxTimeout metav1.Duration `json:"jobMaxTimeout"`
+}
+
+// The defaults of LimitsCfg.
+const (
+	DefaultRunningApps         = 10
+	DefaultApps                = 50
+	DefaultPreviews            = 20
+	DefaultJobs                = 50
+	DefaultActiveRunsPerJob    = 3
+	DefaultActiveRunsPerPerson = 10
+	DefaultAPITokens           = 50
+	DefaultPendingPlans        = 20
+	DefaultJobMaxTimeout       = 24 * time.Hour
+)
+
+func (c *LimitsCfg) applyDefaults() {
+	for _, f := range []struct {
+		n   *int32
+		def int32
+	}{
+		{&c.RunningApps, DefaultRunningApps}, {&c.Apps, DefaultApps}, {&c.Previews, DefaultPreviews},
+		{&c.Jobs, DefaultJobs}, {&c.ActiveRunsPerJob, DefaultActiveRunsPerJob},
+		{&c.ActiveRunsPerPerson, DefaultActiveRunsPerPerson}, {&c.APITokens, DefaultAPITokens},
+		{&c.PendingPlans, DefaultPendingPlans},
+	} {
+		if *f.n == 0 {
+			*f.n = f.def
+		}
+	}
+	setDur(&c.JobMaxTimeout, DefaultJobMaxTimeout)
+}
+
+func (c LimitsCfg) validate(bad func(key, format string, a ...any)) {
+	for _, f := range []struct {
+		key string
+		n   int32
+	}{
+		{"runningApps", c.RunningApps}, {"apps", c.Apps}, {"previews", c.Previews}, {"jobs", c.Jobs},
+		{"activeRunsPerJob", c.ActiveRunsPerJob}, {"activeRunsPerPerson", c.ActiveRunsPerPerson},
+		{"apiTokens", c.APITokens}, {"pendingPlans", c.PendingPlans},
+	} {
+		if f.n < 1 {
+			bad("limits."+f.key, "%d must be at least 1", f.n)
+		}
+	}
+	if c.JobMaxTimeout.Duration <= 0 {
+		bad("limits.jobMaxTimeout", "%s must be positive", c.JobMaxTimeout.Duration)
+	}
 }
 
 // EnvironmentsCfg configures the pixi environments apps and jobs run in: a
@@ -546,6 +624,7 @@ func (p *Platform) applyDefaults() {
 	}
 	p.Storage.applyDefaults()
 	p.Branding.applyDefaults()
+	p.Limits.applyDefaults()
 	if p.Backup.S3 != nil {
 		p.Backup.S3.applyDefaults()
 	}
@@ -721,6 +800,7 @@ func (p Platform) Validate() error {
 		p.Backup.S3.validate(bad)
 	}
 	p.Branding.validate(bad)
+	p.Limits.validate(bad)
 	for i, r := range p.ContainerImages.AllowedRegistries {
 		if r == "" || strings.Contains(r, "://") || strings.ContainsAny(r, " \t\n") {
 			bad(fmt.Sprintf("containerImages.allowedRegistries[%d]", i), "%q is not a registry host such as ghcr.io or a host and path such as ghcr.io/example", r)

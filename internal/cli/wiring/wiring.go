@@ -340,3 +340,13 @@ func ResticBin() string {
 	}
 	return "restic"
 }
+
+// StoreLimits are the per-person caps of the limits section, for
+// store.Store.SetLimits.
+func StoreLimits(c config.LimitsCfg) store.Limits {
+	return store.Limits{
+		Apps: int64(c.Apps), RunningApps: int64(c.RunningApps), Previews: int64(c.Previews), Jobs: int64(c.Jobs),
+		RunsPerJob: int64(c.ActiveRunsPerJob), RunsPerPerson: int64(c.ActiveRunsPerPerson),
+		APITokens: int64(c.APITokens), PendingPlans: int64(c.PendingPlans),
+	}
+}

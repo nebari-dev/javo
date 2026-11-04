@@ -91,6 +91,9 @@ func (j *Jobs) CreateWith(ctx context.Context, actor model.Actor, in *model.Job,
 	id := newID()
 	var out model.Job
 	err = j.s.mutate(ctx, actor, func(q *sqlcgen.Queries) (effect, error) {
+		if err := within(ctx, q, job.Owner, j.s.jobCap(ctx, q, job.Owner)); err != nil {
+			return effect{}, err
+		}
 		if err := insertJob(ctx, q, id, job, spec, now()); err != nil {
 			return effect{}, err
 		}
@@ -249,6 +252,9 @@ func (j *Jobs) RequestRun(ctx context.Context, actor model.Actor, jobID string, 
 		}
 		if !job.DeletedAt.IsZero() {
 			return effect{}, ErrNotFound
+		}
+		if err := within(ctx, q, job.Owner, j.s.runCaps(ctx, q, job.Owner, job.ID)...); err != nil {
+			return effect{}, err
 		}
 		if err := insertRun(ctx, q, run); err != nil {
 			return effect{}, err

@@ -423,3 +423,29 @@ func TestOIDCNeedsTheUIHost(t *testing.T) {
 		t.Fatalf("oidc with uiHost: %v", err)
 	}
 }
+
+func TestLimitsHaveDefaultsAndRefuseNonPositiveValues(t *testing.T) {
+	p, err := load(t, "auth:\n  local:\n    enabled: true\nlimits:\n  runningApps: 3\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := p.Limits
+	if l.RunningApps != 3 {
+		t.Errorf("runningApps = %d, want the 3 set", l.RunningApps)
+	}
+	// Every count left out gets a cap: none is unlimited.
+	for name, n := range map[string]int32{"apps": l.Apps, "previews": l.Previews, "jobs": l.Jobs,
+		"activeRunsPerJob": l.ActiveRunsPerJob, "activeRunsPerPerson": l.ActiveRunsPerPerson,
+		"apiTokens": l.APITokens, "pendingPlans": l.PendingPlans} {
+		if n < 1 {
+			t.Errorf("%s = %d, want a positive default", name, n)
+		}
+	}
+	if l.JobMaxTimeout.Duration <= 0 {
+		t.Errorf("jobMaxTimeout = %s, want a positive default", l.JobMaxTimeout.Duration)
+	}
+	_, err = load(t, "auth:\n  local:\n    enabled: true\nlimits:\n  jobs: -1\n  jobMaxTimeout: -1h\n")
+	if err == nil || !strings.Contains(err.Error(), "limits.jobs") || !strings.Contains(err.Error(), "limits.jobMaxTimeout") {
+		t.Fatalf("err = %v, want limits.jobs and limits.jobMaxTimeout refused", err)
+	}
+}

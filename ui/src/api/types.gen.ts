@@ -3186,6 +3186,10 @@ export type CreateJobErrors = {
      */
     401: ErrorModel;
     /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
      * Unprocessable Entity
      */
     422: ErrorModel;
@@ -3517,6 +3521,10 @@ export type RunJobErrors = {
      * Not Found
      */
     404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
     /**
      * Unprocessable Entity
      */
@@ -4669,6 +4677,10 @@ export type CreateWorkspaceErrors = {
      * Forbidden
      */
     403: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
     /**
      * Unprocessable Entity
      */

@@ -261,7 +261,7 @@ func (s *Workspaces) registerWorkspaces(api huma.API) {
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "createWorkspace", Method: http.MethodPost, Path: "/api/workspaces",
 		Summary: "Create an app", DefaultStatus: http.StatusCreated,
-		Errors: []int{http.StatusForbidden, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
+		Errors: []int{http.StatusForbidden, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}), s.create)
 
 	huma.Register(api, tagged(huma.Operation{

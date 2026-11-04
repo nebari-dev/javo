@@ -48,7 +48,7 @@ func NewServer() *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			db, err := common.database.Open(ctx)
+			db, err := common.openDB(ctx, platform)
 			if err != nil {
 				return err
 			}

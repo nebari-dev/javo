@@ -27,6 +27,9 @@ type rowKind[T any] struct {
 	info     func(T) rowInfo
 	prepare  func(*T)                 // fills defaults
 	validate func(next, old *T) error // next is already prepared
+	// guard, when set, runs after validate in the update's transaction and
+	// may refuse the change (a per-person cap it would pass).
+	guard func(ctx context.Context, s *Store, q *sqlcgen.Queries, next, old *T) error
 	// writeSpec stores next's spec columns where id and version match and returns
 	// the rows changed; it must raise the version by one.
 	writeSpec   func(ctx context.Context, q *sqlcgen.Queries, id string, version int64, next *T) (int64, error)
@@ -90,6 +93,11 @@ func (k rowKind[T]) updateWith(ctx context.Context, s *Store, actor model.Actor,
 		k.prepare(&next)
 		if err := k.validate(&next, &old); err != nil {
 			return effect{}, err
+		}
+		if k.guard != nil {
+			if err := k.guard(ctx, s, q, &next, &old); err != nil {
+				return effect{}, err
+			}
 		}
 		n, err := k.writeSpec(ctx, q, id, version, &next)
 		if err != nil {

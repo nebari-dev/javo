@@ -71,6 +71,9 @@ type Store struct {
 
 	// backup is chosen once in Open for the engine (backup.go).
 	backup backuper
+
+	// limits are the per-person caps (SetLimits).
+	limits Limits
 }
 
 // StartFeed starts delivering announcements on Changes until ctx ends. With
