@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -78,6 +77,9 @@ const (
 var (
 	// ErrOutsideHome means the requested path leaves the home folder.
 	ErrOutsideHome = errors.New("files: path is outside the home folder")
+	// ErrPathTooDeep means the requested path has more than MaxPathDepth
+	// names.
+	ErrPathTooDeep = errors.New("files: path has too many folders")
 	// ErrNotFound means the folder does not exist (or is not a real folder).
 	ErrNotFound = errors.New("files: folder not found")
 	// ErrNoHome means the user has no home claim yet (no app was ever started).
@@ -117,6 +119,10 @@ type Listing struct {
 	Truncated bool
 }
 
+// MaxPathDepth is the most names a path may have. Each folder on a path
+// costs one stat call to the file pod, so this bounds what one call costs.
+const MaxPathDepth = 64
+
 // CleanPath turns a requested path into a clean path relative to the home
 // folder ("" is the home folder itself). Paths that climb above it fail with
 // ErrOutsideHome.
@@ -127,6 +133,9 @@ func CleanPath(raw string) (string, error) {
 	}
 	if c == "." {
 		return "", nil
+	}
+	if strings.Count(c, "/") >= MaxPathDepth {
+		return "", ErrPathTooDeep
 	}
 	return c, nil
 }
@@ -459,8 +468,50 @@ type Lister struct {
 	pods   HomePods
 	remote Remote
 	// saving serializes saves of one file, so two saves of the same version
-	// cannot both pass the version check: one lock per hash of user and path.
-	saving [64]sync.Mutex
+	// cannot both pass the version check. Keyed by user and path, so one
+	// person's slow saves never hold up another's.
+	saving fileLocks
+}
+
+// fileLocks holds one lock per key while someone holds or waits for it.
+type fileLocks struct {
+	mu    sync.Mutex
+	locks map[string]*fileLock
+}
+
+type fileLock struct {
+	held  chan struct{} // a value in it means the lock is taken
+	users int           // holders and waiters
+}
+
+// lock takes the lock for key, or gives up with ctx's error when ctx ends
+// first. The returned func releases it.
+func (f *fileLocks) lock(ctx context.Context, key string) (func(), error) {
+	f.mu.Lock()
+	if f.locks == nil {
+		f.locks = map[string]*fileLock{}
+	}
+	l := f.locks[key]
+	if l == nil {
+		l = &fileLock{held: make(chan struct{}, 1)}
+		f.locks[key] = l
+	}
+	l.users++
+	f.mu.Unlock()
+	done := func() {
+		f.mu.Lock()
+		if l.users--; l.users == 0 {
+			delete(f.locks, key)
+		}
+		f.mu.Unlock()
+	}
+	select {
+	case l.held <- struct{}{}:
+		return func() { <-l.held; done() }, nil
+	case <-ctx.Done():
+		done()
+		return nil, ctx.Err()
+	}
 }
 
 // NewLister returns a Lister that reaches homes through pods and remote.
@@ -603,11 +654,11 @@ func (l *Lister) Save(ctx context.Context, userID, rel string, data []byte, vers
 		return FileInfo{}, err
 	}
 	dir = strings.TrimSuffix(dir, "/")
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(userID + "\x00" + rel))
-	mu := &l.saving[h.Sum32()%uint32(len(l.saving))]
-	mu.Lock()
-	defer mu.Unlock()
+	unlock, err := l.saving.lock(ctx, userID+"\x00"+rel)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	defer unlock()
 	if err := l.checkFolders(ctx, addr, dataDir, dir); err != nil {
 		return FileInfo{}, err
 	}

@@ -128,6 +128,15 @@ func TestCleanPath(t *testing.T) {
 			t.Errorf("CleanPath(%q) err = %v, want ErrOutsideHome", in, err)
 		}
 	}
+	deepest := strings.Repeat("d/", files.MaxPathDepth-1) + "f"
+	if got, err := files.CleanPath(deepest); err != nil || got != deepest {
+		t.Errorf("CleanPath of %d names = %q, %v", files.MaxPathDepth, got, err)
+	}
+	// Each folder on a path costs a stat call to the file pod, so a path of
+	// thousands of folders would make every call slow.
+	if _, err := files.CleanPath("d/" + deepest); !errors.Is(err, files.ErrPathTooDeep) {
+		t.Errorf("CleanPath of %d names err = %v, want ErrPathTooDeep", files.MaxPathDepth+1, err)
+	}
 }
 
 // --- file pod lifecycle ---

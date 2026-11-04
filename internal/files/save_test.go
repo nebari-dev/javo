@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -298,5 +300,96 @@ func TestEnsureWaitsForTheOwnersUID(t *testing.T) {
 	_ = c.List(context.Background(), &pods)
 	if len(pods.Items) != 0 {
 		t.Fatalf("made %d pods", len(pods.Items))
+	}
+}
+
+// slowFor answers every call for one pod address only once release is
+// closed (that person's file pod is slow, as a folder of millions of entries
+// makes it); other addresses answer at once.
+type slowFor struct {
+	stubRemote
+	addr    string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s slowFor) wait(addr string) {
+	if addr == s.addr {
+		select {
+		case s.entered <- struct{}{}:
+		default:
+		}
+		<-s.release
+	}
+}
+
+func (s slowFor) Stat(ctx context.Context, addr, fs, remote string) (files.Entry, error) {
+	s.wait(addr)
+	return s.stubRemote.Stat(ctx, addr, fs, remote)
+}
+
+// podPerUser gives every user a file pod at an address named after them.
+type podPerUser struct{ stubEnsurer }
+
+func (podPerUser) Ensure(_ context.Context, user string) (string, error) { return user, nil }
+
+// One person's slow save never holds up another person's save, whatever
+// path either picks: before, both shared one of 64 locks chosen by a hash
+// of user and path, so a path chosen to collide stalled the other save.
+func TestSaveOfOnePersonNeverWaitsForAnothersSlowSave(t *testing.T) {
+	s := slowFor{editTree(), "bob", make(chan struct{}, 1), make(chan struct{})}
+	defer close(s.release)
+	l := files.NewLister(podPerUser{}, s)
+	victim := "notes/new.md"
+	bucket := func(user, rel string) uint32 {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(user + "\x00" + rel))
+		return h.Sum32() % 64
+	}
+	var mine string
+	for i := 0; mine == ""; i++ {
+		if p := fmt.Sprintf("x%d.txt", i); bucket("bob", p) == bucket("alice", victim) {
+			mine = p
+		}
+	}
+	go func() { _, _ = l.Save(context.Background(), "bob", mine, []byte("a"), "") }()
+	<-s.entered
+	done := make(chan error, 1)
+	go func() {
+		_, err := l.Save(context.Background(), "alice", victim, []byte("hi"), "")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("alice's save waited for bob's")
+	}
+}
+
+// A save waiting behind another save of the same file gives up when its
+// request ends, instead of holding the request open until the first is done.
+func TestSaveWaitingForTheSameFileStopsWhenTheRequestEnds(t *testing.T) {
+	g := gatedRemote{editTree(), make(chan struct{}, 2), make(chan struct{})}
+	defer close(g.release)
+	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, g)
+	go func() { _, _ = l.Save(context.Background(), owner, "notes/new.md", []byte("a"), "") }()
+	<-g.entered
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := l.Save(ctx, owner, "notes/new.md", []byte("b"), "")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the waiting save ignored its ended request")
 	}
 }

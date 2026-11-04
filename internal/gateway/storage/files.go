@@ -102,9 +102,9 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 		if listings == nil {
 			return nil, problem.Internal("list home folder", errors.New("no home folder lister configured"))
 		}
-		rel, err := files.CleanPath(in.Path)
+		rel, err := cleanPath(in.Path)
 		if err != nil {
-			return nil, problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgFolderOutsideHome))
+			return nil, err
 		}
 		who := authn.User(ctx)
 		user := who.ID
@@ -279,9 +279,9 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
 		if lister == nil {
 			return nil, problem.Internal("open home file", errors.New("no home folder lister configured"))
 		}
-		rel, err := files.CleanPath(in.Path)
+		rel, err := cleanPath(in.Path)
 		if err != nil {
-			return nil, problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgFolderOutsideHome))
+			return nil, err
 		}
 		if rel == "" {
 			return nil, problem.New(http.StatusNotFound, reasons.Msg(reasons.MsgFileNotFound))
@@ -375,9 +375,9 @@ func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *AP
 		if lister == nil {
 			return nil, problem.Internal("save home file", errors.New("no home folder lister configured"))
 		}
-		rel, err := files.CleanPath(in.Path)
+		rel, err := cleanPath(in.Path)
 		if err != nil {
-			return nil, problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgFolderOutsideHome))
+			return nil, err
 		}
 		if rel == "" {
 			return nil, problem.New(http.StatusNotFound, reasons.Msg(reasons.MsgFileNotFound))
@@ -435,4 +435,16 @@ func (s *API) audit(ctx context.Context, action, rel, ns string, size int) {
 	if err != nil {
 		slog.Error("audit file save", "user", who, "path", rel, "err", err)
 	}
+}
+
+// cleanPath is files.CleanPath with its errors as the 400 problem to answer.
+func cleanPath(raw string) (string, error) {
+	rel, err := files.CleanPath(raw)
+	switch {
+	case errors.Is(err, files.ErrPathTooDeep):
+		return "", problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgPathTooDeep, files.MaxPathDepth))
+	case err != nil:
+		return "", problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgFolderOutsideHome))
+	}
+	return rel, nil
 }

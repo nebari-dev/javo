@@ -296,6 +296,20 @@ func TestRawRejectsPathsOutsideHomeAndEmptyPath(t *testing.T) {
 	}
 }
 
+// A path with more folders than files.MaxPathDepth is refused before it
+// reaches the file pod, on every route that takes one.
+func TestFilesRefusePathsWithTooManyFolders(t *testing.T) {
+	t.Parallel()
+	deep := strings.Repeat("d/", files.MaxPathDepth) + "f"
+	for _, route := range []string{"/api/files?path=", "/api/files/raw?path="} {
+		l := &apitest.StubFilesLister{Content: "x"}
+		rec := apitest.GetFiles(t, l, false, http.MethodGet, route+deep)
+		if rec.Code != http.StatusBadRequest || apitest.DecodeFilesBody(t, rec)["title"] != reasons.Msg(reasons.MsgPathTooDeep, files.MaxPathDepth) || l.Calls != 0 || len(l.Opened) != 0 {
+			t.Errorf("%s: got %d %s", route, rec.Code, rec.Body)
+		}
+	}
+}
+
 func TestRawOnlyReadsTheCallersHome(t *testing.T) {
 	t.Parallel()
 	l := &apitest.StubFilesLister{Content: "x"}

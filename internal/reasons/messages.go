@@ -57,6 +57,7 @@ const (
 	MsgFileInvalid           MessageCode = "FileInvalid"
 	MsgFileWrongType         MessageCode = "FileWrongType" // arg: comma-separated extensions
 	MsgFolderOutsideHome     MessageCode = "FolderOutsideHome"
+	MsgPathTooDeep           MessageCode = "PathTooDeep" // arg: the most folders a path may have
 	MsgFolderNotFound        MessageCode = "FolderNotFound"
 	MsgFolderListFailed      MessageCode = "FolderListFailed"
 	MsgFileNotFound          MessageCode = "FileNotFound"
@@ -319,6 +320,7 @@ var messages = map[MessageCode]string{
 	MsgFileInvalid:           "Pick a file inside your home folder.",
 	MsgFileWrongType:         "This template opens %s files. Pick one of those.",
 	MsgFolderOutsideHome:     "That folder is outside your home folder",
+	MsgPathTooDeep:           "That path has too many folders. Paths may have at most %d.",
 	MsgFolderNotFound:        "That folder does not exist",
 	MsgFolderListFailed:      "Your home folder could not be listed",
 	MsgFileNotFound:          "That file does not exist",
