@@ -200,16 +200,13 @@ func (s *sharing) template(ctx context.Context, app *model.App) (*model.Template
 	return &t, nil
 }
 
-// editorKinds let whoever opens the app run any code or command as its owner.
-var editorKinds = []string{"vscode", "rstudio", "marimo", "pluto"}
-
 // exposes is what sharing an app from t hands the people it is shared with.
 func exposes(t *model.Template) reasons.MessageCode {
 	switch {
 	case t.Spec.Build != nil:
 		// The pod serves the built files and never mounts the home.
 		return reasons.MsgShareExposesSite
-	case slices.Contains(editorKinds, t.Spec.Kind):
+	case model.RunsAnyCode(t):
 		return reasons.MsgShareExposesCode
 	}
 	return reasons.MsgShareExposesApp

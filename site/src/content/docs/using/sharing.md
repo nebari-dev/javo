@@ -32,6 +32,8 @@ An app with [API access](/using/api/) also lets them call the Javo API as you; t
 
 **Terminal, JupyterLab and coding agents are always private.** The Terminal, JupyterLab, Claude Code, pi, herdr and any other coding agent hand whoever opens them code running as you, with your files. Javo refuses to share them, whatever their template says, in the web UI and the API alike.
 
+**Code editors are shared only with people you add.** VS Code, RStudio, marimo and Pluto.jl let whoever opens them run any code as you, so they go no further than **Only people added**, whatever their template says. A share wider than that stops working.
+
 **Each template sets the most open level its apps may use.** Every other built-in template may be shared up to **Anyone with the link**. A template an admin adds is private unless it sets `maxSharing`.
 
 **Sharing needs apps on a separate host.** When apps are served on the same host as the web UI, a shared app could act through its visitor's Javo session. Javo then refuses every level above Private, with the message "Sharing needs apps served on a separate host from this page". Your admin fixes this by [serving apps on their own host](/admin/app-addresses/), or accepts the risk with `config.sharing.allowOneHost` (the Docker Compose install does).

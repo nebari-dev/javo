@@ -10,7 +10,8 @@ spec:
   description: R in the browser
   category: notebooks
   kind: rstudio
-  maxSharing: Public
+  # Whoever opens it runs code as you: chosen people only.
+  maxSharing: Restricted
   # The Rocker project's rocker/rstudio, unmodified and pinned by digest
   # (DEPENDENCIES.md): RStudio Server is not on conda-forge. It runs as a
   # non-root user instead of through its root-only s6 init, with the pod

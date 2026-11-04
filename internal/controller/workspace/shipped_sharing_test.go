@@ -9,11 +9,13 @@ import (
 	"github.com/nebari-dev/javo/internal/model"
 )
 
-// Every shipped app can be shared with anyone, except the Terminal,
-// JupyterLab and the coding agents, which stay private.
-func TestShippedAppsAreShareableExceptShellsNotebooksAndAgents(t *testing.T) {
+// Every shipped app can be shared with anyone, except the code editors, which
+// only chosen people may open, and the Terminal, JupyterLab and the coding
+// agents, which stay private.
+func TestShippedAppsShareUpToTheirKindsLimit(t *testing.T) {
 	t.Parallel()
 	private := []string{"terminal", "jupyterlab", "claude-code", "pi", "herdr"}
+	editors := []string{"vscode", "rstudio", "marimo", "pluto"}
 	files, err := filepath.Glob(filepath.Join("..", "..", "..", "deploy", "helm", "javo", "files", "templates", "*.yaml"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("templates %v: %v", files, err)
@@ -25,8 +27,11 @@ func TestShippedAppsAreShareableExceptShellsNotebooksAndAgents(t *testing.T) {
 			continue
 		}
 		want := model.AccessPublic
-		if slices.Contains(private, name) {
+		switch {
+		case slices.Contains(private, name):
 			want = model.AccessPrivate
+		case slices.Contains(editors, name):
+			want = model.AccessRestricted
 		}
 		if got := model.MaxSharing(tpl); got != want {
 			t.Errorf("%s: max sharing %q, want %q", name, got, want)

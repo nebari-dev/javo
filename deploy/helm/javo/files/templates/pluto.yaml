@@ -9,7 +9,8 @@ spec:
   displayName: Pluto.jl
   description: Julia notebooks
   kind: pluto
-  maxSharing: Public
+  # Whoever opens it runs code as you: chosen people only.
+  maxSharing: Restricted
   category: notebooks
   fromRepo: Optional
   # Runs the platform's pixi image (environments.pixiImage) in the pixi

@@ -372,27 +372,51 @@ func TestShareableKindsSayWhatSharingExposes(t *testing.T) {
 	for name, c := range map[string]struct {
 		tpl  *model.Template
 		want reasons.MessageCode
+		max  string
 	}{
-		"vscode":    {gatewaytest.Template("streamlit", "vscode"), reasons.MsgShareExposesCode},
-		"rstudio":   {gatewaytest.Template("streamlit", "rstudio"), reasons.MsgShareExposesCode},
-		"marimo":    {gatewaytest.Template("streamlit", "marimo"), reasons.MsgShareExposesCode},
-		"pluto":     {gatewaytest.Template("streamlit", "pluto"), reasons.MsgShareExposesCode},
-		"streamlit": {gatewaytest.Template("streamlit", "streamlit"), reasons.MsgShareExposesApp},
-		"voila":     {gatewaytest.Template("streamlit", "voila"), reasons.MsgShareExposesApp},
-		"fastapi":   {gatewaytest.Template("streamlit", "fastapi"), reasons.MsgShareExposesApp},
-		"container": {gatewaytest.Template("streamlit", "container"), reasons.MsgShareExposesApp},
-		"static":    {site, reasons.MsgShareExposesSite},
+		"vscode":    {gatewaytest.Template("streamlit", "vscode"), reasons.MsgShareExposesCode, model.AccessRestricted},
+		"rstudio":   {gatewaytest.Template("streamlit", "rstudio"), reasons.MsgShareExposesCode, model.AccessRestricted},
+		"marimo":    {gatewaytest.Template("streamlit", "marimo"), reasons.MsgShareExposesCode, model.AccessRestricted},
+		"pluto":     {gatewaytest.Template("streamlit", "pluto"), reasons.MsgShareExposesCode, model.AccessRestricted},
+		"streamlit": {gatewaytest.Template("streamlit", "streamlit"), reasons.MsgShareExposesApp, model.AccessPublic},
+		"voila":     {gatewaytest.Template("streamlit", "voila"), reasons.MsgShareExposesApp, model.AccessPublic},
+		"fastapi":   {gatewaytest.Template("streamlit", "fastapi"), reasons.MsgShareExposesApp, model.AccessPublic},
+		"container": {gatewaytest.Template("streamlit", "container"), reasons.MsgShareExposesApp, model.AccessPublic},
+		"static":    {site, reasons.MsgShareExposesSite, model.AccessPublic},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			f := shareFixture(t, c.tpl)
-			w := f.Do("PUT", apitest.SharePath, `{"access":"SignedIn","users":[],"groups":[]}`, f.Session(apitest.AliceID))
+			w := f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, f.Session(apitest.AliceID))
 			if w.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", w.Code, w.Body)
 			}
-			if got := apitest.Decode[apitest.SharingJSON](t, w); got.MaxAccess != model.AccessPublic || got.Exposes != reasons.Msg(c.want) {
-				t.Fatalf("maxAccess %q, exposes %q, want %q", got.MaxAccess, got.Exposes, reasons.Msg(c.want))
+			if got := apitest.Decode[apitest.SharingJSON](t, w); got.MaxAccess != c.max || got.Exposes != reasons.Msg(c.want) {
+				t.Fatalf("maxAccess %q, exposes %q, want %q and %q", got.MaxAccess, got.Exposes, c.max, reasons.Msg(c.want))
 			}
 		})
+	}
+}
+
+// Apps that run any code as their owner (IDEs and editable notebooks) may be
+// shared only with chosen people, never everyone signed in or anyone with the
+// link, whatever their template allows.
+func TestCodeEditorsShareOnlyWithChosenPeople(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"vscode", "rstudio", "marimo", "pluto"} {
+		for _, access := range []string{model.AccessSignedIn, model.AccessPublic} {
+			t.Run(kind+" "+access, func(t *testing.T) {
+				t.Parallel()
+				f := shareFixture(t, gatewaytest.Template("streamlit", kind))
+				w := f.Do("PUT", apitest.SharePath, `{"access":"`+access+`","users":[],"groups":[]}`, f.Session(apitest.AliceID))
+				if w.Code != http.StatusUnprocessableEntity {
+					t.Fatalf("status %d: %s", w.Code, w.Body)
+				}
+				want := reasons.Msg(reasons.MsgShareTooOpen, reasons.Msg(reasons.MsgAccessRestricted))
+				if msg, _ := apitest.Decode[apitest.Problem](t, w).FieldMessage("body.access"); msg != want {
+					t.Fatalf("message %q, want %q", msg, want)
+				}
+			})
+		}
 	}
 }

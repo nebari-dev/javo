@@ -559,13 +559,26 @@ func (j *TemplateJobs) validate(v *validator, field string) {
 // a coding agent that runs as the owner, with the owner's files.
 var privateOnlyKinds = []string{"terminal", "jupyterlab", "claude-code", "pi", "herdr"}
 
-// MaxSharing is the most open level an app from t may be shared at: Private
-// for a missing template, a private-only kind or a coding agent (category
-// agents) whatever spec.maxSharing says, else spec.maxSharing (an unknown
-// value is Private). authz.Decide and the gateway's Sharing API both ask it.
+// codeEditorKinds are IDEs and editable notebooks: whoever opens the app can
+// run any code or command as its owner.
+var codeEditorKinds = []string{"vscode", "rstudio", "marimo", "pluto"}
+
+// RunsAnyCode reports whether whoever opens an app from t can run any code
+// as its owner (a code editor kind).
+func RunsAnyCode(t *Template) bool { return slices.Contains(codeEditorKinds, t.Spec.Kind) }
+
+// MaxSharing is the most open level an app from t may be shared at, whatever
+// spec.maxSharing says above it: Private for a missing template, a
+// private-only kind or a coding agent (category agents); Restricted (chosen
+// people and groups) for a code editor. Otherwise it is spec.maxSharing, and
+// an unknown value is Private. authz.Decide (every open of an app), the
+// Sharing API and the template list all ask it.
 func MaxSharing(t *Template) string {
-	if t == nil || slices.Contains(privateOnlyKinds, t.Spec.Kind) || t.Spec.Category == "agents" || AccessRank(t.Spec.MaxSharing) < 0 {
+	switch {
+	case t == nil || slices.Contains(privateOnlyKinds, t.Spec.Kind) || t.Spec.Category == "agents" || AccessRank(t.Spec.MaxSharing) < 0:
 		return AccessPrivate
+	case RunsAnyCode(t) && AccessRank(t.Spec.MaxSharing) > AccessRank(AccessRestricted):
+		return AccessRestricted
 	}
 	return t.Spec.MaxSharing
 }
