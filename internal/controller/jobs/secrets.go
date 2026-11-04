@@ -2,13 +2,16 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
@@ -36,7 +39,7 @@ func (r *Reconciler) prepareSecrets(ctx context.Context, job *model.Job, v *verd
 	if job.Spec.Schedule == nil {
 		return nil
 	}
-	if v.scheduled, err = r.getSecret(ctx, job.Namespace, ScheduledSecretName(job)); err != nil {
+	if v.scheduled, err = r.jobSecret(ctx, job.Namespace, job.ID, ScheduledSecretName(job)); err != nil {
 		return err
 	}
 	fp := v.secrets.Fingerprint
@@ -98,22 +101,30 @@ func (r *Reconciler) ownRunSecret(ctx context.Context, v verdict, k *batchv1.Job
 			return err
 		}
 	}
-	sec, err := r.getSecret(ctx, k.Namespace, RunSecretName(k.Name))
+	sec, err := r.jobSecret(ctx, k.Namespace, k.Labels[model.LabelJob], RunSecretName(k.Name))
 	if err != nil || sec == nil {
 		return err
 	}
 	return r.setOwner(ctx, sec, ownerOf(k, "Job"))
 }
 
-// getSecret reads a Secret live (Secrets are never cached); nil when there is none.
-func (r *Reconciler) getSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
+// errForeignSecret means a Secret at one of a job's names carries another
+// job's id, or none: it is never read, written or deleted for the job.
+var errForeignSecret = errors.New("exists and does not belong to the job")
+
+// jobSecret reads the Secret name live (Secrets are never cached): nil when
+// there is none, an error wrapping errForeignSecret when it is not labelled
+// as the job jobID's.
+func (r *Reconciler) jobSecret(ctx context.Context, namespace, jobID, name string) (*corev1.Secret, error) {
 	sec := &corev1.Secret{}
 	err := r.Secrets.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, sec)
-	if apierrors.IsNotFound(err) {
+	switch {
+	case apierrors.IsNotFound(err):
 		return nil, nil
-	}
-	if err != nil {
+	case err != nil:
 		return nil, err
+	case jobID == "" || sec.Labels[model.LabelJob] != jobID:
+		return nil, fmt.Errorf("secret %s/%s %w %s", namespace, name, errForeignSecret, jobID)
 	}
 	return sec, nil
 }
@@ -133,7 +144,7 @@ func (r *Reconciler) putSecret(ctx context.Context, job *model.Job, name, trigge
 	}
 	err := r.Secrets.Create(ctx, sec)
 	if apierrors.IsAlreadyExists(err) {
-		got, err := r.getSecret(ctx, job.Namespace, name)
+		got, err := r.jobSecret(ctx, job.Namespace, job.ID, name)
 		if err != nil {
 			return err
 		}
@@ -166,8 +177,60 @@ func ownerOf(o client.Object, kind string) *metav1.OwnerReference {
 	return &metav1.OwnerReference{APIVersion: batchv1.SchemeGroupVersion.String(), Kind: kind, Name: o.GetName(), UID: o.GetUID()}
 }
 
-// deleteSecret removes the Secret name if it is there.
-func (r *Reconciler) deleteSecret(ctx context.Context, namespace, name string) error {
-	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
-	return client.IgnoreNotFound(r.Secrets.Delete(ctx, sec))
+// deleteSecret removes the job's Secret name if it is there. One that is not
+// the job's is left alone.
+func (r *Reconciler) deleteSecret(ctx context.Context, job *model.Job, name string) error {
+	sec, err := r.jobSecret(ctx, job.Namespace, job.ID, name)
+	if errors.Is(err, errForeignSecret) {
+		log.FromContext(ctx).Info("not deleting a Secret of another owner", "secret", name)
+		return nil
+	}
+	if err != nil || sec == nil {
+		return err
+	}
+	return client.IgnoreNotFound(r.Secrets.Delete(ctx, sec, client.Preconditions{UID: &sec.UID}))
+}
+
+// deleteRunSecret removes the Secret of the run whose Kubernetes Job is
+// k8sJob, under its name and the one it had before RunSecretName.
+func (r *Reconciler) deleteRunSecret(ctx context.Context, job *model.Job, k8sJob string) error {
+	for _, name := range []string{RunSecretName(k8sJob), k8sJob + legacySecretsSuffix} {
+		if err := r.deleteSecret(ctx, job, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropLegacySecrets removes the job's Secrets under their names before
+// ScheduledSecretName and apiSecretName once no run of the job is still
+// going (a run's pod may still be waiting to read them), revoking the token
+// the old API Secret held. A run's own old Secret goes with its Job.
+func (r *Reconciler) dropLegacySecrets(ctx context.Context, job *model.Job) error {
+	jobs, err := r.jobsOf(ctx, job)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(jobs.Items, func(k batchv1.Job) bool { return !finished(&k) }) {
+		return nil
+	}
+	return r.removeLegacySecrets(ctx, job)
+}
+
+// removeLegacySecrets deletes the job's old scheduled and API Secrets.
+func (r *Reconciler) removeLegacySecrets(ctx context.Context, job *model.Job) error {
+	if err := r.deleteSecret(ctx, job, cronJobName(job)+legacySecretsSuffix); err != nil {
+		return err
+	}
+	return r.dropTokenSecret(ctx, job, legacyAPISecretName(job))
+}
+
+// finished is true once the Job has completed or failed for good.
+func finished(k *batchv1.Job) bool {
+	for _, c := range k.Status.Conditions {
+		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }

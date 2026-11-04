@@ -206,6 +206,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if err := r.dropLegacySecrets(ctx, &job); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err := r.writeStatus(ctx, &job, v, cj, now); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -392,7 +395,7 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 		}
 		if run.CancelRequested {
 			// A start cut short after its Secret was written leaves it with no Job to own it.
-			if err := r.deleteSecret(ctx, job.Namespace, RunSecretName(ManualJobName(job, run.ID))); err != nil {
+			if err := r.deleteRunSecret(ctx, job, ManualJobName(job, run.ID)); err != nil {
 				return err
 			}
 			if err := r.endRequest(ctx, run, model.RunOutcomeCancelled, reasons.RunCancelled, now); err != nil {
@@ -725,14 +728,17 @@ func (r *Reconciler) finalize(ctx context.Context, job *model.Job) error {
 			return err
 		}
 		// Its owner takes it too; deleting it here does not wait for that.
-		if err := r.deleteSecret(ctx, job.Namespace, RunSecretName(k.Name)); err != nil {
+		if err := r.deleteRunSecret(ctx, job, k.Name); err != nil {
 			return err
 		}
 	}
-	if err := r.deleteSecret(ctx, job.Namespace, ScheduledSecretName(job)); err != nil {
+	if err := r.deleteSecret(ctx, job, ScheduledSecretName(job)); err != nil {
 		return err
 	}
 	if err := r.dropToken(ctx, job); err != nil {
+		return err
+	}
+	if err := r.removeLegacySecrets(ctx, job); err != nil {
 		return err
 	}
 	err = r.Store.Jobs().Purge(ctx, system, job.ID)
@@ -929,8 +935,10 @@ func (r *Reconciler) jobsOfPerson(ctx context.Context, id string) ([]reconcile.R
 	return dbsource.Requests(jobs, jobID, nil), err
 }
 
-// apiSecretName is the Secret holding the API token of job.
-func apiSecretName(job *model.Job) string { return cronJobName(job) + "-api" }
+// apiSecretName is the Secret holding the API token of job (see
+// ScheduledSecretName); legacyAPISecretName was its name before.
+func apiSecretName(job *model.Job) string       { return cronJobName(job) + ".job-api" }
+func legacyAPISecretName(job *model.Job) string { return cronJobName(job) + "-api" }
 
 // syncToken gives a job whose template gives an API token (as for apps,
 // model.DefaultAPIAccess) its owner's token, made once and kept in a Secret
@@ -944,26 +952,30 @@ func (r *Reconciler) syncToken(ctx context.Context, job *model.Job, tpl *model.T
 		return API{}, errors.New("the template gives jobs an API token, but the controller has no token store")
 	}
 	name := apiSecretName(job)
-	sec := &corev1.Secret{}
-	err := r.Reader.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: name}, sec)
+	sec, err := r.jobSecret(ctx, job.Namespace, job.ID, name)
 	switch {
-	case apierrors.IsNotFound(err):
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: job.Namespace}}
 	case err != nil:
 		return API{}, err
+	case sec == nil:
+		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: job.Namespace}}
 	default:
+		// A Secret can name a token whose record is gone (`javo user remove`),
+		// one made before tokens recorded their job, which is not kept from
+		// the owner's secrets, or one that is not this job's at all (an app's,
+		// another job's), which is never adopted: all are made again.
 		id := sec.Annotations[model.AnnotationTokenID]
-		if id != "" && sec.Annotations[model.AnnotationTokenScope] == string(scope) && len(sec.Data[APITokenKey]) > 0 {
-			// A Secret can name a token whose record is gone (`javo user remove`),
-			// or one made before tokens recorded their job, which is not kept
-			// from the owner's secrets: both are made again.
-			switch tok, err := r.Tokens.Get(ctx, id); {
-			case errors.Is(err, token.ErrNotFound):
-			case err != nil:
-				return API{}, err
-			case tok.Job == job.ID:
-				return API{URL: r.APIURL, Internal: r.APIInternalURL, Secret: name}, nil
-			}
+		if id == "" {
+			break
+		}
+		switch tok, err := r.Tokens.Get(ctx, id); {
+		case errors.Is(err, token.ErrNotFound):
+		case err != nil:
+			return API{}, err
+		case tok.Owner != job.Owner || tok.App != nil || (tok.Job != job.ID && tok.Job != ""):
+			// Not the job's: never adopted, and not the job's to revoke.
+			delete(sec.Annotations, model.AnnotationTokenID)
+		case tok.Job == job.ID && sec.Annotations[model.AnnotationTokenScope] == string(scope) && len(sec.Data[APITokenKey]) > 0:
+			return API{URL: r.APIURL, Internal: r.APIInternalURL, Secret: name}, nil
 		}
 	}
 	text, tok, err := r.Tokens.Create(ctx, system, token.Token{Name: "job " + job.Name, Owner: job.Owner, Scope: scope, Job: job.ID})
@@ -992,20 +1004,30 @@ func (r *Reconciler) syncToken(ctx context.Context, job *model.Job, tpl *model.T
 
 // dropToken revokes a job's API token and deletes its Secret, if it has one.
 func (r *Reconciler) dropToken(ctx context.Context, job *model.Job) error {
-	sec := &corev1.Secret{}
-	err := r.Reader.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: apiSecretName(job)}, sec)
-	if apierrors.IsNotFound(err) {
+	return r.dropTokenSecret(ctx, job, apiSecretName(job))
+}
+
+// dropTokenSecret deletes the job's token Secret name and revokes the token
+// it holds when the token's record is the job's. A Secret that is not the
+// job's is left alone.
+func (r *Reconciler) dropTokenSecret(ctx context.Context, job *model.Job, name string) error {
+	sec, err := r.jobSecret(ctx, job.Namespace, job.ID, name)
+	if errors.Is(err, errForeignSecret) || (err == nil && sec == nil) {
 		return nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return err
 	}
-	if sec.Labels[model.LabelJob] != job.ID {
-		return nil
-	}
 	if id := sec.Annotations[model.AnnotationTokenID]; id != "" && r.Tokens != nil {
-		if _, err := r.Tokens.Revoke(ctx, system, job.Owner, id); err != nil && !errors.Is(err, token.ErrNotFound) {
+		switch tok, err := r.Tokens.Get(ctx, id); {
+		case errors.Is(err, token.ErrNotFound):
+		case err != nil:
 			return err
+		case tok.Job == job.ID && tok.Owner == job.Owner:
+			if _, err := r.Tokens.Revoke(ctx, system, job.Owner, id); err != nil && !errors.Is(err, token.ErrNotFound) {
+				return err
+			}
 		}
 	}
-	return client.IgnoreNotFound(r.Delete(ctx, sec))
+	return client.IgnoreNotFound(r.Delete(ctx, sec, client.Preconditions{UID: &sec.UID}))
 }

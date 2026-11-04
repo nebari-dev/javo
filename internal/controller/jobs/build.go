@@ -89,16 +89,20 @@ type Inputs struct {
 	PixiImage   string
 }
 
-// secretsSuffix ends the name of a Secret runs read their secrets from.
-const secretsSuffix = "-" + model.ProductName + "-secrets"
+// A job's Secrets are named "<CronJob name>.job-<use>", a manual run's
+// "<Job name>.run-secrets". Kubernetes names made from a person's pick are
+// DNS labels and never hold a ".", so the part after it keeps apps' Secrets
+// (".app-", workspace.SecretName), a job's and a run's apart whatever the
+// names. legacySecretsSuffix ended both job and run Secrets before.
+const legacySecretsSuffix = "-" + model.ProductName + "-secrets"
 
 // ScheduledSecretName is the Secret the runs of the job's CronJob read their
 // secrets from. The CronJob owns it, so it goes with the CronJob.
-func ScheduledSecretName(j *model.Job) string { return cronJobName(j) + secretsSuffix }
+func ScheduledSecretName(j *model.Job) string { return cronJobName(j) + ".job-secrets" }
 
 // RunSecretName is the Secret the run whose Kubernetes Job is k8sJob reads
 // its secrets from: a run started by hand has its own, which that Job owns.
-func RunSecretName(k8sJob string) string { return k8sJob + secretsSuffix }
+func RunSecretName(k8sJob string) string { return k8sJob + ".run-secrets" }
 
 // API is where a run reaches the javo API and the Secret holding the
 // owner's token for it (key APITokenKey). URL is the public address (the
