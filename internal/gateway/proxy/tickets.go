@@ -2,10 +2,14 @@ package proxy
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/nebari-dev/javo/internal/auth/session"
@@ -24,6 +28,42 @@ const ticketPath = "_javo/ticket"
 
 // ticketTTL is how long a ticket can be redeemed.
 const ticketTTL = 60 * time.Second
+
+// A ticket is bound to the browser that asked for it, as OAuth's state is:
+// the app host sets a random nonce in a cookie of its own before sending the
+// browser to mint a ticket, the nonce travels with the ticket in
+// ticketNonceParam, and redeem takes the ticket only from a browser whose
+// cookie holds the same nonce. A ticket link sent to someone else's browser
+// is then refused.
+const (
+	ticketNonceParam  = "n"
+	ticketNonceCookie = model.ProductName + "_ticket"
+	ticketNonceBytes  = 32
+)
+
+// newTicketNonce returns a fresh nonce.
+func newTicketNonce() (string, error) {
+	b := make([]byte, ticketNonceBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// validNonce is true for text newTicketNonce could have made.
+func validNonce(n string) bool {
+	b, err := base64.RawURLEncoding.Strict().DecodeString(n)
+	return err == nil && len(b) == ticketNonceBytes
+}
+
+// nonceCookie is the ticket nonce cookie for t without its value: scoped as
+// the app cookie, living as long as a ticket can.
+func (p *proxy) nonceCookie(t exposure.Target) http.Cookie {
+	c := p.appCookie(t)
+	c.Name = model.CookieName(ticketNonceCookie, strings.HasPrefix(c.Name, "__Host-"))
+	c.MaxAge = int((2 * ticketTTL).Seconds())
+	return c
+}
 
 // TicketRoute is where the UI host mints tickets. The route is mounted outside
 // /api's JSON wrapper because a browser follows it: no session sends the
@@ -98,7 +138,11 @@ func (m *Tickets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	base := m.Exposure.URLFor(app.Owner, app.Name, app.ObjectName())
 	base.Path += ticketPath
-	base.RawQuery = url.Values{"t": {tok}, "to": {to.RequestURI()}}.Encode()
+	q := url.Values{"t": {tok}, "to": {to.RequestURI()}}
+	if n := r.URL.Query().Get(ticketNonceParam); validNonce(n) {
+		q.Set(ticketNonceParam, n)
+	}
+	base.RawQuery = q.Encode()
 	http.Redirect(w, r, base.String(), http.StatusFound)
 }
 
@@ -107,6 +151,14 @@ func (m *Tickets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (p *proxy) redeem(w http.ResponseWriter, r *http.Request, t exposure.Target) {
 	expired := func() {
 		writePage(w, http.StatusGone, page{Title: reasons.Msg(reasons.MsgTicketExpired)})
+	}
+	nc := p.nonceCookie(t)
+	cookie, err := r.Cookie(nc.Name)
+	n := r.URL.Query().Get(ticketNonceParam)
+	if err != nil || !validNonce(n) || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(n)) != 1 {
+		// Not the browser that asked: the ticket is left for that one.
+		expired()
+		return
 	}
 	ticket, err := p.cfg.Sessions.Redeem(r.Context(), r.URL.Query().Get("t"))
 	switch {
@@ -134,6 +186,8 @@ func (p *proxy) redeem(w http.ResponseWriter, r *http.Request, t exposure.Target
 	c := p.appCookie(t)
 	c.Value = tok
 	http.SetCookie(w, &c)
+	nc.MaxAge = -1
+	http.SetCookie(w, &nc)
 	next := r.URL.Query().Get("to")
 	if !httpx.IsLocalPath(next) {
 		next = p.cfg.Exposure.BasePath(t.Owner, t.Name)

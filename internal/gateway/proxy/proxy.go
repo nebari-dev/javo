@@ -490,9 +490,19 @@ func (p *proxy) redirectToSignIn(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
+	t, _ := p.cfg.Exposure.Match(r)
+	nonce, err := newTicketNonce()
+	if err != nil {
+		slog.Error("ticket nonce", "err", err)
+		badGateway(w, t.Name)
+		return
+	}
+	c := p.nonceCookie(t)
+	c.Value = nonce
+	http.SetCookie(w, &c)
 	here := url.URL{Scheme: p.cfg.URLs.URLScheme(), Host: r.Host, Path: r.URL.Path, RawQuery: r.URL.RawQuery}
 	ticket := url.URL{Scheme: p.cfg.URLs.URLScheme(), Host: p.cfg.URLs.UIHost, Path: TicketRoute,
-		RawQuery: url.Values{"to": {here.String()}}.Encode()}
+		RawQuery: url.Values{"to": {here.String()}, ticketNonceParam: {nonce}}.Encode()}
 	http.Redirect(w, r, ticket.String(), http.StatusFound)
 }
 
@@ -510,6 +520,7 @@ func redirectToLogin(w http.ResponseWriter, r *http.Request) {
 func isGatewayCookie(name string) bool {
 	for _, secure := range []bool{false, true} {
 		if name == model.CookieName(model.SessionCookieName, secure) || name == model.CookieName(model.AppCookieName, secure) ||
+			name == model.CookieName(ticketNonceCookie, secure) ||
 			strings.HasPrefix(name, model.CookieName(model.OIDCFlowCookiePrefix, secure)) {
 			return true
 		}

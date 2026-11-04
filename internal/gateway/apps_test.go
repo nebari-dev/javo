@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"html"
 	"io"
 	"net"
@@ -96,20 +97,22 @@ func TestTicketFlowGivesAnAppCookieAndTheApp(t *testing.T) {
 	to := salesURL + "lab?x=1"
 	w := f.ticketFor(aliceTok, to)
 	loc := w.Header().Get("Location")
-	if w.Code != http.StatusFound || !strings.HasPrefix(loc, salesURL+"_javo/ticket?t=") {
+	if w.Code != http.StatusFound || !strings.HasPrefix(loc, salesURL+"_javo/ticket?n="+testNonce+"&t=") {
 		t.Fatalf("mint: %d %q", w.Code, loc)
 	}
 	if u, _ := url.Parse(loc); u.Query().Get("to") != "/u/"+apitest.AliceID+"/sales-app/lab?x=1" {
 		t.Fatalf("to %q", u.Query().Get("to"))
 	}
 
-	w = f.serve(f.srv, "GET", loc)
+	w = f.redeem(loc)
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/u/"+apitest.AliceID+"/sales-app/lab?x=1" {
 		t.Fatalf("redeem: %d %q", w.Code, w.Header().Get("Location"))
 	}
 	var c *http.Cookie
 	for _, x := range w.Result().Cookies() {
-		c = x
+		if x.Name == model.AppCookieName {
+			c = x
+		}
 	}
 	if c == nil || c.Name != model.AppCookieName || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode ||
 		c.Path != "/u/"+apitest.AliceID+"/sales-app" || c.Domain != "" {
@@ -125,8 +128,21 @@ func TestTicketFlowGivesAnAppCookieAndTheApp(t *testing.T) {
 	}
 	// A ui cookie is not an app cookie: it opens nothing on the apps host.
 	w = f.serve(f.srv, "GET", salesURL+"lab", uiCookie(aliceTok))
-	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?to=") {
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?n=") {
 		t.Fatalf("ui cookie on the apps host: %d %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+// A ticket works only in the browser whose visit to the app asked for it:
+// Mallory cannot mint a ticket for her own app and send Bob the link, so
+// that Bob's browser holds an app cookie of hers (login CSRF into one app).
+func TestATicketIsRedeemedOnlyByTheBrowserThatAskedForIt(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
+	loc := f.ticketFor(f.ui(alice()), salesURL).Header().Get("Location")
+	// Bob's browser follows the link with none of the cookies alice's had.
+	if w := f.serve(f.srv, "GET", loc); w.Code != http.StatusGone || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("ticket redeemed by another browser: %d %v", w.Code, w.Result().Cookies())
 	}
 }
 
@@ -140,16 +156,16 @@ func TestTicketWorksOnceAndOnlyForSixtySeconds(t *testing.T) {
 	}
 
 	loc := mint()
-	if w := f.serve(f.srv, "GET", loc); w.Code != http.StatusFound {
+	if w := f.redeem(loc); w.Code != http.StatusFound {
 		t.Fatalf("first redeem: %d", w.Code)
 	}
-	if w := f.serve(f.srv, "GET", loc); !expired(w) {
+	if w := f.redeem(loc); !expired(w) {
 		t.Fatalf("second redeem: %d %q", w.Code, w.Body)
 	}
 
 	loc = mint()
 	f.now = f.now.Add(61 * time.Second)
-	if w := f.serve(f.srv, "GET", loc); !expired(w) {
+	if w := f.redeem(loc); !expired(w) {
 		t.Fatalf("redeem after 61s: %d %q", w.Code, w.Body)
 	}
 }
@@ -161,7 +177,7 @@ func TestTicketForOneAppIsRefusedAtAnother(t *testing.T) {
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil), other)
 	loc := f.ticketFor(f.ui(alice()), salesURL).Header().Get("Location")
 	atOther := strings.Replace(loc, "/sales-app/", "/other-app/", 1)
-	if w := f.serve(f.srv, "GET", atOther); w.Code != http.StatusGone || len(w.Result().Cookies()) != 0 {
+	if w := f.redeem(atOther); w.Code != http.StatusGone || len(w.Result().Cookies()) != 0 {
 		t.Fatalf("%d %v", w.Code, w.Header())
 	}
 }
@@ -190,8 +206,9 @@ func TestEndingTheUISessionSendsTheNextRequestToTheTicketFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := f.serve(f.srv, "GET", salesURL+"lab?a=b", cookie)
-	want := "https://" + uiHost + "/api/auth/app-ticket?to=" + url.QueryEscape(salesURL+"lab?a=b")
-	if w.Code != http.StatusFound || w.Header().Get("Location") != want {
+	want := "https://" + uiHost + "/api/auth/app-ticket?n="
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), want) ||
+		!strings.Contains(w.Header().Get("Location"), "&to="+url.QueryEscape(salesURL+"lab?a=b")) {
 		t.Fatalf("%d %q want %q", w.Code, w.Header().Get("Location"), want)
 	}
 	if len(f.seen) != 0 {
@@ -228,7 +245,7 @@ func TestAPersonTheProviderRevokedLosesTheirAppSession(t *testing.T) {
 	f.now = f.now.Add(2 * time.Hour)
 	f.idp.revoked = true
 	w := f.serve(f.srv, "GET", salesURL, cookie)
-	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?to=") {
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?n=") {
 		t.Fatalf("%d %q", w.Code, w.Header().Get("Location"))
 	}
 	if len(f.seen) != 0 {
@@ -286,8 +303,8 @@ func TestPrivateAndMissingAppsLookTheSameToAnonymous(t *testing.T) {
 	private := f.serve(f.srv, "GET", salesURL)
 	missing := f.serve(f.srv, "GET", "https://"+appsHost+"/u/"+apitest.AliceID+"/nope/")
 	if private.Code != http.StatusFound || missing.Code != http.StatusFound ||
-		!strings.HasPrefix(private.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?to=") ||
-		!strings.HasPrefix(missing.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?to=") {
+		!strings.HasPrefix(private.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?n=") ||
+		!strings.HasPrefix(missing.Header().Get("Location"), "https://"+uiHost+"/api/auth/app-ticket?n=") {
 		t.Fatalf("%d %q / %d %q", private.Code, private.Header().Get("Location"), missing.Code, missing.Header().Get("Location"))
 	}
 }
@@ -365,8 +382,13 @@ func TestSubdomainFlow(t *testing.T) {
 func TestSubdomainAppCookieIsHostOnly(t *testing.T) {
 	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(sharedWithDS()))
 	base := "https://" + sales + "." + appsHost + "/"
-	w := f.serve(f.srv, "GET", f.ticketFor(f.ui(bob()), base).Header().Get("Location"))
-	cs := w.Result().Cookies()
+	w := f.redeem(f.ticketFor(f.ui(bob()), base).Header().Get("Location"))
+	var cs []*http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.MaxAge >= 0 { // the spent nonce is cleared beside it
+			cs = append(cs, c)
+		}
+	}
 	if len(cs) != 1 || cs[0].Name != "__Host-javo_app" || !cs[0].Secure || cs[0].Path != "/" || cs[0].Domain != "" {
 		t.Fatalf("redeem: %d, cookies %v", w.Code, cs)
 	}
@@ -827,9 +849,19 @@ func uiCookie(tok string) *http.Cookie {
 	return &http.Cookie{Name: model.CookieName(model.SessionCookieName, true), Value: tok}
 }
 
-// ticketFor asks the UI host for a ticket to open appURL as the holder of uiTok.
+// testNonce stands for the nonce an app host sets before it sends the
+// browser for a ticket.
+var testNonce = base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+
+// ticketFor asks the UI host for a ticket to open appURL as the holder of
+// uiTok, as the browser an app host gave testNonce does.
 func (f *appsFixture) ticketFor(uiTok, appURL string) *httptest.ResponseRecorder {
-	return f.serve(f.srv, "GET", "https://"+uiHost+"/api/auth/app-ticket?to="+url.QueryEscape(appURL), uiCookie(uiTok))
+	return f.serve(f.srv, "GET", "https://"+uiHost+"/api/auth/app-ticket?n="+testNonce+"&to="+url.QueryEscape(appURL), uiCookie(uiTok))
+}
+
+// redeem follows a ticket link in the browser that holds testNonce.
+func (f *appsFixture) redeem(loc string) *httptest.ResponseRecorder {
+	return f.serve(f.srv, "GET", loc, &http.Cookie{Name: "javo_ticket", Value: testNonce}, &http.Cookie{Name: "__Host-javo_ticket", Value: testNonce})
 }
 
 func (f *appsFixture) tickets() int {
@@ -848,7 +880,7 @@ func (f *appsFixture) open(uiTok, appURL string) *http.Cookie {
 	if w.Code != http.StatusFound {
 		f.t.Fatalf("ticket: %d %s", w.Code, w.Body)
 	}
-	w = f.serve(f.srv, "GET", w.Header().Get("Location"))
+	w = f.redeem(w.Header().Get("Location"))
 	for _, c := range w.Result().Cookies() {
 		if c.Name == model.AppCookieName || c.Name == model.CookieName(model.AppCookieName, true) {
 			return c

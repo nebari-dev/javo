@@ -12,13 +12,15 @@ import (
 )
 
 // An app cannot set a cookie with no name: browsers send "=javo_session=x"
-// as "javo_session=x", which the gateway would read as its own session.
+// as "javo_session=x", which the gateway would read as its own session. Nor
+// can it plant a ticket nonce it knows for another app's path.
 func TestANamelessSetCookieIsDropped(t *testing.T) {
 	t.Parallel()
 	resp := &http.Response{Header: http.Header{}}
 	resp.Header.Add("Set-Cookie", "=javo_session=attacker; Path=/api")
 	resp.Header.Add("Set-Cookie", "=plain; Path=/")
 	resp.Header.Add("Set-Cookie", "theme=dark; Path=/")
+	resp.Header.Add("Set-Cookie", "javo_ticket=known; Path=/u/alice/sales")
 	_ = sanitizeResponse(resp)
 	if got := resp.Header.Values("Set-Cookie"); len(got) != 1 || got[0] != "theme=dark; Path=/" {
 		t.Fatalf("kept %q", got)
