@@ -87,6 +87,9 @@ type Inputs struct {
 	// environment, if it has one.
 	Environment *model.EnvironmentFiles
 	PixiImage   string
+	// MaxTimeout is the platform's longest run (limits.jobMaxTimeout); zero
+	// leaves the job's and the template's time limits as they are.
+	MaxTimeout time.Duration
 }
 
 // A job's Secrets are named "<CronJob name>.job-<use>", a manual run's
@@ -199,6 +202,9 @@ func timeout(in Inputs) *int64 {
 	}
 	if m := in.Template.Spec.Jobs.MaxTimeout; m != nil && (t == 0 || m.Duration < t) {
 		t = m.Duration
+	}
+	if m := in.MaxTimeout; m > 0 && (t == 0 || m < t) {
+		t = m
 	}
 	if t == 0 {
 		return nil

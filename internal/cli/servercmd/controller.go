@@ -292,7 +292,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		CronJobEvents: cronJobEvents, Storage: wiring.StorageResolver(db, platform),
 		Secrets: direct, SecretKeys: keys, Sizes: appSizes,
 		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
-		APIInternalURL: gatewayBase(o.probe.controlURL),
+		APIInternalURL: gatewayBase(o.probe.controlURL), MaxTimeout: platform.Limits.JobMaxTimeout.Duration,
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}

@@ -95,6 +95,9 @@ type Reconciler struct {
 	APIURL string
 	// APIInternalURL is the gateway's address inside the cluster.
 	APIInternalURL string
+	// MaxTimeout is limits.jobMaxTimeout: no run takes longer. Zero is no
+	// platform limit.
+	MaxTimeout time.Duration
 }
 
 // JobTokens makes, checks and revokes the API tokens of jobs.
@@ -341,7 +344,7 @@ func atRunCap(l store.Limits, active, running int64) bool {
 // inputs is what renders the job's runs under verdict v.
 func (r *Reconciler) inputs(job *model.Job, v verdict) Inputs {
 	return Inputs{Job: job, Template: v.tpl, RunnerImage: r.RunnerImage, Layout: v.layout, Secrets: v.secrets, Size: v.size, API: v.api,
-		Environment: v.env, PixiImage: r.PixiImage}
+		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout}
 }
 
 func invalidCode(err error) reasons.Code {

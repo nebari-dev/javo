@@ -508,3 +508,29 @@ func TestJobPodAsksForColourUnlessTheJobSetsItsOwn(t *testing.T) {
 		t.Fatalf("FORCE_COLOR = %q, want the job's own 0", v)
 	}
 }
+
+// The platform's limits.jobMaxTimeout caps every run: one with no time limit
+// of its own or its template's gets it, and a longer one is cut to it.
+func TestTimeoutIsCappedByThePlatformMax(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		job  *metav1.Duration
+		want int64
+	}{
+		{"no limit set", nil, 3600},
+		{"a longer limit", &metav1.Duration{Duration: 5 * time.Hour}, 3600},
+		{"a shorter limit", &metav1.Duration{Duration: 30 * time.Minute}, 1800},
+	} {
+		in := testInputs(func(d *model.Job) { d.Spec.Run.Timeout = tc.job })
+		in.Template.Spec.Jobs.MaxTimeout = nil
+		in.MaxTimeout = time.Hour
+		jt, err := BuildJobTemplate(in, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := jt.Spec.ActiveDeadlineSeconds; got == nil || *got != tc.want {
+			t.Errorf("%s: activeDeadlineSeconds = %v, want %d", tc.name, got, tc.want)
+		}
+	}
+}
