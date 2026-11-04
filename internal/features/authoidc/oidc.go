@@ -313,10 +313,19 @@ func (p *Provider) secret() string {
 	return strings.TrimSpace(string(b))
 }
 
-// safeNext keeps only a local path, so a login link cannot send people to
-// another site; anything else becomes "/".
+// MaxFlows is how many sign-ins may be under way in one browser: a start
+// that finds that many flow cookies clears them, so a page cannot pile them
+// up (a cookie bomb). maxNext is the longest next kept.
+const (
+	MaxFlows = 3
+	maxNext  = 1024
+)
+
+// safeNext keeps only a local path of at most maxNext bytes, so a login link
+// cannot send people to another site or bloat the flow cookie; anything else
+// becomes "/".
 func safeNext(next string) string {
-	if !httpx.IsLocalPath(next) {
+	if len(next) > maxNext || !httpx.IsLocalPath(next) {
 		return "/"
 	}
 	return next
@@ -339,6 +348,17 @@ func (p *Provider) start(w http.ResponseWriter, r *http.Request) {
 		code, _ := p.Problem()
 		renderPage(w, http.StatusServiceUnavailable, code, false)
 		return
+	}
+	var flows []*http.Cookie
+	for _, c := range r.Cookies() {
+		if strings.HasPrefix(c.Name, flowPrefix) || strings.HasPrefix(c.Name, model.CookieName(flowPrefix, true)) {
+			flows = append(flows, c)
+		}
+	}
+	if len(flows) >= MaxFlows {
+		for _, old := range flows {
+			http.SetCookie(w, &http.Cookie{Name: old.Name, Path: "/", MaxAge: -1, HttpOnly: true, Secure: p.scheme(r) == "https", SameSite: http.SameSiteLaxMode})
+		}
 	}
 	f := flow{state: rand.Text(), verifier: oauth2.GenerateVerifier(), nonce: rand.Text(), next: safeNext(r.URL.Query().Get("next"))}
 	c := p.flowCookie(r, f.state)

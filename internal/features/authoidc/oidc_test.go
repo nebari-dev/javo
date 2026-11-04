@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -657,5 +658,31 @@ func TestUnsetSchemeMeansHTTPSBehindAProxy(t *testing.T) {
 	}
 	if c := cookieNamed(w, "__Host-javo_oidc_"); c == nil || !c.Secure {
 		t.Fatalf("flow cookie %v", w.Result().Cookies())
+	}
+}
+
+// A page that sends a browser through /auth/oidc/start again and again with a
+// long next cannot pile up kilobytes of flow cookies, which would make every
+// later request too large for the ingress (a cookie bomb).
+func TestSignInStartsCannotPileUpCookies(t *testing.T) {
+	f := newFixture(t, nil)
+	f.waitReady()
+	w := f.get("/auth/oidc/start?next=/" + strings.Repeat("a", 4000))
+	if c := cookieNamed(w, "javo_oidc_"); c == nil || len(c.Value) > 600 {
+		t.Fatalf("flow cookie of %d bytes", len(c.Value))
+	}
+	var old []*http.Cookie
+	for i := range authoidc.MaxFlows {
+		old = append(old, &http.Cookie{Name: "javo_oidc_old" + strconv.Itoa(i), Value: "x"})
+	}
+	w = f.get("/auth/oidc/start", old...)
+	cleared := 0
+	for _, c := range w.Result().Cookies() {
+		if strings.HasPrefix(c.Name, "javo_oidc_old") && c.MaxAge < 0 {
+			cleared++
+		}
+	}
+	if cleared != authoidc.MaxFlows {
+		t.Fatalf("cleared %d of %d older flows: %v", cleared, authoidc.MaxFlows, w.Result().Cookies())
 	}
 }
