@@ -91,11 +91,41 @@ describe('Login', () => {
     expect(link.getAttribute('href')).toBe('/auth/oidc/start?next=%2Fapps%2Fsales-app')
   })
 
-  it('shows no password form when only a provider is listed', async () => {
+  it('goes straight to the only provider, keeping the page to return to', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, origin: window.location.origin, assign })
     mockApi({ 'GET /api/auth/options': { body: [keycloak] } })
-    renderApp('/login')
-    await screen.findByRole('link', { name: 'Sign in with Keycloak' })
+    renderApp('/login?next=%2Fapps')
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/oidc/start?next=%2Fapps'))
     expect(screen.queryByLabelText('Username')).toBeNull()
+  })
+
+  it('waits for a click after signing out, so the provider does not sign the person straight back in', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, origin: window.location.origin, assign })
+    mockApi({ 'GET /api/auth/options': { body: [keycloak] } })
+    renderApp('/login?signedOut=1')
+    await screen.findByRole('link', { name: 'Sign in with Keycloak' })
+    expect(screen.getByText('You signed out.')).toBeTruthy()
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('does not go to the provider on its own while a sign-in problem is shown', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, origin: window.location.origin, assign })
+    mockApi({ 'GET /api/auth/options': { body: [keycloak] }, 'GET /api/reasons': reasonReply })
+    renderApp('/login?error=SignInLinkExpired')
+    await screen.findByRole('alert')
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('does not go to the provider on its own when a password form is offered too', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, origin: window.location.origin, assign })
+    mockApi({ 'GET /api/auth/options': { body: [keycloak, local] } })
+    renderApp('/login')
+    await screen.findByLabelText('Username')
+    expect(assign).not.toHaveBeenCalled()
   })
 
   it('explains a provider that is down and keeps local sign-in usable', async () => {

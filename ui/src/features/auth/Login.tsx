@@ -1,5 +1,5 @@
 import { LogIn } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
@@ -46,6 +46,16 @@ export function Login() {
   // Without a usable options answer the password form stays, so sign-in is still possible.
   const showForm = options.isError || list.some((o) => o.kind === 'password')
   const linkError = useReasonCopy(params.get('error') === 'SignInLinkExpired' ? 'SignInLinkExpired' : null).data
+  const signedOut = params.get('signedOut') === '1'
+  // One working provider and no password form: go to it at once. The
+  // provider's own session signs the person in without a click. Not right
+  // after signing out (the provider would sign them straight back in), and
+  // not while a problem is shown (that could loop).
+  const only = !showForm && working.length === 1 && redirects.length === 1 ? working[0] : undefined
+  const auto = !!only && !signedOut && !params.get('error') && !state?.expired
+  useEffect(() => {
+    if (auto && only) window.location.assign(startHref(only, next))
+  }, [auto, only, next])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -73,6 +83,7 @@ export function Login() {
           <BrandName />
         </div>
         <h1>Sign in</h1>
+        {signedOut && <Banner tone="info" title="You signed out." />}
         {state?.expired && !signIn.isError && (
           <Banner tone="info" title="Your session ended. Sign in again." />
         )}

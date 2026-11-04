@@ -10,7 +10,7 @@ import { useIdpOutage } from '../lib/idp'
 import { ThemeSwitch } from '../components/ThemeSwitch'
 import { UserMenu } from './UserMenu'
 import { features } from '../features'
-import { useLogout, useMe, useStorage, useWarmHome } from '../lib/queries'
+import { useLogout, useMe, useWarmHome } from '../lib/queries'
 import { BrandLogo, BrandName } from '../components/BrandLogo'
 import { readStored, writeStored } from '../lib/storage'
 
@@ -22,8 +22,6 @@ export function AppShell() {
   const me = useMe().data
   // Signed in: the file picker may be opened any moment.
   useWarmHome(!!me)
-  const storage = useStorage().data
-  const isAdmin = !!me?.roles?.includes('platform-admin')
   const idpOutage = useIdpOutage()
   const [collapsed, setCollapsed] = useState(() => readStored(SIDEBAR_KEY) === 'collapsed')
   const toggle = () => {
@@ -92,13 +90,6 @@ export function AppShell() {
             <span className="lbl">Settings</span>
           </NavLink>
         </nav>
-        {/* Members see what their storage means where it matters (Home, Apps); admins get a way into the storage report. */}
-        {isAdmin && storage?.modeLabel && (
-          <Link to="/settings/storage" className="side-foot" title={storage.modeLabel}>
-            <PART_ICONS.storage size={15} aria-hidden="true" />
-            <span className="lbl">{storage.modeLabel}</span>
-          </Link>
-        )}
       </aside>
       {navOpen && <div className="nav-backdrop" data-testid="nav-backdrop" aria-hidden="true" onClick={() => setNavOpen(false)} />}
       <div className="app-col">
@@ -123,7 +114,7 @@ export function AppShell() {
               <UserMenu
                 name={me.displayName || me.username}
                 picture={me.picture}
-                onSignOut={() => logout.mutate(undefined, { onSettled: () => navigate('/login') })}
+                onSignOut={() => logout.mutate(undefined, { onSettled: () => navigate('/login?signedOut=1') })}
               />
             )}
           </div>
