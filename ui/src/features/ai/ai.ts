@@ -4,6 +4,10 @@ import {
   aiFeedback,
   approvePlan,
   askAdmin,
+  buildWithAgent,
+  deleteAgentSettings,
+  getAgentStatus,
+  setAgentSettings,
   createPlan,
   draftWorkspace,
   explainDiagnosis,
@@ -100,4 +104,39 @@ export function useAdminReport(enabled: boolean) {
 
 export function useAskAdmin() {
   return useMutation({ mutationFn: async (question: string) => (await askAdmin({ body: { question }, throwOnError: true })).data })
+}
+
+const agentKey = ['ai', 'agent'] as const
+
+/** Where the person's coding agents get their model, and whether they may start one. */
+export function useAgentStatus() {
+  return useQuery({ queryKey: agentKey, queryFn: async () => (await getAgentStatus({ throwOnError: true })).data, staleTime: 60_000 })
+}
+
+/** Stores the person's own agent model and key (the key is write-only). */
+export function useSaveAgentSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { baseURL: string; model: string; apiKey?: string }) => (await setAgentSettings({ body, throwOnError: true })).data,
+    onSuccess: (s) => qc.setQueryData(agentKey, s),
+  })
+}
+
+export function useDeleteAgentSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await deleteAgentSettings({ throwOnError: true })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: agentKey }),
+  })
+}
+
+/** Starts a coding-agent app on the request. */
+export function useBuildWithAgent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (request: string) => (await buildWithAgent({ body: { request }, throwOnError: true })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces'] }),
+  })
 }

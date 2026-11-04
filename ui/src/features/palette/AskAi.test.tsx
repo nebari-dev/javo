@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mockApi, renderApp } from '../../test/api'
+import { location, mockApi, renderApp } from '../../test/api'
 import { aiOff, aiOn, allReady, me, plan, sizes, templates, ws } from '../../test/fixtures'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -110,5 +110,28 @@ describe('Ask AI in the palette', () => {
     const dialog = await search('why are apps stuck')
     await within(dialog).findAllByRole('option')
     expect(within(dialog).queryByText(/Ask about this cluster/)).toBeNull()
+  })
+})
+
+describe('Build with pi in the palette', () => {
+  const agent = { mode: 'platform', model: 'admin/model', template: 'pi', templateName: 'pi coding agent', available: true }
+  const built = ws('create-a-streamlit-app', 'create a Streamlit app', 'Pending', allReady())
+
+  it('starts a pi app on the request and opens its page', async () => {
+    const calls = api({ 'GET /api/ai/agent': { body: agent }, 'POST /api/ai/agent/build': { status: 201, body: built }, 'GET /api/workspaces/create-a-streamlit-app': { body: built } })
+    renderApp('/apps')
+    const dialog = await search('create a Streamlit app')
+    const row = await within(dialog).findByRole('option', { name: /Build with pi: create a Streamlit app/ })
+    await userEvent.click(row)
+    await vi.waitFor(() => expect(calls.calls.find((c) => c.path === '/api/ai/agent/build')?.body).toEqual({ request: 'create a Streamlit app' }))
+    await vi.waitFor(() => expect(location()).toBe('/apps/create-a-streamlit-app'))
+  })
+
+  it('is not offered without a model for the agent', async () => {
+    api({ 'GET /api/ai/agent': { body: { ...agent, mode: 'login' } } })
+    renderApp('/apps')
+    const dialog = await search('create a Streamlit app')
+    await within(dialog).findAllByRole('option')
+    expect(within(dialog).queryByRole('option', { name: /Build with pi/ })).toBeNull()
   })
 })

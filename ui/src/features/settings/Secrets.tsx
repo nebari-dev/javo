@@ -9,6 +9,7 @@ import { Confirm } from '../../components/Confirm'
 import { EmptyState } from '../../components/EmptyState'
 import { PartTitle } from '../../components/Section'
 import { fieldErrors, problemText } from '../../lib/http'
+import { AgentSettings } from './AgentSettings'
 import { useCreateSecret, useDeleteSecret, useSecrets, useUpdateSecret } from '../../lib/queries'
 
 const FORM_FIELDS = new Set(['name', 'value', 'note'])
@@ -325,6 +326,7 @@ export function Secrets() {
           </Card>
         )}
       </div>
+      <AgentSettings />
     </section>
   )
 }

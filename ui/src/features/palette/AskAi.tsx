@@ -1,7 +1,7 @@
-import { CheckCheck, Plus, Server, Sparkles } from 'lucide-react'
+import { Bot, CheckCheck, Plus, Server, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
-import { useAdminReport, useAiFeature, useAiCommand, useAskAdmin, useDecidePlan } from '../ai/ai'
+import { useAdminReport, useAgentStatus, useAiFeature, useAiCommand, useAskAdmin, useBuildWithAgent, useDecidePlan } from '../ai/ai'
 import type { DraftView, Plan } from '../../api'
 import { Button } from '../../components/Button'
 import { PalettePanel, usePalette, type PaletteItem, type PaletteSection } from './Palette'
@@ -136,6 +136,34 @@ function AdminPanel({ text }: { text: string }) {
   )
 }
 
+/** Starts a coding-agent app on the request, then opens its page, where Open goes to the agent already at work. */
+function BuildPanel({ text, agent }: { text: string; agent: string }) {
+  const build = useBuildWithAgent()
+  const navigate = useNavigate()
+  const close = usePalette()
+  const { mutate } = build
+  useOnce(() =>
+    mutate(text, {
+      onSuccess: (ws) => {
+        close()
+        void navigate(`/apps/${encodeURIComponent(ws.name)}`)
+      },
+    }),
+  )
+  return (
+    <PalettePanel>
+      <div className="pal-ask" aria-live="polite">
+        <div className="label">
+          <Bot size={15} aria-hidden="true" />
+          {text}
+        </div>
+        {build.isPending && <p className="muted">Starting {agent}</p>}
+        {build.isError && <p role="alert">{problemText(build.error)}</p>}
+      </div>
+    </PalettePanel>
+  )
+}
+
 const ask = (id: string, label: string, icon: ReactNode, panel: ReactNode): PaletteItem => ({
   id,
   label,
@@ -154,12 +182,18 @@ export function useAskSection(): (query: string) => PaletteSection | undefined {
   const adminOn = useAiFeature('admin')
   const roles = useMe().data?.roles ?? []
   const admin = adminOn && roles.includes('platform-admin')
+  const agent = useAgentStatus().data
+  const builds = !!agent?.available && agent.mode !== 'login'
   const last = useRef('')
   return (query: string) => {
     if (query) last.current = query
     const text = query || last.current
-    if (!text || (!palette && !admin)) return undefined
+    if (!text || (!palette && !admin && !builds)) return undefined
     const items: PaletteItem[] = []
+    if (builds) {
+      const name = agent.template
+      items.push(ask('ai:build', `Build with ${name}: ${text}`, <Bot size={16} />, <BuildPanel text={text} agent={agent.templateName || name} />))
+    }
     if (palette) items.push(ask('ai:ask', `Ask AI: ${text}`, <Sparkles size={16} />, <AskPanel text={text} />))
     if (admin) items.push(ask('ai:admin', `Ask about this cluster: ${text}`, <Server size={16} />, <AdminPanel text={text} />))
     return { heading: 'Ask AI', items }
