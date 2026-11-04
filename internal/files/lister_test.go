@@ -402,6 +402,22 @@ func TestEnsureGroupReplacesAPodCreatedBeforeTheFolderWasMounted(t *testing.T) {
 	}
 }
 
+// A person who left a group must lose its folder in the file pod too, not
+// keep it mounted until the pod happens to go idle.
+func TestEnsureReplacesAPodThatMountsAFolderTheUserLost(t *testing.T) {
+	for _, dir := range []string{"", "ml"} {
+		c := newClient(t, homeClaim(), withGroupVolume(withGroupVolume(filePod(corev1.PodRunning, true, "10.0.0.5"), "ml"), "finance"))
+		_, err := newPods(t, c, &clock{time.Now()}).EnsureGroup(context.Background(), owner, dir)
+		if !errors.Is(err, files.ErrHomeStarting) {
+			t.Fatalf("dir %q: err = %v, want ErrHomeStarting", dir, err)
+		}
+		var p corev1.Pod
+		if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: model.FilesPodPrefix + owner}, &p); !apierrors.IsNotFound(err) {
+			t.Fatalf("dir %q: pod with the lost folder still there: %v", dir, err)
+		}
+	}
+}
+
 func TestEnsurePendingPod(t *testing.T) {
 	cases := []struct {
 		name string

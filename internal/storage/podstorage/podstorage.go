@@ -144,10 +144,13 @@ func GroupVolume(dir string) string { return groupVolumePrefix + dir }
 
 const groupVolumePrefix = "group-"
 
+// IsGroupVolume reports whether name is a group folder's volume.
+func IsGroupVolume(name string) bool { return strings.HasPrefix(name, groupVolumePrefix) }
+
 // WithoutFolders is l without the group folders and their gids, for a pod
 // that runs code its owner has not reviewed (a pull request's preview).
 func (l Layout) WithoutFolders() Layout {
-	folder := func(name string) bool { return strings.HasPrefix(name, groupVolumePrefix) }
+	folder := IsGroupVolume
 	l.Volumes = slices.DeleteFunc(slices.Clone(l.Volumes), func(v corev1.Volume) bool { return folder(v.Name) })
 	l.Mounts = slices.DeleteFunc(slices.Clone(l.Mounts), func(m corev1.VolumeMount) bool { return folder(m.Name) })
 	l.SupplementalGroups = nil

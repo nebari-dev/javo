@@ -873,7 +873,7 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	login := rcloneLogin(&pod)
 	// A pod without a password (made by an earlier version) is replaced
 	// too: its rclone answers anyone who reaches it.
-	if login == nil || !writesAs(&pod, uid) || dir != "" && !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == podstorage.GroupVolume(dir) }) {
+	if login == nil || !writesAs(&pod, uid) || !hasFolders(&pod, in, dir) {
 		if err := deleteExact(ctx, c, &pod); err != nil {
 			return "", err
 		}
@@ -1008,6 +1008,30 @@ func (p *Pods) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// hasFolders reports whether pod mounts exactly the group folders it should:
+// dir (when asked for) and no folder outside in.Folders and dir, so a folder
+// of a group the user has left is not kept mounted.
+func hasFolders(pod *corev1.Pod, in podstorage.Input, dir string) bool {
+	want := map[string]bool{}
+	for _, f := range in.Folders {
+		want[podstorage.GroupVolume(naming.GroupDir(f.Spec.Group))] = true
+	}
+	if dir != "" {
+		want[podstorage.GroupVolume(dir)] = true
+	}
+	found := dir == ""
+	for _, v := range pod.Spec.Volumes {
+		if !podstorage.IsGroupVolume(v.Name) {
+			continue
+		}
+		if !want[v.Name] {
+			return false
+		}
+		found = found || v.Name == podstorage.GroupVolume(dir)
+	}
+	return found
 }
 
 // writesAs reports whether pod runs as uid with the home mounted writable,
