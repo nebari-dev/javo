@@ -43,7 +43,7 @@ func suggestFixture(t *testing.T, replies ...aitest.Reply) (*apitest.Fixture, *a
 func TestSuggestCompletesTheDescription(t *testing.T) {
 	t.Parallel()
 	f, p, svc := suggestFixture(t, aitest.Reply{
-		JSON:  `{"suggestions":["A Streamlit dashboard of sales/data.csv","A Streamlit dashboard of notes.csv by month","",  "A Streamlit dashboard of sales/data.csv"]}`,
+		JSON:  `{"suggestions":["Build a dashboard of sales","A Streamlit dashboard of sales/data.csv","A Streamlit dashboard of notes.csv by month"]}`,
 		Usage: provider.Usage{InputTokens: 120, OutputTokens: 40},
 	})
 	svc.Budget = &ai.DBBudget{Usage: f.Db.AIUsage(), Daily: 100000}
@@ -53,8 +53,9 @@ func TestSuggestCompletesTheDescription(t *testing.T) {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 	got := apitest.Decode[suggestJSON](t, w).Suggestions
-	// Empty and repeated ones are left out.
-	if !slices.Equal(got, []string{"A Streamlit dashboard of sales/data.csv", "A Streamlit dashboard of notes.csv by month"}) {
+	// One, shown after the cursor in the box: the first that starts with
+	// exactly what was typed.
+	if !slices.Equal(got, []string{"A Streamlit dashboard of sales/data.csv"}) {
 		t.Fatalf("suggestions %q", got)
 	}
 	req := p.Requests[0]

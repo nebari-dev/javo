@@ -97,35 +97,31 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
   const build = useBuildWithAgent()
   const navigate = useNavigate()
   const [text, setText] = useState('')
-  // Closed by Escape, a pick or leaving the box, until the next keystroke.
+  // Dismissed by Escape or leaving the box, until the next keystroke.
   const [closed, setClosed] = useState(false)
-  const [active, setActive] = useState(-1)
   // Suggestions come from the admin's agent model, so only with that one in effect.
-  const suggestions = useAgentSuggestions(text, agent.mode === 'platform' && !closed)
-  const open = suggestions.length > 0
+  const fetched = useAgentSuggestions(text, agent.mode === 'platform' && !closed)[0]
+  // The last suggestion stays while the typing goes on along it; a new one
+  // replaces it after the next pause.
+  const [suggestion, setSuggestion] = useState<string>()
+  useEffect(() => {
+    if (fetched) setSuggestion(fetched)
+  }, [fetched])
+  // The rest of the suggestion, shown after the text in the box while the
+  // typing still matches it; Tab takes it.
+  const rest = !closed && suggestion && suggestion.startsWith(text) && suggestion.length > text.length ? suggestion.slice(text.length) : ''
   const name = agent.templateName || agent.template
   const site = kindSite(agent.template)
   const id = useId()
-  const listId = `${id}-suggestions`
-  const optionId = (i: number) => `${id}-suggestion-${i}`
-  useEffect(() => setActive(-1), [suggestions])
-  const pick = (v: string) => {
-    setText(v)
-    setClosed(true)
-    setActive(-1)
-  }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!open) return
-    const n = suggestions.length
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!rest) return
+    if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault()
-      setActive((i) => (e.key === 'ArrowDown' ? (i + 1) % n : i <= 0 ? n - 1 : i - 1))
+      setText(text + rest)
+      setClosed(true)
     } else if (e.key === 'Escape') {
       e.preventDefault()
       setClosed(true)
-    } else if ((e.key === 'Enter' || e.key === 'Tab') && active >= 0) {
-      e.preventDefault()
-      pick(suggestions[active])
     }
   }
   return (
@@ -135,18 +131,19 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
       </PartTitle>
       <div className="field">
         <label htmlFor={id}>Describe the app</label>
-        <div className="suggest">
+        <div className="ghost-wrap">
+          {/* The typed text, invisible, then the rest in grey: drawn behind the box, in its font and padding. */}
+          <div className="input ghost" aria-hidden="true">
+            <span className="ghost-typed">{text}</span>
+            <span className="ghost-rest">{rest}</span>
+          </div>
           <textarea
             id={id}
             className="input"
             rows={2}
             value={text}
             placeholder="A Streamlit dashboard of sales/data.csv"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={open}
-            aria-controls={listId}
-            aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
+            aria-describedby={rest ? `${id}-hint` : undefined}
             onChange={(e) => {
               setText(e.target.value)
               setClosed(false)
@@ -154,25 +151,12 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
             onKeyDown={onKeyDown}
             onBlur={() => setClosed(true)}
           />
-          <ul id={listId} role="listbox" aria-label="Suggestions" className="suggest-list" hidden={!open}>
-            {open &&
-              suggestions.map((v, i) => (
-                <li
-                  key={v}
-                  id={optionId(i)}
-                  role="option"
-                  aria-selected={i === active}
-                  className="suggest-item"
-                  // Keep the focus in the box while a suggestion is clicked.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => pick(v)}
-                >
-                  {v}
-                </li>
-              ))}
-          </ul>
         </div>
+        {rest && (
+          <span id={`${id}-hint`} className="sr-only">
+            Suggestion: {text + rest}. Press Tab to accept.
+          </span>
+        )}
       </div>
       <div className="row describe-foot">
         <Button

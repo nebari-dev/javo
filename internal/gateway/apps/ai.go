@@ -290,7 +290,7 @@ type suggestInput struct {
 
 type suggestOutput struct {
 	Body struct {
-		Suggestions []string `json:"suggestions" doc:"Whole descriptions, best first; empty when there are none"`
+		Suggestions []string `json:"suggestions" doc:"At most one: the whole description, starting with exactly the text sent; empty when there is none"`
 	}
 }
 

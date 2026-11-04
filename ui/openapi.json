@@ -4502,7 +4502,7 @@
         "additionalProperties": false,
         "properties": {
           "suggestions": {
-            "description": "Whole descriptions, best first; empty when there are none",
+            "description": "At most one: the whole description, starting with exactly the text sent; empty when there is none",
             "items": {
               "type": "string"
             },

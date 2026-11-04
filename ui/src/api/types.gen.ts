@@ -1620,7 +1620,7 @@ export type SuggestInputBody = {
 
 export type SuggestOutputBody = {
     /**
-     * Whole descriptions, best first; empty when there are none
+     * At most one: the whole description, starting with exactly the text sent; empty when there is none
      */
     suggestions: Array<string> | null;
 };

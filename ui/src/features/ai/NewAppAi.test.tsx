@@ -31,7 +31,7 @@ describe('Describe it', () => {
     // The agent's logo on the button, and its name linking to its own site.
     expect(within(card).getByRole('button', { name: 'Build with Pi' }).querySelector('img')?.getAttribute('src')).toMatch(/pi/)
     expect(within(card).getByRole('link', { name: 'pi coding agent' }).getAttribute('href')).toBe('https://pi.dev')
-    await userEvent.type(within(card).getByRole('combobox', { name: 'Describe the app' }), 'A Streamlit dashboard of sales/data.csv')
+    await userEvent.type(within(card).getByRole('textbox', { name: 'Describe the app' }), 'A Streamlit dashboard of sales/data.csv')
     await userEvent.click(within(card).getByRole('button', { name: 'Build with Pi' }))
     await waitFor(() => expect(calls.calls.find((c) => c.path === '/api/ai/agent/build')?.body).toEqual({ request: 'A Streamlit dashboard of sales/data.csv' }))
     await waitFor(() => expect(location()).toBe('/apps/sales-dashboard'))
@@ -46,67 +46,52 @@ describe('Describe it', () => {
   })
 })
 
-describe('Describe it suggestions', () => {
-  const suggestions = ['A Streamlit dashboard of sales/data.csv', 'A Streamlit dashboard of notes.csv by month']
+describe('Describe it suggestion', () => {
+  const suggestion = 'A Streamlit dashboard of sales/data.csv'
 
   async function typeInBox(text: string) {
-    const box = within(await screen.findByLabelText('Describe it')).getByRole('combobox', { name: 'Describe the app' }) as HTMLTextAreaElement
+    const box = within(await screen.findByLabelText('Describe it')).getByRole('textbox', { name: 'Describe the app' }) as HTMLTextAreaElement
     await userEvent.type(box, text)
     return box
   }
+  const ghost = () => document.querySelector('.ghost-rest')?.textContent ?? ''
 
-  it('appear once typing pauses, and the keyboard picks one into the box', async () => {
-    const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions } } })
+  it('shows the rest of one suggestion inside the box once typing pauses, and Tab accepts it', async () => {
+    const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions: [suggestion] } } })
     renderApp('/apps/new')
     const box = await typeInBox('A Streamlit dash')
-    const list = await screen.findByRole('listbox', { name: 'Suggestions' })
-    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual(suggestions)
-    // One ask for the pause, not one per key.
+    await vi.waitFor(() => expect(ghost()).toBe('board of sales/data.csv'))
+    // One ask for the pause, not one per key, and no list of choices.
     expect(calls.count('POST', '/api/ai/agent/suggest')).toBe(1)
     expect(calls.calls.find((c) => c.path === '/api/ai/agent/suggest')?.body).toEqual({ text: 'A Streamlit dash' })
-    expect(box.getAttribute('aria-expanded')).toBe('true')
-    await userEvent.keyboard('{ArrowDown}{ArrowDown}')
-    const second = within(list).getAllByRole('option')[1]
-    expect(second.getAttribute('aria-selected')).toBe('true')
-    expect(box.getAttribute('aria-activedescendant')).toBe(second.id)
-    await userEvent.keyboard('{Enter}')
-    expect(box.value).toBe(suggestions[1])
-    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
+    expect(screen.queryByRole('listbox')).toBeNull()
+    await userEvent.keyboard('{Tab}')
+    expect(box.value).toBe(suggestion)
+    expect(ghost()).toBe('')
+    expect(document.activeElement).toBe(box)
     expect(calls.count('POST', '/api/ai/agent/build')).toBe(0)
   })
 
-  it('close on Escape, leaving the text as typed; a click picks one', async () => {
-    api({ 'POST /api/ai/agent/suggest': { body: { suggestions } } })
+  it('keeps showing while the typing follows it, and goes on Escape or a different letter', async () => {
+    api({ 'POST /api/ai/agent/suggest': { body: { suggestions: [suggestion] } } })
     renderApp('/apps/new')
     const box = await typeInBox('A Streamlit dash')
-    await screen.findByRole('listbox', { name: 'Suggestions' })
-    await userEvent.keyboard('{ArrowDown}{Escape}')
-    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
-    expect(box.value).toBe('A Streamlit dash')
-    await userEvent.type(box, 'b')
-    await userEvent.click(await screen.findByRole('option', { name: suggestions[0] }))
-    expect(box.value).toBe(suggestions[0])
+    await vi.waitFor(() => expect(ghost()).toBe('board of sales/data.csv'))
+    await userEvent.type(box, 'bo')
+    expect(ghost()).toBe('ard of sales/data.csv')
+    await userEvent.keyboard('{Escape}')
+    expect(ghost()).toBe('')
+    expect(box.value).toBe('A Streamlit dashbo')
+    await userEvent.type(box, 'x')
+    expect(ghost()).toBe('')
   })
 
-  it('are not asked for under three characters', async () => {
-    const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions } } })
+  it('is not asked for under three characters', async () => {
+    const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions: [suggestion] } } })
     renderApp('/apps/new')
     await typeInBox('ab')
     await new Promise((r) => setTimeout(r, 700))
     expect(calls.count('POST', '/api/ai/agent/suggest')).toBe(0)
-    expect(screen.queryByRole('listbox')).toBeNull()
-  })
-})
-
-describe('Describe it with a template already chosen', () => {
-  it('stays closed behind a toggle, and opens on it', async () => {
-    api()
-    renderApp('/apps/new?template=jupyterlab')
-    await screen.findByRole('button', { name: 'JupyterLab, change' })
-    expect(screen.queryByLabelText('Describe it')).toBeNull()
-    const toggle = screen.getByRole('button', { name: 'Build it with Pi' })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    await userEvent.click(toggle)
-    expect(await screen.findByLabelText('Describe it')).toBeTruthy()
+    expect(ghost()).toBe('')
   })
 })
