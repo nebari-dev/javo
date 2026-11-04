@@ -8,8 +8,9 @@ import { EmptyState } from '../../../components/EmptyState'
 import { KindLogo } from '../../../components/KindLogo'
 import { Pill } from '../../../components/Pill'
 import { problemText } from '../../../lib/http'
+import { OpenAppLink } from '../../apps/OpenAppLink'
 import { readySince } from '../../apps/startup'
-import { pillStatus, stopNote } from '../../apps/status'
+import { appLink, pillStatus, stopNote } from '../../apps/status'
 import { useAdminApps, useAdminStop } from './queries'
 import { duration, when } from './format'
 
@@ -58,7 +59,7 @@ function StopFor({ item }: { item: AdminApp }) {
   )
 }
 
-/** Settings, All apps: every person's apps, and Stop for any of them. */
+/** Settings, All apps: every person's apps, with Open and Stop for any of them. */
 export function AdminApps() {
   const apps = useAdminApps()
   if (apps.isError) return <Banner tone="err" title={problemText(apps.error)} />
@@ -67,7 +68,7 @@ export function AdminApps() {
   const shared = sharedNames(apps.data)
   return (
     <>
-      <p className="sub">Every app on this install. Stopping one tells its owner an admin did it; their files and settings are kept.</p>
+      <p className="sub">Every app on this install. Opening one is recorded in the audit log. Stopping one tells its owner an admin did it; their files and settings are kept.</p>
       <div className="section-sm card atable-wrap">
         <table className="atable">
           <caption className="sr-only">All apps</caption>
@@ -88,6 +89,7 @@ export function AdminApps() {
             {apps.data.map((item) => {
               const note = stopNote(item.app)
               const running = runningFor(item)
+              const open = item.app.phase === 'Running' ? appLink(item.app.url) : undefined
               return (
                 <tr key={item.id}>
                   <th scope="row">
@@ -109,7 +111,16 @@ export function AdminApps() {
                     </div>
                   </td>
                   <td className="col-type">{when(item.lastActiveAt)}</td>
-                  <td className="col-act">{STOPPABLE.has(item.app.phase) && <StopFor item={item} />}</td>
+                  <td className="col-act">
+                    <span className="atable-acts">
+                      {open && (
+                        <OpenAppLink className="btn sm" href={open} label={`Open ${item.app.displayName}`}>
+                          <span className="atable-act-label">Open</span>
+                        </OpenAppLink>
+                      )}
+                      {STOPPABLE.has(item.app.phase) && <StopFor item={item} />}
+                    </span>
+                  </td>
                 </tr>
               )
             })}

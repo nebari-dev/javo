@@ -145,6 +145,16 @@ describe('Settings for platform admins', () => {
     expect(api.calls.find((c) => c.method === 'POST')?.path).toBe('/api/workspaces/plots/stop?owner=alice-aaaaaaaa')
   })
 
+  it('links each running app so an admin can open it, in a new tab', async () => {
+    admin({})
+    renderApp('/settings/apps')
+    const table = await screen.findByRole('table', { name: 'All apps' })
+    const open = within(within(table).getByRole('row', { name: /Plots/ })).getByRole('link', { name: 'Open Plots' })
+    expect(open.getAttribute('href')).toBe('/u/alice/plots/')
+    expect(open.getAttribute('target')).toBe('_blank')
+    expect(within(within(table).getByRole('row', { name: /Notes/ })).queryByRole('link', { name: /Open/ })).toBeNull()
+  })
+
   it('says how long each running app has run, from when it last became ready', async () => {
     const minutes = (n: number) => new Date(Date.now() - n * 60000).toISOString()
     const running = (id: string, name: string, readyAt: string): AdminApp => ({

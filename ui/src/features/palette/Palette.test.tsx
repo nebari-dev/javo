@@ -166,7 +166,7 @@ describe('Palette', () => {
     await userEvent.type(within(dialog).getByRole('combobox'), 'stop{Enter}')
     const confirm = await screen.findByRole('alertdialog', { name: 'Stop Sales app?' })
     expect(calls.count('POST', '/api/workspaces/sales/stop')).toBe(0)
-    await userEvent.click(within(confirm).getByRole('button', { name: 'Stop Sales app' }))
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(calls.count('POST', '/api/workspaces/sales/stop')).toBe(1))
   })
 

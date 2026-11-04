@@ -176,7 +176,7 @@ describe('App status page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
     const again = await screen.findByRole('alertdialog', { name: /Delete Sales app\?/ })
-    await userEvent.click(within(again).getByRole('button', { name: 'Delete Sales app' }))
+    await userEvent.click(within(again).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(location()).toBe('/apps'))
     expect(api.count('DELETE', '/api/workspaces/sales-app')).toBe(1)
   })
@@ -198,7 +198,7 @@ describe('App status page', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: 'Stop' }))
-    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Stop Sales app' }))
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Stop' }))
     expect(api.count('POST', '/api/workspaces/sales-app/stop')).toBe(1)
     expect(await screen.findByText('Stopping')).toBeTruthy()
     // Polling picks up the stopped app: it can be started again.
@@ -228,7 +228,7 @@ describe('App status page', () => {
     })
     renderApp('/apps/sales-app')
     await userEvent.click(await screen.findByRole('button', { name: 'Stop' }))
-    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Stop Sales app' }))
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(location()).toBe('/login?next=%2Fapps%2Fsales-app'))
     expect(screen.getByText('Your session ended. Sign in again.')).toBeTruthy()
   })

@@ -21,7 +21,7 @@ export function StopConfirm({ ws, act, onDone, onCancel }: { ws: Workspace; act:
           ? 'The platform stops restarting it and frees its CPU and memory. Settings and files in your home folder are kept; start it again when you have fixed the problem.'
           : 'It shuts down and its link stops working until you start it again. Settings and files in your home folder are kept; anything not saved to disk is lost.'
       }
-      confirm={failed ? 'Stop retrying' : `Stop ${ws.displayName}`}
+      confirm={failed ? 'Stop retrying' : 'Stop'}
       icon={Square}
       busy={act.isPending}
       onConfirm={() => act.mutate('stop', { onSettled: onDone })}

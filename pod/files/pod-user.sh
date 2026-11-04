@@ -17,6 +17,13 @@ if [ -r /opt/javo-env/activate.sh ]; then
   # shellcheck disable=SC1091
   . /opt/javo-env/activate.sh
 fi
+# Pods set no locale. tmux then shows every non-ASCII character as "_", and
+# other programs fall back to plain ASCII: use C.UTF-8 when the system has
+# it (glibc images ship it).
+if [ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ] && [ -d /usr/lib/locale/C.utf8 ]; then
+  LANG=C.UTF-8
+  export LANG
+fi
 USER=$(id -un 2>/dev/null || echo user)
 LOGNAME=$USER
 EMAIL=${EMAIL:-$USER@$(cat /proc/sys/kernel/hostname)}

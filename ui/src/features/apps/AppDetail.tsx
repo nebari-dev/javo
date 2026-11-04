@@ -147,7 +147,7 @@ function ConfirmDelete({ ws, onCancel }: { ws: Workspace; onCancel: () => void }
     <Confirm
       title={`Delete ${ws.displayName}?`}
       body="The app and its link go away. Files in your home folder are kept."
-      confirm={`Delete ${ws.displayName}`}
+      confirm="Delete"
       icon={Trash2}
       danger
       busy={del.isPending}
