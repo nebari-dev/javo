@@ -30,6 +30,8 @@ A shared app runs as you, so the people you share it with can do whatever the ap
 
 An app with [API access](/using/api/) also lets them call the Javo API as you; the Sharing tab says so too.
 
+**A shared app sees your files read-only.** While an app is shared at any level above Private, it can read your home folder and group folders but not change them, so nobody you share it with can change the files your other apps and jobs run. Its caches (`~/.cache`) and `/tmp` stay writable. Changing an app's sharing between Private and any other level restarts it. Give an app that must write files to others a private copy, or keep it private.
+
 ## Why a level may be missing
 
 **Terminal, JupyterLab and coding agents are always private.** The Terminal, JupyterLab, Claude Code, pi, herdr and any other coding agent hand whoever opens them code running as you, with your files. Javo refuses to share them, whatever their template says, in the web UI and the API alike.

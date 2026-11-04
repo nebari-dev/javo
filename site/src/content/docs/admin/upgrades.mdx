@@ -31,3 +31,7 @@ The [Docker Compose install](/getting-started/compose/#upgrade) upgrades with `g
 <Aside type="note">
 With SQLite the one pod uses the Recreate strategy, so the web UI is briefly down during an upgrade. Running apps keep running: they are separate pods.
 </Aside>
+
+## When running apps restart
+
+Each app pod records what it mounts (home, group folders, read-only or not, the user and group ids) and the template fields it was built from. The controller replaces the pod when any of these change: a person leaves a group, an app is shared or made private again, or a template's image, command or resources change (a security fix in a template reaches every app on it). A pod built by a release before this record existed is replaced once after the upgrade, so expect every running app to restart once. An app whose owner may no longer use its template (after leaving the template's allowed groups) stops with "Template not available to the owner".

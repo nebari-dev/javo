@@ -28,7 +28,7 @@ Admins also see **Backups**, the template of the [backup and restore jobs](/admi
 
 1. Open **Jobs** and press **New job**, or try one of the sample jobs.
 2. Pick a template, then under **What runs** choose **File** (and a kernel for notebooks) or **Command**.
-3. Add **parameters** if the job takes any (text, whole number, number or yes/no). Commands get them as environment variables `JAVO_PARAM_<NAME>`.
+3. Add **parameters** if the job takes any (text, whole number, number or yes/no). Commands get them as environment variables `JAVO_PARAM_<NAME>`. Treat parameter values as untrusted input: never paste them into code (`python -c "...$JAVO_PARAM_X..."`). On a job that holds secrets, only you can run it with values other than the saved defaults.
 4. Add [environment variables and secrets](/using/secrets/), an [environment](/using/environments/) if your admin set up Nebi, and a **size**.
 5. Under **When should it run?** choose **Run once** (it starts as soon as you create the job) or **On a schedule**.
 

@@ -29,7 +29,13 @@ A private Git repository's access token is also one of your secrets, picked on t
 
 ## Who can change an app or job that holds secrets
 
-Only you choose which of your secrets an app or job gets. While an app or job holds any of your secrets (as a variable or as its repository token), only you can also change what it runs: a job's engine, command, file or template, an app's command, image or port, or turning on its pull request previews. An app with API access or your Nebi token, and a job whose template gives it an API token, count the same, because the token acts as you, and only you can give an app more API access. An app's or job's own API token cannot read, change or bind your secrets. A platform admin, and an app's or job's own API token, get "only its owner can change what it runs" for these; they can still rename, resize, reschedule, stop, start and delete it, and change what it runs once it holds no secrets.
+Only you choose which of your secrets an app or job gets, and only you change what any of your apps and jobs runs: a job's engine, command, file or template, an app's command, image or port. Every app and job runs in your home folder, where your secret-holding jobs keep their notebooks and scripts, so a command picked by someone else could rewrite them. A platform admin can still rename, resize, reschedule, stop, start and delete your apps and jobs, and run a job as you saved it, but not with other parameter values while it holds secrets.
+
+While an app holds any of your secrets (as a variable or as its repository token), only you turn on its pull request previews. An app with API access or your Nebi token, and a job whose template gives it an API token, count as holding a secret, because the token acts as you, and only you can give an app more API access.
+
+An app's or job's own API token (`JAVO_TOKEN`) cannot read, change or bind your secrets, and cannot write: it can read, start, stop, restart, run, pause and cancel, and propose a change for you to approve, but it cannot save files in your home or create or change apps and jobs. A shared app sees your home and group folders read-only, so people you share it with cannot change your files through it either.
+
+What stays yours to trust: code you run yourself in your private apps and jobs, an agent app included, can change files in your home, and so the code your secret-holding jobs run. Review what an agent changes before a secret-holding job runs it.
 
 ## How values are protected
 

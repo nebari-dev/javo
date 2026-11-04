@@ -31,7 +31,7 @@ Send the token as a bearer token:
 curl -H "Authorization: Bearer $JAVO_TOKEN" https://javo.example.com/api/workspaces
 ```
 
-Apps given [API access](/using/apps/#advanced-options) get `JAVO_URL` and `JAVO_TOKEN` in their environment for the same purpose.
+Apps given [API access](/using/apps/#advanced-options) get `JAVO_URL` and `JAVO_TOKEN` in their environment for the same purpose. Such an app's or job's own token reads, starts, stops, restarts and runs, cancels runs and proposes changes for you to approve; it cannot save files or create or change apps and jobs, and it never reaches your secrets. Use a personal token for those.
 
 ## API docs
 
