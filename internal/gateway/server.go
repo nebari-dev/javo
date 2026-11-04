@@ -4,6 +4,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/nebari-dev/javo/internal/ai"
@@ -45,6 +46,7 @@ import (
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -293,7 +295,7 @@ func NewServer(cfg Config) *Server {
 		mux.Handle("GET "+proxy.TicketRoute, &proxy.Tickets{
 			Apps: &proxy.AppLookup{DB: cfg.Store}, Sessions: cfg.Sessions,
 			Exposure: cfg.Exposure, URLs: cfg.URLs, Roles: cfg.Roles, Now: now, Revalidator: cfg.Revalidator,
-			Secure: cfg.URLs.SecureCookies(cfg.SecureCookies),
+			Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewBuckets(),
 		})
 	}
 	mux.Handle("/api/", noSniff(authn.SameOrigin(a.RequireUser(catalogFallback(apiMux)))))
@@ -366,6 +368,39 @@ func (s *Server) Apps(h http.Handler) {
 	}
 }
 
+// bodyReadTimeout is how long the gateway's own routes wait for a request
+// body: the bodies they take are small, and a client that trickles one would
+// otherwise hold a connection for good. App requests are left alone (an
+// upload to an app may be long).
+var bodyReadTimeout = time.Minute
+
+// deadlineBody clears the connection's read deadline once the whole body is
+// read (only then: after a timeout the server still drains the rest),
+// so a long answer (a followed log) is not cut when it passes.
+type deadlineBody struct {
+	io.ReadCloser
+	rc *http.ResponseController
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if errors.Is(err, io.EOF) {
+		_ = b.rc.SetReadDeadline(time.Time{})
+	}
+	return n, err
+}
+
+// limitBodyTime gives r's body bodyReadTimeout to arrive.
+func limitBodyTime(w http.ResponseWriter, r *http.Request) {
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+		return
+	}
+	rc := http.NewResponseController(w)
+	if rc.SetReadDeadline(time.Now().Add(bodyReadTimeout)) == nil {
+		r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
+	}
+}
+
 // hsts pins a host to https for a year. It names no subdomains: other hosts
 // of the organisation's domain are not the gateway's to pin.
 const hsts = "max-age=31536000"
@@ -390,6 +425,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p := r.URL.Path; p != "/u" && !strings.HasPrefix(p, "/u/") {
+		limitBodyTime(w, r)
 		h := w.Header()
 		for k, v := range gatewayHeaders {
 			h.Set(k, v)

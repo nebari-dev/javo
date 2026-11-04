@@ -7,8 +7,13 @@ import (
 	"net/http/httptest"
 	"net/http/httptrace"
 	"net/textproto"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
+	"github.com/nebari-dev/javo/internal/model"
 )
 
 // An app cannot set a cookie with no name: browsers send "=javo_session=x"
@@ -164,5 +169,34 @@ func TestAForeignOriginCannotOpenAWebsocketOrPost(t *testing.T) {
 	}
 	if c := try("GET", "https://evil.example", false); c != http.StatusOK {
 		t.Fatalf("a plain GET from another origin (a link): %d", c)
+	}
+}
+
+// A request for an app its owner stopped is answered at once: nothing listens,
+// so waiting for a connection would only let anonymous traffic hold the
+// gateway's goroutines for DialWait each.
+func TestAStoppedAppIsAnsweredWithoutWaitingToDial(t *testing.T) {
+	t.Parallel()
+	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	app, err := f.db.Apps().GetByOwnerName(context.Background(), f.aliceSl, "nb1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Apps().UpdateSpec(context.Background(), gatewaytest.Actor, app.ID, app.Version, func(a *model.App) error {
+		a.Paused = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.backend.Close() // nothing listens
+	p := New(Config{Store: f.db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: gatewaytest.OneHostExposure, Activity: f.activity,
+		DialWait: 5 * time.Second,
+		Resolve: func(context.Context, *model.App, *model.Template) (Backend, error) {
+			return Backend{URL: &url.URL{Scheme: "http", Host: "127.0.0.1:1"}}, nil
+		}})
+	start := time.Now()
+	w := f.get(t, p, "/u/"+f.aliceSl+"/nb1/")
+	if took := time.Since(start); took > time.Second || w.Code != http.StatusBadGateway {
+		t.Fatalf("stopped app: %d after %s", w.Code, took)
 	}
 }

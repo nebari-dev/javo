@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
 	"github.com/nebari-dev/javo/internal/httpx"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -82,7 +84,17 @@ type Tickets struct {
 	Revalidator *authn.Revalidator
 	// Secure says the session cookie is Secure, which names it.
 	Secure bool
+	// Limiter caps the tickets one UI session mints (TicketBurst, then one
+	// per ticketEvery); each is a database row.
+	Limiter *ratelimit.Buckets
 }
+
+// TicketBurst tickets a UI session may mint at once, then one per
+// ticketEvery.
+const (
+	TicketBurst = 30
+	ticketEvery = 2 * time.Second
+)
 
 // ServeHTTP answers GET /api/auth/app-ticket?to=<absolute app URL>. Only an
 // address that is one of our app URLs, for an app the person may open, gets a
@@ -96,6 +108,11 @@ func (m *Tickets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ui, err := m.Sessions.Get(r.Context(), c.Value)
 	if err != nil || ui.Kind != session.KindUI {
 		redirectToLogin(w, r)
+		return
+	}
+	if wait, ok := m.Limiter.Take(ratelimit.Bucket{Key: "ticket:" + session.ID(c.Value), Spec: ratelimit.Spec{Every: ticketEvery, Burst: TicketBurst}}); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		writePage(w, http.StatusTooManyRequests, page{Title: reasons.Msg(reasons.MsgTooManyAppOpens), Link: "/apps", LinkText: "See your apps"})
 		return
 	}
 	// The ticket carries the person's groups into a session of its own, so

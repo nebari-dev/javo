@@ -146,6 +146,25 @@ func TestATicketIsRedeemedOnlyByTheBrowserThatAskedForIt(t *testing.T) {
 	}
 }
 
+// Each ticket is a database row, so one session cannot mint them without
+// bound.
+func TestTicketsPerSessionAreRateLimited(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))
+	tok := f.ui(alice())
+	for i := range proxy.TicketBurst {
+		if w := f.ticketFor(tok, salesURL); w.Code != http.StatusFound {
+			t.Fatalf("ticket %d: %d", i, w.Code)
+		}
+	}
+	if w := f.ticketFor(tok, salesURL); w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" {
+		t.Fatalf("ticket past the burst: %d %v", w.Code, w.Header())
+	}
+	if n := f.tickets(); n > proxy.TicketBurst {
+		t.Fatalf("%d tickets minted", n)
+	}
+}
+
 func TestTicketWorksOnceAndOnlyForSixtySeconds(t *testing.T) {
 	t.Parallel()
 	f := newApps(t, pathURLs, model.AccessRestricted, salesApp(nil))

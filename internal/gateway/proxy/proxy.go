@@ -247,6 +247,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if signedIn {
 		p.cfg.NebiTokens.Touch(r.Context(), app, tpl, who.ID, p.idToken(a.uiID))
 	}
+	if app.Paused {
+		// Stopped by its owner: nothing listens, so do not wait to dial.
+		badGateway(w, t.Name)
+		return
+	}
 	backend, err := p.cfg.Resolve(r.Context(), app, tpl)
 	if err != nil {
 		badGateway(w, t.Name)
