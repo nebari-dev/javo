@@ -1611,6 +1611,20 @@ export type StorageView = {
     used?: number;
 };
 
+export type SuggestInputBody = {
+    /**
+     * What you typed so far
+     */
+    text: string;
+};
+
+export type SuggestOutputBody = {
+    /**
+     * Whole descriptions, best first; empty when there are none
+     */
+    suggestions: Array<string> | null;
+};
+
 export type Template = {
     apiAccessDefault: 'None' | 'Read' | 'ReadWrite';
     appLogin: 'Enabled' | 'Disabled';
@@ -2926,6 +2940,43 @@ export type SetAgentSettingsResponses = {
 };
 
 export type SetAgentSettingsResponse = SetAgentSettingsResponses[keyof SetAgentSettingsResponses];
+
+export type SuggestAgentRequestData = {
+    body: SuggestInputBody;
+    path?: never;
+    query?: never;
+    url: '/api/ai/agent/suggest';
+};
+
+export type SuggestAgentRequestErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type SuggestAgentRequestError = SuggestAgentRequestErrors[keyof SuggestAgentRequestErrors];
+
+export type SuggestAgentRequestResponses = {
+    /**
+     * OK
+     */
+    200: SuggestOutputBody;
+};
+
+export type SuggestAgentRequestResponse = SuggestAgentRequestResponses[keyof SuggestAgentRequestResponses];
 
 export type AiCommandData = {
     body: CommandInputBody;

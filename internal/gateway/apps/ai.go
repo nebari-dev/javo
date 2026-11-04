@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/plans"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
@@ -123,6 +126,13 @@ func (a *aiAPI) register(api huma.API) {
 		Errors: []int{http.StatusUnauthorized},
 	}, a.command)
 	a.registerAdmin(api)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "suggestAgentRequest", Method: http.MethodPost, Path: "/api/ai/agent/suggest",
+		Summary:     "Suggest whole app descriptions that complete what you typed",
+		Description: "Asks the admin's agent model, within your daily AI allowance. Text under three characters, no agent model, or a model that fails gives no suggestions.",
+		Tags:        tag, Errors: []int{http.StatusUnauthorized, http.StatusForbidden},
+	}, a.suggest)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "aiFeedback", Method: http.MethodPost, Path: "/api/ai/feedback",
@@ -232,17 +242,7 @@ func (a *aiAPI) draftFor(ctx context.Context, u authz.Principal, text string) (D
 	if err != nil {
 		return out, problem.Internal("list templates", err)
 	}
-	roles := authz.RolesOf(u, a.ws.Roles)
-	var tpls []ai.DraftTemplate
-	for i := range all {
-		t := &all[i]
-		if t.Spec.JobOnly || !authz.Decide(u, roles, authz.ActUseTemplate, authz.Object{Template: t}).Allowed {
-			continue
-		}
-		tpls = append(tpls, ai.DraftTemplate{Name: t.Name, DisplayName: t.Spec.DisplayName, Kind: t.Spec.Kind,
-			Description: t.Spec.Description, Extensions: t.Spec.FileExtensions})
-	}
-	res := a.svc.Draft(ctx, u.ID, text, tpls)
+	res := a.svc.Draft(ctx, u.ID, text, a.draftTemplates(u, all))
 	out.DraftResult = res
 	if res.Message != "" {
 		return out, nil
@@ -265,6 +265,87 @@ func (a *aiAPI) draftFor(ctx context.Context, u authz.Principal, text string) (D
 		}
 	}
 	return out, nil
+}
+
+// draftTemplates are the app templates of all that u may use, as the model sees them.
+func (a *aiAPI) draftTemplates(u authz.Principal, all []model.Template) []ai.DraftTemplate {
+	roles := authz.RolesOf(u, a.ws.Roles)
+	var tpls []ai.DraftTemplate
+	for i := range all {
+		t := &all[i]
+		if t.Spec.JobOnly || !authz.Decide(u, roles, authz.ActUseTemplate, authz.Object{Template: t}).Allowed {
+			continue
+		}
+		tpls = append(tpls, ai.DraftTemplate{Name: t.Name, DisplayName: t.Spec.DisplayName, Kind: t.Spec.Kind,
+			Description: t.Spec.Description, Extensions: t.Spec.FileExtensions})
+	}
+	return tpls
+}
+
+type suggestInput struct {
+	Body struct {
+		Text string `json:"text" maxLength:"2000" doc:"What you typed so far"`
+	}
+}
+
+type suggestOutput struct {
+	Body struct {
+		Suggestions []string `json:"suggestions" doc:"Whole descriptions, best first; empty when there are none"`
+	}
+}
+
+// suggestLimit holds back a person asking for suggestions too often; the
+// box asks after each pause in typing.
+var suggestLimit = ratelimit.Spec{Every: time.Second, Burst: 8}
+
+func (a *aiAPI) suggest(ctx context.Context, in *suggestInput) (*suggestOutput, error) {
+	if err := personOnly(ctx); err != nil {
+		return nil, err
+	}
+	out := &suggestOutput{}
+	out.Body.Suggestions = []string{}
+	u := authn.User(ctx)
+	text := strings.TrimSpace(in.Body.Text)
+	agentModel := a.ws.cfg.Agent.Model
+	if a.svc == nil || agentModel == "" || utf8.RuneCountInString(text) < ai.SuggestMinRunes {
+		return out, nil
+	}
+	if _, ok := a.limit.Take(ratelimit.Bucket{Key: "suggest/" + u.ID, Spec: suggestLimit}); !ok {
+		return out, nil
+	}
+	all, err := a.ws.db.Templates().List(ctx)
+	if err != nil {
+		return nil, problem.Internal("list templates", err)
+	}
+	out.Body.Suggestions = a.svc.Suggest(ctx, u.ID, agentModel, text, a.draftTemplates(u, all), a.homeNames(ctx, u.ID))
+	return out, nil
+}
+
+// homeNames are the names at the top of owner's home, folders with a
+// trailing slash, hidden ones left out; none when the home cannot be read
+// quickly.
+func (a *aiAPI) homeNames(ctx context.Context, owner string) []string {
+	if a.ws.homes == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	l, err := a.ws.homes.List(ctx, owner, "")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range l.Entries {
+		if strings.HasPrefix(e.Name, ".") {
+			continue
+		}
+		if e.IsDir {
+			out = append(out, e.Name+"/")
+		} else {
+			out = append(out, e.Name)
+		}
+	}
+	return out
 }
 
 // CommandView is the palette's answer: the model's reply and one plan per

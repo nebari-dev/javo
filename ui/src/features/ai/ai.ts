@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   aiCommand,
@@ -8,6 +9,7 @@ import {
   deleteAgentSettings,
   getAgentStatus,
   setAgentSettings,
+  suggestAgentRequest,
   createPlan,
   draftWorkspace,
   explainDiagnosis,
@@ -144,4 +146,31 @@ export function useBuildWithAgent() {
     mutationFn: async (request: string) => (await buildWithAgent({ body: { request }, throwOnError: true })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces'] }),
   })
+}
+
+/** Fewer characters than this are not worth suggesting for. */
+const SUGGEST_MIN = 3
+/** How long typing pauses before suggestions are asked for. */
+const SUGGEST_PAUSE_MS = 400
+
+/**
+ * Whole descriptions that complete text, asked for once typing pauses. Empty
+ * while off, under three characters, or when the model has none; a failure
+ * shows nothing either.
+ */
+export function useAgentSuggestions(text: string, enabled: boolean): string[] {
+  const [settled, setSettled] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(text.trim()), SUGGEST_PAUSE_MS)
+    return () => clearTimeout(t)
+  }, [text])
+  const on = enabled && settled.length >= SUGGEST_MIN && settled === text.trim()
+  const q = useQuery({
+    queryKey: ['ai', 'agent', 'suggest', settled],
+    enabled: on,
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryFn: async ({ signal }) => (await suggestAgentRequest({ body: { text: settled }, signal, throwOnError: true })).data.suggestions,
+  })
+  return on ? (q.data ?? []) : []
 }

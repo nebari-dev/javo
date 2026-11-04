@@ -31,7 +31,7 @@ describe('Describe it', () => {
     // The agent's logo on the button, and its name linking to its own site.
     expect(within(card).getByRole('button', { name: 'Build with Pi' }).querySelector('img')?.getAttribute('src')).toMatch(/pi/)
     expect(within(card).getByRole('link', { name: 'pi coding agent' }).getAttribute('href')).toBe('https://pi.dev')
-    await userEvent.type(within(card).getByRole('textbox', { name: 'Describe the app' }), 'A Streamlit dashboard of sales/data.csv')
+    await userEvent.type(within(card).getByRole('combobox', { name: 'Describe the app' }), 'A Streamlit dashboard of sales/data.csv')
     await userEvent.click(within(card).getByRole('button', { name: 'Build with Pi' }))
     await waitFor(() => expect(calls.calls.find((c) => c.path === '/api/ai/agent/build')?.body).toEqual({ request: 'A Streamlit dashboard of sales/data.csv' }))
     await waitFor(() => expect(location()).toBe('/apps/sales-dashboard'))
@@ -43,6 +43,58 @@ describe('Describe it', () => {
     renderApp('/apps/new')
     await screen.findByRole('radio', { name: /Streamlit/ })
     expect(screen.queryByLabelText('Describe it')).toBeNull()
+  })
+})
+
+describe('Describe it suggestions', () => {
+  const suggestions = ['A Streamlit dashboard of sales/data.csv', 'A Streamlit dashboard of notes.csv by month']
+
+  async function typeInBox(text: string) {
+    const box = within(await screen.findByLabelText('Describe it')).getByRole('combobox', { name: 'Describe the app' }) as HTMLTextAreaElement
+    await userEvent.type(box, text)
+    return box
+  }
+
+  it('appear once typing pauses, and the keyboard picks one into the box', async () => {
+    const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions } } })
+    renderApp('/apps/new')
+    const box = await typeInBox('A Streamlit dash')
+    const list = await screen.findByRole('listbox', { name: 'Suggestions' })
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual(suggestions)
+    // One ask for the pause, not one per key.
+    expect(calls.count('POST', '/api/ai/agent/suggest')).toBe(1)
+    expect(calls.calls.find((c) => c.path === '/api/ai/agent/suggest')?.body).toEqual({ text: 'A Streamlit dash' })
+    expect(box.getAttribute('aria-expanded')).toBe('true')
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}')
+    const second = within(list).getAllByRole('option')[1]
+    expect(second.getAttribute('aria-selected')).toBe('true')
+    expect(box.getAttribute('aria-activedescendant')).toBe(second.id)
+    await userEvent.keyboard('{Enter}')
+    expect(box.value).toBe(suggestions[1])
+    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
+    expect(calls.count('POST', '/api/ai/agent/build')).toBe(0)
+  })
+
+  it('close on Escape, leaving the text as typed; a click picks one', async () => {
+    api({ 'POST /api/ai/agent/suggest': { body: { suggestions } } })
+    renderApp('/apps/new')
+    const box = await typeInBox('A Streamlit dash')
+    await screen.findByRole('listbox', { name: 'Suggestions' })
+    await userEvent.keyboard('{ArrowDown}{Escape}')
+    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
+    expect(box.value).toBe('A Streamlit dash')
+    await userEvent.type(box, 'b')
+    await userEvent.click(await screen.findByRole('option', { name: suggestions[0] }))
+    expect(box.value).toBe(suggestions[0])
+  })
+
+  it('are not asked for under three characters', async () => {
+    const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions } } })
+    renderApp('/apps/new')
+    await typeInBox('ab')
+    await new Promise((r) => setTimeout(r, 700))
+    expect(calls.count('POST', '/api/ai/agent/suggest')).toBe(0)
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })
 

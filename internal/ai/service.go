@@ -90,13 +90,26 @@ type call struct {
 	// validated against instead (the same shape without the enums whose
 	// misses the feature drops one by one).
 	schema, check *jsonschema.Schema
+	// model and maxOut, when set, replace the service's model and output cap.
+	model  string
+	maxOut int
 }
 
-func (s *Service) maxOut() int {
-	if s.MaxOutputTokens > 0 {
+func (s *Service) maxOut(c call) int {
+	switch {
+	case c.maxOut > 0:
+		return c.maxOut
+	case s.MaxOutputTokens > 0:
 		return s.MaxOutputTokens
 	}
 	return 16000
+}
+
+func (s *Service) model(c call) string {
+	if c.model != "" {
+		return c.model
+	}
+	return s.Model
 }
 
 // run sends c within the person's allowance and returns the first answer that
@@ -114,7 +127,7 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 	if err != nil {
 		return outcome{message: reasons.Msg(reasons.MsgServerError)}
 	}
-	estimate := (utf8.RuneCountInString(c.system)+utf8.RuneCountInString(c.task)+utf8.RuneCountInString(c.bundle.Text))/3 + s.maxOut()
+	estimate := (utf8.RuneCountInString(c.system)+utf8.RuneCountInString(c.task)+utf8.RuneCountInString(c.bundle.Text))/3 + s.maxOut(c)
 	release, err := s.Budget.Reserve(ctx, c.person, estimate)
 	var used *BudgetUsedError
 	switch {
@@ -128,8 +141,8 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 	var spent provider.Usage
 	defer func() { release(spent.InputTokens + spent.OutputTokens) }()
 	req := provider.Request{
-		Model: s.Model, System: c.system, Untrusted: c.bundle.Text, Task: c.task,
-		Schema: schemaJSON, SchemaName: c.feature, MaxOutputTokens: s.maxOut(),
+		Model: s.model(c), System: c.system, Untrusted: c.bundle.Text, Task: c.task,
+		Schema: schemaJSON, SchemaName: c.feature, MaxOutputTokens: s.maxOut(c),
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		resp, err := s.Provider.Generate(ctx, req)
@@ -164,7 +177,7 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 // audit writes one line per call: who, which feature, what it cost and
 // what was dropped. Never the prompt or the answer.
 func (s *Service) audit(c call, result string, u provider.Usage, d Dropped) {
-	slog.Info("ai.call", "user", c.person, "feature", c.feature, "provider", s.Provider.ID(), "model", s.Model,
+	slog.Info("ai.call", "user", c.person, "feature", c.feature, "provider", s.Provider.ID(), "model", s.model(c),
 		"tokens_in", u.InputTokens, "tokens_out", u.OutputTokens, "hidden", c.bundle.Hidden, "withheld", c.bundle.Withheld,
 		"dropped_refs", d.Refs, "dropped_actions", d.Actions, "outcome", result)
 }

@@ -1,7 +1,7 @@
 import { File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
-import { agentLabel, useAgentStatus, useBuildWithAgent } from '../ai/ai'
+import { agentLabel, useAgentStatus, useAgentSuggestions, useBuildWithAgent } from '../ai/ai'
 import type { DraftView, Template } from '../../api'
 import { ApiAccessChoices, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
@@ -93,13 +93,41 @@ function AiMark({ show }: { show: boolean }) {
 }
 
 /** Describe it: plain words go to the coding agent, which builds and deploys the app; its page opens. */
-function DescribeIt({ agent }: { agent: { template: string; templateName: string } }) {
+function DescribeIt({ agent }: { agent: { template: string; templateName: string; mode: string } }) {
   const build = useBuildWithAgent()
   const navigate = useNavigate()
   const [text, setText] = useState('')
+  // Closed by Escape, a pick or leaving the box, until the next keystroke.
+  const [closed, setClosed] = useState(false)
+  const [active, setActive] = useState(-1)
+  // Suggestions come from the admin's agent model, so only with that one in effect.
+  const suggestions = useAgentSuggestions(text, agent.mode === 'platform' && !closed)
+  const open = suggestions.length > 0
   const name = agent.templateName || agent.template
   const site = kindSite(agent.template)
   const id = useId()
+  const listId = `${id}-suggestions`
+  const optionId = (i: number) => `${id}-suggestion-${i}`
+  useEffect(() => setActive(-1), [suggestions])
+  const pick = (v: string) => {
+    setText(v)
+    setClosed(true)
+    setActive(-1)
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!open) return
+    const n = suggestions.length
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActive((i) => (e.key === 'ArrowDown' ? (i + 1) % n : i <= 0 ? n - 1 : i - 1))
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setClosed(true)
+    } else if ((e.key === 'Enter' || e.key === 'Tab') && active >= 0) {
+      e.preventDefault()
+      pick(suggestions[active])
+    }
+  }
   return (
     <Card className="pad describe" aria-label="Describe it">
       <PartTitle part="ai" className="card-h">
@@ -107,14 +135,44 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
       </PartTitle>
       <div className="field">
         <label htmlFor={id}>Describe the app</label>
-        <textarea
-          id={id}
-          className="input"
-          rows={2}
-          value={text}
-          placeholder="A Streamlit dashboard of sales/data.csv"
-          onChange={(e) => setText(e.target.value)}
-        />
+        <div className="suggest">
+          <textarea
+            id={id}
+            className="input"
+            rows={2}
+            value={text}
+            placeholder="A Streamlit dashboard of sales/data.csv"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls={listId}
+            aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
+            onChange={(e) => {
+              setText(e.target.value)
+              setClosed(false)
+            }}
+            onKeyDown={onKeyDown}
+            onBlur={() => setClosed(true)}
+          />
+          <ul id={listId} role="listbox" aria-label="Suggestions" className="suggest-list" hidden={!open}>
+            {open &&
+              suggestions.map((v, i) => (
+                <li
+                  key={v}
+                  id={optionId(i)}
+                  role="option"
+                  aria-selected={i === active}
+                  className="suggest-item"
+                  // Keep the focus in the box while a suggestion is clicked.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => pick(v)}
+                >
+                  {v}
+                </li>
+              ))}
+          </ul>
+        </div>
       </div>
       <div className="row describe-foot">
         <Button
