@@ -192,6 +192,8 @@ type Server struct {
 	exp    exposure.Backend
 	uiHost string
 	apps   http.Handler
+	// https says the install is served over TLS, so its hosts get HSTS.
+	https bool
 }
 
 // NewServer builds the gateway with the API, health check and UI.
@@ -324,7 +326,7 @@ func NewServer(cfg Config) *Server {
 	if cfg.UIDir != "" {
 		mux.Handle("/", uiHandler(cfg.UIDir, cfg.Branding.ImageOrigins()))
 	}
-	return &Server{API: api, mux: mux, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost}
+	return &Server{API: api, mux: mux, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, https: cfg.URLs.URLScheme() == "https"}
 }
 
 // Handle mounts h at pattern (http.ServeMux syntax).
@@ -340,10 +342,39 @@ func (s *Server) Apps(h http.Handler) {
 	}
 }
 
+// hsts pins a host to https for a year. It names no subdomains: other hosts
+// of the organisation's domain are not the gateway's to pin.
+const hsts = "max-age=31536000"
+
+// gatewayHeaders are set on every answer of the gateway itself (not an
+// app's): no sniffing, no referrer to other origins, a browsing context of
+// its own, framing by the same origin only, and no powerful features.
+var gatewayHeaders = map[string]string{
+	"X-Content-Type-Options":     "nosniff",
+	"Referrer-Policy":            "same-origin",
+	"Cross-Origin-Opener-Policy": "same-origin",
+	"X-Frame-Options":            "SAMEORIGIN",
+	"Permissions-Policy":         "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.https {
+		w.Header().Set("Strict-Transport-Security", hsts)
+	}
 	if s.apps != nil && s.forApps(r) {
 		s.apps.ServeHTTP(w, r)
 		return
+	}
+	if p := r.URL.Path; p != "/u" && !strings.HasPrefix(p, "/u/") {
+		h := w.Header()
+		for k, v := range gatewayHeaders {
+			h.Set(k, v)
+		}
+		// API answers are personal: never kept in a browser or shared cache.
+		// A route that needs another policy sets its own.
+		if strings.HasPrefix(p, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
 	}
 	s.mux.ServeHTTP(w, r)
 }

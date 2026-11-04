@@ -587,6 +587,9 @@ func foreignOrigin(r *http.Request) bool {
 func sanitizeResponse(resp *http.Response) error {
 	resp.Header.Del("Service-Worker-Allowed")
 	resp.Header.Del("Clear-Site-Data")
+	// The host's HTTPS pinning is the gateway's: an app could clear it
+	// (max-age=0) or pin sibling hosts (includeSubDomains).
+	resp.Header.Del("Strict-Transport-Security")
 	var kept []string
 	for _, line := range resp.Header.Values("Set-Cookie") {
 		// A cookie with no name is sent back as its value alone, so
