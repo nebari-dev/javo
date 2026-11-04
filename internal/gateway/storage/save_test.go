@@ -240,3 +240,19 @@ func TestSaveDropsCachedListings(t *testing.T) {
 		t.Fatalf("listed %d times, want the folder listed again after the save", l.Calls)
 	}
 }
+
+// Reading a file of a home is in the audit log too (who, how, which file),
+// so a token or app that reads a person's files leaves a trace.
+func TestRawReadIsAudited(t *testing.T) {
+	t.Parallel()
+	l := &apitest.StubFilesLister{Content: "secret notes\n", ModTime: readAt}
+	f := apitest.New(t, apitest.Options{Files: l})
+	if w := f.Do(http.MethodGet, "/api/files/raw?path=notes/a.md", "", f.Session(apitest.AliceID)); w.Code != http.StatusOK {
+		t.Fatalf("got %d %s", w.Code, w.Body)
+	}
+	events := fileEvents(t, f)
+	if len(events) != 1 || events[0].Action != "file.read" || events[0].Actor != apitest.AliceID || events[0].Via != "session" ||
+		events[0].ObjectName != "notes/a.md" || events[0].ObjectOwner != apitest.AliceID {
+		t.Fatalf("audit = %+v", events)
+	}
+}

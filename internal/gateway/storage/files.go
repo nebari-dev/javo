@@ -90,7 +90,7 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 	if listings != nil {
 		lister = listings
 	}
-	registerRawFile(api, lister, nss)
+	registerRawFile(api, lister, nss, st)
 	registerSaveFile(api, lister, nss, st)
 	registerWarm(api, listings, nss)
 	huma.Register(api, huma.Operation{
@@ -273,7 +273,7 @@ type rawInput struct {
 // signed-in user's home. Files are user content, so every response is
 // sandboxed, never sniffed and never cached, so a file cannot run script in
 // the platform's origin.
-func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
+func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "getRawFile", Method: http.MethodGet, Path: "/api/files/raw",
 		Summary: "Download or show one file of the user's home", Tags: []string{"files"},
@@ -303,6 +303,7 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder) {
 		if err != nil {
 			return nil, HomeError(err, user, "open home file", rel, reasons.MsgFileNotFound, reasons.MsgServerError)
 		}
+		st.audit(ctx, "file.read", rel, ns, int(info.Size))
 		typ, inline := rawTypes[strings.ToLower(path.Ext(info.Name))]
 		return &huma.StreamResponse{Body: func(hc huma.Context) {
 			defer body.Close()
@@ -427,8 +428,9 @@ func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *AP
 	api.OpenAPI().Paths["/api/files/raw"].Put.RequestBody.Required = false
 }
 
-// audit records that the caller wrote the file rel of their home. The file
-// is already written, so a failure to record it is logged, not answered.
+// audit records that the caller read or wrote the file rel of their home.
+// The call has already happened, so a failure to record it is logged, not
+// answered.
 func (s *API) audit(ctx context.Context, action, rel, ns string, size int) {
 	who, via := store.ActorStrings(authn.Actor(ctx))
 	detail, _ := json.Marshal(map[string]int{"bytes": size})
@@ -437,7 +439,7 @@ func (s *API) audit(ctx context.Context, action, rel, ns string, size int) {
 		ObjectNamespace: ns, ObjectOwner: who, Allowed: true, Detail: detail,
 	})
 	if err != nil {
-		slog.Error("audit file save", "user", who, "path", rel, "err", err)
+		slog.Error("audit file "+action, "user", who, "path", rel, "err", err)
 	}
 }
 
