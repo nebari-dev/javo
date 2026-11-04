@@ -83,6 +83,31 @@ export type AskInputBody = {
     question: string;
 };
 
+export type AuditEvent = {
+    action: string;
+    /**
+     * Identity name, or the system component
+     */
+    actor: string;
+    allowed: boolean;
+    at: string;
+    detail?: unknown;
+    id: string;
+    objectId?: string;
+    objectKind: string;
+    objectName: string;
+    objectNamespace?: string;
+    objectOwner?: string;
+    /**
+     * session, token:<id> or system
+     */
+    via: string;
+};
+
+export type AuditOutputBody = {
+    items: Array<AuditEvent> | null;
+};
+
 export type BackupJobRef = {
     id: string;
     name: string;
@@ -1851,6 +1876,48 @@ export type AdminListAppsResponses = {
 };
 
 export type AdminListAppsResponse = AdminListAppsResponses[keyof AdminListAppsResponses];
+
+export type AdminAuditLogData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * How many of the newest events
+         */
+        limit?: number;
+    };
+    url: '/api/admin/audit';
+};
+
+export type AdminAuditLogErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type AdminAuditLogError = AdminAuditLogErrors[keyof AdminAuditLogErrors];
+
+export type AdminAuditLogResponses = {
+    /**
+     * OK
+     */
+    200: AuditOutputBody;
+};
+
+export type AdminAuditLogResponse = AdminAuditLogResponses[keyof AdminAuditLogResponses];
 
 export type AdminListBackupsData = {
     body?: never;

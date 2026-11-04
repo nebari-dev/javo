@@ -1,5 +1,6 @@
 // Package admin serves the platform admin's console: every person's apps,
-// usage, held restores, database backups and the backup bucket.
+// usage, held restores, database backups, the backup bucket and the audit
+// log.
 package admin
 
 import (
@@ -37,4 +38,5 @@ func (a *API) Register(api huma.API) {
 	a.registerRestores(api)
 	a.registerBackups(api)
 	a.registerBucket(api)
+	a.registerAudit(api)
 }
