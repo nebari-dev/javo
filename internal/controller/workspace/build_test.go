@@ -1442,3 +1442,19 @@ func TestNebiNeverGivesAUserImageThePlatformsPullSecrets(t *testing.T) {
 		t.Fatalf("public platform image: %v", err)
 	}
 }
+
+// The app container keeps the storage layout's disk limit at any size, so
+// one app cannot fill the node's disk.
+func TestBuildPodLimitsTheAppsDiskAtAnySize(t *testing.T) {
+	t.Parallel()
+	ws, tpl := fixtures()
+	l := podstorage.Build("alice", podstorage.Input{UID: 1000, GID: 100, TmpMax: resource.MustParse("2Gi"), DiskMax: resource.MustParse("30Gi")})
+	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", l, sizes.Custom(resource.MustParse("1"), resource.MustParse("1Gi")), testImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pod.Spec.Containers[0].Resources
+	if lim := r.Limits[corev1.ResourceEphemeralStorage]; lim.Cmp(resource.MustParse("30Gi")) != 0 || r.Limits.Memory().Cmp(resource.MustParse("1Gi")) != 0 {
+		t.Fatalf("resources = %+v", r)
+	}
+}

@@ -106,3 +106,21 @@ func TestSharedFolderValidation(t *testing.T) {
 		t.Errorf("no group: %v", err)
 	}
 }
+
+// The disk limit covers the scratch volume and /tmp: a lower one would evict
+// a pod before either of them is full.
+func TestDiskLimitMustHoldScratchAndTmp(t *testing.T) {
+	s := ClusterStorageSpec{Scratch: ScratchSpec{SizeLimit: quantity("20Gi"), TmpSizeLimit: quantity("2Gi"), DiskLimit: quantity("21Gi")}}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "storage.scratch.diskLimit") {
+		t.Fatalf("err = %v", err)
+	}
+	s.Scratch.DiskLimit = quantity("22Gi")
+	if err := s.Validate(); err != nil {
+		t.Fatalf("limit equal to scratch plus tmp refused: %v", err)
+	}
+	var d ClusterStorageSpec
+	d.ApplyDefaults()
+	if err := d.Validate(); err != nil {
+		t.Fatalf("defaults: %v", err)
+	}
+}

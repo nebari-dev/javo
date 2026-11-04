@@ -372,3 +372,23 @@ func TestDefaultOnFallbackSkipsGPUSizes(t *testing.T) {
 		t.Errorf("fallback = %q, want small", got)
 	}
 }
+
+// A size sets CPU, memory and GPUs; the disk limit the storage layout gave
+// the container stays.
+func TestSizeKeepsTheContainersDiskLimit(t *testing.T) {
+	c := corev1.Container{Resources: corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("0")},
+		Limits:   corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("30Gi")},
+	}}
+	var spec corev1.PodSpec
+	Custom(resource.MustParse("1"), resource.MustParse("1Gi")).Apply(&spec, &c, corev1.ResourceRequirements{})
+	if lim := c.Resources.Limits[corev1.ResourceEphemeralStorage]; lim.Cmp(resource.MustParse("30Gi")) != 0 {
+		t.Fatalf("ephemeral-storage limit = %s, want it kept", lim.String())
+	}
+	if _, ok := c.Resources.Requests[corev1.ResourceEphemeralStorage]; !ok {
+		t.Fatal("ephemeral-storage request dropped")
+	}
+	if c.Resources.Limits.Memory().Cmp(resource.MustParse("1Gi")) != 0 {
+		t.Fatalf("memory limit = %s", c.Resources.Limits.Memory())
+	}
+}

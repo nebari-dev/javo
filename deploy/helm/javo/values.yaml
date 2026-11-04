@@ -500,6 +500,14 @@ config:
       defaultSize: 20Gi
     scratch:
       sizeLimit: 20Gi # node-local space for caches and environments, per pod
+      tmpSizeLimit: 2Gi # each pod's /tmp
+      # The ephemeral-storage limit of every app and job container: all one
+      # pod may write to the node's disk (scratch, /tmp, its image layer and
+      # logs). Past it the kubelet evicts the pod (reason ScratchFull), so one
+      # person cannot fill the node's disk. Must hold sizeLimit plus
+      # tmpSizeLimit; lower all three on small nodes. Nothing is reserved:
+      # the request is zero.
+      diskLimit: 30Gi
     # teamStorage: {limit: 500Gi} # per-team mode: what a team's claims may request in total
     # classOverrides: # facts the platform cannot detect
     #   - {name: longhorn, rwxFile: true, posixOwnership: true, sizeEnforced: true}

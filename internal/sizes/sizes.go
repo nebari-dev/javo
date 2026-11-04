@@ -97,7 +97,20 @@ func (s Size) Apply(spec *corev1.PodSpec, c *corev1.Container, base corev1.Resou
 	if s.Key() == "" {
 		return
 	}
+	disk := c.Resources
 	c.Resources = s.resources(base)
+	// A size is CPU, memory and GPUs: the disk limit the storage layout set
+	// stays (podstorage).
+	keep := func(to *corev1.ResourceList, from corev1.ResourceList) {
+		if q, ok := from[corev1.ResourceEphemeralStorage]; ok {
+			if *to == nil {
+				*to = corev1.ResourceList{}
+			}
+			(*to)[corev1.ResourceEphemeralStorage] = q
+		}
+	}
+	keep(&c.Resources.Requests, disk.Requests)
+	keep(&c.Resources.Limits, disk.Limits)
 	if len(s.NodeSelector) > 0 {
 		if spec.NodeSelector == nil {
 			spec.NodeSelector = map[string]string{}

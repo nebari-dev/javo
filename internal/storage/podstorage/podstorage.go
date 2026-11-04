@@ -49,8 +49,15 @@ type Input struct {
 	Home *model.Home
 	// Folders are the ready folders of the owner's groups.
 	Folders []model.SharedFolder
-	// ScratchMax limits the scratch volume, and /tmp; zero means no limit.
+	// ScratchMax limits the scratch volume, and /tmp when TmpMax is zero;
+	// zero means no limit.
 	ScratchMax resource.Quantity
+	// TmpMax limits /tmp; zero means ScratchMax's limit.
+	TmpMax resource.Quantity
+	// DiskMax is the app container's ephemeral-storage limit: all the pod
+	// may write to the node's disk (scratch, /tmp, its image layer, logs).
+	// Zero means no limit.
+	DiskMax resource.Quantity
 	// CoLocate keeps all of the owner's pods on one node (Backend.CoLocate).
 	CoLocate bool
 	// UID and GID are the ids the pod runs as.
@@ -71,6 +78,8 @@ type Layout struct {
 	// every file of every folder the pod mounts.
 	SupplementalGroups    []int64
 	RunAsUser, RunAsGroup int64
+	// DiskMax is Input.DiskMax.
+	DiskMax resource.Quantity
 }
 
 // Build returns the layout of owner's pod.
@@ -79,13 +88,18 @@ func Build(owner string, in Input) Layout {
 	if in.Home != nil && in.Home.Status.ClaimName != "" {
 		claim = in.Home.Status.ClaimName
 	}
-	// /tmp is node disk like scratch and gets the same limit: the kubelet
-	// evicts the pod that goes over, not the node's other pods.
+	// /tmp is node disk like scratch: the kubelet evicts the pod that goes
+	// over its limit, not the node's other pods. Without a /tmp limit of its
+	// own it gets the scratch limit.
 	scratch, tmp := &corev1.EmptyDirVolumeSource{}, &corev1.EmptyDirVolumeSource{}
 	if !in.ScratchMax.IsZero() {
 		scratch.SizeLimit, tmp.SizeLimit = ptr.To(in.ScratchMax), ptr.To(in.ScratchMax)
 	}
+	if !in.TmpMax.IsZero() {
+		tmp.SizeLimit = ptr.To(in.TmpMax)
+	}
 	l := Layout{
+		DiskMax: in.DiskMax,
 		Volumes: []corev1.Volume{
 			claimVolume(HomeVolume, claim, in.ReadOnly),
 			{Name: TmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: tmp}},
@@ -191,6 +205,21 @@ func (l Layout) Apply(pod *corev1.Pod, c *corev1.Container) {
 		pod.Annotations[k] = v
 	}
 	pod.Spec.Affinity = l.Affinity
+	if !l.DiskMax.IsZero() {
+		// The kubelet evicts the pod past the limit (ScratchFull). The request
+		// is an explicit zero: left out, it would default to the limit and
+		// reserve that much disk on the node for every pod.
+		if c.Resources.Limits == nil {
+			c.Resources.Limits = corev1.ResourceList{}
+		}
+		if c.Resources.Requests == nil {
+			c.Resources.Requests = corev1.ResourceList{}
+		}
+		c.Resources.Limits[corev1.ResourceEphemeralStorage] = l.DiskMax
+		if _, ok := c.Resources.Requests[corev1.ResourceEphemeralStorage]; !ok {
+			c.Resources.Requests[corev1.ResourceEphemeralStorage] = resource.MustParse("0")
+		}
+	}
 	if pod.Spec.SecurityContext == nil {
 		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
 	}

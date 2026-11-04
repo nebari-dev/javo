@@ -100,8 +100,18 @@ func (r Resolver) Input(ctx context.Context, ns, owner string) (Input, error) {
 		cs = &c
 	}
 	in.ScratchMax = resource.MustParse(defaultScratch)
-	if cs != nil && cs.Spec.Scratch.SizeLimit != nil {
-		in.ScratchMax = *cs.Spec.Scratch.SizeLimit
+	in.TmpMax = resource.MustParse(model.DefaultTmpSize)
+	in.DiskMax = resource.MustParse(model.DefaultDiskLimit)
+	if cs != nil {
+		sc := cs.Spec.Scratch
+		for _, q := range []struct {
+			to   *resource.Quantity
+			from *resource.Quantity
+		}{{&in.ScratchMax, sc.SizeLimit}, {&in.TmpMax, sc.TmpSizeLimit}, {&in.DiskMax, sc.DiskLimit}} {
+			if q.from != nil {
+				*q.to = *q.from
+			}
+		}
 	}
 	if in.Home != nil {
 		in.CoLocate = CoLocate(r.Backends, in.Home, cs)

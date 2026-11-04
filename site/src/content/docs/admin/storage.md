@@ -42,6 +42,18 @@ config:
 
 A home whose disk a machine keeps failing to attach or mount for 2 minutes fails with "Home folder could not be mounted", and the machine's own message shows on the app page and the admin Storage page. Shared storage served over NFS (Longhorn ReadWriteMany, for example) needs an NFS client (`nfs-common` or `nfs-utils`) on every node; when the message says a `mount.<type>` helper is missing, the Storage page says so. Install the client, or set `storage.home.mode: perUser` for new homes.
 
+### Storage that ignores sizes
+
+Some storage does not enforce a claim's size: k3s's `local-path` (the default of the Compose and single-node installs), `nfs.csi.k8s.io` and `nfs-subdir-external-provisioner`. There a home can grow until the disk under it is full. When the database (SQLite), its backups (`javo-backups`) and the nodes' own disk share that disk, one person writing a large file (`fallocate -l 500G ~/big`) stops the platform for everyone: database writes fail and the kubelet evicts pods for disk pressure. The admin Storage page warns about it ("Home folders have no size limit").
+
+On such storage, do at least one of these:
+
+- Put homes on a filesystem with quotas: on `local-path`, point its storage path at an XFS filesystem mounted with `prjquota` and give each home directory a project quota, or use a CSI driver that enforces capacity (Longhorn, a cloud disk).
+- Keep the database and its backups off that disk: a separate volume for the SQLite claim and `javo-backups` (a StorageClass on another disk), or `database.engine: postgres` on a server elsewhere, plus `backupTarget` to copy backups off the machine.
+- Watch disk use on the nodes, so a full disk is noticed before it stops anything.
+
+The node-local space each pod uses besides its home is bounded either way; see [Scratch](#scratch).
+
 ## Moving homes to another mode
 
 Changing `home.mode` never touches an existing home: the new mode applies to new homes. Existing homes move only when you schedule it, on the admin Storage page or with the CLI:
@@ -68,6 +80,8 @@ Name the group the way the identity provider does. `config.storage.sharedFolders
 ## Scratch
 
 Every app gets `/scratch`, node-local space for caches, up to `config.storage.scratch.sizeLimit` (20Gi). It is emptied when the app stops.
+
+Node-local disk is bounded per pod, so no app or job can fill a node's disk with it: `/tmp` holds up to `config.storage.scratch.tmpSizeLimit` (2Gi), and each app and job container may write at most `config.storage.scratch.diskLimit` (30Gi) in all (scratch, `/tmp`, its own image layer and logs). Past either limit the kubelet evicts the pod and the app shows "Temporary space is full". `diskLimit` must hold `sizeLimit` plus `tmpSizeLimit`; on small nodes lower all three. The limit reserves nothing: the pod requests no disk.
 
 ## Namespaces and team storage
 

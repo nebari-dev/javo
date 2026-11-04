@@ -77,6 +77,12 @@ type TeamStorageSpec struct {
 // +kubebuilder:object:generate=true
 type ScratchSpec struct {
 	SizeLimit *resource.Quantity `json:"sizeLimit,omitempty"`
+	// TmpSizeLimit limits each pod's /tmp.
+	TmpSizeLimit *resource.Quantity `json:"tmpSizeLimit,omitempty"`
+	// DiskLimit is the ephemeral-storage limit of each app and job
+	// container: all a pod may write to the node's disk (scratch, /tmp, its
+	// image layer and logs). It must hold SizeLimit plus TmpSizeLimit.
+	DiskLimit *resource.Quantity `json:"diskLimit,omitempty"`
 }
 
 // ClassOverride lets an admin state a fact the platform cannot detect.
@@ -136,6 +142,8 @@ const (
 	DefaultHomeSize      = "10Gi"
 	DefaultFolderSize    = "20Gi"
 	DefaultScratchSize   = "20Gi"
+	DefaultTmpSize       = "2Gi"
+	DefaultDiskLimit     = "30Gi"
 	DefaultProbeTimeout  = 5 * time.Minute
 	DefaultKeepOldClaims = 168 * time.Hour
 )
@@ -148,6 +156,8 @@ func (s *ClusterStorageSpec) ApplyDefaults() {
 	setQuantity(&s.Home.Size, DefaultHomeSize)
 	setQuantity(&s.SharedFolders.DefaultSize, DefaultFolderSize)
 	setQuantity(&s.Scratch.SizeLimit, DefaultScratchSize)
+	setQuantity(&s.Scratch.TmpSizeLimit, DefaultTmpSize)
+	setQuantity(&s.Scratch.DiskLimit, DefaultDiskLimit)
 	if s.Probe.Timeout == nil {
 		s.Probe.Timeout = &metav1.Duration{Duration: DefaultProbeTimeout}
 	}
@@ -174,6 +184,20 @@ func (s *ClusterStorageSpec) Validate() error {
 	}
 	if s.Home.Size != nil && s.Home.MaxSize != nil && s.Home.Size.Cmp(*s.Home.MaxSize) > 0 {
 		errs = append(errs, errors.New("storage.home.size: size is larger than maxSize"))
+	}
+	if sc := s.Scratch; sc.DiskLimit != nil {
+		need := resource.MustParse(DefaultScratchSize)
+		if sc.SizeLimit != nil {
+			need = sc.SizeLimit.DeepCopy()
+		}
+		tmp := resource.MustParse(DefaultTmpSize)
+		if sc.TmpSizeLimit != nil {
+			tmp = *sc.TmpSizeLimit
+		}
+		need.Add(tmp)
+		if sc.DiskLimit.Cmp(need) < 0 {
+			errs = append(errs, fmt.Errorf("storage.scratch.diskLimit: %s is less than sizeLimit plus tmpSizeLimit (%s)", sc.DiskLimit.String(), need.String()))
+		}
 	}
 	for i, o := range s.ClassOverrides {
 		if o.Name == "" {

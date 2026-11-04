@@ -186,3 +186,26 @@ func TestTmpHasTheScratchLimit(t *testing.T) {
 		t.Fatalf("tmp volume = %+v, want a 20Gi size limit", tmp)
 	}
 }
+
+// One person's pod cannot fill the node's disk (and with it the database and
+// everyone else's pods): /tmp has a size limit, and the app container a
+// limit on all it writes to node-local disk. The request stays zero so the
+// limit does not reserve disk on a small node.
+func TestTmpAndTheContainersDiskAreLimited(t *testing.T) {
+	in := input()
+	in.TmpMax, in.DiskMax = resource.MustParse("2Gi"), resource.MustParse("30Gi")
+	l := podstorage.Build(owner, in)
+	tmp := volumes(l)["tmp"].EmptyDir
+	if tmp == nil || tmp.SizeLimit == nil || tmp.SizeLimit.Cmp(resource.MustParse("2Gi")) != 0 {
+		t.Fatalf("/tmp volume = %+v", tmp)
+	}
+	pod := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}}}
+	l.Apply(pod, &pod.Spec.Containers[0])
+	r := pod.Spec.Containers[0].Resources
+	if lim := r.Limits[corev1.ResourceEphemeralStorage]; lim.Cmp(resource.MustParse("30Gi")) != 0 {
+		t.Fatalf("ephemeral-storage limit = %s", lim.String())
+	}
+	if req, ok := r.Requests[corev1.ResourceEphemeralStorage]; !ok || !req.IsZero() {
+		t.Fatalf("ephemeral-storage request = %v (set %v), want an explicit 0", req.String(), ok)
+	}
+}

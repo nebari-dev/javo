@@ -176,6 +176,25 @@ func TestResolverScratchLimitComesFromClusterStorageWithADefault(t *testing.T) {
 	}
 }
 
+func TestResolverDiskLimitsComeFromClusterStorageWithDefaults(t *testing.T) {
+	cs := storageObj(true, "")
+	tmp, disk := resource.MustParse("1Gi"), resource.MustParse("8Gi")
+	cs.Spec.Scratch.TmpSizeLimit, cs.Spec.Scratch.DiskLimit = &tmp, &disk
+	in, err := resolver(db(cs), nil, nil).Input(context.Background(), ns, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.TmpMax.Cmp(tmp) != 0 || in.DiskMax.Cmp(disk) != 0 {
+		t.Errorf("configured: tmp %s, disk %s", in.TmpMax.String(), in.DiskMax.String())
+	}
+	if in, err = resolver(db(), nil, nil).Input(context.Background(), ns, owner); err != nil {
+		t.Fatal(err)
+	}
+	if in.TmpMax.Cmp(resource.MustParse(model.DefaultTmpSize)) != 0 || in.DiskMax.Cmp(resource.MustParse(model.DefaultDiskLimit)) != 0 {
+		t.Errorf("defaults: tmp %s, disk %s", in.TmpMax.String(), in.DiskMax.String())
+	}
+}
+
 func TestResolverWithoutAHomeStillLaysOutScratch(t *testing.T) {
 	in, err := resolver(db(), nil, nil).Input(context.Background(), ns, owner)
 	if err != nil || in.Home != nil || in.CoLocate {
