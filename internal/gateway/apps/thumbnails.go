@@ -127,8 +127,12 @@ func (s *Workspaces) getThumbnail(ctx context.Context, in *thumbnailGetInput) (*
 	case !errors.Is(err, store.ErrNotFound):
 		return nil, problem.Internal("read template", err)
 	}
+	parent, err := s.db.Apps().ParentOf(ctx, app)
+	if err != nil {
+		return nil, problem.Internal("read the parent of a preview", err)
+	}
 	p := authn.User(ctx)
-	if !authz.Decide(p, authz.RolesOf(p, s.Roles), authz.ActOpenApp, authz.Object{App: app, Template: t}).Allowed {
+	if !authz.Decide(p, authz.RolesOf(p, s.Roles), authz.ActOpenApp, authz.Object{App: app, Parent: parent, Template: t}).Allowed {
 		return nil, errNotFound()
 	}
 	pic, err := s.db.Thumbnails().Get(ctx, app.ID)

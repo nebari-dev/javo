@@ -551,3 +551,38 @@ func TestPreviewSyncResultCarriesTheCatalogsWords(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// The parent's sharing as it is now caps its previews: once the parent stops
+// sharing with bob, the preview leaves his list and its thumbnail, even before
+// the preview reconciler copies the change.
+func TestPreviewLeavesTheSharedListWhenTheParentStopsSharing(t *testing.T) {
+	t.Parallel()
+	parent := apitest.RepoApp("site")
+	parent.Sharing = model.Sharing{Access: model.AccessRestricted, Users: []string{apitest.BobID}}
+	tpl := gatewaytest.Template("streamlit", "streamlit")
+	tpl.Spec.MaxSharing = model.AccessSignedIn
+	now := time.Now()
+	f := apitest.New(t, apitest.Options{Urls: apitest.SeparateHosts, Thumbnails: true, People: []apitest.TestPerson{apitest.SignedIn("alice", now), apitest.SignedIn("bob", now)}}, tpl, parent)
+	child := f.PreviewChild(parent, 7)
+	bob := f.Session(apitest.BobID)
+	if err := f.Db.Thumbnails().Set(context.Background(), gatewaytest.Actor, child.ID, "image/png", []byte("png")); err != nil {
+		t.Fatal(err)
+	}
+	thumb := "/api/workspaces/" + child.Name + "/thumbnail?owner=" + child.Owner
+	if w := f.Do("GET", thumb, "", bob); w.Code != http.StatusOK {
+		t.Fatalf("bob's thumbnail of the shared preview: %d %s", w.Code, w.Body)
+	}
+	p := f.GetWorkspace(parent.Owner, parent.Name)
+	if _, err := f.Db.Apps().UpdateSpec(context.Background(), gatewaytest.Actor, p.ID, p.Version, func(a *model.App) error {
+		a.Sharing = model.Sharing{Access: model.AccessPrivate}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if w := f.Do("GET", "/api/shared?previews=true", "", bob); w.Code != http.StatusOK || strings.Contains(w.Body.String(), child.Name) {
+		t.Fatalf("bob's shared list: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("GET", thumb, "", bob); w.Code != http.StatusNotFound {
+		t.Fatalf("bob's thumbnail of the preview: %d %s", w.Code, w.Body)
+	}
+}

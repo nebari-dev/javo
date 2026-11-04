@@ -138,8 +138,9 @@ func (m *Tickets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	app, tpl := m.Apps.load(r.Context(), target)
-	if app == nil || !authz.Decide(ui.Principal, authz.RolesOf(ui.Principal, m.Roles), authz.ActOpenApp, authz.Object{App: app, Template: tpl}).Allowed {
+	obj := m.Apps.object(r.Context(), target)
+	app := obj.App
+	if app == nil || !authz.Decide(ui.Principal, authz.RolesOf(ui.Principal, m.Roles), authz.ActOpenApp, obj).Allowed {
 		notFound(w)
 		return
 	}
@@ -214,6 +215,21 @@ func (p *proxy) redeem(w http.ResponseWriter, r *http.Request, t exposure.Target
 
 // AppLookup finds the app and template a Target names.
 type AppLookup struct{ DB *store.Store }
+
+// object is what authz decides opening the app t names on: the app, the
+// parent of a preview (nil when it cannot be read, which authz refuses to
+// anyone but the owner and admins) and the template. A nil App means none.
+func (l *AppLookup) object(ctx context.Context, t exposure.Target) authz.Object {
+	app, tpl := l.load(ctx, t)
+	if app == nil {
+		return authz.Object{}
+	}
+	parent, err := l.DB.Apps().ParentOf(ctx, app)
+	if err != nil {
+		slog.Error("read the parent of a preview", "app", app.ID, "err", err)
+	}
+	return authz.Object{App: app, Parent: parent, Template: tpl}
+}
 
 // load returns the app for t and its template. Missing or deleted apps give
 // a nil app; a missing template a nil template (capped at Private by authz).

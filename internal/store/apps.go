@@ -305,6 +305,26 @@ func (a *Apps) GetByObjectName(ctx context.Context, objectName string) (model.Ap
 	return loadApp(ctx, a.s.q, row, err)
 }
 
+// ParentOf returns the app the preview app previews, as it is now, for
+// authz.Object.Parent. It is nil for an app that is not a preview and for a
+// preview whose parent is gone or marked deleted; authz then opens the
+// preview only for its owner and platform admins.
+func (a *Apps) ParentOf(ctx context.Context, app *model.App) (*model.App, error) {
+	if app == nil || app.ParentID == "" {
+		return nil, nil
+	}
+	parent, err := a.Get(ctx, app.ParentID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case !parent.DeletedAt.IsZero():
+		return nil, nil
+	}
+	return &parent, nil
+}
+
 func readApp(ctx context.Context, q *sqlcgen.Queries, id string) (model.App, error) {
 	row, err := q.GetApp(ctx, id)
 	return loadApp(ctx, q, row, err)

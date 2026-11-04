@@ -391,7 +391,11 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 	out.Body.Items = []SharedApp{}
 	for i := range apps {
 		app := &apps[i]
-		d := authz.Decide(p, roles, authz.ActOpenApp, authz.Object{App: app, Template: API[app.Template]})
+		parent, err := s.ws.db.Apps().ParentOf(ctx, app)
+		if err != nil {
+			return nil, problem.Internal("read the parent of a preview", err)
+		}
+		d := authz.Decide(p, roles, authz.ActOpenApp, authz.Object{App: app, Parent: parent, Template: API[app.Template]})
 		if !d.Allowed || d.Via != "user" && !strings.HasPrefix(d.Via, "group:") {
 			continue
 		}

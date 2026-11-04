@@ -19,7 +19,7 @@ Your admin must turn previews on for the platform (`source.previews.enabled`, se
 
 ## Who can open a preview
 
-A preview of a pull request from the same repository copies its parent's [sharing](/using/sharing/), and follows it when the parent's sharing changes. A preview of a fork's pull request runs a stranger's code, so only you can open it, whoever the parent is shared with.
+A preview of a pull request from the same repository copies its parent's [sharing](/using/sharing/), and follows it when the parent's sharing changes. A preview never opens for anyone the parent is not shared with right now: making the parent private closes its previews at once, even while GitHub cannot be reached. A preview of a fork's pull request runs a stranger's code, so only you can open it, whoever the parent is shared with.
 
 ## What a preview never gets
 

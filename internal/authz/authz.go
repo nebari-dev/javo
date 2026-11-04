@@ -102,7 +102,11 @@ const (
 
 // Object is what the action is about. Which fields matter depends on the action.
 type Object struct {
-	App      *model.App
+	App *model.App
+	// Parent is the app App previews, as it is now, for ActOpenApp on a
+	// preview: its sharing caps the preview's. A preview without it opens
+	// only for its owner and platform admins.
+	Parent   *model.App
 	Template *model.Template
 	Job      *model.Job
 	// Size is the named size for ActUseSize.
@@ -269,10 +273,24 @@ func openApp(p Principal, admin bool, obj Object) Decision {
 	if a == nil {
 		return deny(reasons.MsgAppNotFound)
 	}
+	if a.ParentID != "" {
+		// A preview copies its parent's sharing only when the code host
+		// answers; the parent's sharing as it is now caps it.
+		par := obj.Parent
+		if par == nil || par.ID != a.ParentID || par.Owner != a.Owner || !sharedWith(p, par, obj.Template).Allowed {
+			return deny(reasons.MsgAppNotFound)
+		}
+	}
+	return sharedWith(p, a, obj.Template)
+}
+
+// sharedWith answers whether a's sharing, within the template's cap, lets p
+// open it.
+func sharedWith(p Principal, a *model.App, t *model.Template) Decision {
 	s := a.Sharing
 	// The lower of the app's level and the template's cap wins. A missing
 	// template or an unset or unknown level caps at Private.
-	level := min(rank(s.Access), rank(model.MaxSharing(obj.Template)))
+	level := min(rank(s.Access), rank(model.MaxSharing(t)))
 	if level >= model.AccessRank(model.AccessRestricted) && signedIn(p) {
 		if slices.Contains(s.Users, p.ID) {
 			return allow("user")

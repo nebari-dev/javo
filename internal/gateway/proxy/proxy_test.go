@@ -20,6 +20,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
 	"github.com/nebari-dev/javo/internal/features/exposuresubdomain"
+	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
 	"github.com/nebari-dev/javo/internal/model"
@@ -647,5 +648,68 @@ func TestTheOwnerOpeningTheAppStoresTheirNebiToken(t *testing.T) {
 			t.Fatal("no Nebi token stored after the owner opened the app")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A preview copies its parent's sharing only when the code host answers. While
+// it does not, the parent made Private must still close the preview to
+// everyone it was shared with.
+func TestParentMadePrivateClosesItsPreviewAtOnce(t *testing.T) {
+	t.Parallel()
+	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "preview") }))
+	ctx := context.Background()
+	u, _ := url.Parse(f.backend.URL)
+	f.proxy = New(Config{
+		Store: f.db, Sessions: f.store, Activity: f.activity,
+		Exposure:    exposuresubdomain.New(config.URLs{Mode: "subdomain", UIHost: "javo.example.com", AppsDomain: "apps.example.com"}),
+		Revalidator: authn.NewRevalidator(nil, f.store, nil, 0, nil),
+		Resolve:     func(context.Context, *model.App, *model.Template) (Backend, error) { return Backend{URL: u}, nil },
+	})
+	tpl := gatewaytest.Template("open", "streamlit")
+	tpl.Spec.MaxSharing = model.AccessPublic
+	parent := gatewaytest.App(f.aliceSl, "site")
+	parent.Template = "open"
+	parent.Source = &model.Source{URL: "https://github.com/example-org/site", Previews: &model.Previews{Enabled: true}}
+	parent.Sharing = model.Sharing{Access: model.AccessSignedIn}
+	gatewaytest.Seed(t, f.db, []any{tpl, parent})
+	p, err := f.db.Apps().GetByOwnerName(ctx, f.aliceSl, "site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := f.db.Previews().Put(ctx, &model.App{
+		Namespace: p.Namespace, Name: "site--pr-3", Owner: p.Owner, Template: p.Template, ParentID: p.ID, PullNumber: 3,
+		Source: &model.Source{URL: p.Source.URL, Ref: strings.Repeat("a", 40)}, Sharing: p.Sharing,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob := authz.Principal{ID: "bob-bbbbbbbb", Username: "bob"}
+	ui, err := f.store.Create(ctx, session.Session{Principal: bob, Provider: "local", Kind: session.KindUI, RevalidateAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := f.store.Create(ctx, session.Session{Principal: bob, Provider: "local", Kind: session.KindApp,
+		Parent: session.ID(ui), Workspace: child.Namespace + "/" + child.ObjectName()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func() int {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Host = child.ObjectName() + ".apps.example.com"
+		tg, _ := exposuresubdomain.New(config.URLs{Mode: "subdomain", AppsDomain: "apps.example.com"}).Match(r)
+		r.AddCookie(&http.Cookie{Name: f.proxy.(*proxy).appCookie(tg).Name, Value: app})
+		return f.do(r).Code
+	}
+	if code := open(); code != 200 {
+		t.Fatalf("shared preview: %d", code)
+	}
+	if _, err := f.db.Apps().UpdateSpec(ctx, gatewaytest.Actor, p.ID, p.Version, func(a *model.App) error {
+		a.Sharing = model.Sharing{Access: model.AccessPrivate}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code := open(); code != 404 {
+		t.Fatalf("parent is private, the preview still opens: %d", code)
 	}
 }

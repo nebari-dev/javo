@@ -354,7 +354,8 @@ func (a access) opens() bool { return a.decision.Allowed && !a.refused }
 // template as they are now.
 func (p *proxy) access(r *http.Request, t exposure.Target) access {
 	var a access
-	a.app, a.tpl = p.apps.load(r.Context(), t)
+	obj := p.apps.object(r.Context(), t)
+	a.app, a.tpl = obj.App, obj.Template
 	var sess session.Session
 	sess, a.uiID, a.signedIn = p.session(r, t, a.app)
 	a.who = authz.Principal{Anonymous: true}
@@ -365,7 +366,7 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 		return a
 	}
 	roles := authz.RolesOf(a.who, p.cfg.Roles)
-	a.decision = authz.Decide(a.who, roles, authz.ActOpenApp, authz.Object{App: a.app, Template: a.tpl})
+	a.decision = authz.Decide(a.who, roles, authz.ActOpenApp, obj)
 	if a.decision.Allowed {
 		a.refusal, a.refused = p.sharedOriginRefusal(a.app, a.decision, roles)
 	}

@@ -205,3 +205,44 @@ func TestNewMessageCodesHaveCopy(t *testing.T) {
 func job(owner string) *model.Job {
 	return &model.Job{Owner: owner}
 }
+
+// A preview copies its parent's sharing only when the code host answers, so
+// the parent's current sharing caps it on every open: a parent made Private
+// closes its previews at once, and a preview whose parent was not loaded
+// opens for nobody but its owner and admins.
+func TestPreviewIsCappedByItsParentsSharing(t *testing.T) {
+	open := tpl("Public", nil, nil)
+	preview := func(access string, users, groups []string) *model.App {
+		a := ws(access, users, groups)
+		a.ParentID = "parent-1"
+		return a
+	}
+	parent := func(access string, users, groups []string) *model.App {
+		a := ws(access, users, groups)
+		a.ID = "parent-1"
+		return a
+	}
+	for _, tc := range []struct {
+		name string
+		p    authz.Principal
+		obj  authz.Object
+		want bool
+	}{
+		{"parent private closes a public preview", carol, authz.Object{App: preview("Public", nil, nil), Parent: parent("Private", nil, nil), Template: open}, false},
+		{"parent private closes it to anonymous", anon, authz.Object{App: preview("Public", nil, nil), Parent: parent("Private", nil, nil), Template: open}, false},
+		{"parent no longer shares with bob", bob, authz.Object{App: preview("Restricted", []string{bob.ID}, nil), Parent: parent("Restricted", []string{carol.ID}, nil), Template: open}, false},
+		{"parent dropped the group", bob, authz.Object{App: preview("Restricted", nil, []string{"/org/ds"}), Parent: parent("Private", nil, nil), Template: open}, false},
+		{"parent not loaded", carol, authz.Object{App: preview("Public", nil, nil), Template: open}, false},
+		{"parent of another app", carol, authz.Object{App: preview("Public", nil, nil), Parent: &model.App{ID: "other", Owner: alice.ID, Sharing: model.Sharing{Access: "Public"}}, Template: open}, false},
+		{"both public", carol, authz.Object{App: preview("Public", nil, nil), Parent: parent("Public", nil, nil), Template: open}, true},
+		{"both share with bob", bob, authz.Object{App: preview("Restricted", []string{bob.ID}, nil), Parent: parent("Restricted", []string{bob.ID}, nil), Template: open}, true},
+		{"owner without parent", alice, authz.Object{App: preview("Private", nil, nil), Template: open}, true},
+		{"admin without parent", admin, authz.Object{App: preview("Private", nil, nil), Template: open}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if d := authz.Decide(tc.p, authz.RolesOf(tc.p, roleCfg), authz.ActOpenApp, tc.obj); d.Allowed != tc.want {
+				t.Fatalf("allowed = %v (%+v), want %v", d.Allowed, d, tc.want)
+			}
+		})
+	}
+}
