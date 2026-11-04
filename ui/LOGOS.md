@@ -8,7 +8,7 @@ texts for the logos that need them are in [src/assets/logos/NOTICES.md](src/asse
 Simple Icons files come from npm `simple-icons@16.35.0` (CC0 1.0), tarball
 `https://registry.npmjs.org/simple-icons/-/simple-icons-16.35.0.tgz`,
 integrity `sha512-TCfl/2+GTrx0nCo4pEWGvxhOb8c6NsqOU1OpwjtF4lwJAthB8IYVD0fuIMjLMg6JFuG1YBO0t1iETQqJLqkoJA==`, path `icons/<slug>.svg`.
-Simple Icons has no mark for Panel, Bokeh, Voila, marimo, Pluto.jl or code-server; its `dash` icon is the
+Simple Icons has no mark for Panel, Bokeh, Voila, marimo or Pluto.jl; its `dash` icon is the
 Dash cryptocurrency, not Plotly Dash; it has no Visual Studio Code icon.
 
 | Kind | File | Source | License | Colour |
@@ -33,7 +33,7 @@ Dash cryptocurrency, not Plotly Dash; it has no Visual Studio Code icon.
 | claude-code | claudecode.svg | Simple Icons `claudecode` (Claude Code) | CC0 1.0 | #d97757 |
 | pi | pi.svg | pi's own mark, transcribed (2) from https://github.com/earendil-works/pi/blob/71023aec1546d6d677a65669c5665c0927ce0dd0/packages/coding-agent/src/modes/interactive/components/pi-logo.ts | MIT | own |
 | herdr | herdr.svg | https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/assets/logo.svg (tag v0.9.5) | Apache-2.0 | text colour (3) |
-| vscode | code-server.svg | https://github.com/coder/code-server/blob/68810a6bd6f34356dc579214bc75a30b699500c4/src/browser/media/favicon.svg | MIT | text colour (code-server's own dark variant turns white) |
+| vscode | vscode.png | https://github.com/nebari-dev/jhub-apps/blob/ff5faa9ef2bb9171e7fd650446bbd368a43a22fa/jhub_apps/static/img/logos/vscode.png | BSD-3-Clause | text colour (4) |
 | custom | none | Lucide `square-terminal` (not a product) | ISC | text colour |
 
 (1) The Voila icon colours its two paths through JupyterLab theme classes that do not apply outside JupyterLab.
@@ -47,5 +47,7 @@ rgb(234,182,93). `pi.svg` draws the same grid and colours as rectangles; nothing
 (3) herdr's logo is a dark mark (#303438) on a light grey square. The vendored copy drops the square (one
 `<rect>` line) so the mark can be drawn in the text colour in light and dark mode; the path is unchanged.
 
-The vscode kind runs code-server, so it shows code-server's mark. The Visual Studio Code logo is a Microsoft
-trademark and is not in Simple Icons; VSCodium's mark would name a different product.
+(4) The vscode kind uses the VS Code logo from jhub-apps, the app launcher Nebari used before. The source is
+an 858 by 390 banner with a black mark on a light grey gradient. The vendored copy is cropped to a 243 by 243
+square around the mark, and each pixel's darkness becomes its opacity, so the background is transparent and
+the mark can be drawn in the text colour in light and dark mode. The shape is unchanged.

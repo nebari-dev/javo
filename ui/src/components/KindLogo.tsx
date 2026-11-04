@@ -1,7 +1,7 @@
 import { Container, Globe, House, SquareTerminal, Terminal, type LucideIcon } from 'lucide-react'
 import bokeh from '../assets/logos/bokeh.svg'
 import claudeCode from '../assets/logos/claudecode.svg'
-import codeServer from '../assets/logos/code-server.svg'
+import vscode from '../assets/logos/vscode.png'
 import fastapi from '../assets/logos/fastapi.svg'
 import git from '../assets/logos/git.svg'
 import gradio from '../assets/logos/gradio.svg'
@@ -35,7 +35,7 @@ const LOGOS: Record<string, Logo> = {
   rstudio: { src: rstudio, tint: '#75aadb' },
   marimo: { src: marimo, tint: 'var(--logo-marimo)' },
   pluto: { src: pluto },
-  vscode: { src: codeServer, tint: 'var(--text)' },
+  vscode: { src: vscode, tint: 'var(--text)', scale: 1.2 },
   panel: { src: panel, scale: 0.9 },
   bokeh: { src: bokeh, scale: 1.1 },
   voila: { src: voila, scale: 1.15 },
