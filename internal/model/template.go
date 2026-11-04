@@ -554,3 +554,18 @@ func (j *TemplateJobs) validate(v *validator, field string) {
 	}
 	validateParameters(v, f+".parameters", j.Sample.Parameters)
 }
+
+// privateOnlyKinds hand whoever opens the app a shell, a notebook kernel or
+// a coding agent that runs as the owner, with the owner's files.
+var privateOnlyKinds = []string{"terminal", "jupyterlab", "claude-code", "pi", "herdr"}
+
+// MaxSharing is the most open level an app from t may be shared at: Private
+// for a missing template, a private-only kind or a coding agent (category
+// agents) whatever spec.maxSharing says, else spec.maxSharing (an unknown
+// value is Private). authz.Decide and the gateway's Sharing API both ask it.
+func MaxSharing(t *Template) string {
+	if t == nil || slices.Contains(privateOnlyKinds, t.Spec.Kind) || t.Spec.Category == "agents" || AccessRank(t.Spec.MaxSharing) < 0 {
+		return AccessPrivate
+	}
+	return t.Spec.MaxSharing
+}

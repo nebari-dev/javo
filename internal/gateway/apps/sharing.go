@@ -79,6 +79,9 @@ type SharingView struct {
 	Levels []AccessLevel `json:"levels"`
 	// TooOpen explains the cap when some level is above MaxAccess; empty otherwise.
 	TooOpen string `json:"tooOpen,omitempty"`
+	// Exposes says what the people the app is shared with get through it;
+	// empty when it cannot be shared.
+	Exposes string `json:"exposes,omitempty"`
 	// APIAccess is the app's API access (see Workspace.apiAccess).
 	APIAccess string `json:"apiAccess" enum:"None,Read,ReadWrite"`
 	// ActsAsOwner says that the app calls the API as its owner, so anyone it
@@ -197,13 +200,19 @@ func (s *sharing) template(ctx context.Context, app *model.App) (*model.Template
 	return &t, nil
 }
 
-// maxAccess is the most open level template t allows; a missing template
-// caps at Private, as authz.Decide does.
-func maxAccess(t *model.Template) string {
-	if t == nil || model.AccessRank(t.Spec.MaxSharing) < 0 {
-		return model.AccessPrivate
+// editorKinds let whoever opens the app run any code or command as its owner.
+var editorKinds = []string{"vscode", "rstudio", "marimo", "pluto"}
+
+// exposes is what sharing an app from t hands the people it is shared with.
+func exposes(t *model.Template) reasons.MessageCode {
+	switch {
+	case t.Spec.Build != nil:
+		// The pod serves the built files and never mounts the home.
+		return reasons.MsgShareExposesSite
+	case slices.Contains(editorKinds, t.Spec.Kind):
+		return reasons.MsgShareExposesCode
 	}
-	return t.Spec.MaxSharing
+	return reasons.MsgShareExposesApp
 }
 
 func (s *sharing) output(ctx context.Context, app *model.App) (*sharingOutput, error) {
@@ -211,13 +220,16 @@ func (s *sharing) output(ctx context.Context, app *model.App) (*sharingOutput, e
 	if err != nil {
 		return nil, err
 	}
-	max := maxAccess(t)
+	max := model.MaxSharing(t)
 	v := SharingView{
 		Access: model.AccessPrivate, MaxAccess: max, Users: []Person{}, Groups: []Group{},
 		Link: s.ws.appURL(app), Levels: accessLevels, APIAccess: model.APIAccessNone,
 	}
 	if t != nil {
 		v.APIAccess = model.APIAccessOf(app, t)
+	}
+	if max != model.AccessPrivate {
+		v.Exposes = reasons.Msg(exposes(t))
 	}
 	if v.APIAccess != model.APIAccessNone {
 		v.ActsAsOwner = reasons.Msg(reasons.MsgAPIAccessActsAsOwner)
@@ -280,7 +292,7 @@ func (s *sharing) set(ctx context.Context, in *sharingInput) (*sharingOutput, er
 	if err != nil {
 		return nil, err
 	}
-	max := maxAccess(t)
+	max := model.MaxSharing(t)
 	b := in.Body
 	var errs []problem.Field
 	if model.AccessRank(b.Access) > model.AccessRank(max) {

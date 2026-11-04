@@ -36,6 +36,13 @@ func tpl(max string, users, groups []string) *model.Template {
 	return &model.Template{Spec: model.TemplateSpec{MaxSharing: max, AllowedUsers: users, AllowedGroups: groups}}
 }
 
+// kindTpl is a template of kind that allows Public sharing.
+func kindTpl(kind string) *model.Template {
+	t := tpl("Public", nil, nil)
+	t.Spec.Kind = kind
+	return t
+}
+
 func TestRolesOf(t *testing.T) {
 	tests := []struct {
 		name string
@@ -94,6 +101,8 @@ func TestDecide(t *testing.T) {
 		{"public capped to signed-in: bob allowed", bob, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: tpl("SignedIn", nil, nil)}, true, "signed-in", ""},
 		{"cap Private ignores listed users", bob, authz.ActOpenApp, authz.Object{App: ws("Restricted", []string{bob.ID}, nil), Template: tpl("Private", nil, nil)}, false, "", reasons.MsgAppNotFound},
 		{"template without maxSharing caps at Private", carol, authz.ActOpenApp, authz.Object{App: ws("SignedIn", nil, nil), Template: tpl("", nil, nil)}, false, "", reasons.MsgAppNotFound},
+		{"terminal stays private whatever its template allows", bob, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: kindTpl("terminal")}, false, "", reasons.MsgAppNotFound},
+		{"coding agent stays private whatever its template allows", anon, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: kindTpl("claude-code")}, false, "", reasons.MsgAppNotFound},
 		{"missing template caps at Private", carol, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil)}, false, "", reasons.MsgAppNotFound},
 		{"unknown access level grants nothing", bob, authz.ActOpenApp, authz.Object{App: ws("Everyone", []string{bob.ID}, nil), Template: open}, false, "", reasons.MsgAppNotFound},
 		{"owner opens even when template missing", alice, authz.ActOpenApp, authz.Object{App: ws("", nil, nil)}, true, "owner", ""},

@@ -320,3 +320,79 @@ func TestSharedListSaysSoWhenNothingIsShared(t *testing.T) {
 		t.Fatalf("empty %q though one app is shared", got.Empty)
 	}
 }
+
+// shareFixture serves Alice's app "report" from tpl, which allows Public.
+func shareFixture(t *testing.T, tpl *model.Template) *apitest.Fixture {
+	t.Helper()
+	tpl.Spec.MaxSharing = model.AccessPublic
+	return apitest.New(t, apitest.Options{Urls: apitest.SeparateHosts, People: []apitest.TestPerson{apitest.SignedIn("alice", time.Time{}), apitest.SignedIn("bob", time.Time{})}},
+		tpl, gatewaytest.Workspace("report", apitest.AliceID, "Report"))
+}
+
+// The Terminal, JupyterLab and the coding agents hand whoever opens them code
+// running as the owner, so they stay private whatever their template allows,
+// even through the API.
+func TestPrivateOnlyKindsRefuseSharingWhateverTheTemplateAllows(t *testing.T) {
+	t.Parallel()
+	agent := gatewaytest.Template("streamlit", "custom")
+	agent.Spec.Category = "agents"
+	for name, tpl := range map[string]*model.Template{
+		"terminal":        gatewaytest.Template("streamlit", "terminal"),
+		"jupyterlab":      gatewaytest.Template("streamlit", "jupyterlab"),
+		"claude-code":     gatewaytest.Template("streamlit", "claude-code"),
+		"pi":              gatewaytest.Template("streamlit", "pi"),
+		"herdr":           gatewaytest.Template("streamlit", "herdr"),
+		"agents category": agent,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := shareFixture(t, tpl)
+			alice := f.Session(apitest.AliceID)
+			w := f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, alice)
+			if w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status %d: %s", w.Code, w.Body)
+			}
+			want := reasons.Msg(reasons.MsgShareTooOpen, reasons.Msg(reasons.MsgAccessPrivate))
+			if msg, _ := apitest.Decode[apitest.Problem](t, w).FieldMessage("body.access"); msg != want {
+				t.Fatalf("message %q, want %q", msg, want)
+			}
+			if got := apitest.Decode[apitest.SharingJSON](t, f.Do("GET", apitest.SharePath, "", alice)); got.MaxAccess != model.AccessPrivate {
+				t.Fatalf("maxAccess %q", got.MaxAccess)
+			}
+		})
+	}
+}
+
+// Every other kind can be shared, and the Sharing tab says what that hands
+// the people it is shared with.
+func TestShareableKindsSayWhatSharingExposes(t *testing.T) {
+	t.Parallel()
+	site := gatewaytest.Template("streamlit", "static")
+	site.Spec.Build = &model.TemplateBuild{Image: "example.org/node:1", Command: "npm run build", ServeDir: "/srv"}
+	for name, c := range map[string]struct {
+		tpl  *model.Template
+		want reasons.MessageCode
+	}{
+		"vscode":    {gatewaytest.Template("streamlit", "vscode"), reasons.MsgShareExposesCode},
+		"rstudio":   {gatewaytest.Template("streamlit", "rstudio"), reasons.MsgShareExposesCode},
+		"marimo":    {gatewaytest.Template("streamlit", "marimo"), reasons.MsgShareExposesCode},
+		"pluto":     {gatewaytest.Template("streamlit", "pluto"), reasons.MsgShareExposesCode},
+		"streamlit": {gatewaytest.Template("streamlit", "streamlit"), reasons.MsgShareExposesApp},
+		"voila":     {gatewaytest.Template("streamlit", "voila"), reasons.MsgShareExposesApp},
+		"fastapi":   {gatewaytest.Template("streamlit", "fastapi"), reasons.MsgShareExposesApp},
+		"container": {gatewaytest.Template("streamlit", "container"), reasons.MsgShareExposesApp},
+		"static":    {site, reasons.MsgShareExposesSite},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := shareFixture(t, c.tpl)
+			w := f.Do("PUT", apitest.SharePath, `{"access":"SignedIn","users":[],"groups":[]}`, f.Session(apitest.AliceID))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", w.Code, w.Body)
+			}
+			if got := apitest.Decode[apitest.SharingJSON](t, w); got.MaxAccess != model.AccessPublic || got.Exposes != reasons.Msg(c.want) {
+				t.Fatalf("maxAccess %q, exposes %q, want %q", got.MaxAccess, got.Exposes, reasons.Msg(c.want))
+			}
+		})
+	}
+}

@@ -96,6 +96,9 @@ const (
 	MsgShareTooOpen               MessageCode = "ShareTooOpen"       // arg: highest allowed level in plain words
 	MsgShareTargetUnknown         MessageCode = "ShareTargetUnknown" // arg: the name that matched nobody
 	MsgShareNeedsAppsHost         MessageCode = "ShareNeedsAppsHost"
+	MsgShareExposesCode           MessageCode = "ShareExposesCode" // what sharing an app that runs any code hands its viewers
+	MsgShareExposesApp            MessageCode = "ShareExposesApp"  // ... an app that runs its own code
+	MsgShareExposesSite           MessageCode = "ShareExposesSite" // ... a static site
 	MsgTicketExpired              MessageCode = "TicketExpired"
 	MsgAccessPrivate              MessageCode = "AccessPrivate" // the words for each level, used inside MsgShareTooOpen
 	MsgAccessRestricted           MessageCode = "AccessRestricted"
@@ -342,6 +345,9 @@ var messages = map[MessageCode]string{
 	MsgNotAMember:                 "Your account can open apps shared with you, but cannot create apps. Ask an admin to add you to a member group.",
 	MsgShareNotAllowed:            "Only the owner can change who an app is shared with.",
 	MsgShareTooOpen:               "This kind of app can be shared with %s at most.",
+	MsgShareExposesCode:           "People you share with can run any code or command as you. They can read, change and delete every file in your home folder and your shared folders, including any keys or tokens kept there.",
+	MsgShareExposesApp:            "People you share with use this app as it runs. It runs as you, with your home folder and shared folders, so they see whatever it shows and can make it do whatever its code allows, such as reading or changing your files.",
+	MsgShareExposesSite:           "People you share with can see every page and file of this site. The site cannot see your home folder.",
 	MsgShareTargetUnknown:         "Nobody is called %q. Check the spelling.",
 	MsgTicketExpired:              "That link expired. Open the app again.",
 	MsgShareNeedsAppsHost:         "Sharing needs apps served on a separate host from this page, so a shared app cannot act as you here. Ask an admin to set one up.",

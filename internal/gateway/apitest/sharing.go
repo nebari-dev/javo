@@ -35,6 +35,7 @@ type SharingJSON struct {
 	Link    string
 	Levels  []struct{ Value, Label string }
 	TooOpen string
+	Exposes string
 }
 
 type SharedJSON struct {

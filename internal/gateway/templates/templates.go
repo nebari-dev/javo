@@ -116,10 +116,7 @@ type TemplateSample struct {
 }
 
 func templateView(t *model.Template) Template {
-	max := t.Spec.MaxSharing
-	if model.AccessRank(max) < 0 {
-		max = model.AccessPrivate
-	}
+	max := model.MaxSharing(t)
 	view := Template{
 		Name: t.Name, DisplayName: t.Spec.DisplayName, Description: t.Spec.Description,
 		Category: cmp.Or(t.Spec.Category, model.CategoryOther),

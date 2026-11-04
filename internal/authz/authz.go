@@ -268,7 +268,7 @@ func openApp(p Principal, admin bool, obj Object) Decision {
 	s := a.Sharing
 	// The lower of the app's level and the template's cap wins. A missing
 	// template or an unset or unknown level caps at Private.
-	level := min(rank(s.Access), rank(templateMax(obj.Template)))
+	level := min(rank(s.Access), rank(model.MaxSharing(obj.Template)))
 	if level >= model.AccessRank(model.AccessRestricted) && signedIn(p) {
 		if slices.Contains(s.Users, p.ID) {
 			return allow("user")
@@ -286,13 +286,6 @@ func openApp(p Principal, admin bool, obj Object) Decision {
 		return allow("public")
 	}
 	return deny(reasons.MsgAppNotFound)
-}
-
-func templateMax(t *model.Template) string {
-	if t == nil {
-		return model.AccessPrivate
-	}
-	return t.Spec.MaxSharing
 }
 
 // rank is AccessRank floored at Private so unknown values grant nothing extra.
