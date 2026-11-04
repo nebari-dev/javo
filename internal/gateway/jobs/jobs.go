@@ -313,6 +313,10 @@ func (s *API) authorized(ctx context.Context, owner, name string) (*model.Job, e
 	if dec := authz.Decide(p, authz.RolesOf(p, s.Roles), authz.ActManageJob, authz.Object{Job: &job}); !dec.Allowed {
 		return nil, errJobNotFound()
 	}
+	// A coding agent's change only on a job it may manage.
+	if err := envvars.AgentTarget(ctx, s.DB, authz.Object{Job: &job}); err != nil {
+		return nil, err
+	}
 	return &job, nil
 }
 
@@ -396,7 +400,9 @@ func (s *API) setSize(ctx context.Context, in *sizing.SizeInput) (*jobOutput, er
 // setEnv replaces the job's variables, from the next run on. Only the owner
 // changes them, with their own secrets (envvars.MayChange).
 func (s *API) setEnv(ctx context.Context, in *jobEnvInput) (*jobOutput, error) {
-	if err := authn.NoAppTokens(ctx); err != nil {
+	// A coding agent may set plain values on a job it manages (authorized);
+	// envvars.Check refuses it a secret.
+	if err := authn.NoAppTokensExceptAgents(ctx); err != nil {
 		return nil, err
 	}
 	job, err := s.authorized(ctx, in.Owner, in.Name)
@@ -477,6 +483,9 @@ func (s *API) createFor(ctx context.Context, u authz.Principal, b *jobBody) (*jo
 		return nil, err
 	}
 	job.Spec.Env = plain
+	if err := envvars.AgentCreate(ctx, nil, job, tpl, len(bindings) > 0); err != nil {
+		return nil, err
+	}
 	env, files, err := s.Environments.Pick(ctx, b.Environment)
 	if err != nil {
 		return nil, err
@@ -537,8 +546,13 @@ func (s *API) update(ctx context.Context, in *updateJobInput) (*jobOutput, error
 		return nil, err
 	}
 	u := authn.User(ctx)
-	spec, _, err := s.fill(ctx, u, &in.Body)
+	spec, tpl, err := s.fill(ctx, u, &in.Body)
 	if err != nil {
+		return nil, err
+	}
+	// A coding agent may not move a job onto a template that gives its runs
+	// an API token.
+	if err := envvars.AgentCreate(ctx, nil, job, tpl, false); err != nil {
 		return nil, err
 	}
 	if !runsTheSame(job.Spec, spec) {

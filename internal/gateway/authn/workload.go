@@ -30,6 +30,17 @@ var WorkloadTokenWrites = []string{
 	"adminStartBackupRun", "adminStartRestoreRun",
 }
 
+// AgentDeployWrites are the operations a coding agent's token
+// (ViaAgentToken) may call besides WorkloadTokenWrites: creating, changing
+// and deleting its owner's apps and jobs. Each handler refuses it on an app
+// or job that holds a secret, an API token or a Nebi token, and refuses to
+// give one any (envvars.AgentTarget, envvars.AgentCreate); sharing, API
+// access, secrets and tokens stay off this list.
+var AgentDeployWrites = []string{
+	"createWorkspace", "deleteWorkspace", "setWorkspaceLaunch", "setWorkspaceSize", "setWorkspaceEnv", "setWorkspaceIdleStop",
+	"createJob", "updateJob", "deleteJob", "setJobSize", "setJobEnv",
+}
+
 // WorkloadTokensReadOnly is API middleware that refuses a workload token on
 // every operation that is not a read and not in WorkloadTokenWrites. It runs
 // before the operation's input is read.
@@ -37,7 +48,8 @@ func WorkloadTokensReadOnly(api huma.API) func(huma.Context, func(huma.Context))
 	return func(hctx huma.Context, next func(huma.Context)) {
 		switch m := hctx.Method(); {
 		case m == http.MethodGet, m == http.MethodHead, m == http.MethodOptions,
-			!viaAppToken(hctx.Context()), slices.Contains(WorkloadTokenWrites, hctx.Operation().OperationID):
+			!viaAppToken(hctx.Context()), slices.Contains(WorkloadTokenWrites, hctx.Operation().OperationID),
+			ViaAgentToken(hctx.Context()) && slices.Contains(AgentDeployWrites, hctx.Operation().OperationID):
 			next(hctx)
 			return
 		}

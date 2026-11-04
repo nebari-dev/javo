@@ -65,8 +65,11 @@ type appAction struct {
 
 func (a appAction) Info() actions.Info { return a.info }
 
+// target is the app p names. A proposal is not a change, so a coding
+// agent's token may propose one on any app its owner manages; approving it
+// takes the person in the browser.
 func (a appAction) target(ctx context.Context, p actions.Proposal) (*model.App, error) {
-	return a.s.authorized(ctx, &nameInput{Name: p.Target, Owner: p.Owner}, authz.ActManageApp)
+	return a.s.allowed(ctx, &nameInput{Name: p.Target, Owner: p.Owner}, authz.ActManageApp)
 }
 
 func (a appAction) Plan(ctx context.Context, p actions.Proposal) (actions.Planned, error) {

@@ -92,6 +92,11 @@ type (
 	// sharedPeerKey is set (true) when the client address cannot tell
 	// clients apart (ratelimit.SharedPeer).
 	sharedPeerKey struct{}
+	// agentKey is set (true) when that token is an app's whose template
+	// has agentDeploy (Authenticator.Agents).
+	agentKey struct{}
+	// writeKey is set (true) on a request that is not a read (GET, HEAD).
+	writeKey struct{}
 )
 
 // Authenticator turns the javo_session cookie or an API token into a
@@ -116,6 +121,10 @@ type Authenticator struct {
 	Jobs token.JobCheck
 	// Active, when set, hears of every request a signed-in browser makes.
 	Active func(userID string)
+	// Agents reports whether the app an app token is bound to is a coding
+	// agent with deploy rights (its template's agentDeploy, while the app is
+	// private); nil: none is.
+	Agents func(ctx context.Context, a token.App) (bool, error)
 }
 
 func (a *Authenticator) now() time.Time {
@@ -141,6 +150,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, clientKey{}, ratelimit.ClientIP(r, a.Trusted))
 		ctx = context.WithValue(ctx, peerKey{}, r.RemoteAddr)
 		ctx = context.WithValue(ctx, sharedPeerKey{}, ratelimit.SharedPeer(r, a.Trusted))
+		ctx = context.WithValue(ctx, writeKey{}, r.Method != http.MethodGet && r.Method != http.MethodHead)
 		if publicRoutes[r.Method+" "+r.URL.Path] {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -152,6 +162,15 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 			}
 			ctx = context.WithValue(ctx, apiTokenKey{}, tok.ID)
 			ctx = context.WithValue(ctx, appTokenKey{}, tok.Workload())
+			if tok.App != nil && a.Agents != nil {
+				agent, err := a.Agents(ctx, *tok.App)
+				if err != nil {
+					slog.Error("agent token check", "err", err)
+					problem.Write(w, http.StatusInternalServerError, reasons.Msg(reasons.MsgServerError))
+					return
+				}
+				ctx = context.WithValue(ctx, agentKey{}, agent)
+			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userKey{}, p)))
 			return
 		}
@@ -349,6 +368,19 @@ func isTokenRoute(p string) bool {
 func viaAppToken(ctx context.Context) bool {
 	app, _ := ctx.Value(appTokenKey{}).(bool)
 	return app
+}
+
+// ViaAgentToken reports whether the request came with the token of a coding
+// agent with deploy rights (Authenticator.Agents).
+func ViaAgentToken(ctx context.Context) bool {
+	agent, _ := ctx.Value(agentKey{}).(bool)
+	return agent && viaAppToken(ctx)
+}
+
+// Writes reports whether the request is not a read (GET or HEAD).
+func Writes(ctx context.Context) bool {
+	w, _ := ctx.Value(writeKey{}).(bool)
+	return w
 }
 
 // viaToken reports whether the request came with an API token.
@@ -650,6 +682,17 @@ func NoAppTokens(ctx context.Context) error {
 		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgSecretsNotForAppTokens))
 	}
 	return nil
+}
+
+// NoAppTokensExceptAgents is NoAppTokens that lets a coding agent's token
+// through (ViaAgentToken), for a change the agent may make on an app or job
+// that holds no credentials; the caller has made sure of that
+// (envvars.AgentTarget).
+func NoAppTokensExceptAgents(ctx context.Context) error {
+	if ViaAgentToken(ctx) {
+		return nil
+	}
+	return NoAppTokens(ctx)
 }
 
 // adminPrefix is where every platform admin operation lives.

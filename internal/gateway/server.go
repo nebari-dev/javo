@@ -237,7 +237,7 @@ func NewServer(cfg Config) *Server {
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
 		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
-		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store),
+		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store), Agents: apps.AgentTokens(cfg.Store),
 	}
 	mux := http.NewServeMux()
 	a.Register(api, mux)

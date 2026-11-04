@@ -141,7 +141,7 @@ func UsableSecret(ctx context.Context, db *store.Store, u authz.Principal, roles
 // manages the app or job cannot change what it runs with, and an app cannot
 // change its own environment.
 func MayChange(ctx context.Context, u authz.Principal, roles []authz.Role, target authz.Object, owner string) error {
-	if err := authn.NoAppTokens(ctx); err != nil {
+	if err := authn.NoAppTokensExceptAgents(ctx); err != nil {
 		return err
 	}
 	target.Secret = &model.Secret{Owner: owner}
@@ -158,6 +158,14 @@ func MayChange(ctx context.Context, u authz.Principal, roles []authz.Role, targe
 // where the files their secret-holding jobs and apps run sit, so a command
 // someone else picks could rewrite those files (and read the whole home).
 func MayChangeCode(ctx context.Context, u authz.Principal, roles []authz.Role, target authz.Object) error {
+	if authn.ViaAgentToken(ctx) {
+		// Its own target, holding no credentials (AgentTarget found it).
+		target.Secret = &model.Secret{Owner: u.ID}
+		if !authz.Decide(u, roles, authz.ActUseSecret, target).Allowed {
+			return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgRewriteOwnerOnly))
+		}
+		return nil
+	}
 	if err := OwnerOnly(ctx, u, roles, target); err != nil {
 		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgRewriteOwnerOnly))
 	}
@@ -195,6 +203,69 @@ func OwnerOnly(ctx context.Context, u authz.Principal, roles []authz.Role, targe
 	target.Secret = &model.Secret{Owner: owner}
 	if authn.NoAppTokens(ctx) != nil || !authz.Decide(u, roles, authz.ActUseSecret, target).Allowed {
 		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgSecretsHeldOwnerOnly))
+	}
+	return nil
+}
+
+// errAgentNeedsPerson is the refusal of a coding agent's token.
+func errAgentNeedsPerson() error {
+	return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgAgentNeedsPerson))
+}
+
+// AgentTarget refuses a change a coding agent's token (authn.ViaAgentToken)
+// asks for on target unless target is the token owner's own and holds no
+// credentials (holdsCredentials: no secret, repository token, API token or
+// Nebi token): such an app or job is the agent's to manage, any other is the
+// person's. Reads and every other caller pass. Every app and job route that
+// changes something finds its target through it.
+func AgentTarget(ctx context.Context, db *store.Store, target authz.Object) error {
+	if !authn.ViaAgentToken(ctx) || !authn.Writes(ctx) {
+		return nil
+	}
+	owner := ""
+	switch {
+	case target.Job != nil:
+		owner = target.Job.Owner
+	case target.App != nil:
+		owner = target.App.Owner
+		if target.Template == nil {
+			t, err := db.Templates().Get(ctx, target.App.Template)
+			if err != nil {
+				// No template to tell what the app holds: the person's.
+				return errAgentNeedsPerson()
+			}
+			target.Template = &t
+		}
+	}
+	if owner == "" || owner != authn.User(ctx).ID {
+		return errAgentNeedsPerson()
+	}
+	held, err := holdsCredentials(ctx, db, target)
+	if err != nil {
+		return problem.Internal("read secret bindings", err)
+	}
+	if held {
+		return errAgentNeedsPerson()
+	}
+	return nil
+}
+
+// AgentCreate refuses a coding agent's token an app or job that would hold
+// credentials: an app whose API access (its own or tpl's default) is not
+// None or that gets the owner's Nebi token, a job whose template gives its
+// runs an API token, or either with secrets, a repository token or webhook,
+// or pull request previews (extras). Every other caller passes.
+func AgentCreate(ctx context.Context, app *model.App, job *model.Job, tpl *model.Template, extras bool) error {
+	if !authn.ViaAgentToken(ctx) {
+		return nil
+	}
+	switch {
+	case extras, tpl == nil:
+		return errAgentNeedsPerson()
+	case app != nil && (model.APIAccessOf(app, tpl) != model.APIAccessNone || model.NebiTokenFor(app, tpl)):
+		return errAgentNeedsPerson()
+	case job != nil && model.DefaultAPIAccess(tpl) != model.APIAccessNone:
+		return errAgentNeedsPerson()
 	}
 	return nil
 }

@@ -113,3 +113,28 @@ func AppTokenWanted(db *store.Store) token.AppCheck {
 		return token.ScopeFor(model.APIAccessOf(&app, &t)) == scope, nil
 	}
 }
+
+// AgentTokens is authn.Authenticator.Agents: an app token's app is a coding
+// agent with deploy rights while its template has agentDeploy and the app is
+// private, read on every request so turning either off takes effect at once.
+func AgentTokens(db *store.Store) func(context.Context, token.App) (bool, error) {
+	return func(ctx context.Context, a token.App) (bool, error) {
+		app, err := db.Apps().GetByObjectName(ctx, a.Name)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return false, nil
+		case err != nil:
+			return false, err
+		case app.Namespace != a.Namespace || !app.DeletedAt.IsZero() || app.Sharing.Access != model.AccessPrivate:
+			return false, nil
+		}
+		t, err := db.Templates().Get(ctx, app.Template)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return false, nil
+		case err != nil:
+			return false, err
+		}
+		return t.Spec.AgentDeploy && model.MaxSharing(&t) == model.AccessPrivate, nil
+	}
+}

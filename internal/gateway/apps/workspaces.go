@@ -346,8 +346,22 @@ func errNotFound() error {
 
 // authorized returns the app in addresses (the caller's unless it names
 // another owner) if authz allows the caller to do act on it. Missing, being
-// deleted and not-allowed answer the same 404.
+// deleted and not-allowed answer the same 404. A coding agent's change is
+// refused on an app that is not its own to manage (envvars.AgentTarget).
 func (s *Workspaces) authorized(ctx context.Context, in *nameInput, act authz.Action) (*model.App, error) {
+	app, err := s.allowed(ctx, in, act)
+	if err != nil {
+		return nil, err
+	}
+	if err := envvars.AgentTarget(ctx, s.db, authz.Object{App: app}); err != nil {
+		return nil, err
+	}
+	return app, nil
+}
+
+// allowed is authorized without the coding agent's limit, for proposing a
+// change (a plan) that the person then approves in the browser.
+func (s *Workspaces) allowed(ctx context.Context, in *nameInput, act authz.Action) (*model.App, error) {
 	app, err := s.byName(ctx, in)
 	if err != nil {
 		return nil, err
@@ -565,6 +579,16 @@ func (s *Workspaces) createFor(ctx context.Context, u authz.Principal, b appRequ
 			return nil, err
 		}
 		bindings = append(bindings, token)
+	}
+	if authn.ViaAgentToken(ctx) {
+		tpl, err := s.db.Templates().Get(ctx, app.Template)
+		if err != nil {
+			return nil, problem.Internal("read template", err)
+		}
+		extras := len(bindings) > 0 || b.secrets != (store.RepoSecrets{}) || (app.Source != nil && app.Source.Previews != nil)
+		if err := envvars.AgentCreate(ctx, app, nil, &tpl, extras); err != nil {
+			return nil, err
+		}
 	}
 	created, err := s.insert(ctx, u, app, store.AppExtras{Repo: b.secrets, Secrets: bindings, Environment: files})
 	if err != nil {

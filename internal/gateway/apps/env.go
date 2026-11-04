@@ -40,7 +40,9 @@ func (s *Workspaces) registerEnv(api huma.API) {
 		Tags:   []string{"workspaces"},
 		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *appEnvInput) (*workspaceOutput, error) {
-		if err := authn.NoAppTokens(ctx); err != nil {
+		// A coding agent may set plain values on an app it manages
+		// (authorizedEdit); envvars.Check refuses it a secret.
+		if err := authn.NoAppTokensExceptAgents(ctx); err != nil {
 			return nil, err
 		}
 		app, err := s.authorizedEdit(ctx, &nameInput{Name: in.Name, Owner: in.Owner}, authz.ActManageApp)

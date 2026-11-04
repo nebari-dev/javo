@@ -264,6 +264,7 @@ const (
 	MsgSecretsNotForAppTokens MessageCode = "SecretsNotForAppTokens"
 	MsgSecretsHeldOwnerOnly   MessageCode = "SecretsHeldOwnerOnly"
 	MsgWorkloadTokenReadOnly  MessageCode = "WorkloadTokenReadOnly"
+	MsgAgentNeedsPerson       MessageCode = "AgentNeedsPerson"
 	MsgRewriteOwnerOnly       MessageCode = "RewriteOwnerOnly"
 	MsgEnvValueInvalid        MessageCode = "EnvValueInvalid"
 	MsgEnvValueOrSecret       MessageCode = "EnvValueOrSecret"
@@ -533,6 +534,7 @@ var messages = map[MessageCode]string{
 	MsgEnvValueOrSecret:       "Type a value or pick a secret, not both.",
 	MsgSecretsNotForAppTokens: "An app's or job's own API token cannot use secrets. Use the browser, or a personal token from Settings.",
 	MsgSecretsHeldOwnerOnly:   "This uses its owner's secrets, so only its owner can change what it runs, and not with an app's or job's own API token. Ask the owner, or have them remove its secrets first.",
+	MsgAgentNeedsPerson:       "A coding agent cannot do this itself: the app or job holds a secret, an API token or a Nebi token, belongs to someone else, or the change would give it one. Ask the person to do it in the browser, or propose it as a plan (POST /api/plans) for them to approve.",
 	MsgWorkloadTokenReadOnly:  "An app's or job's own API token can read, start, stop and run, but cannot change files or create or change apps and jobs. Use the browser, or a personal token from Settings.",
 	MsgRewriteOwnerOnly:       "Only its owner can change what it runs: its command, image, port, file, engine or template. It runs in their home folder, so a change could read or rewrite their files. Ask the owner.",
 	MsgWebhookUnknown:         "This webhook was not made here. Set up the webhook again and paste the new address and secret into GitHub.",
