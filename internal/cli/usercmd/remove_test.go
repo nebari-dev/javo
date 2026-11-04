@@ -18,6 +18,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/cli/clitest"
+	"github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
@@ -239,6 +240,32 @@ func TestUserRemoveRemovesTheirHomeAndOnlyAskedDeletesTheirFiles(t *testing.T) {
 		if deleteFiles != apierrors.IsNotFound(err) {
 			t.Fatalf("--delete-home %v: the home's backup Job get = %v", deleteFiles, err)
 		}
+	}
+}
+
+// A forgotten home stays forgotten: the controller's volume finder, which
+// gives a row to every home volume it finds without one, must not bring it
+// back (it would be listed and backed up again).
+func TestUserRemoveForgottenHomeIsNotFoundAgain(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	c := clitest.Cluster(t)
+	if _, _, err := runUserAdd(t, e, "alice", "--password-file", filepath.Join(t.TempDir(), "alice")); err != nil {
+		t.Fatal(err)
+	}
+	owner := local.UserID("alice")
+	if _, err := e.db.Homes().Ensure(ctx, "javo-apps", owner, nil); err != nil {
+		t.Fatal(err)
+	}
+	clitest.HomeClaim(t, c, "javo-apps", owner)
+	if out, err := runWith(t, e, c, "user", "remove", "alice"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, err := (storage.VolumeFinder{Reader: c, Store: e.db, Namespaces: []string{"javo-apps"}}).AdoptHomes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := e.db.Homes().ListByOwner(ctx, owner); len(left) != 0 {
+		t.Fatalf("the forgotten home came back: %+v", left)
 	}
 }
 

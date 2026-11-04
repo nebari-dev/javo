@@ -38,6 +38,10 @@ const (
 	// LabelLive ("true") marks the home claim a mode change switched to, so a
 	// home made again without its status finds the claim that holds the files.
 	LabelLive = Group + "/live"
+	// LabelForgotten marks a home claim whose person was removed with their
+	// files kept: the volume finder gives it no home row again, so it is not
+	// listed or backed up. The same person coming back takes it up again.
+	LabelForgotten = Group + "/forgotten"
 	// LabelProbe carries the short hash of a storage probe's nonce on every
 	// object the probe makes, so the controller finds exactly its own.
 	LabelProbe = Group + "/probe"

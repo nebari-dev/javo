@@ -1061,7 +1061,7 @@ A local account is deleted, so it cannot sign in again. Someone who signs in thr
 
 While the person has apps or jobs nothing is removed, unless --delete-apps-and-jobs deletes them too.
 
-The person's home folder is forgotten: it is no longer listed or backed up. Its files stay on their claim, and the same person coming back gets them back (for a local account, `javo user add --reuse-person`), unless --delete-home deletes them too.
+The person's home folder is forgotten: it is no longer listed or backed up (its claims are labelled javo.nebari.dev/forgotten=true so the controller does not find them again). Its files stay on their claim, and the same person coming back gets them back (for a local account, `javo user add --reuse-person`), unless --delete-home deletes them too. Neither removes the home's backups in the bucket: delete the repository homes/<namespace>/<identity name> under the bucket's prefix to remove them.
 
 Usage:
   javo user remove <identity name | username | email> [flags]

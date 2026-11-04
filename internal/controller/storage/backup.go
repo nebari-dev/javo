@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -843,7 +844,9 @@ type VolumeFinder struct {
 const runUnderWay = time.Hour
 
 // AdoptHomes gives a home row to every claim named like a home of the owner
-// it is labelled with and returns how many it made.
+// it is labelled with, except claims of a removed person
+// (model.LabelForgotten), records each in the audit log and returns how many
+// it made.
 func (f VolumeFinder) AdoptHomes(ctx context.Context) (int, error) {
 	now := time.Now
 	if f.Now != nil {
@@ -879,7 +882,7 @@ func (f VolumeFinder) AdoptHomes(ctx context.Context) (int, error) {
 		for i := range l.Items {
 			c := &l.Items[i]
 			owner := c.Labels[model.LabelOwner]
-			if naming.HomeClaimGen(owner, c.Name) < 1 || !c.DeletionTimestamp.IsZero() {
+			if naming.HomeClaimGen(owner, c.Name) < 1 || !c.DeletionTimestamp.IsZero() || c.Labels[model.LabelForgotten] == "true" {
 				continue
 			}
 			switch _, err := f.Store.Homes().ByOwner(ctx, c.Namespace, owner); {
@@ -893,6 +896,13 @@ func (f VolumeFinder) AdoptHomes(ctx context.Context) (int, error) {
 				return n, fmt.Errorf("a home row for volume %s: %w", c.Name, err)
 			}
 			n++
+			detail, _ := json.Marshal(map[string]string{"claim": c.Name})
+			if err := f.Store.Audit().Append(ctx, store.AuditEvent{
+				Actor: model.SystemController, Via: "system", Action: "home.adopt", ObjectKind: "home",
+				ObjectName: owner, ObjectID: h.ID, ObjectNamespace: c.Namespace, ObjectOwner: owner, Allowed: true, Detail: detail,
+			}); err != nil {
+				return n, fmt.Errorf("audit the home row for volume %s: %w", c.Name, err)
+			}
 			if current != nil {
 				h.Spec.Backup = current
 				if _, err := f.Store.Homes().Update(ctx, h, h.Version); err != nil && !errors.Is(err, store.ErrConflict) {

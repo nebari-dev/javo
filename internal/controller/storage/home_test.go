@@ -282,6 +282,28 @@ func TestAnEarlierClaimWithTheOwnerLabelIsAdoptedUntouched(t *testing.T) {
 	}
 }
 
+// A removed person who comes back takes their kept home up again; it stops
+// being forgotten, so the volume finder covers it again should its row go.
+func TestAForgottenClaimTakenUpAgainIsNoLongerForgotten(t *testing.T) {
+	t.Parallel()
+	homeStorage(t, storageOpts{mode: model.HomeModeShared, class: "fast", expandable: true, nodes: 3})
+	owner := uniqueOwner("cid")
+	old := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: naming.HomeClaimName(owner), Namespace: homeNS,
+			Labels: map[string]string{model.LabelOwner: owner, model.LabelForgotten: "true"}},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("10Gi")}},
+		},
+	}
+	must(t, env(t).k8s.Create(ctx, old))
+	newHome(t, owner, "10Gi")
+	reconcileHome(t, homeReconciler(t, env(t).k8s), owner)
+	if got := getClaim(t, old.Name); got.Labels[model.LabelForgotten] != "" || getHome(t, owner).Status.ClaimName != old.Name {
+		t.Fatalf("labels = %v, claim %q", got.Labels, getHome(t, owner).Status.ClaimName)
+	}
+}
+
 func TestAClaimWithoutTheOwnerLabelIsNotAdopted(t *testing.T) {
 	t.Parallel()
 	homeStorage(t, storageOpts{mode: model.HomeModePerUser, class: "fast", nodes: 3})

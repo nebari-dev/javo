@@ -578,6 +578,14 @@ func TestHomeVolumesWithoutARowGetOne(t *testing.T) {
 	if hs, _ := env(t).db.Homes().ListByOwner(ctx, known); len(hs) != 1 {
 		t.Fatalf("the known home has %d rows", len(hs))
 	}
+	// Each row made this way is in the audit log, with the claim it came from.
+	events, err := env(t).db.Audit().List(ctx, 10000)
+	must(t, err)
+	if !slices.ContainsFunc(events, func(ev store.AuditEvent) bool {
+		return ev.Action == "home.adopt" && ev.ObjectOwner == lost && strings.Contains(string(ev.Detail), naming.HomeClaimName(lost))
+	}) {
+		t.Error("no audit row for the adopted home")
+	}
 	if _, err := env(t).db.Homes().ByOwner(ctx, homeNS, lost); err != nil {
 		t.Fatalf("no row for the lost volume: %v", err)
 	}

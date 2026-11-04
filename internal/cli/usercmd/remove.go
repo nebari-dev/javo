@@ -37,9 +37,12 @@ func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *co
 			"A local account is deleted, so it cannot sign in again. Someone who signs in through the identity " +
 			"provider can sign in again, as the same person, until the provider stops them.\n\n" +
 			"While the person has apps or jobs nothing is removed, unless --delete-apps-and-jobs deletes them too.\n\n" +
-			"The person's home folder is forgotten: it is no longer listed or backed up. Its files stay on " +
+			"The person's home folder is forgotten: it is no longer listed or backed up (its claims are labelled " +
+			"javo.nebari.dev/forgotten=true so the controller does not find them again). Its files stay on " +
 			"their claim, and the same person coming back gets them back (for a local account, `javo user add --reuse-person`), " +
-			"unless --delete-home deletes them too.",
+			"unless --delete-home deletes them too. " +
+			"Neither removes the home's backups in the bucket: delete the repository homes/<namespace>/<identity name> " +
+			"under the bucket's prefix to remove them.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := openStore(cmd.Context())
@@ -188,6 +191,12 @@ func (r remover) remove(ctx context.Context, who string) (string, error) {
 		if err := deleteHomeClaims(ctx, r.newClient, homes); err != nil {
 			return "", failed("deleting their home's files (rerun with --delete-home)", err)
 		}
+	} else if len(homes) > 0 {
+		// Marked before the rows go, so the controller's volume finder never
+		// sees the claims without a row and without the mark.
+		if err := forgetHomeClaims(ctx, r.newClient, homes); err != nil {
+			return "", failed("marking their home's claims forgotten", err)
+		}
 	}
 	if _, err := r.db.Homes().DeleteFor(ctx, cliActor, m.name); err != nil {
 		return "", failed("forgetting their home", err)
@@ -234,6 +243,33 @@ func describeWork(apps []model.App, jobs []model.Job) string {
 		names = append(names, "job "+j.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+// forgetHomeClaims labels every claim of homes (each claim labelled with
+// their owner in their namespace) model.LabelForgotten.
+func forgetHomeClaims(ctx context.Context, newClient kubeclient.Factory, homes []model.Home) error {
+	c, err := kubeclient.New(newClient)
+	if err != nil {
+		return err
+	}
+	for _, h := range homes {
+		var claims corev1.PersistentVolumeClaimList
+		if err := c.List(ctx, &claims, client.InNamespace(h.Namespace), client.MatchingLabels{model.LabelOwner: h.Spec.Owner}); err != nil {
+			return err
+		}
+		for i := range claims.Items {
+			claim := &claims.Items[i]
+			if claim.Labels[model.LabelForgotten] == "true" {
+				continue
+			}
+			base := claim.DeepCopy()
+			claim.Labels[model.LabelForgotten] = "true"
+			if err := c.Patch(ctx, claim, client.MergeFrom(base)); client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // deleteHomeClaims deletes the claims of homes: every claim labelled with

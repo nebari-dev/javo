@@ -208,6 +208,14 @@ func (r *HomeReconciler) bind(ctx context.Context, h *model.Home, cs *model.Clus
 		if !owns(existing, h.Spec.Owner) {
 			return &blocked{code: reasons.HomeClaimForeign, evidence: []string{fmt.Sprintf("claim %s is not labelled as belonging to this home's owner", name)}}, nil
 		}
+		// The claim of a removed person who came back is theirs again.
+		if _, forgotten := existing.Labels[model.LabelForgotten]; forgotten {
+			base := existing.DeepCopy()
+			delete(existing.Labels, model.LabelForgotten)
+			if err := r.Patch(ctx, existing, client.MergeFrom(base)); err != nil {
+				return nil, err
+			}
+		}
 		class := ptr.Deref(existing.Spec.StorageClassName, "")
 		mode := model.HomeModePerUser
 		if slices.Contains(existing.Spec.AccessModes, corev1.ReadWriteMany) {
