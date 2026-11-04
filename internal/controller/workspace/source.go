@@ -29,6 +29,11 @@ const (
 	// build.serverConfigDir in the app container.
 	siteConfigVolume = "site-config"
 
+	// cloneTmpVolume is the clone's own /tmp: git-sync keeps its git config
+	// and credential cache socket there, and the build step, which runs pull
+	// request code, must not see them.
+	cloneTmpVolume = "clone-tmp"
+
 	gitTokenVolume = "git-token"
 	gitTokenDir    = "/etc/" + model.ProductName + "/git"
 	gitTokenKey    = "token"
@@ -96,6 +101,11 @@ func sourceInitContainers(ws *model.App, t *model.Template, baseURL string, img 
 		return nil, fmt.Errorf("spec.source: the platform has no clone or runner image to clone with (set source.cloneImage and the controller's --runner-image)")
 	}
 	s := ws.Source
+	if s.Ref != "" {
+		if err := model.CheckGitRef(s.Ref); err != nil {
+			return nil, fmt.Errorf("spec.source.ref: %w", err)
+		}
+	}
 	srcMount := corev1.VolumeMount{Name: sourceVolume, MountPath: SourceDir}
 	tmpMount := corev1.VolumeMount{Name: podspec.TmpVolume, MountPath: "/tmp"}
 	step := func(name, image string, mounts ...corev1.VolumeMount) corev1.Container {
@@ -111,7 +121,7 @@ func sourceInitContainers(ws *model.App, t *model.Template, baseURL string, img 
 	if ref == "" {
 		ref = "HEAD"
 	}
-	clone := step(source.CloneContainer, img.Clone, srcMount, tmpMount)
+	clone := step(source.CloneContainer, img.Clone, srcMount, corev1.VolumeMount{Name: cloneTmpVolume, MountPath: "/tmp"})
 	clone.Args = []string{"--repo=" + s.URL, "--ref=" + ref, "--root=" + SourceDir, "--link=" + cloneLink, "--one-time", "--depth=1", "--submodules=off"}
 	if img.GitConfig != "" {
 		clone.Args = append(clone.Args, "--git-config="+img.GitConfig)
@@ -199,7 +209,8 @@ func addSourceVolumes(spec *corev1.PodSpec, ws *model.App, t *model.Template) {
 	empty := corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
 	app := &spec.Containers[0]
 	if ws.Source != nil {
-		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: sourceVolume, VolumeSource: empty})
+		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: sourceVolume, VolumeSource: empty},
+			corev1.Volume{Name: cloneTmpVolume, VolumeSource: empty})
 		app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: sourceVolume, MountPath: SourceDir})
 	}
 	if tb := t.Spec.Build; tb != nil {

@@ -1,9 +1,11 @@
 package model
 
 import (
+	"errors"
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Limits of a Source, and the sizes a preview sync result is held to.
@@ -96,6 +98,11 @@ func (s PreviewSync) Bounded() PreviewSync {
 func (s *Source) validate(v *validator, field string) {
 	urlOK := s.validateURL(v, field+".url")
 	v.maxLen(field+".ref", s.Ref, MaxSourceRefLength)
+	if s.Ref != "" {
+		if err := CheckGitRef(s.Ref); err != nil {
+			v.add(field+".ref", err.Error())
+		}
+	}
 	validateRelative(v, field+".path", s.Path, MaxSourcePathLen)
 	if b := s.Build; b != nil {
 		v.maxLen(field+".build.command", b.Command, MaxBuildLength)
@@ -181,4 +188,29 @@ func GitHubRepo(rawURL string) (owner, repo string, ok bool) {
 		return "", "", false
 	}
 	return owner, repo, true
+}
+
+// CheckGitRef refuses a ref git check-ref-format would refuse (with
+// --allow-onelevel, so a plain branch name passes), one whose first character
+// or any component's first character is "-" (git-sync passes the ref on to
+// git's argument lists, where it must never read as an option), and any
+// whitespace or control character. A full commit SHA (40 or 64 hex digits)
+// and HEAD pass.
+func CheckGitRef(ref string) error {
+	bad := errors.New("ref must be a branch, tag or commit name git accepts")
+	if ref == "@" || strings.HasPrefix(ref, "/") || strings.HasSuffix(ref, "/") || strings.HasSuffix(ref, ".") ||
+		strings.Contains(ref, "//") || strings.Contains(ref, "..") || strings.Contains(ref, "@{") {
+		return bad
+	}
+	for _, r := range ref {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || strings.ContainsRune("~^:?*[\\", r) {
+			return bad
+		}
+	}
+	for _, c := range strings.Split(ref, "/") {
+		if strings.HasPrefix(c, ".") || strings.HasPrefix(c, "-") || strings.HasSuffix(c, ".lock") {
+			return bad
+		}
+	}
+	return nil
 }

@@ -33,7 +33,7 @@ Templates that run your code ask **Where is the code?**
 - **Home folder**: choose a file from your home folder, or keep the template's sample.
 - **Git repository**: Javo clones the repository into the app's pod each time it starts.
   - **Repository address**: an `https://` address.
-  - **Branch, tag or commit**: empty means the default branch.
+  - **Branch, tag or commit**: empty means the default branch. It must be a name Git accepts (no spaces, no `..`, `~`, `^`, `:` and the like) and may not start with `-`; a full commit hash works. An app saved earlier with a name Git refuses does not start until you fix it.
   - **App file**: the file the template runs.
   - Under the options: **Folder in the repository**, and an **Access token** for a private repository. The token is one of your [secrets](/using/secrets/); pick **None, the repository is public** otherwise.
 

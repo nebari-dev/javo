@@ -1251,6 +1251,48 @@ func TestRunFingerprintChangesWithTheSource(t *testing.T) {
 	}
 }
 
+// A ref stored before refs were checked must not reach git-sync's arguments.
+func TestCloneRefusesARefGitWouldNot(t *testing.T) {
+	t.Parallel()
+	ws, tpl := sourceFixtures()
+	ws.Source.Ref = "--upload-pack=touch /tmp/x"
+	if _, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages); err == nil || !strings.Contains(err.Error(), "spec.source.ref") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// git-sync leaves its git config and credential cache socket in its /tmp. The
+// build step runs pull request code, so it must not see the clone's /tmp; the
+// token volume is the clone's alone.
+func TestCloneTmpIsNotSharedWithTheBuild(t *testing.T) {
+	t.Parallel()
+	ws, _ := sourceFixtures()
+	ws.File, ws.Source.Path = "", "site"
+	pod, err := BuildPod(ws, staticTemplate("npm run build"), "/u/alice/site/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	WithGitToken(pod, ws, "alice-site.app-git", "3")
+	clone := initNamed(t, pod, "clone")
+	var cloneTmp string
+	for _, m := range clone.VolumeMounts {
+		if m.MountPath == "/tmp" {
+			cloneTmp = m.Name
+		}
+	}
+	if cloneTmp == "" {
+		t.Fatal("the clone has no /tmp of its own")
+	}
+	for _, c := range append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...) {
+		if c.Name == "clone" {
+			continue
+		}
+		if mountOf(c, cloneTmp) != nil || mountOf(c, "git-token") != nil {
+			t.Errorf("%s mounts the clone's /tmp (%s) or its token", c.Name, cloneTmp)
+		}
+	}
+}
+
 func TestSourceAppNeedsTheImages(t *testing.T) {
 	t.Parallel()
 	ws, tpl := sourceFixtures()

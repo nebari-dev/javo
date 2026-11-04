@@ -742,6 +742,52 @@ func TestSourceBuildAndRefAreBounded(t *testing.T) {
 	}).Validate())
 }
 
+// A ref reaches git-sync as --ref=<ref> and from there git's own argument
+// lists, so it must be a name git itself accepts and never look like an option.
+func TestSourceRefIsAGitRefName(t *testing.T) {
+	for _, ref := range []string{
+		"main", "v1.2.0", "feature/login", "release-2026.11", "HEAD", "refs/heads/main",
+		strings.Repeat("a1", 20), strings.Repeat("b2", 32), "a-b_c+d", "über",
+	} {
+		valid(t, repoApp(func(s *model.Source) { s.Ref = ref }).Validate())
+	}
+	for name, ref := range map[string]string{
+		"leading dash":    "--upload-pack=touch /tmp/x",
+		"dash":            "-x",
+		"space":           "main branch",
+		"tab":             "main\tx",
+		"newline":         "main\nx",
+		"nul":             "main\x00",
+		"del":             "main\x7f",
+		"unicode space":   "main x",
+		"double dot":      "a..b",
+		"tilde":           "main~1",
+		"caret":           "main^",
+		"colon":           "a:b",
+		"question":        "a?",
+		"star":            "a*",
+		"bracket":         "a[b",
+		"backslash":       `a\b`,
+		"at brace":        "main@{1}",
+		"only at":         "@",
+		"leading slash":   "/main",
+		"trailing slash":  "main/",
+		"double slash":    "a//b",
+		"trailing dot":    "main.",
+		"dot component":   "a/.b",
+		"leading dot":     ".main",
+		"lock component":  "a.lock/b",
+		"lock suffix":     "main.lock",
+		"component dash":  "a/-b",
+		"unicode control": "main\u0085",
+		"bidi control":    "main‮",
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantInvalid(t, repoApp(func(s *model.Source) { s.Ref = ref }).Validate(), "spec.source.ref")
+		})
+	}
+}
+
 func TestPreviewsNeedAGitHubRepoAndAReasonableMax(t *testing.T) {
 	on := func(max int32) func(*model.Source) {
 		return func(s *model.Source) { s.Previews = &model.Previews{Enabled: true, Max: max} }
