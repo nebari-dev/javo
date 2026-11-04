@@ -235,6 +235,10 @@ customSize:
 # namespace: services, templates, triggers and subscriptions in the ConfigMap,
 # service credentials in the Secret (referenced as $key). The chart renders an
 # example ConfigMap with a webhook service when none is named in `configMap`.
+# Text from the job (its failure message and display name) is cut to 500
+# characters and escaped for each service type: no @mentions, no live links,
+# and for webhooks no quotes, backslashes or line breaks. One job sends at
+# most one notice every 5 minutes; failed runs in between are not sent.
 notifications:
   enabled: false
   # Names of the ConfigMap and Secret the controller may read (and no others).

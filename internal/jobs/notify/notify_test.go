@@ -149,10 +149,17 @@ func start(t *testing.T, db *store.Store, cm *corev1.ConfigMap) {
 
 func startWith(t *testing.T, db *store.Store, cm *corev1.ConfigMap, rec notify.RecipientResolver) {
 	t.Helper()
+	startCfg(t, db, cm, rec, 0)
+}
+
+// startCfg starts a notifier that sends at most one notice per job per gap
+// (zero: the default).
+func startCfg(t *testing.T, db *store.Store, cm *corev1.ConfigMap, rec notify.RecipientResolver, gap time.Duration) {
+	t.Helper()
 	n, err := notify.New(notify.Config{
 		Store: db, Kube: kubefake.NewClientset(cm), Namespace: relNS,
 		ConfigMapName: "javo-notifications", SecretName: "javo-notifications",
-		Recipients: rec, Interval: interval,
+		Recipients: rec, Interval: interval, MinGap: gap,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +226,7 @@ func TestNextFailedRunSendsAgain(t *testing.T) {
 	hook := newWebhook(t, http.StatusOK)
 	j := jobOf(t, db, "nightly", nil)
 	finish(t, db, j, "n-1", model.RunOutcomeFailed, string(reasons.RunTimedOut))
-	start(t, db, configMap(hook.srv.URL))
+	startCfg(t, db, configMap(hook.srv.URL), notify.NoRecipients{}, time.Millisecond)
 	hook.wait(t)
 
 	second := finish(t, db, j, "n-2", model.RunOutcomeFailed, string(reasons.RunTimedOut))

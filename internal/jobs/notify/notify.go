@@ -38,7 +38,10 @@ const TriggerRunFailed = "on-run-failed"
 // added as a recipient. It is skipped when the ConfigMap defines no such service.
 const emailService = "email"
 
-const defaultInterval = 15 * time.Second
+const (
+	defaultInterval = 15 * time.Second
+	defaultMinGap   = 5 * time.Minute
+)
 
 // RecipientResolver finds the verified email of a job's owner. Owners without
 // one (for example local users) are not mailed and see the failure in the app.
@@ -61,6 +64,9 @@ type Config struct {
 	Recipients                RecipientResolver
 	// Interval is how often finished runs are looked at; zero means 15 seconds.
 	Interval time.Duration
+	// MinGap is the least time between two notices about one job; the
+	// failed runs in between are marked and not sent. Zero means 5 minutes.
+	MinGap time.Duration
 }
 
 // The notifier reads the operator's ConfigMap and Secret in the release
@@ -70,7 +76,11 @@ type Config struct {
 
 // Notifier sends the failure notices. It only runs on the leader, so a
 // restart or second replica never sends twice.
-type Notifier struct{ Config }
+type Notifier struct {
+	Config
+	// sent is when each job's last notice went out (leader only, so in memory).
+	sent map[string]time.Time
+}
 
 // New returns the notifier.
 func New(cfg Config) (*Notifier, error) {
@@ -83,7 +93,10 @@ func New(cfg Config) (*Notifier, error) {
 	if cfg.Interval <= 0 {
 		cfg.Interval = defaultInterval
 	}
-	return &Notifier{cfg}, nil
+	if cfg.MinGap <= 0 {
+		cfg.MinGap = defaultMinGap
+	}
+	return &Notifier{Config: cfg, sent: map[string]time.Time{}}, nil
 }
 
 // NeedLeaderElection makes the manager start the notifier on the leader only.
@@ -131,8 +144,8 @@ func (n *Notifier) namedInformer(name string, pick func(kubeinformers.SharedInfo
 	return pick(f)
 }
 
-func initGetVars(*api.Config, *corev1.ConfigMap, *corev1.Secret) (api.GetVars, error) {
-	return TemplateVars, nil
+func initGetVars(_ *api.Config, cm *corev1.ConfigMap, _ *corev1.Secret) (api.GetVars, error) {
+	return varsFor(serviceTypes(cm)), nil
 }
 
 // Sweep tells the owner of each finished failed run that has not been told,
@@ -155,7 +168,15 @@ func (n *Notifier) Sweep(ctx context.Context, factory api.Factory) error {
 		if err != nil {
 			return err
 		}
-		sent, sendErr := n.notify(ctx, a, &job, run)
+		var sent bool
+		var sendErr error
+		if last, ok := n.sent[job.ID]; ok && time.Since(last) < n.MinGap {
+			// A job failing over and over must not flood the operator's channels.
+			logf.Log.WithName("notify").Info("failure notice held back: one was sent for this job lately", "job", job.Name, "namespace", job.Namespace, "run", run.ID)
+		} else {
+			n.sent[job.ID] = time.Now()
+			sent, sendErr = n.notify(ctx, a, &job, run)
+		}
 		if err := n.Store.Jobs().MarkRunNotified(ctx, run.ID, time.Now()); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
