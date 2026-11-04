@@ -13,8 +13,8 @@ export default defineConfig(({ mode }) => {
   const proxy = gateway ? Object.fromEntries(gatewayRoutes.map((r) => [r, { target: gateway, ws: true }])) : undefined
   return {
     plugins: [react()],
-    // The CSP allows images from 'self' only, so SVGs ship as files, never data: URIs.
-    build: { assetsInlineLimit: (file) => (file.endsWith('.svg') ? false : undefined) },
+    // The CSP allows images from 'self' only, so assets ship as files, never data: URIs.
+    build: { assetsInlineLimit: 0 },
     // KindLogo.test.tsx reads the kind enum from the Go model.
     server: { fs: { allow: ['.', '../internal/model'] }, proxy },
     test: {
