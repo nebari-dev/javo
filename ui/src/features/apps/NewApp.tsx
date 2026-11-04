@@ -1,7 +1,7 @@
-import { Bot, File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
+import { File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
-import { useAgentStatus, useBuildWithAgent } from '../ai/ai'
+import { agentLabel, useAgentStatus, useBuildWithAgent } from '../ai/ai'
 import type { DraftView, Template } from '../../api'
 import { ApiAccessChoices, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
@@ -9,7 +9,7 @@ import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { HomePicker } from '../files/HomePicker'
 import { IdleStopChoice } from './IdleStop'
-import { KindLogo } from '../../components/KindLogo'
+import { KindLogo, kindSite } from '../../components/KindLogo'
 import { LaunchFields, launchBody, type Launch } from './LaunchFields'
 import { TemplateRuns } from './RunCommand'
 import { More } from '../../components/More'
@@ -97,6 +97,8 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
   const build = useBuildWithAgent()
   const navigate = useNavigate()
   const [text, setText] = useState('')
+  const name = agent.templateName || agent.template
+  const site = kindSite(agent.template)
   const id = useId()
   return (
     <Card className="pad describe" aria-label="Describe it">
@@ -116,13 +118,22 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
       </div>
       <div className="row describe-foot">
         <Button
-          icon={Bot}
           disabled={!text.trim() || build.isPending}
           onClick={() => build.mutate(text.trim(), { onSuccess: (w) => navigate(`/apps/${encodeURIComponent(w.name)}`) })}
         >
-          Build with {agent.template}
+          <KindLogo kind={agent.template} inline />
+          Build with {agentLabel(agent.template)}
         </Button>
-        <span className="faint small">{agent.templateName || agent.template} writes the code and deploys the app.</span>
+        <span className="faint small">
+          {site ? (
+            <a href={site} target="_blank" rel="noopener">
+              {name}
+            </a>
+          ) : (
+            name
+          )}{' '}
+          writes the code and deploys the app.
+        </span>
       </div>
       {build.isError && <p role="alert">{problemText(build.error)}</p>}
     </Card>
@@ -460,7 +471,7 @@ export function NewApp() {
           {agent &&
             (wanted ? (
               // Arriving with a template chosen, describing is a detour: kept behind a toggle.
-              <More closed={`Build it with ${agent.template}`} open="Hide describe it">
+              <More closed={`Build it with ${agentLabel(agent.template)}`} open="Hide describe it">
                 <DescribeIt agent={agent} />
               </More>
             ) : (

@@ -67,6 +67,7 @@ a.btn{text-decoration:none}
 
 /* Kind logo */
 .logo{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;flex:none;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
+.logo.inline{width:auto;height:auto;background:none;border:0;border-radius:0}
 .logo .mark{display:block;object-fit:contain;mask-position:center;mask-size:contain;mask-repeat:no-repeat}
 
 /* App card */

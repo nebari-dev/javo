@@ -121,7 +121,7 @@ describe('Build with pi in the palette', () => {
     const calls = api({ 'GET /api/ai/agent': { body: agent }, 'POST /api/ai/agent/build': { status: 201, body: built }, 'GET /api/workspaces/create-a-streamlit-app': { body: built } })
     renderApp('/apps')
     const dialog = await search('create a Streamlit app')
-    const row = await within(dialog).findByRole('option', { name: /Build with pi: create a Streamlit app/ })
+    const row = await within(dialog).findByRole('option', { name: /Build with Pi: create a Streamlit app/ })
     // The agent's own logo, as on its app card, not a generic icon.
     expect(row.querySelector('.logo img')?.getAttribute('src')).toMatch(/pi/)
     await userEvent.click(row)
@@ -134,6 +134,6 @@ describe('Build with pi in the palette', () => {
     renderApp('/apps')
     const dialog = await search('create a Streamlit app')
     await within(dialog).findAllByRole('option')
-    expect(within(dialog).queryByRole('option', { name: /Build with pi/ })).toBeNull()
+    expect(within(dialog).queryByRole('option', { name: /Build with Pi/ })).toBeNull()
   })
 })

@@ -25,7 +25,7 @@ import whybook from '../assets/logos/whybook.svg'
 // Project logos vendored from pinned sources; ui/LOGOS.md records each one.
 // A logo with a tint is a one-colour mark drawn in that colour; the others
 // keep their own colours. scale evens out visual weight inside the tile.
-type Logo = { src: string; tint?: string; scale?: number }
+type Logo = { src: string; tint?: string; scale?: number; site?: string }
 
 const LOGOS: Record<string, Logo> = {
   jupyterlab: { src: jupyter, tint: '#f37626' },
@@ -42,7 +42,7 @@ const LOGOS: Record<string, Logo> = {
   bokeh: { src: bokeh, scale: 1.1 },
   voila: { src: voila, scale: 1.15 },
   'claude-code': { src: claudeCode, tint: '#d97757' },
-  pi: { src: pi },
+  pi: { src: pi, site: 'https://pi.dev' },
   herdr: { src: herdr, tint: 'var(--text)' },
   python: { src: python, tint: '#3776ab' },
   // Not a template kind: the Git repository choice on New app.
@@ -56,21 +56,30 @@ const LOGOS: Record<string, Logo> = {
 // Kinds that are no project of their own get a line icon.
 const ICONS: Record<string, LucideIcon> = { container: Container, static: Globe, home: House, terminal: Terminal }
 
-/** The app kind's mark: the project's logo, a line icon for kinds without one, or a neutral terminal for custom and unknown kinds. */
-export function KindLogo({ kind, big = false }: { kind: string; big?: boolean }) {
-  const size = big ? 28 : 21
+/** The project's own website, for kinds that link to one. */
+export function kindSite(kind: string): string | undefined {
+  return LOGOS[kind]?.site
+}
+
+/**
+ * The app kind's mark: the project's logo, a line icon for kinds without one, or a neutral terminal for custom and unknown kinds.
+ * inline draws it at icon size with no tile, for use inside a button or a line of text.
+ */
+export function KindLogo({ kind, big = false, inline = false }: { kind: string; big?: boolean; inline?: boolean }) {
+  const size = inline ? 16 : big ? 28 : 21
+  const cls = inline ? 'logo inline' : 'logo'
   const logo = LOGOS[kind]
   if (!logo) {
     const Icon = ICONS[kind] ?? SquareTerminal
     return (
-      <div className="logo" aria-hidden="true">
+      <div className={cls} aria-hidden="true">
         <Icon size={size} />
       </div>
     )
   }
   const px = Math.round(size * (logo.scale ?? 1))
   return (
-    <div className="logo" aria-hidden="true">
+    <div className={cls} aria-hidden="true">
       {logo.tint ? (
         <span
           className="mark"

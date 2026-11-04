@@ -133,6 +133,11 @@ export function useDeleteAgentSettings() {
 }
 
 /** Starts a coding-agent app on the request. */
+/** The agent's name in "Build with Pi": its template name with a capital first letter. */
+export function agentLabel(template: string): string {
+  return template.charAt(0).toUpperCase() + template.slice(1)
+}
+
 export function useBuildWithAgent() {
   const qc = useQueryClient()
   return useMutation({
