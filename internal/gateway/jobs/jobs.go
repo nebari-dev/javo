@@ -812,6 +812,14 @@ func (s *API) runNow(ctx context.Context, in *runNowInput) (*runOutput, error) {
 	if err := jobs.CheckOverrides(job.Spec.Parameters, override); err != nil {
 		return nil, buildError(err, &job.Spec)
 	}
+	// Code may build commands from its parameters, so values other than the
+	// saved ones decide what runs next to the job's credentials.
+	if changesParameters(job.Spec.Parameters, override) {
+		u := authn.User(ctx)
+		if err := envvars.MayRewrite(ctx, s.DB, u, authz.RolesOf(u, s.Roles), authz.Object{Job: job}); err != nil {
+			return nil, err
+		}
+	}
 	// The controller starts the run; until it does the run shows as running.
 	run, err := s.DB.Jobs().RequestRun(ctx, authn.Actor(ctx), job.ID, override)
 	switch {
@@ -821,6 +829,17 @@ func (s *API) runNow(ctx context.Context, in *runNowInput) (*runOutput, error) {
 		return nil, problem.Internal("request run", err)
 	}
 	return &runOutput{Body: runView(run)}, nil
+}
+
+// changesParameters is whether override gives any declared parameter a value
+// other than its default.
+func changesParameters(declared []model.JobParameter, override map[string]string) bool {
+	for _, p := range declared {
+		if v, ok := override[p.Name]; ok && v != p.Default {
+			return true
+		}
+	}
+	return false
 }
 
 // setPaused pauses or resumes the schedule. Resuming a job with no starting
