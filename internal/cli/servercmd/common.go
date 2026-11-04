@@ -23,6 +23,9 @@ type commonFlags struct {
 	workspaceNamespace string
 	namespace          string
 	sizesFile          string
+	// publicHost is the host browsers reach the gateway at, which templates
+	// read as .Host: the controller puts it in pods, the gateway shows it.
+	publicHost string
 	// fingerprintKeySecret names the Secret in the release namespace with
 	// the key of the secrets' fingerprints; fingerprintKeyCreate makes it.
 	fingerprintKeySecret string
@@ -37,6 +40,7 @@ func (c *commonFlags) register(f *pflag.FlagSet) {
 	f.StringVar(&c.workspaceNamespace, "workspace-namespace", model.DefaultWorkspaceNamespace, "namespace holding apps and their pods")
 	f.StringVar(&c.namespace, "namespace", os.Getenv("POD_NAMESPACE"), "the release namespace, where API token records are kept (default $POD_NAMESPACE)")
 	f.StringVar(&c.sizesFile, "sizes-file", "", sizesFileUsage)
+	f.StringVar(&c.publicHost, "public-host", "", "host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check")
 	f.StringVar(&c.fingerprintKeySecret, "secret-fingerprint-key-secret", "", "Secret in the release namespace whose key \"key\" holds the 32-byte key of the fingerprints the controller makes of people's secret values and the gateway looks for in app logs before they go to a model, read at start; empty: those log lines are not sent")
 	f.BoolVar(&c.fingerprintKeyCreate, "secret-fingerprint-key-create", false, "make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards")
 }

@@ -88,3 +88,17 @@ func TestPublicHostDefaultsToTheUIHost(t *testing.T) {
 		}
 	}
 }
+
+// The gateway shows the command an app runs, which may name the public
+// host, so a gateway of its own gets the host the controller does.
+func TestTheGatewayGetsThePublicHost(t *testing.T) {
+	t.Parallel()
+	out, err := render(t, append(postgresArgs, "--set", "config.urls.uiHost=javo.example.com")...)
+	if err != nil {
+		t.Fatalf("render: %v\n%s", err, out)
+	}
+	d := deploymentOf(t, out, "postgres", "gateway")
+	if args := d.Spec.Template.Spec.Containers[0].Args; !slices.Contains(args, "--public-host=javo.example.com") {
+		t.Errorf("gateway args %v lack --public-host=javo.example.com", args)
+	}
+}

@@ -68,7 +68,6 @@ type controllerOptions struct {
 	metricsAddr  string
 	probeAddr    string
 	readyTimeout time.Duration
-	publicHost   string
 	runnerImage  string
 	// pullSecrets name the Secrets the runner image is pulled with; the
 	// namespace reconciler copies them from the release namespace.
@@ -109,7 +108,6 @@ func (o *controllerOptions) register(f *pflag.FlagSet) {
 	f.StringVar(&o.metricsAddr, "metrics-bind-address", ":8081", "metrics endpoint address")
 	f.StringVar(&o.probeAddr, "health-probe-bind-address", ":8082", "health probe address")
 	f.DurationVar(&o.readyTimeout, "ready-timeout", 3*time.Minute, "how long a running app may stay unready before it is reported as not answering")
-	f.StringVar(&o.publicHost, "public-host", "", "host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check")
 	f.StringVar(&o.runnerImage, "runner-image", "", "image whose /javo binary job pods copy in to run the job runner (the chart's own image); required to run the controller")
 	f.StringSliceVar(&o.pullSecrets, "image-pull-secret", nil, "Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)")
 	f.StringVar(&o.notif.namespace, "notifications-namespace", "", "namespace holding the failure-notice ConfigMap and Secret; empty turns failure notices off")
@@ -257,12 +255,12 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	}
 	if err := (&workspace.Reconciler{
 		Client: mgr.GetClient(), Store: db, Storage: wiring.StorageResolver(db, platform),
-		ReadyTimeout: o.readyTimeout, PublicHost: o.publicHost, Sizes: appSizes,
+		ReadyTimeout: o.readyTimeout, PublicHost: common.publicHost, Sizes: appSizes,
 		Machines: capacity.Nodes{Reader: mgr.GetClient()},
 		UIDMode:  platform.Identity.UIDMode, Exposure: wiring.Exposure(platform),
 		ManagedNamespacesOnly: !shared, NetworkPolicy: policy,
 		Tokens: &token.DBStore{Tokens: db.Tokens()}, Secrets: mgr.GetAPIReader(),
-		APIURL:     publicURL(platform.URLs, o.publicHost),
+		APIURL:     publicURL(platform.URLs, common.publicHost),
 		CloneImage: platform.Source.CloneImage, CloneGitConfig: platform.Source.GitConfig, RunnerImage: o.platformImage(),
 		PixiImage:  platform.Environments.PixiImage,
 		NebiURL:    wiring.NebiURL(platform),
@@ -292,7 +290,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		UIDMode: platform.Identity.UIDMode, ManagedNamespacesOnly: !shared,
 		CronJobEvents: cronJobEvents, Storage: wiring.StorageResolver(db, platform),
 		Secrets: direct, SecretKeys: keys, Sizes: appSizes,
-		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, o.publicHost),
+		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
 		APIInternalURL: gatewayBase(o.probe.controlURL),
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err

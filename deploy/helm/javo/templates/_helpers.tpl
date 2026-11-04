@@ -247,6 +247,9 @@ true
 {{- if not .Values.secrets.existingFingerprintKeySecret }}
 - --secret-fingerprint-key-create=true
 {{- end }}
+{{- with include "javo.publicHost" . }}
+- --public-host={{ . }}
+{{- end }}
 {{- end -}}
 
 {{/* The gateway's own flags. */}}
@@ -303,9 +306,6 @@ true
 - --notifications-namespace={{ .Release.Namespace }}
 - --notifications-config-map={{ .Values.notifications.configMapName }}
 - --notifications-secret={{ .Values.notifications.secretName }}
-{{- end }}
-{{- with include "javo.publicHost" . }}
-- --public-host={{ . }}
 {{- end }}
 {{- if include "javo.backupClaimByController" . }}
 - --backup-claim=javo-backups
