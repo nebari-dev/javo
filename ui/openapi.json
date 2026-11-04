@@ -1394,6 +1394,11 @@
       "EnvVar": {
         "additionalProperties": false,
         "properties": {
+          "hidden": {
+            "description": "The value is left out: it is named like a credential and only the owner sees it",
+            "readOnly": true,
+            "type": "boolean"
+          },
           "name": {
             "description": "Letters, digits and underscores, not starting with a digit; names the platform sets are refused",
             "maxLength": 100,

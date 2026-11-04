@@ -64,6 +64,7 @@ describe('envBody', () => {
   it('labels a value with its value and a secret with its name only', () => {
     expect(envLabel({ name: 'LOG_LEVEL', value: 'debug' })).toBe('LOG_LEVEL=debug')
     expect(envLabel({ name: 'KEY', secret: 'OPENAI_KEY' })).toBe('KEY from OPENAI_KEY')
+    expect(envLabel({ name: 'DB_PASSWORD', hidden: true })).toBe('DB_PASSWORD (value hidden: only its owner sees it)')
   })
 })
 

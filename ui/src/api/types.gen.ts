@@ -473,6 +473,10 @@ export type EnvBody = {
 
 export type EnvVar = {
     /**
+     * The value is left out: it is named like a credential and only the owner sees it
+     */
+    readonly hidden?: boolean;
+    /**
      * Letters, digits and underscores, not starting with a digit; names the platform sets are refused
      */
     name: string;

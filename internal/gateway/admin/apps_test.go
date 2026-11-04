@@ -3,11 +3,13 @@ package admin_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -117,5 +119,42 @@ func TestAdminStopIsRecordedForTheOwner(t *testing.T) {
 	}
 	if !found {
 		t.Error("no audit row names the admin who stopped plots")
+	}
+}
+
+// A plain variable named like a credential (a password typed as a value
+// instead of picked as a secret) is the owner's to see: an admin's views of
+// someone's app, and of their job, show its name but not its value.
+func TestAdminViewsHideCredentialLikeValues(t *testing.T) {
+	t.Parallel()
+	app := gatewaytest.App(apitest.AliceID, "plots")
+	app.Env = []model.EnvVar{{Name: "DB_PASSWORD", Value: "hunter2-example"}, {Name: "REGION", Value: "emea"}}
+	job := apitest.JobObj(apitest.AliceID, "nightly")
+	job.Spec.Env = []model.EnvVar{{Name: "API_TOKEN", Value: "tok-example"}, {Name: "REGION", Value: "emea"}}
+	f := apitest.JobFixture(t, apitest.Options{}, gatewaytest.Template("t", "streamlit"), app, job)
+	admin := f.Session(apitest.AdminID, "javo-admins")
+	owner := f.Session(apitest.AliceID)
+	for _, req := range []struct {
+		path, value string
+		viewer      *http.Cookie
+		hidden      bool
+	}{
+		{"/api/admin/apps", "hunter2-example", admin, true},
+		{"/api/workspaces/plots?owner=" + apitest.AliceID, "hunter2-example", admin, true},
+		{"/api/jobs/nightly?owner=" + apitest.AliceID, "tok-example", admin, true},
+		{"/api/workspaces/plots", "hunter2-example", owner, false},
+		{"/api/jobs/nightly", "tok-example", owner, false},
+	} {
+		w := f.Do(http.MethodGet, req.path, "", req.viewer)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", req.path, w.Code, w.Body)
+		}
+		body := w.Body.String()
+		if strings.Contains(body, req.value) == req.hidden {
+			t.Errorf("%s (hidden %v): %s", req.path, req.hidden, body)
+		}
+		if !strings.Contains(body, `"emea"`) {
+			t.Errorf("%s: a plain value is not shown: %s", req.path, body)
+		}
 	}
 }

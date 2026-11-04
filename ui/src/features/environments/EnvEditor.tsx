@@ -55,7 +55,8 @@ const canonical = (list: EnvVar[]) =>
 export const envChanged = (rows: EnvRow[], now: EnvVar[] | null | undefined) => canonical(envBody(rows)) !== canonical(now ?? [])
 
 /** "LOG_LEVEL=debug", or "OPENAI_API_KEY from OPENAI_KEY" for a secret: what a details list shows. */
-export const envLabel = (e: EnvVar) => (e.secret ? `${e.name} from ${e.secret}` : `${e.name}=${e.value ?? ''}`)
+export const envLabel = (e: EnvVar) =>
+  e.secret ? `${e.name} from ${e.secret}` : e.hidden ? `${e.name} (value hidden: only its owner sees it)` : `${e.name}=${e.value ?? ''}`
 
 function Row({
   row,

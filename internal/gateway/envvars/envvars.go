@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
@@ -25,6 +26,7 @@ type EnvVar struct {
 	Name   string `json:"name" maxLength:"100" doc:"Letters, digits and underscores, not starting with a digit; names the platform sets are refused"`
 	Value  string `json:"value,omitempty" doc:"A plain value, shown again as typed: for settings that are not secret"`
 	Secret string `json:"secret,omitempty" maxLength:"100" doc:"The name of one of your secrets to take the value from instead; its value is never shown"`
+	Hidden bool   `json:"hidden,omitempty" readOnly:"true" doc:"The value is left out: it is named like a credential and only the owner sees it"`
 }
 
 // EnvBody is the list a PUT of variables sends.
@@ -32,11 +34,19 @@ type EnvBody struct {
 	Env []EnvVar `json:"env" maxItems:"100" doc:"Every variable; the list replaces the one before"`
 }
 
-// View is what an app or job shows of its variables, by name: plain values
-// as stored, secrets by name only.
-func View(plain []model.EnvVar, bindings []model.SecretBinding) []EnvVar {
+// View is what an app or job of owner shows the caller of its variables, by
+// name: plain values as stored, secrets by name only. A plain value named
+// like a credential (a password typed in instead of picked as a secret) is
+// shown to the owner alone, in the browser or with a personal token; anyone
+// else (a platform admin, an app's or job's own token) gets it Hidden.
+func View(ctx context.Context, owner string, plain []model.EnvVar, bindings []model.SecretBinding) []EnvVar {
+	ownerViews := authn.User(ctx).ID == owner && authn.NoAppTokens(ctx) == nil
 	out := make([]EnvVar, 0, len(plain)+len(bindings))
 	for _, e := range plain {
+		if !ownerViews && redact.SensitiveName(e.Name) {
+			out = append(out, EnvVar{Name: e.Name, Hidden: true})
+			continue
+		}
 		out = append(out, EnvVar{Name: e.Name, Value: e.Value})
 	}
 	for _, b := range bindings {

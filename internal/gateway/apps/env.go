@@ -27,7 +27,7 @@ func (s *Workspaces) envOf(ctx context.Context, app *model.App) []envvars.EnvVar
 	if err != nil {
 		slog.Error("list app secrets", "app", app.ID, "err", err)
 	}
-	return envvars.View(app.Env, bound)
+	return envvars.View(ctx, app.Owner, app.Env, bound)
 }
 
 func (s *Workspaces) registerEnv(api huma.API) {

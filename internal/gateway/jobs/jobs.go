@@ -357,7 +357,7 @@ func (s *API) detail(ctx context.Context, job *model.Job) (*jobOutput, error) {
 		return nil, problem.Internal("list job secrets", err)
 	}
 	out := &jobOutput{Body: jobDetail(job, runs)}
-	out.Body.Env = envvars.View(job.Spec.Env, bound)
+	out.Body.Env = envvars.View(ctx, job.Owner, job.Spec.Env, bound)
 	out.Body.Environment = environments.ViewOf(job.Spec.Environment)
 	out.Body.Size, out.Body.Resources = s.Shown(job.Size, job.Resources)
 	return out, nil
