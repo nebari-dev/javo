@@ -92,6 +92,8 @@ type Reconciler struct {
 	// containers of apps from Git. Required when any app has a source.
 	CloneImage, CloneGitConfig string
 	RunnerImage                podspec.Image
+	// Isolation is applied to every app and preview pod (config workloads).
+	Isolation podspec.Isolation
 	// AllowedRegistries is containerImages.allowedRegistries: an app's own
 	// image is checked again when its pod is built, so tightening the list
 	// stops apps saved before. Empty allows any registry.
@@ -389,6 +391,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 					want.Annotations = map[string]string{}
 				}
 				want.Annotations[model.AnnotationLayout] = layoutFP
+				r.Isolation.Apply(&want.Spec)
 				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL)
 				WithGitToken(want, &app, gitSecret, gitGen)
 				WithEnv(want, app.Env)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/backup/restic"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podspec"
 )
 
 // DefaultPath is where the chart mounts the config file.
@@ -65,6 +66,9 @@ type Platform struct {
 	Branding BrandingCfg `json:"branding"`
 	// Limits caps what one person may have and run at a time.
 	Limits LimitsCfg `json:"limits"`
+	// Workloads is the extra isolation of people's pods (apps, previews and
+	// job runs); off by default.
+	Workloads WorkloadsCfg `json:"workloads"`
 }
 
 // LimitsCfg is the admin's caps per person, so one person cannot fill the
@@ -163,6 +167,22 @@ func (c LimitsCfg) validate(bad func(key, format string, a ...any)) {
 	if c.JobMaxTimeout.Duration <= 0 {
 		bad("limits.jobMaxTimeout", "%s must be positive", c.JobMaxTimeout.Duration)
 	}
+}
+
+// WorkloadsCfg is the extra isolation of people's pods from the node.
+type WorkloadsCfg struct {
+	// HostUsers false runs each pod in a user namespace of its own; omitted
+	// means true (the node's). Needs Kubernetes 1.33+ and a runtime and
+	// kernel with user namespace and idmapped mount support.
+	HostUsers *bool `json:"hostUsers,omitempty"`
+	// RuntimeClassName is a RuntimeClass the pods run under (gVisor, Kata);
+	// empty is the cluster's default runtime.
+	RuntimeClassName string `json:"runtimeClassName,omitempty"`
+}
+
+// Isolation is what the controller applies to people's pods.
+func (w WorkloadsCfg) Isolation() podspec.Isolation {
+	return podspec.Isolation{UserNamespace: w.HostUsers != nil && !*w.HostUsers, RuntimeClassName: w.RuntimeClassName}
 }
 
 // EnvironmentsCfg configures the pixi environments apps and jobs run in: a
@@ -826,6 +846,11 @@ func (p Platform) Validate() error {
 	p.Limits.validate(bad)
 	if p.Limits.Namespace.IsSet() && p.Namespaces.Mode == "shared" {
 		bad("limits.namespace", "only applies when namespaces.mode is per-user or per-team: in the shared namespace one quota would cap everyone together")
+	}
+	if n := p.Workloads.RuntimeClassName; n != "" {
+		if msgs := validation.IsDNS1123Subdomain(n); len(msgs) > 0 {
+			bad("workloads.runtimeClassName", "%q is not a RuntimeClass name: %s", n, strings.Join(msgs, "; "))
+		}
 	}
 	for i, r := range p.ContainerImages.AllowedRegistries {
 		if r == "" || strings.Contains(r, "://") || strings.ContainsAny(r, " \t\n") {

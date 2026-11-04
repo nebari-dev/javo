@@ -536,3 +536,18 @@ func TestTimeoutIsCappedByThePlatformMax(t *testing.T) {
 		}
 	}
 }
+
+// Job runs get the isolation the admin chose for people's pods.
+func TestJobRunsGetTheIsolation(t *testing.T) {
+	t.Parallel()
+	in := testInputs(nil)
+	in.Isolation = podspec.Isolation{UserNamespace: true, RuntimeClassName: "gvisor"}
+	jt, err := BuildJobTemplate(in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod := jt.Spec.Template.Spec
+	if pod.HostUsers == nil || *pod.HostUsers || pod.RuntimeClassName == nil || *pod.RuntimeClassName != "gvisor" {
+		t.Fatalf("hostUsers %v, runtimeClass %v", pod.HostUsers, pod.RuntimeClassName)
+	}
+}

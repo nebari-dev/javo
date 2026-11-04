@@ -58,6 +58,8 @@ type Reconciler struct {
 	// before its run is called lost. Required.
 	Reader      client.Reader
 	RunnerImage podspec.Image
+	// Isolation is applied to every run's pod (config workloads).
+	Isolation podspec.Isolation
 	// PixiImage installs the environment of a job that runs in one
 	// (internal/pixienv). Without it such a job is Blocked.
 	PixiImage string
@@ -344,7 +346,7 @@ func atRunCap(l store.Limits, active, running int64) bool {
 // inputs is what renders the job's runs under verdict v.
 func (r *Reconciler) inputs(job *model.Job, v verdict) Inputs {
 	return Inputs{Job: job, Template: v.tpl, RunnerImage: r.RunnerImage, Layout: v.layout, Secrets: v.secrets, Size: v.size, API: v.api,
-		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout}
+		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout, Isolation: r.Isolation}
 }
 
 func invalidCode(err error) reasons.Code {

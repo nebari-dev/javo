@@ -41,6 +41,7 @@ import (
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/netprobe"
+	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
@@ -985,6 +986,22 @@ func TestImageFromARegistryNoLongerAllowedDoesNotStart(t *testing.T) {
 	}
 	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("pod must not exist for an image whose registry is not allowed")
+	}
+}
+
+// App pods get the isolation the admin chose for people's pods: here their
+// own user namespace (hostUsers false).
+func TestAppPodsRunInTheirOwnUserNamespaceWhenAsked(t *testing.T) {
+	t.Parallel()
+	fx := newEnv(t, func(r *Reconciler) { r.Isolation = podspec.Isolation{UserNamespace: true} })
+	fx.newTemplate(t, "lab-userns")
+	app := fx.newApp(t, "ws-userns", "lou", "lab-userns")
+	var pod corev1.Pod
+	eventually(t, "pod created", func() bool {
+		return fx.exists(&pod, app.ObjectName())
+	})
+	if pod.Spec.HostUsers == nil || *pod.Spec.HostUsers {
+		t.Fatalf("hostUsers = %v, want false", pod.Spec.HostUsers)
 	}
 }
 

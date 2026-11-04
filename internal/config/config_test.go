@@ -467,3 +467,25 @@ func TestNamespaceLimitsAreReadAndOnlyForOwnNamespaces(t *testing.T) {
 		t.Fatalf("shared mode: err = %v, want limits.namespace refused", err)
 	}
 }
+
+// People's pods share the node's user namespace and default runtime unless
+// the admin asks otherwise; a runtime class must be a valid object name.
+func TestWorkloadsIsolationIsOffByDefaultAndChecked(t *testing.T) {
+	p, err := load(t, "auth:\n  local:\n    enabled: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := p.Workloads.Isolation(); i.UserNamespace || i.RuntimeClassName != "" {
+		t.Fatalf("default isolation = %+v", i)
+	}
+	p, err = load(t, "auth:\n  local:\n    enabled: true\nworkloads:\n  hostUsers: false\n  runtimeClassName: gvisor\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := p.Workloads.Isolation(); !i.UserNamespace || i.RuntimeClassName != "gvisor" {
+		t.Fatalf("isolation = %+v", i)
+	}
+	if _, err := load(t, "auth:\n  local:\n    enabled: true\nworkloads:\n  runtimeClassName: 'Not A Name'\n"); err == nil || !strings.Contains(err.Error(), "workloads.runtimeClassName") {
+		t.Fatalf("bad runtime class: err = %v", err)
+	}
+}

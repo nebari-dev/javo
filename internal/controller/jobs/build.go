@@ -90,6 +90,8 @@ type Inputs struct {
 	// MaxTimeout is the platform's longest run (limits.jobMaxTimeout); zero
 	// leaves the job's and the template's time limits as they are.
 	MaxTimeout time.Duration
+	// Isolation is applied to every run's pod.
+	Isolation podspec.Isolation
 }
 
 // A job's Secrets are named "<CronJob name>.job-<use>", a manual run's
@@ -258,6 +260,7 @@ func buildJobTemplate(in Inputs, override map[string]string, secretName string) 
 		VolumeMounts:    []corev1.VolumeMount{runnerMount},
 	}}
 	in.RunnerImage.Pull(&pod)
+	in.Isolation.Apply(&pod)
 	app := &pod.Containers[0]
 	in.Size.Apply(&pod, app, in.Template.Spec.Resources)
 	app.Command = []string{runnerDir + "/javo"}

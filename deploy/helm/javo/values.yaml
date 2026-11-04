@@ -1,5 +1,8 @@
 # Image used by every component (one binary: `javo server`, `javo controller`,
-# `javo gateway`, `javo db`). If digest is set it wins over tag.
+# `javo gateway`, `javo db`). If digest is set it wins over tag. Set digest
+# (sha256:...) in production: a tag can be moved to other contents, and
+# IfNotPresent keeps whatever image a node already has under that tag. No
+# release image is published yet, so there is no default digest.
 image:
   repository: javo
   tag: dev
@@ -515,6 +518,18 @@ config:
       timeout: 5m # how long `javo storage verify` may take
     migration:
       keepOldFor: 168h # how long the old claim is kept after a home moved
+  # Extra isolation of people's pods (apps, previews and job runs) from the
+  # node, beyond the restricted pod security every pod has. Off by default.
+  workloads:
+    # false runs each pod in a user namespace of its own, so a uid in the
+    # container (root included) is an unprivileged uid on the node and a
+    # container escape gains nothing there. Needs Kubernetes 1.33+ and a
+    # runtime and kernel with user namespaces and idmapped mounts for the
+    # volume types in use; test it before turning it on.
+    hostUsers: true
+    # A RuntimeClass to run them under, such as a gVisor or Kata sandbox
+    # installed on the nodes; empty is the default runtime.
+    runtimeClassName: ""
   sessions:
     ttl: 12h
     sweepEvery: 5m # how often each gateway deletes expired sessions

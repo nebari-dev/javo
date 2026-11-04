@@ -146,3 +146,27 @@ func (i Image) Pull(spec *corev1.PodSpec) {
 		}
 	}
 }
+
+// Isolation is how far people's own pods (apps, previews and job runs) are
+// kept from the node, beyond the restricted pod security every pod has. The
+// zero value adds nothing.
+type Isolation struct {
+	// UserNamespace runs each pod in a user namespace of its own (hostUsers
+	// false): a uid in the container, root included, is an unprivileged uid
+	// on the node. Needs Kubernetes 1.33+ with a runtime and kernel that
+	// support it (idmapped mounts for the volumes).
+	UserNamespace bool
+	// RuntimeClassName names a RuntimeClass the pods run under (a sandbox
+	// such as gVisor or Kata); empty keeps the cluster's default runtime.
+	RuntimeClassName string
+}
+
+// Apply gives spec the isolation.
+func (i Isolation) Apply(spec *corev1.PodSpec) {
+	if i.UserNamespace {
+		spec.HostUsers = ptr.To(false)
+	}
+	if i.RuntimeClassName != "" {
+		spec.RuntimeClassName = ptr.To(i.RuntimeClassName)
+	}
+}

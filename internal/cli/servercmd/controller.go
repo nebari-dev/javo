@@ -274,6 +274,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		// Checked again at each pod build, so a tightened list stops
 		// apps saved before.
 		AllowedRegistries: platform.ContainerImages.AllowedRegistries,
+		Isolation:         platform.Workloads.Isolation(),
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}
@@ -301,6 +302,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		Secrets: direct, SecretKeys: keys, Sizes: appSizes,
 		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
 		APIInternalURL: gatewayBase(o.probe.controlURL), MaxTimeout: platform.Limits.JobMaxTimeout.Duration,
+		Isolation: platform.Workloads.Isolation(),
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}
