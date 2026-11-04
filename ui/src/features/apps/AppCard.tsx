@@ -6,9 +6,8 @@ import { problemText } from '../../lib/http'
 import { useStartStop, useTemplateName } from '../../lib/queries'
 import { appLink, heldStep, pillStatus, problemNote, stopNote } from './status'
 import { Button } from '../../components/Button'
-import { CardThumb } from './CardThumb'
+import { CardMark } from './CardThumb'
 import { EmptyState } from '../../components/EmptyState'
-import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
 import { StopButton } from './StopButton'
 import { Uptime } from './Uptime'
@@ -43,28 +42,40 @@ export function AppCard({ ws }: { ws: Workspace }) {
   const template = useTemplateName(ws.template)
   return (
     <div className="card acard">
-      <CardThumb kind={ws.kind} thumbnail={ws.thumbnail} />
-      <div className="row">
-        <KindLogo kind={ws.kind} />
+      <div className="acard-head">
+        <CardMark kind={ws.kind} thumbnail={ws.thumbnail} />
         <div className="grow">
           {/* The name's link covers the whole card; the buttons sit above it. */}
           <Link to={`/apps/${encodeURIComponent(ws.name)}`} className="acard-link">
             <h3>{ws.displayName}</h3>
           </Link>
-          <div className="faint small">{template}</div>
+          <div className="acard-sub">
+            {template} <Uptime ws={ws} />
+            {ws.file && (
+              <>
+                {' · '}
+                <span className="mono" title={ws.file}>{ws.file}</span>
+              </>
+            )}
+          </div>
         </div>
-        <Pill status={pillStatus(ws.phase)} />
-        <Uptime ws={ws} />
       </div>
-      {problem && (
+      {problem ? (
         <div className={`why ${problem.tone}`}>
           <b>{problem.title}</b>
         </div>
+      ) : (
+        stopped && (
+          <div className="meta" title={stopped}>
+            {stopped}
+          </div>
+        )
       )}
-      {stopped && <div className="meta">{stopped}</div>}
-      {ws.file && <div className="meta mono">{ws.file}</div>}
-      <div className="acard-actions">
-        <RunActions ws={ws} />
+      <div className="acard-foot">
+        <Pill status={pillStatus(ws.phase)} />
+        <div className="acard-actions">
+          <RunActions ws={ws} />
+        </div>
       </div>
     </div>
   )

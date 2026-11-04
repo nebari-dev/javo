@@ -23,7 +23,7 @@ export function ThumbnailCard({ ws }: { ws: Workspace }) {
         <ImageUp size={15} aria-hidden="true" />
         Card picture
       </div>
-      <CardThumb kind={ws.kind} thumbnail={ws.thumbnail} className="acard-thumb thumb-preview" />
+      <CardThumb kind={ws.kind} thumbnail={ws.thumbnail} />
       <p className="tight muted small">
         A screenshot of the app, shown on its card to everyone who can open it. PNG or JPEG, up to 4 MB.
       </p>

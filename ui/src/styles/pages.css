@@ -49,12 +49,12 @@ ul.plain{list-style:none;margin:6px 0 0;padding:0}
   .atable th,.atable td{padding:8px 10px}
   .atable-app{min-width:0}
   .atable .col-act .btn{min-width:0;width:var(--btn-h-sm);padding:0}
-  .atable-act-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  .atable .atable-act-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 }
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
 .grid.choices{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
-/* App cards: every row as tall as the tallest card, so all cards are one size. */
-.grid:has(> .acard){grid-auto-rows:1fr}
+/* App cards: narrower columns (four across a laptop screen), every row as tall as the tallest card, so all cards are one size. */
+.grid:has(> .acard){grid-template-columns:repeat(auto-fill,minmax(240px,1fr));grid-auto-rows:1fr}
 .two{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
 .card-h{margin-bottom:14px}
 .label{display:flex;align-items:center;gap:7px;margin:0 0 12px;font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
@@ -69,25 +69,33 @@ a.btn{text-decoration:none}
 .logo .mark{display:block;object-fit:contain;mask-position:center;mask-size:contain;mask-repeat:no-repeat}
 
 /* App card */
-.acard{position:relative;padding:18px;display:flex;flex-direction:column;gap:14px;color:var(--text);transition:transform .15s ease,box-shadow .15s ease}
+.acard{position:relative;min-width:0;padding:14px;display:flex;flex-direction:column;gap:8px;color:var(--text);transition:transform .15s ease,box-shadow .15s ease}
 .acard:hover{transform:translateY(-2px);box-shadow:var(--shadow),0 10px 30px rgba(0,0,0,.08)}
 .acard h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acard-link{color:inherit;text-decoration:none}
 .acard-link::after{content:"";position:absolute;inset:0;border-radius:inherit}
 .acard-link:focus-visible{outline:none}
 .acard:has(.acard-link:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
-.acard-actions{position:relative;z-index:1;display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.acard-head{display:flex;align-items:center;gap:12px;min-width:0}
+.acard-head .grow{min-width:0}
+.acard-sub{font-size:var(--fs-xs);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Status on the left, buttons on the right, always at the bottom of the card. */
+.acard-foot{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:4px;min-height:var(--btn-h-sm)}
+.acard-actions{position:relative;z-index:1;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
 /* Buttons side by side in a table cell: the same 8px as cards and the app page. */
 .btn-row{display:inline-flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:nowrap}
 .acard-actions:empty{display:none}
+/* Open and Stop side by side: Stop shrinks to its icon (the label stays for screen readers) so both fit one row. */
+.acard-actions>*+.stop-wrap .btn{min-width:0;width:var(--btn-h-sm);padding:0}
+.acard-actions>*+.stop-wrap .stop-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .acard .meta{font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* The picture band (config thumbnails.enabled): the same height on every card, picture or kind logo. */
-.acard-thumb{margin:-18px -18px 0;height:96px;overflow:hidden;display:grid;place-items:center;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0}
-.acard-thumb img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center}
-.thumb-preview{margin:0 0 10px;height:auto;aspect-ratio:16/9;border:1px solid var(--border);border-radius:10px}
+/* The owner's picture (config thumbnails.enabled) in place of the kind logo: as tall as the logo, so the card keeps its size. */
+.acard-thumb{width:64px;height:40px;flex:none;overflow:hidden;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm)}
+.acard-thumb img,.thumb-preview img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center}
+.thumb-preview{margin:0 0 10px;aspect-ratio:16/9;overflow:hidden;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:10px}
 .why{font-size:var(--fs-sm);padding:10px 12px;border-radius:10px}
 /* On a card the reason stays one line (its page has the rest), so every card keeps one height. */
-.acard .why{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acard .why{padding:4px 10px;font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .why.err{background:var(--err-soft);color:var(--text)}
 .why.warn{background:var(--warn-soft);color:var(--text)}
 

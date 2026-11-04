@@ -29,18 +29,18 @@ describe('App card pictures', () => {
     expect(cardOf('Plots').querySelector('.acard-thumb')).toBeNull()
   })
 
-  it('shows the picture, and the kind logo in the same frame when there is none', async () => {
+  it('shows the picture in place of the kind logo, and just the logo when there is none', async () => {
     listing([
       ws('plots', 'Plots', 'Running', allReady(), { thumbnail: { url: PIC } }),
       ws('sales-app', 'Sales app', 'Stopped', allStopped(), { thumbnail: {} }),
     ])
     renderApp('/apps')
     await screen.findByRole('link', { name: 'Plots' })
-    const pic = cardOf('Plots').querySelector('.acard-thumb img')
-    expect(pic?.getAttribute('src')).toBe(PIC)
-    const blank = cardOf('Sales app').querySelector('.acard-thumb') as HTMLElement
-    expect(blank).toBeTruthy()
-    expect(blank.querySelector('img[src^="/api/"]')).toBeNull()
+    const plots = cardOf('Plots')
+    expect(plots.querySelector('.acard-thumb img')?.getAttribute('src')).toBe(PIC)
+    expect(plots.querySelector('.logo')).toBeNull()
+    const blank = cardOf('Sales app')
+    expect(blank.querySelector('.acard-thumb')).toBeNull()
     expect(blank.querySelector('.logo')).toBeTruthy()
   })
 
@@ -49,9 +49,8 @@ describe('App card pictures', () => {
     renderApp('/apps')
     await screen.findByRole('link', { name: 'Plots' })
     fireEvent.error(cardOf('Plots').querySelector('.acard-thumb img') as HTMLImageElement)
-    const frame = cardOf('Plots').querySelector('.acard-thumb') as HTMLElement
-    expect(frame.querySelector('img[src^="/api/"]')).toBeNull()
-    expect(frame.querySelector('.logo')).toBeTruthy()
+    expect(cardOf('Plots').querySelector('.acard-thumb')).toBeNull()
+    expect(cardOf('Plots').querySelector('.logo')).toBeTruthy()
   })
 
   it('shows the picture of an app someone shared', async () => {

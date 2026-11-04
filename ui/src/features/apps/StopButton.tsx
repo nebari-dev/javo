@@ -37,7 +37,7 @@ export function StopButton({ ws, act, size }: { ws: Workspace; act: StartStop; s
   return (
     <span className="stop-wrap">
       <Button ref={btn} size={size} icon={Square} disabled={act.isPending} onClick={() => setAsking(true)}>
-        {ws.phase === 'Failed' ? 'Stop retrying' : 'Stop'}
+        <span className="stop-label">{ws.phase === 'Failed' ? 'Stop retrying' : 'Stop'}</span>
       </Button>
       {asking && (
         <StopConfirm

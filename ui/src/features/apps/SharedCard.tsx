@@ -1,8 +1,7 @@
 import type { SharedApp } from '../../api'
 import { useTemplateName } from '../../lib/queries'
 import { appLink, pillStatus } from './status'
-import { CardThumb } from './CardThumb'
-import { KindLogo } from '../../components/KindLogo'
+import { CardMark } from './CardThumb'
 import { Pill } from '../../components/Pill'
 
 /** An app another person shared; it opens the app itself, since viewers have no management page. */
@@ -11,15 +10,16 @@ export function SharedCard({ app }: { app: SharedApp }) {
   const href = app.phase === 'Running' ? appLink(app.url) : undefined
   const body = (
     <>
-      <CardThumb kind={app.kind} thumbnail={app.thumbnail} />
-      <div className="row">
-        <KindLogo kind={app.kind} />
+      <div className="acard-head">
+        <CardMark kind={app.kind} thumbnail={app.thumbnail} />
         <div className="grow">
           <h3>{app.displayName}</h3>
-          <div className="faint small">
+          <div className="acard-sub">
             {template} · <span>from {app.owner.displayName}</span>
           </div>
         </div>
+      </div>
+      <div className="acard-foot">
         <Pill status={pillStatus(app.phase)} />
       </div>
     </>
