@@ -109,7 +109,7 @@ describe('Home', () => {
     await screen.findByText('Research lab')
     await userEvent.click(screen.getByRole('button', { name: /^Account: / }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Sign out' }))
-    await waitFor(() => expect(location()).toBe('/login'))
+    await waitFor(() => expect(location()).toBe('/login?signedOut=1'))
     expect(api.count('POST', '/api/auth/logout')).toBe(1)
   })
 
@@ -123,7 +123,7 @@ describe('Home', () => {
     await screen.findByText('Research lab')
     await userEvent.click(screen.getByRole('button', { name: /^Account: / }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Sign out' }))
-    await waitFor(() => expect(location()).toBe('/login'))
+    await waitFor(() => expect(location()).toBe('/login?signedOut=1'))
     expect(screen.queryByText('Your session ended. Sign in again.')).toBeNull()
   })
 

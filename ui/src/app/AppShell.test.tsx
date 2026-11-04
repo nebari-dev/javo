@@ -130,24 +130,12 @@ describe('AppShell', () => {
     expect(menu.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('shows platform admins where files are kept at the foot of the sidebar, in the API words, linking to the storage settings', async () => {
+  it('shows no storage note or storage item in the sidebar, for admins either', async () => {
     setup('/', { ...me, roles: ['platform-admin'] })
-    const note = await screen.findByRole('link', { name: 'Files on one machine' })
-    expect(note.getAttribute('href')).toBe('/settings/storage')
-    expect(note.getAttribute('title')).toBe('Files on one machine')
-  })
-
-  it('has no separate storage item in the navigation', async () => {
-    setup('/', { ...me, roles: ['platform-admin'] })
-    await screen.findByRole('link', { name: 'Files on one machine' })
-    expect(screen.queryByRole('link', { name: 'Storage' })).toBeNull()
-  })
-
-  it('shows members no storage note', async () => {
-    setup()
     await screen.findByRole('button', { name: /^Account:/ })
     await new Promise((r) => setTimeout(r, 20))
     expect(screen.queryByText('Files on one machine')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Storage' })).toBeNull()
   })
 
   it('shows the Javo name and mark without branding', () => {
