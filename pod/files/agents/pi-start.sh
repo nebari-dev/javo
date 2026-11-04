@@ -4,9 +4,13 @@
 # prompt on the app's first start only. The prompt is passed as one argument
 # from the variable, never put into a command line. Quitting pi leaves a shell.
 node /opt/javo/agents/pi-setup.mjs
+# pi's colours: its light or dark palette unless the person picked a theme.
+theme=$(node /opt/javo/agents/pi-setup.mjs theme-args 2>/dev/null || true)
 if [ -n "${JAVO_AGENT_PROMPT:-}" ] && node /opt/javo/agents/pi-setup.mjs first-start; then
-  pi -- "$JAVO_AGENT_PROMPT"
+  # shellcheck disable=SC2086
+  pi $theme -- "$JAVO_AGENT_PROMPT"
 else
-  pi
+  # shellcheck disable=SC2086
+  pi $theme
 fi
 exec bash

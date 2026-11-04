@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { configure, firstStart } from './pi-setup.mjs'
+import { configure, firstStart, themeArgs } from './pi-setup.mjs'
 
 const home = () => mkdtempSync(join(tmpdir(), 'pi-setup-'))
 const platform = (h) => ({
@@ -99,4 +99,13 @@ test('the first prompt runs on the first start of the app only', () => {
   assert.equal(firstStart({ ...env, HOSTNAME: 'pi-app-2' }), true)
   assert.equal(firstStart({ ...env, JAVO_AGENT_PROMPT: 'something else' }), true)
   assert.equal(firstStart({ HOME: h, HOSTNAME: 'pi-app-3' }), false)
+})
+
+test("pi follows the page's light or dark look unless the person picked a theme", () => {
+  const h = home()
+  assert.deepEqual(themeArgs({ HOME: h }), ['--use-theme', 'light/dark'])
+  configure(platform(h))
+  assert.deepEqual(themeArgs({ HOME: h }), ['--use-theme', 'light/dark'])
+  writeFileSync(join(h, '.pi/agent/settings.json'), '{"theme":"dark"}')
+  assert.deepEqual(themeArgs({ HOME: h }), [])
 })

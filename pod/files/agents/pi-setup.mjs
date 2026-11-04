@@ -117,6 +117,20 @@ export function configure(env) {
   }
 }
 
+// themeArgs are pi's flags for its colours. pi's default theme, "system",
+// builds its palette from the colours the terminal reports; behind tmux part
+// of that answer never comes, and pi stays in its grey placeholder, code
+// included. So pi follows the page's light or dark look with its own
+// palettes, unless the person picked a theme (settings.json "theme").
+export function themeArgs(env) {
+  try {
+    if (JSON.parse(readText(join(agentDir(env), 'settings.json')) ?? '{}').theme) return []
+  } catch {
+    // An unreadable settings file names no theme.
+  }
+  return ['--use-theme', 'light/dark']
+}
+
 // firstStart reports whether this app (its pod's host name, which is the
 // app's) has not yet run this first prompt, and records that it now has.
 export function firstStart(env) {
@@ -134,6 +148,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     if (process.argv[2] === 'first-start') {
       process.exit(firstStart(process.env) ? 0 : 1)
+    }
+    if (process.argv[2] === 'theme-args') {
+      process.stdout.write(themeArgs(process.env).join(' ') + '\n')
+      process.exit(0)
     }
     configure(process.env)
   } catch (err) {
