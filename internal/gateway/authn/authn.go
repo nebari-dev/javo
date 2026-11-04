@@ -621,13 +621,24 @@ const PlansRoute = "/api/plans"
 // IsPlanDecision is true for the approve and reject routes, which only a
 // signed-in person in the browser may use: no token, so no agent, can make
 // a proposed change happen.
+// The path is cleaned first, as isTokenRoute does, so no spelling of it
+// slips past.
 func IsPlanDecision(p string) bool {
-	rest, ok := strings.CutPrefix(p, PlansRoute+"/")
+	rest, ok := strings.CutPrefix(path.Clean("/"+p), PlansRoute+"/")
 	if !ok {
 		return false
 	}
 	_, verb, ok := strings.Cut(rest, "/")
 	return ok && (verb == "approve" || verb == "reject")
+}
+
+// NoTokens refuses a request made with any API token: for the routes only a
+// person in the browser may use, checked again in the handler.
+func NoTokens(ctx context.Context) error {
+	if viaToken(ctx) {
+		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgPlanSessionOnly))
+	}
+	return nil
 }
 
 // NoAppTokens refuses a request made with an app's or a job's own API token.

@@ -280,3 +280,18 @@ func TestAppAndTicketSessionsCannotUseTheAPI(t *testing.T) {
 		}
 	}
 }
+
+// The plan decision routes are recognised in any spelling the mux could
+// route to them, as the token routes are.
+func TestIsPlanDecisionCleansThePath(t *testing.T) {
+	for _, p := range []string{"/api/plans/x/approve", "/api/plans/x/reject", "/api/plans/x/./approve", "/api//plans/x/approve", "/api/plans/y/../x/reject", "/api/plans/x/approve/"} {
+		if !authn.IsPlanDecision(p) {
+			t.Errorf("%s is a plan decision", p)
+		}
+	}
+	for _, p := range []string{"/api/plans", "/api/plans/x", "/api/plans/x/approvex", "/api/plans/x/approve/more"} {
+		if authn.IsPlanDecision(p) {
+			t.Errorf("%s is not a plan decision", p)
+		}
+	}
+}

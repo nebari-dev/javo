@@ -67,6 +67,9 @@ func (a *plansAPI) register(api huma.API) {
 		Summary: "Approve and make a proposed change (browser session only)", Tags: tag, Security: authn.SessionOnly,
 		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusGone, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *planIDInput) (*planOutput, error) {
+		if err := authn.NoTokens(ctx); err != nil {
+			return nil, err
+		}
 		u := authn.User(ctx)
 		cur, err := a.plans.Get(ctx, u.ID, in.ID)
 		if err != nil {
@@ -88,6 +91,9 @@ func (a *plansAPI) register(api huma.API) {
 		Summary: "Turn down a proposed change (browser session only)", Tags: tag, Security: authn.SessionOnly,
 		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict},
 	}, func(ctx context.Context, in *planIDInput) (*planOutput, error) {
+		if err := authn.NoTokens(ctx); err != nil {
+			return nil, err
+		}
 		u := authn.User(ctx)
 		cur, err := a.plans.Get(ctx, u.ID, in.ID)
 		if err != nil {
