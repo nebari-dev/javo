@@ -14,11 +14,25 @@ Open an app's **Sharing** tab to choose who else can open it. Only the owner cha
 | **Anyone signed in** | Every person signed in to Javo. |
 | **Anyone with the link** | Anyone, signed in or not. |
 
-**Copy link** copies the app's address. People you share with can use the app; they never get your files, tokens or sign-in.
+**Copy link** copies the app's address. People you share with never get your sign-in.
+
+## What sharing hands people
+
+A shared app runs as you, so the people you share it with can do whatever the app lets them do. The Sharing tab warns what that is for the kind of app:
+
+| Kind of app | What people you share with get |
+|---|---|
+| VS Code, RStudio, marimo, Pluto.jl | They can run any code or command as you. They can read, change and delete every file in your home folder and your shared folders, including any keys or tokens kept there. |
+| Static site | They can see every page and file of the site. The site cannot see your home folder. |
+| Every other app (Streamlit, Panel, Bokeh, Dash, Gradio, Voila, FastAPI, Node, Go, custom command, container image) | They use the app as it runs. It runs as you, with your home folder and shared folders, so they see whatever it shows and can make it do whatever its code allows, such as reading or changing your files. |
+
+An app with [API access](/using/api/) also lets them call the Javo API as you; the Sharing tab says so too.
 
 ## Why a level may be missing
 
-**Each template sets the most open level its apps may use.** A template that gives the visitor a terminal with your files, such as JupyterLab, Terminal, Claude Code, pi and herdr, is private only: anyone who opens it could act on your files. Of the built-in templates, Streamlit and Static site may be shared up to **Anyone with the link**; the others are private unless a template admin raises their limit.
+**Terminal, JupyterLab and coding agents are always private.** The Terminal, JupyterLab, Claude Code, pi, herdr and any other coding agent hand whoever opens them code running as you, with your files. Javo refuses to share them, whatever their template says, in the web UI and the API alike.
+
+**Each template sets the most open level its apps may use.** Every other built-in template may be shared up to **Anyone with the link**. A template an admin adds is private unless it sets `maxSharing`.
 
 **Sharing needs apps on a separate host.** When apps are served on the same host as the web UI, a shared app could act through its visitor's Javo session. Javo then refuses every level above Private, with the message "Sharing needs apps served on a separate host from this page". Your admin fixes this by [serving apps on their own host](/admin/app-addresses/), or accepts the risk with `config.sharing.allowOneHost` (the Docker Compose install does).
 

@@ -60,7 +60,7 @@ The app acts as its **owner** in Nebi. The token reaches it like this:
 
 So the token outlives the owner's last use of the app (or their sign-out) by at most a day. Only the owner's own use renews it.
 
-**Shared apps.** As with [API tokens](/using/api/), anyone the app is shared with acts as the owner in Nebi while they use it. JupyterLab can only be private (`maxSharing: Private`), so this applies only to a template an admin opens up.
+**Shared apps.** As with [API tokens](/using/api/), anyone the app is shared with acts as the owner in Nebi while they use it. JupyterLab is always private, whatever its template says, so this applies only to another template an admin gives `nebiToken`.
 
 **Previews** (pull request apps) never get a Nebi token: they run code the owner has not necessarily written.
 
