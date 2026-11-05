@@ -4,7 +4,11 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -41,7 +45,7 @@ func SameOrigin(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get(RequestHeader) != "1" || !sameOrigin(r) {
+		if r.Header.Get(RequestHeader) != "1" || !sameOrigin(r.Header.Get, r.Host) {
 			problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgNotAllowedFromApp))
 			return
 		}
@@ -49,22 +53,64 @@ func SameOrigin(next http.Handler) http.Handler {
 	})
 }
 
-func sameOrigin(r *http.Request) bool {
-	if s := r.Header.Get("Sec-Fetch-Site"); s != "" {
+// sameOrigin is true unless a request's headers (header) say a page of
+// another origin or one under /u/ sent it to host.
+func sameOrigin(header func(string) string, host string) bool {
+	if s := header("Sec-Fetch-Site"); s != "" {
 		if s != "same-origin" {
 			return false
 		}
-	} else if o := r.Header.Get("Origin"); o != "" {
+	} else if o := header("Origin"); o != "" {
 		u, err := url.Parse(o)
-		if err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host) {
+		if err != nil || u.Host == "" || !strings.EqualFold(u.Host, host) {
 			return false
 		}
 	}
-	if ref := r.Header.Get("Referer"); ref != "" {
+	if ref := header("Referer"); ref != "" {
 		u, err := url.Parse(ref)
 		if err != nil || strings.HasPrefix(path.Clean("/"+u.Path)+"/", "/u/") {
 			return false
 		}
 	}
 	return true
+}
+
+// HomeReads are the GET operations that can make the caller's home or start
+// its file pod, with the test that says whether a request of that operation
+// does (a nil test: always). HomeReadsGuard keeps pages of apps and of other
+// sites from sending them.
+var HomeReads = map[string]func(huma.Context) bool{
+	"listFiles":  nil,
+	"getRawFile": nil,
+	"getStorage": func(hctx huma.Context) bool {
+		usage, _ := strconv.ParseBool(hctx.Query("usage"))
+		return usage
+	},
+}
+
+// PlainHomeReads are the HomeReads the web UI also loads without its header,
+// as an image, a frame, a download or a link: they need only a request from
+// the UI's own pages (sameOrigin).
+var PlainHomeReads = []string{"getRawFile"}
+
+// HomeReadsGuard is API middleware that refuses a HomeReads request sent
+// with the session cookie unless it carries RequestHeader (except
+// PlainHomeReads) and passes the SameOrigin checks. Browsers send the
+// session cookie with an image or a script that a page of an app on another
+// host of the same site loads, so without it such a page could make a
+// person's home and keep a file pod running. A request with an API token is
+// not checked, as for SameOrigin.
+func HomeReadsGuard(api huma.API) func(huma.Context, func(huma.Context)) {
+	return func(hctx huma.Context, next func(huma.Context)) {
+		op := hctx.Operation().OperationID
+		test, guarded := HomeReads[op]
+		if !guarded || test != nil && !test(hctx) || viaToken(hctx.Context()) ||
+			(hctx.Header(RequestHeader) == "1" || slices.Contains(PlainHomeReads, op)) && sameOrigin(hctx.Header, hctx.Host()) {
+			next(hctx)
+			return
+		}
+		hctx.SetHeader("Content-Type", "application/problem+json")
+		hctx.SetStatus(http.StatusForbidden)
+		_ = api.Marshal(hctx.BodyWriter(), "application/problem+json", problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgNotAllowedFromApp)))
+	}
 }

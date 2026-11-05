@@ -92,13 +92,16 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 	}
 	registerRawFile(api, lister, nss, st)
 	registerSaveFile(api, lister, nss, st)
-	registerWarm(api, listings, nss)
+	registerWarm(api, listings, nss, st)
 	huma.Register(api, huma.Operation{
 		OperationID: "listFiles", Method: http.MethodGet, Path: "/api/files",
 		Summary: "List a folder of the user's home", Tags: []string{"files"},
-		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
+		Errors: []int{http.StatusForbidden, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
 			http.StatusConflict, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *filesInput) (*filesOutput, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if listings == nil {
 			return nil, problem.Internal("list home folder", errors.New("no home folder lister configured"))
 		}
@@ -176,15 +179,18 @@ type warmInput struct {
 
 // registerWarm adds POST /api/files/warm: pages that may open the file
 // picker call it on load, so the home folder is listed before it is needed.
-func registerWarm(api huma.API, listings *Listings, nss *namespaces.Finder) {
+func registerWarm(api huma.API, listings *Listings, nss *namespaces.Finder, st *API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "warmFiles", Method: http.MethodPost, Path: "/api/files/warm",
 		Summary: "Get the user's home folder ready to list", Tags: []string{"files"},
 		Description: "Starts what lists the home folder and lists it, so the file picker opens at once. " +
 			"Answers right away; calls closer together than a few seconds do nothing.",
 		DefaultStatus: http.StatusNoContent,
-		Errors:        []int{http.StatusUnauthorized, http.StatusUnprocessableEntity},
+		Errors:        []int{http.StatusForbidden, http.StatusUnauthorized, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *warmInput) (*struct{}, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if listings == nil {
 			return nil, problem.Internal("warm home folder", errors.New("no home folder lister configured"))
 		}
@@ -277,9 +283,12 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 	huma.Register(api, huma.Operation{
 		OperationID: "getRawFile", Method: http.MethodGet, Path: "/api/files/raw",
 		Summary: "Download or show one file of the user's home", Tags: []string{"files"},
-		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
+		Errors: []int{http.StatusForbidden, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
 			http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *rawInput) (*huma.StreamResponse, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if lister == nil {
 			return nil, problem.Internal("open home file", errors.New("no home folder lister configured"))
 		}
@@ -373,10 +382,13 @@ func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *AP
 			"name is taken). Only UTF-8 text of at most 2 MiB; never through a symlink.",
 		DefaultStatus: http.StatusOK,
 		MaxBodyBytes:  files.MaxEditBytes,
-		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict,
+		Errors: []int{http.StatusForbidden, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict,
 			http.StatusRequestEntityTooLarge, http.StatusPreconditionRequired, http.StatusUnprocessableEntity,
 			http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *saveInput) (*saveOutput, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if lister == nil {
 			return nil, problem.Internal("save home file", errors.New("no home folder lister configured"))
 		}

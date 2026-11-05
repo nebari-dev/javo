@@ -3345,6 +3345,10 @@ export type ListFilesErrors = {
      */
     401: ErrorModel;
     /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
      * Not Found
      */
     404: ErrorModel;
@@ -3402,6 +3406,10 @@ export type GetRawFileErrors = {
      * Unauthorized
      */
     401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
     /**
      * Not Found
      */
@@ -3473,6 +3481,10 @@ export type SaveRawFileErrors = {
      */
     401: ErrorModel;
     /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
      * Not Found
      */
     404: ErrorModel;
@@ -3530,6 +3542,10 @@ export type WarmFilesErrors = {
      * Unauthorized
      */
     401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
     /**
      * Unprocessable Entity
      */

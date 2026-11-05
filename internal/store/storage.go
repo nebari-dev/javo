@@ -33,7 +33,8 @@ const (
 	settingRequests  = "requests"
 )
 
-// Homes is the homes table. Only the controller writes it.
+// Homes is the homes table. The controller writes it, and the gateway adds
+// a member's home row the first time their files are needed (EnsureHome).
 type Homes struct{ s *Store }
 
 // Homes returns the homes table.
