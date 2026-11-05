@@ -172,7 +172,7 @@ describe('Home samples', () => {
     localStorage.setItem('javo.appsView', 'list')
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/workspaces': { body: { items: [running] } }, 'GET /api/templates': { body: { items: templates } } })
     renderApp('/')
-    const table = await screen.findByRole('table', { name: 'Your apps' })
+    const table = await screen.findByRole('table', { name: 'Apps' })
     expect(within(table).getByRole('link', { name: 'Research lab' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'List' }).getAttribute('aria-pressed')).toBe('true')
   })

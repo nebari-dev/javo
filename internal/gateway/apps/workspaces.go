@@ -127,6 +127,8 @@ type Workspace struct {
 	// Run is the image and command line the app's pod runs; absent when
 	// the pod cannot be built.
 	Run *templates.PodRun `json:"run,omitempty"`
+	// CreatedAt is when the app was created; lists are newest first.
+	CreatedAt time.Time `json:"createdAt,omitempty"`
 }
 
 // Workspaces is the app API: /api/workspaces and every route about one app.
@@ -822,7 +824,7 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 	return Workspace{
 		Name: app.Name, DisplayName: app.DisplayName, Template: app.Template,
 		Kind: kind, File: app.File, FilePath: workspace.FilePath(app), Size: size, Resources: custom, Phase: phase, APIAccess: access,
-		Command: app.Command, Image: app.Image, Port: app.Port,
+		Command: app.Command, Image: app.Image, Port: app.Port, CreatedAt: app.CreatedAt,
 		URL:   s.appURL(app),
 		Steps: steps(app.Status.Conditions), CanShare: canShare,
 		IdleStopMinutes: app.IdleStopMinutes, StoppedIdleAfter: app.StoppedIdleAfter,

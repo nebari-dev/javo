@@ -33,7 +33,7 @@ export function SharedCard({ app }: { app: SharedApp }) {
 }
 
 /** How an app reaches the viewer, from the listing's `via`. */
-function sharedHow(via: string): string {
+export function sharedHow(via: string): string {
   if (via.startsWith('group:')) return `Shared with your group ${via.slice('group:'.length).split('/').pop()}`
   if (via === 'signed-in') return 'Shared with everyone signed in'
   if (via === 'public') return 'Anyone with the link'

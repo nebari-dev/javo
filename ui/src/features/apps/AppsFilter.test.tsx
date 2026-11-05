@@ -41,6 +41,29 @@ describe('All, Mine and Shared with me where apps are listed', () => {
     expect(within(filter).getByRole('radio', { name: 'All' }).getAttribute('aria-checked')).toBe('true')
   })
 
+  it.each(['Cards', 'List'])('All lists my apps and shared apps in one %s list, newest first; Mine leaves the shared ones out', async (view) => {
+    const newer = { ...mineApp, name: 'newer', displayName: 'Newer app', createdAt: '2026-03-01T00:00:00Z' }
+    const older = { ...mineApp, name: 'older', displayName: 'Older app', createdAt: '2026-01-01T00:00:00Z' }
+    render([shared(1, { createdAt: '2026-02-01T00:00:00Z' })], [newer, older])
+    renderApp('/apps')
+    await screen.findByText('Shared app 1')
+    await userEvent.click(screen.getByRole('button', { name: view }))
+    const known = ['Newer app', 'Older app', 'Shared app 1']
+    const names = () => screen.getAllByRole('link').flatMap((l) => known.filter((n) => l.textContent?.startsWith(n)))
+    expect(names()).toEqual(['Newer app', 'Shared app 1', 'Older app'])
+    if (view === 'List') {
+      const rows = within(screen.getByRole('table', { name: 'Apps' })).getAllByRole('row')
+      expect(rows).toHaveLength(4)
+      const row = screen.getByRole('link', { name: 'Shared app 1' }).closest('tr') as HTMLElement
+      expect(within(row).getByText(/from bob/)).toBeTruthy()
+      expect(within(row).getByText('Shared with you')).toBeTruthy()
+      expect(within(row).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('https://apps.example.com/u/bob/app-1/')
+      expect(within(row).queryByRole('button')).toBeNull()
+    }
+    await userEvent.click(within(screen.getByRole('radiogroup', { name: 'Show' })).getByRole('radio', { name: 'Mine' }))
+    expect(names()).toEqual(['Newer app', 'Older app'])
+  })
+
   it('filters to my apps or to shared apps, and keeps the choice in the address', async () => {
     render([shared(1)], [mineApp])
     renderApp('/apps')

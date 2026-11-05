@@ -24,7 +24,7 @@ function withApps(extra: Record<string, unknown> = {}) {
 
 async function listView() {
   await userEvent.click(await screen.findByRole('button', { name: 'List' }))
-  return screen.getByRole('table', { name: 'Your apps' })
+  return screen.getByRole('table', { name: 'Apps' })
 }
 
 function cardOf(name: string): HTMLElement {
@@ -72,7 +72,7 @@ describe('Apps', () => {
     expect(screen.getByRole('button', { name: 'List' }).getAttribute('aria-pressed')).toBe('true')
     first.unmount()
     renderApp('/apps')
-    expect(await screen.findByRole('table', { name: 'Your apps' })).toBeTruthy()
+    expect(await screen.findByRole('table', { name: 'Apps' })).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Cards' }))
     expect(screen.queryByRole('table')).toBeNull()
   })

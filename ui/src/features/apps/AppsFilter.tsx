@@ -9,6 +9,7 @@ import { Banner } from '../../components/Banner'
 import { Card } from '../../components/Card'
 import { Segmented } from '../../components/Segmented'
 import { SharedCard } from './SharedCard'
+import { listedKey, newestFirst } from './listed'
 
 type Show = 'all' | 'mine' | 'shared'
 
@@ -52,9 +53,8 @@ export function ShowFilter({ show, onChange }: { show: Show; onChange: (s: Show)
 }
 
 /**
- * The user's apps and the apps shared with them, filtered by `show`. In the
- * card view both kinds sit in one grid; the list view lists the user's apps in
- * the table and shared ones as cards under it (they have no management page).
+ * The user's apps and the apps shared with them, filtered by `show`, as one
+ * list newest first: one grid of cards, or one table.
  */
 export function AppsList(props: {
   mine: Workspace[]
@@ -71,21 +71,15 @@ export function AppsList(props: {
     if (show === 'shared') return shared.data ? <Card className="empty">{shared.data.empty}</Card> : null
     return <NoApps />
   }
-  const sharedCards = others.map((a) => <SharedCard key={`${a.owner.id}/${a.name}`} app={a} />)
+  const apps = newestFirst(mine, others)
   return (
     <>
       {sharedErr}
-      {view === 'list' && mine.length > 0 ? (
-        <>
-          <AppTable apps={mine} />
-          {sharedCards.length > 0 && <div className="grid section-sm">{sharedCards}</div>}
-        </>
+      {view === 'list' ? (
+        <AppTable apps={apps} />
       ) : (
         <div className="grid">
-          {mine.map((w) => (
-            <AppCard key={w.name} ws={w} />
-          ))}
-          {sharedCards}
+          {apps.map((a) => (a.mine ? <AppCard key={listedKey(a)} ws={a.mine} /> : <SharedCard key={listedKey(a)} app={a.shared} />))}
         </div>
       )}
     </>

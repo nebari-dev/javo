@@ -706,7 +706,9 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (key === 'GET /api/templates') return reply(200, { items: allTemplates, categories: templateCategories })
   if (key === 'GET /api/workspaces') {
-    return reply(200, { items: url.searchParams.get('previews') === 'true' ? [...listed, ...previewApps] : listed })
+    // Created a day apart, newest first, as the API orders them.
+    const dated = (items: typeof listed) => items.map((w, i) => ({ ...w, createdAt: at(-86400 * (i + 1)) }))
+    return reply(200, { items: dated(url.searchParams.get('previews') === 'true' ? [...listed, ...previewApps] : listed) })
   }
   const previews = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/previews$/)
   if (previews && previewSettings[previews[1]]) {
@@ -742,8 +744,8 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     return reply(200, {
       empty: 'Nothing has been shared with you yet.',
       items: [
-        { name: 'forecast', displayName: 'Sales forecast', template: 'panel', kind: 'panel', phase: 'Running', url: 'https://apps.example.com/u/bob/forecast/', owner: { id: 'bob-bbbbbbbb', displayName: 'Bob' }, via: 'user' },
-        { name: 'kpis', displayName: 'Team KPIs', template: 'dash', kind: 'dash', phase: 'Stopped', url: 'https://apps.example.com/u/carol/kpis/', owner: { id: 'carol-cccccccc', displayName: 'Carol' }, via: 'group' },
+        { name: 'forecast', displayName: 'Sales forecast', template: 'panel', kind: 'panel', phase: 'Running', url: 'https://apps.example.com/u/bob/forecast/', owner: { id: 'bob-bbbbbbbb', displayName: 'Bob' }, via: 'user', createdAt: at(-86400 * 2.5) },
+        { name: 'kpis', displayName: 'Team KPIs', template: 'dash', kind: 'dash', phase: 'Stopped', url: 'https://apps.example.com/u/carol/kpis/', owner: { id: 'carol-cccccccc', displayName: 'Carol' }, via: 'group', createdAt: at(-86400 * 6.5) },
       ],
     })
   if (key === 'GET /api/storage') return reply(200, storage)

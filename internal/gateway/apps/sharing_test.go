@@ -39,6 +39,26 @@ func TestSharingWithBobShowsInBobsSharedList(t *testing.T) {
 	}
 }
 
+// A shared app carries when it was created, the same date its owner's list
+// shows, so a viewer's own and shared apps sort together, newest first.
+func TestSharedAppCarriesItsCreationDate(t *testing.T) {
+	t.Parallel()
+	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})
+	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
+	f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, alice)
+	type dated struct {
+		Items []struct{ CreatedAt time.Time }
+	}
+	own := apitest.Decode[dated](t, f.Do("GET", "/api/workspaces", "", alice))
+	shared := apitest.Decode[dated](t, f.Do("GET", "/api/shared", "", bob))
+	if len(own.Items) != 1 || len(shared.Items) != 1 {
+		t.Fatalf("own %+v, shared %+v", own.Items, shared.Items)
+	}
+	if own.Items[0].CreatedAt.IsZero() || !shared.Items[0].CreatedAt.Equal(own.Items[0].CreatedAt) {
+		t.Fatalf("createdAt: own %v, shared %v", own.Items[0].CreatedAt, shared.Items[0].CreatedAt)
+	}
+}
+
 // An app open to everyone signed in, or to anyone with the link, is shared
 // with every signed-in person, so it is listed for them saying how; never for
 // its owner, and never above the template's cap.

@@ -158,6 +158,8 @@ type SharedApp struct {
 	Via string `json:"via"`
 	// Thumbnail is the app's picture; absent when thumbnails are off.
 	Thumbnail *Thumbnail `json:"thumbnail,omitempty"`
+	// CreatedAt is when the app was created, as on the owner's own list.
+	CreatedAt time.Time `json:"createdAt,omitempty"`
 }
 
 type sharedOutput struct {
@@ -410,7 +412,7 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 		v := s.ws.View(ctx, app, API)
 		out.Body.Items = append(out.Body.Items, SharedApp{
 			Name: v.Name, DisplayName: v.DisplayName, Template: v.Template, Kind: v.Kind, Phase: v.Phase,
-			URL: v.URL, Owner: owner, Via: d.Via, Thumbnail: v.Thumbnail,
+			URL: v.URL, Owner: owner, Via: d.Via, Thumbnail: v.Thumbnail, CreatedAt: v.CreatedAt,
 		})
 	}
 	if len(out.Body.Items) == 0 {

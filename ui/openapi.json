@@ -4026,6 +4026,10 @@
       "SharedApp": {
         "additionalProperties": false,
         "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
           "displayName": {
             "type": "string"
           },
@@ -5259,6 +5263,10 @@
             "type": "boolean"
           },
           "command": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
             "type": "string"
           },
           "displayName": {

@@ -1490,6 +1490,7 @@ export type SelfTestResult = {
 };
 
 export type SharedApp = {
+    createdAt?: string;
     displayName: string;
     kind: string;
     name: string;
@@ -1911,6 +1912,7 @@ export type Workspace = {
     apiAccess: 'None' | 'Read' | 'ReadWrite';
     canShare: boolean;
     command: string;
+    createdAt?: string;
     displayName: string;
     env: Array<EnvVar> | null;
     environment?: EnvironmentView;
@@ -2120,6 +2122,7 @@ export type WorkspaceWritable = {
     apiAccess: 'None' | 'Read' | 'ReadWrite';
     canShare: boolean;
     command: string;
+    createdAt?: string;
     displayName: string;
     env: Array<EnvVarWritable> | null;
     environment?: EnvironmentView;

@@ -1,8 +1,11 @@
 import { Link } from 'react-router'
-import type { Workspace } from '../../api'
+import type { SharedApp, Workspace } from '../../api'
 import { useTemplateName } from '../../lib/queries'
-import { heldStep, pillStatus, problemNote, stopNote } from './status'
+import { appLink, heldStep, pillStatus, problemNote, stopNote } from './status'
 import { RunActions } from './AppCard'
+import { listedKey, type ListedApp } from './listed'
+import { OpenAppLink } from './OpenAppLink'
+import { sharedHow } from './SharedCard'
 import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
 import { Uptime } from './Uptime'
@@ -37,12 +40,53 @@ function AppRow({ ws }: { ws: Workspace }) {
   )
 }
 
-/** Apps as a compact table; scrolls inside its own box on narrow screens. */
-export function AppTable({ apps }: { apps: Workspace[] }) {
+/** An app another person shared: it opens the app itself, the only thing a viewer may do. */
+function SharedRow({ app }: { app: SharedApp }) {
+  const template = useTemplateName(app.template)
+  const open = app.phase === 'Running' ? appLink(app.url) : undefined
+  return (
+    <tr>
+      <th scope="row">
+        <div className="atable-app">
+          <KindLogo kind={app.kind} />
+          <div className="atable-name">
+            {open ? (
+              <a href={open} target="_blank" rel="noopener">
+                {app.displayName}
+              </a>
+            ) : (
+              <span className="atable-title">{app.displayName}</span>
+            )}
+            <span className="atable-why warn">
+              from {app.owner.displayName} · <span>{sharedHow(app.via)}</span>
+            </span>
+          </div>
+        </div>
+      </th>
+      <td className="col-type">{template}</td>
+      <td>
+        <Pill status={pillStatus(app.phase)} />
+      </td>
+      <td className="col-file mono" />
+      <td className="col-act">
+        <div className="btn-row">
+          {open && (
+            <OpenAppLink className="btn sm" href={open}>
+              <span className="atable-act-label">Open</span>
+            </OpenAppLink>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+/** The user's apps and shared ones as one compact table; scrolls inside its own box on narrow screens. */
+export function AppTable({ apps }: { apps: ListedApp[] }) {
   return (
     <div className="card atable-wrap">
       <table className="atable">
-        <caption className="sr-only">Your apps</caption>
+        <caption className="sr-only">Apps</caption>
         <thead>
           <tr>
             <th scope="col">App</th>
@@ -59,9 +103,7 @@ export function AppTable({ apps }: { apps: Workspace[] }) {
           </tr>
         </thead>
         <tbody>
-          {apps.map((w) => (
-            <AppRow key={w.name} ws={w} />
-          ))}
+          {apps.map((a) => (a.mine ? <AppRow key={listedKey(a)} ws={a.mine} /> : <SharedRow key={listedKey(a)} app={a.shared} />))}
         </tbody>
       </table>
     </div>
