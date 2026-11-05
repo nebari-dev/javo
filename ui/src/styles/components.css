@@ -138,7 +138,7 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .status-icon.s-starting,.status-icon.s-stopping,.status-icon.s-pending{color:var(--warn)}
 
 /* More */
-.more-toggle{text-align:left;border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-weight:500;font-size:var(--fs-sm);padding:6px 0;user-select:none}
+.more-toggle{text-align:left;border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:var(--btn-h-sm);color:var(--text-2);font-weight:500;font-size:var(--fs-sm);padding:0;user-select:none}
 .more-toggle:hover{color:var(--text)}
 .more-chevron{transition:transform .15s ease;flex:none}
 .more-chevron.open{transform:rotate(90deg)}
@@ -234,7 +234,8 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .lv-icon{flex:none;color:var(--text-3)}
 /* A log that folds: its title is the toggle, in the same place open or folded; folded it is just the header. */
 .lv-title:has(.lv-toggle){overflow:visible}
-.lv .more-toggle.lv-toggle{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;gap:8px;max-width:100%}
+/* Only the tint's left pad reaches out (chevron on the content edge); the right stays in the title to keep the gap to the status. The title is the toggle less that pad, so the cap adds it back. */
+.lv .more-toggle.lv-toggle{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;gap:8px;margin-right:0;max-width:calc(100% + var(--more-pad))}
 .lv .more-toggle.lv-toggle:hover{color:var(--text)}
 .lv.folded .lv-head{border-bottom:0;border-radius:inherit}
 .lv-title{margin:0;min-width:0;letter-spacing:0;font-size:var(--fs-sm);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -474,7 +475,8 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .started-ok{flex:none;color:var(--ok)}
 .fold{display:grid;grid-template-rows:0fr;transition:grid-template-rows .4s ease}
 .fold[data-open="true"]{grid-template-rows:1fr}
-.fold-inner{overflow:hidden;min-height:0}
+/* The clip reaches past the content by the toggle tint's pad, so full-row toggles inside keep their tint's ends and corners. */
+.fold-inner{overflow:hidden;min-height:0;padding-inline:var(--more-pad);margin-inline:calc(-1 * var(--more-pad))}
 .fold[data-open="true"]>.fold-inner{padding-top:8px}
 @media (prefers-reduced-motion:reduce){.fold{transition:none}}
 /* What an app started with: a fixed strip between the log's header and its lines. */
@@ -500,7 +502,8 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 /* The tint follows the shape: full-width buttons in a card take its corners, tabs round their top. */
 .sample-card>button,.sample-card>a{border-radius:inherit}
 .tablist button,.subnav a{border-radius:8px 8px 0 0}
-/* A text-only toggle gets room for the tint without moving its text. */
-.more-toggle{padding-inline:8px;margin-inline:-8px;border-radius:8px}
+/* A text-only toggle gets even room for the tint without moving its text: the chevron stays on the content edge. */
+.more-toggle,.fold-inner{--more-pad:8px}
+.more-toggle{padding-inline:var(--more-pad);margin-inline:calc(-1 * var(--more-pad));border-radius:8px}
 /* The avatar is covered by its picture, so its hover is a ring. */
 .avatar-btn:hover{box-shadow:0 0 0 1px var(--border-strong),0 1px 0 1px var(--key-edge),0 0 0 5px var(--hover)}
