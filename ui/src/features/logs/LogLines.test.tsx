@@ -121,4 +121,20 @@ describe('LogLines', () => {
     expect(li.querySelector('.lk-path')?.textContent).toBe('/home/alice')
     expect(li.dataset.level).toBe('info')
   })
+  it('shows bidi and invisible characters as visible markers, so a line cannot hide or reorder its text', async () => {
+    render(
+      <LogLines
+        label="App log"
+        lines={[
+          { text: 'saved invoice\u202Efdp.exe' },
+          { text: 'rm -rf\u200B /tmp/x\u2066' },
+          { text: '\x1b[31mred\u202Dtext\x1b[0m' },
+        ]}
+      />,
+    )
+    const li = await highlighted('App log')
+    expect(li[0].textContent).toBe('saved invoice<U+202E>fdp.exe')
+    expect(li[1].textContent).toBe('rm -rf<U+200B> /tmp/x<U+2066>')
+    expect(li[2].textContent).toBe('red<U+202D>text')
+  })
 })
