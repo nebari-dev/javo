@@ -287,6 +287,10 @@ a.btn{text-decoration:none}
 .people li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}
 .people li:first-child{border-top:0}
 .err-text{color:var(--err)}
+.saved-note{display:flex;align-items:center;gap:6px;color:var(--ok);font-weight:500}
+.saved-note:not(:empty){margin:10px 0}
+.just-added{flex:none;color:var(--ok);animation:tpl-in .2s ease-out}
+@media (prefers-reduced-motion:reduce){.just-added{animation:none}}
 .initials{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:var(--fs-xs);color:var(--on-ink);background:var(--ink);flex:none}
 .field .hint{font-size:var(--fs-xs);color:var(--text-2)}
 .seg button[aria-disabled="true"]{opacity:.45;cursor:not-allowed}

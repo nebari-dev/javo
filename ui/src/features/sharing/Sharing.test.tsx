@@ -60,6 +60,51 @@ describe('Sharing tab', () => {
     expect(await screen.findByText('bob@example.com')).toBeTruthy()
   })
 
+  describe('confirms a saved change', () => {
+    const directory = { body: { people: [{ id: bob.id, displayName: 'Bob', email: bob.email }], groups: [] } }
+    const pickBob = async () => {
+      await openSharing()
+      await userEvent.type(await screen.findByRole('combobox', { name: 'Add people or groups' }), 'bo')
+      await userEvent.click(await screen.findByRole('option', { name: /Bob/ }))
+    }
+
+    it('says who it was shared with and ticks their row, only once the save succeeds', async () => {
+      let release!: () => void
+      const hold = new Promise<void>((r) => (release = r))
+      open(view(), { 'GET /api/directory': directory, 'PUT /api/workspaces/sales-app/sharing': { body: view({ users: [bob] }), hold } })
+      await pickBob()
+      await waitFor(() => expect((screen.getByRole('combobox', { name: 'Add people or groups' }) as HTMLInputElement).disabled).toBe(true))
+      expect(screen.queryByText('Shared with Bob')).toBeNull()
+      release()
+      const status = await screen.findByText('Shared with Bob')
+      expect(status.closest('[role="status"]')?.getAttribute('aria-live')).toBe('polite')
+      const row = (await screen.findByText('bob@example.com')).closest('li') as HTMLElement
+      expect(within(row).getByRole('img', { name: 'Just added' })).toBeTruthy()
+    })
+
+    it('shows the error and no confirmation when the save fails', async () => {
+      open(view(), {
+        'GET /api/directory': directory,
+        'PUT /api/workspaces/sales-app/sharing': {
+          status: 422,
+          body: { title: MESSAGES.InvalidRequest, status: 422, errors: [{ location: 'body.users[0]', message: MESSAGES.ShareTargetUnknown(bob.id) }] },
+        },
+      })
+      await pickBob()
+      expect((await screen.findByRole('alert')).textContent).toBe(MESSAGES.ShareTargetUnknown(bob.id))
+      expect(screen.queryByText(/Shared with/)).toBeNull()
+      expect(screen.queryByRole('img', { name: 'Just added' })).toBeNull()
+    })
+
+    it('says which access level was saved', async () => {
+      open(view(), { 'PUT /api/workspaces/sales-app/sharing': { body: view({ access: 'SignedIn' }) } })
+      await openSharing()
+      await userEvent.click(await screen.findByRole('radio', { name: 'Anyone signed in' }))
+      const status = await screen.findByText('Access set to Anyone signed in')
+      expect(status.closest('[role="status"]')?.getAttribute('aria-live')).toBe('polite')
+    })
+  })
+
   it('adds one of the caller\'s groups', async () => {
     const api = open(view(), {
       'GET /api/directory': { body: { people: [], groups: [{ value: '/org/data-science' }] } },
@@ -106,6 +151,7 @@ describe('Sharing tab', () => {
     const group = screen.getByRole('group', { name: 'General access' })
     expect((await within(group).findByRole('alert')).textContent).toBe(MESSAGES.ShareTooOpenSignedIn)
     expect(screen.queryByText(MESSAGES.InvalidRequest)).toBeNull()
+    expect(screen.queryByText(/Access set to/)).toBeNull()
     expect(screen.getByRole('radio', { name: 'Only people added' }).getAttribute('aria-checked')).toBe('true')
   })
 

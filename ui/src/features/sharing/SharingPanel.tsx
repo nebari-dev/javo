@@ -1,4 +1,5 @@
-import { Users, X } from 'lucide-react'
+import { Check, Users, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { SharingInputBody, SharingView, Workspace } from '../../api'
 
 type Access = SharingView['access']
@@ -31,12 +32,30 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
   const groupValues = groups.map((g) => g.value)
   const canShareWithPeople = rank(view.maxAccess) >= rank('Restricted')
 
-  const send = (body: SharingInputBody) => save.mutate(body)
+  // Each change saves at once; once the save succeeds, say so and tick the row it added for a moment.
+  const [saved, setSaved] = useState('')
+  const [justAdded, setJustAdded] = useState('')
+  useEffect(() => {
+    if (!justAdded) return
+    const t = setTimeout(() => setJustAdded(''), 4000)
+    return () => clearTimeout(t)
+  }, [justAdded])
+  const send = (body: SharingInputBody, done?: { message: string; added?: string }) => {
+    setSaved('')
+    setJustAdded('')
+    save.mutate(body, {
+      onSuccess: () => {
+        if (!done) return
+        setSaved(done.message)
+        setJustAdded(done.added ?? '')
+      },
+    })
+  }
   const add = (p: Picked) => {
     const next = { users: [...userIds], groups: [...groupValues] }
     if (p.kind === 'user') next.users.push(p.id)
     else next.groups.push(p.value)
-    send({ ...next, access: view.access === 'Private' ? 'Restricted' : view.access })
+    send({ ...next, access: view.access === 'Private' ? 'Restricted' : view.access }, { message: `Shared with ${p.label}`, added: p.kind === 'user' ? p.id : p.value })
   }
   const removeUser = (id: string) => {
     const next = userIds.filter((u) => u !== id)
@@ -47,7 +66,12 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
     send({ users: userIds, groups: next, access: view.access === 'Restricted' ? restricted(userIds, next) : view.access })
   }
   const setGeneral = (g: General) =>
-    send({ users: userIds, groups: groupValues, access: g === 'Restricted' ? restricted(userIds, groupValues) : g })
+    send(
+      { users: userIds, groups: groupValues, access: g === 'Restricted' ? restricted(userIds, groupValues) : g },
+      { message: `Access set to ${view.levels?.find((l) => l.value === g)?.label ?? g}` },
+    )
+  const tick = (key: string) =>
+    justAdded === key && <Check className="just-added" size={16} role="img" aria-label="Just added" />
 
   const current: General | '' = !canShareWithPeople ? '' : view.access === 'Private' ? 'Restricted' : (view.access as General)
   // While a save is in flight every control is locked, so the next change is built from the saved list.
@@ -87,6 +111,7 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
                     <span className="faint small block">{u.email}</span>
                     {u.note && <span className="small block err-text">{u.note}</span>}
                   </span>
+                  {tick(u.id)}
                   <span className="faint small">Can open</span>
                   <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${u.displayName}`} disabled={busy} onClick={() => removeUser(u.id)} />
                 </li>
@@ -100,6 +125,7 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
                     <b>{g.label}</b>
                     <span className="faint small block mono">{g.value}</span>
                   </span>
+                  {tick(g.value)}
                   <span className="faint small">Can open</span>
                   <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${g.label}`} disabled={busy} onClick={() => removeGroup(g.value)} />
                 </li>
@@ -107,6 +133,14 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
             </ul>
           </>
         )}
+        <div className="saved-note" role="status" aria-live="polite">
+          {saved && (
+            <>
+              <Check size={16} aria-hidden="true" />
+              <span>{saved}</span>
+            </>
+          )}
+        </div>
         {otherErrs.map((m) => (
           <Banner key={m} tone="err" title={m} />
         ))}
