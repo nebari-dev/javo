@@ -11,6 +11,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/model"
 )
@@ -66,5 +67,37 @@ func TestOnlyAgentAppsReachTheModelEndpoint(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("the provider was called %d times, want once", calls)
+	}
+}
+
+// Taking the template away from the app's owner takes the model endpoint
+// and the deploy rights away from the app they already have.
+func TestLosingTheTemplateStopsTheAgentsRights(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[]}`)
+	}))
+	t.Cleanup(up.Close)
+	p := &agentproxy.Proxy{BaseURL: up.URL, APIKey: "sk-admin", Model: "m", Allows: func(m string) bool { return m == "m" },
+		MaxRequestBytes: 1 << 20}
+	// alice is a plain member here: a platform admin may use every template.
+	f := newAgentFixtureWith(t, true, apitest.Options{AgentModel: p, Roles: &config.Roles{}})
+	path := agentproxy.Route + "/chat/completions"
+	wantCode(t, "the model while allowed", f.agent("POST", path, `{"model":"m","messages":[]}`), http.StatusOK)
+
+	ctx := context.Background()
+	pi, err := f.Db.Templates().Get(ctx, "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pi.Spec.AllowedUsers = []string{"someone-else"}
+	if _, err := f.Db.Templates().Put(ctx, model.Actor{System: model.SystemController}, pi, pi.Version); err != nil {
+		t.Fatal(err)
+	}
+	if w := f.agent("POST", path, `{"model":"m","messages":[]}`); w.Code != http.StatusForbidden {
+		t.Fatalf("the model after losing the template: %d %s", w.Code, w.Body)
+	}
+	if w := f.agent("PUT", "/api/workspaces/plain/env", `{"env":[{"name":"LEVEL","value":"2"}]}`); w.Code != http.StatusForbidden {
+		t.Fatalf("a deploy after losing the template: %d %s", w.Code, w.Body)
 	}
 }
