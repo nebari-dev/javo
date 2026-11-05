@@ -77,7 +77,7 @@ func TestAISettingsArePlatformAdminsOnly(t *testing.T) {
 	t.Parallel()
 	f, _ := aiFixture(t, helm("openai"))
 	member := f.Session(apitest.AliceID)
-	body := `{"provider":"openai","baseURL":"https://llm.example.com/v1","model":"m","apiKey":"` + uiKey + `"}`
+	body := `{"baseURL":"https://llm.example.com/v1","model":"m","apiKey":"` + uiKey + `"}`
 	for _, r := range []struct{ method, body string }{{"GET", ""}, {"PUT", body}, {"DELETE", ""}} {
 		if w := f.Do(r.method, "/api/admin/ai", r.body, member); w.Code != http.StatusForbidden {
 			t.Errorf("%s by a member: %d %s", r.method, w.Code, w.Body)
@@ -95,7 +95,7 @@ func TestAISettingsKeyIsNeverReturned(t *testing.T) {
 	t.Parallel()
 	f, _ := aiFixture(t, helm("openai"))
 	admin := f.Session(apitest.AdminID, "javo-admins")
-	w := f.Do("PUT", "/api/admin/ai", `{"provider":"openai","baseURL":"https://llm.example.com/v1","model":"ui/model","apiKey":"`+uiKey+`"}`, admin)
+	w := f.Do("PUT", "/api/admin/ai", `{"baseURL":"https://llm.example.com/v1","model":"ui/model","apiKey":"`+uiKey+`"}`, admin)
 	if w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body)
 	}
@@ -157,14 +157,14 @@ func TestAISettingsSwitchTheModelAtRuntime(t *testing.T) {
 			t.Fatalf("save %s: %d %s", body, w.Code, w.Body)
 		}
 	}
-	save(`{"provider":"anthropic","baseURL":"https://llm.example.com","model":"ui/model","apiKey":"` + uiKey + `"}`)
-	if c := ask("ui/model"); c.Provider != "anthropic" || c.APIKey != uiKey || c.BaseURL != "https://llm.example.com" {
+	save(`{"baseURL":"https://llm.example.com","model":"ui/model","apiKey":"` + uiKey + `"}`)
+	if c := ask("ui/model"); c.Provider != "openai" || c.APIKey != uiKey || c.BaseURL != "https://llm.example.com" {
 		t.Fatalf("settings build %+v", c)
 	}
 	if m := status(); m != "ui/model" {
 		t.Fatalf("status model %q", m)
 	}
-	save(`{"provider":"anthropic","baseURL":"https://llm.example.com","model":"ui/other"}`)
+	save(`{"baseURL":"https://llm.example.com","model":"ui/other"}`)
 	if c := ask("ui/other"); c.APIKey != uiKey {
 		t.Fatalf("key not kept: %+v", c)
 	}
@@ -187,7 +187,7 @@ func TestAgentStatusFollowsTheSettings(t *testing.T) {
 	if a := apitest.Decode[agent](t, f.Do("GET", "/api/ai/agent", "", member)); a.Mode != "login" {
 		t.Fatalf("before: %+v", a)
 	}
-	if w := f.Do("PUT", "/api/admin/ai", `{"provider":"openai","baseURL":"https://router.example.com/api/v1","model":"ui/agent","apiKey":"`+uiKey+`"}`, admin); w.Code != http.StatusOK {
+	if w := f.Do("PUT", "/api/admin/ai", `{"baseURL":"https://router.example.com/api/v1","model":"ui/agent","apiKey":"`+uiKey+`"}`, admin); w.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", w.Code, w.Body)
 	}
 	if a := apitest.Decode[agent](t, f.Do("GET", "/api/ai/agent", "", member)); a.Mode != "platform" || a.Model != "ui/agent" {
@@ -200,17 +200,16 @@ func TestAISettingsRefuseBadInput(t *testing.T) {
 	f, _ := aiFixture(t, helm("openai"))
 	admin := f.Session(apitest.AdminID, "javo-admins")
 	for body, want := range map[string]reasons.MessageCode{
-		`{"provider":"openai","baseURL":"http://llm.example.com/v1","model":"m"}`:     reasons.MsgAISettingsBaseURL,
-		`{"provider":"openai","baseURL":"https://169.254.169.254/v1","model":"m"}`:    reasons.MsgAISettingsBaseURLHost,
-		`{"provider":"openai","baseURL":"https://llm.example.com/v1","model":" "}`:    reasons.MsgAISettingsModel,
-		`{"provider":"anthropic","baseURL":"https://llm.example.com/v1","model":"m"}`: reasons.MsgAISettingsKeyNeeded,
+		`{"baseURL":"http://llm.example.com/v1","model":"m"}`:  reasons.MsgAISettingsBaseURL,
+		`{"baseURL":"https://169.254.169.254/v1","model":"m"}`: reasons.MsgAISettingsBaseURLHost,
+		`{"baseURL":"https://llm.example.com/v1","model":" "}`: reasons.MsgAISettingsModel,
 	} {
 		w := f.Do("PUT", "/api/admin/ai", body, admin)
 		if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), reasons.Msg(want)) {
 			t.Errorf("%s: %d %s", body, w.Code, w.Body)
 		}
 	}
-	long := `{"provider":"openai","model":"m","apiKey":"` + strings.Repeat("k", 4097) + `"}`
+	long := `{"model":"m","apiKey":"` + strings.Repeat("k", 4097) + `"}`
 	if w := f.Do("PUT", "/api/admin/ai", long, admin); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("a key over the bound: %d", w.Code)
 	}
@@ -227,7 +226,7 @@ func TestAISettingsWithAIOff(t *testing.T) {
 	if v := apitest.Decode[aiView](t, f.Do("GET", "/api/admin/ai", "", admin)); v.Enabled {
 		t.Fatalf("view %+v", v)
 	}
-	if w := f.Do("PUT", "/api/admin/ai", `{"provider":"openai","model":"m"}`, admin); w.Code != http.StatusConflict {
+	if w := f.Do("PUT", "/api/admin/ai", `{"model":"m"}`, admin); w.Code != http.StatusConflict {
 		t.Fatalf("save with AI off: %d %s", w.Code, w.Body)
 	}
 }

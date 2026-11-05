@@ -4,23 +4,14 @@ import { Banner } from '../../../components/Banner'
 import { Button } from '../../../components/Button'
 import { Card } from '../../../components/Card'
 import { PartTitle } from '../../../components/Section'
-import { Segmented } from '../../../components/Segmented'
+import { Select } from '../../../components/Select'
 import { fieldErrors, problemText } from '../../../lib/http'
+import { addressOf, AI_PROVIDERS, providerAt } from './aiProviders'
 import { useAISettings, useIsAdmin, useResetAISettings, useSaveAISettings } from './queries'
 
-type Provider = 'anthropic' | 'openai'
+const CUSTOM = 'custom'
 
-const PROVIDERS: { value: Provider; label: string }[] = [
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI-compatible' },
-]
-
-const ADDRESS_HINT: Record<Provider, string> = {
-  anthropic: "Empty is Anthropic's own API.",
-  openai: "Empty is OpenAI's own API. For another server give its https address, such as https://openrouter.ai/api/v1.",
-}
-
-const FORM_FIELDS = new Set(['provider', 'baseURL', 'model', 'apiKey'])
+const FORM_FIELDS = new Set(['baseURL', 'model', 'apiKey'])
 
 /** What the key in force is, in a line under the key field. */
 function keyHint(s: AiSettings): string {
@@ -30,7 +21,8 @@ function keyHint(s: AiSettings): string {
 }
 
 function where(s: AiSettings): string {
-  const what = [s.provider, s.model].filter(Boolean).join(', ')
+  const address = addressOf(s.provider, s.baseURL)
+  const what = [providerAt(address)?.label ?? address, s.model].filter(Boolean).join(', ')
   return s.overridden ? `Set here: ${what}.` : `From the platform config: ${what}.`
 }
 
@@ -38,14 +30,37 @@ function where(s: AiSettings): string {
 function AIForm({ s }: { s: AiSettings }) {
   const save = useSaveAISettings()
   const reset = useResetAISettings()
-  const ids = { url: useId(), model: useId(), key: useId(), prov: useId() }
-  const [provider, setProvider] = useState<Provider>(s.provider === 'openai' ? 'openai' : 'anthropic')
-  const [baseURL, setBaseURL] = useState(s.baseURL ?? '')
+  const ids = { url: useId(), model: useId(), modelId: useId(), key: useId(), prov: useId() }
+  const [baseURL, setBaseURL] = useState(() => addressOf(s.provider, s.baseURL))
+  const [choice, setChoice] = useState(() => providerAt(baseURL)?.id ?? CUSTOM)
+  const preset = AI_PROVIDERS.find((p) => p.id === choice)
   const [model, setModel] = useState(s.model ?? '')
+  const [customModel, setCustomModel] = useState(() => !preset?.models.includes(model))
   const [apiKey, setApiKey] = useState('')
   const errs = save.isError ? fieldErrors(save.error) : { fields: {} as Record<string, string>, other: [] as string[] }
   const other = [...errs.other, ...Object.entries(errs.fields).filter(([f]) => !FORM_FIELDS.has(f)).map(([, m]) => m)]
-  const fields = { provider, baseURL: baseURL.trim(), model: model.trim() }
+  const fields = { baseURL: baseURL.trim(), model: model.trim() }
+
+  const pickProvider = (id: string) => {
+    setChoice(id)
+    const p = AI_PROVIDERS.find((x) => x.id === id)
+    if (!p) return
+    setBaseURL(p.baseURL)
+    if (!customModel && !p.models.includes(model)) setModel(p.models[0])
+  }
+  const typeURL = (v: string) => {
+    setBaseURL(v)
+    setChoice(providerAt(v)?.id ?? CUSTOM)
+  }
+  const pickModel = (v: string) => {
+    if (v === CUSTOM) {
+      setCustomModel(true)
+      return
+    }
+    setCustomModel(false)
+    setModel(v)
+  }
+  const modelChoice = customModel || !preset?.models.includes(model) ? CUSTOM : model
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -60,12 +75,16 @@ function AIForm({ s }: { s: AiSettings }) {
             <Banner tone="err" title={reset.isError ? problemText(reset.error) : other.join(' ')} />
           </div>
         )}
-        <div className="field" role="group" aria-labelledby={ids.prov}>
-          <span id={ids.prov} className="field-label">
-            Provider
-          </span>
-          <Segmented label="Provider" value={provider} options={PROVIDERS} onChange={setProvider} />
-          {errs.fields.provider && <span className="hint err">{errs.fields.provider}</span>}
+        <div className="field">
+          <label htmlFor={ids.prov}>Provider</label>
+          <Select id={ids.prov} value={choice} onValueChange={pickProvider}>
+            {AI_PROVIDERS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+            <option value={CUSTOM}>Custom</option>
+          </Select>
         </div>
         <div className="field">
           <label htmlFor={ids.url}>API address</label>
@@ -73,29 +92,45 @@ function AIForm({ s }: { s: AiSettings }) {
             id={ids.url}
             className="input mono"
             value={baseURL}
-            placeholder={provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com'}
+            placeholder="https://llm.example.com/v1"
             autoComplete="off"
             spellCheck={false}
-            onChange={(e) => setBaseURL(e.target.value)}
+            onChange={(e) => typeURL(e.target.value)}
             aria-invalid={errs.fields.baseURL ? true : undefined}
           />
-          <span className="hint">{ADDRESS_HINT[provider]}</span>
+          <span className="hint">The https address of an OpenAI-compatible API. Pick a provider to fill it, or type any.</span>
           {errs.fields.baseURL && <span className="hint err">{errs.fields.baseURL}</span>}
         </div>
-        <div className="field">
-          <label htmlFor={ids.model}>Model</label>
-          <input
-            id={ids.model}
-            className="input mono"
-            value={model}
-            maxLength={200}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(e) => setModel(e.target.value)}
-            aria-invalid={errs.fields.model ? true : undefined}
-          />
-          {errs.fields.model && <span className="hint err">{errs.fields.model}</span>}
-        </div>
+        {preset && (
+          <div className="field">
+            <label htmlFor={ids.model}>Model</label>
+            <Select id={ids.model} value={modelChoice} onValueChange={pickModel}>
+              {preset.models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+              <option value={CUSTOM}>Custom</option>
+            </Select>
+            {modelChoice !== CUSTOM && errs.fields.model && <span className="hint err">{errs.fields.model}</span>}
+          </div>
+        )}
+        {modelChoice === CUSTOM && (
+          <div className="field">
+            <label htmlFor={ids.modelId}>Model id</label>
+            <input
+              id={ids.modelId}
+              className="input mono"
+              value={model}
+              maxLength={200}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => setModel(e.target.value)}
+              aria-invalid={errs.fields.model ? true : undefined}
+            />
+            {errs.fields.model && <span className="hint err">{errs.fields.model}</span>}
+          </div>
+        )}
         <div className="field">
           <label htmlFor={ids.key}>API key</label>
           <input
@@ -112,7 +147,7 @@ function AIForm({ s }: { s: AiSettings }) {
           {errs.fields.apiKey && <span className="hint err">{errs.fields.apiKey}</span>}
         </div>
         <div className="row">
-          <Button type="submit" variant="primary" disabled={save.isPending || !model.trim()}>
+          <Button type="submit" variant="primary" disabled={save.isPending || !model.trim() || !baseURL.trim()}>
             Save
           </Button>
           {s.keyStored && (
@@ -132,7 +167,7 @@ function AIForm({ s }: { s: AiSettings }) {
 }
 
 /**
- * Settings, AI (platform admins): the provider, address, model and key every
+ * Settings, AI (platform admins): the OpenAI-compatible address, model and key every
  * AI feature and the coding agents use, in place of the platform config's.
  * A change applies at once. The key is write-only.
  */

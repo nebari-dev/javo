@@ -761,7 +761,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       aiSettings = {
         ...aiSettings,
         overridden: true,
-        provider: b.provider,
+        provider: 'openai',
         baseURL: b.baseURL ?? '',
         model: b.model,
         keyStored,

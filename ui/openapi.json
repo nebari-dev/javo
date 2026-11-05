@@ -351,20 +351,12 @@
             "type": "string"
           },
           "baseURL": {
-            "description": "https address of the provider's API; empty is the provider's own",
+            "description": "https address of an OpenAI-compatible API; empty is OpenAI's own",
             "maxLength": 512,
             "type": "string"
           },
           "model": {
             "maxLength": 200,
-            "type": "string"
-          },
-          "provider": {
-            "description": "anthropic, or openai for any OpenAI-compatible server",
-            "enum": [
-              "anthropic",
-              "openai"
-            ],
             "type": "string"
           },
           "removeKey": {
@@ -373,7 +365,6 @@
           }
         },
         "required": [
-          "provider",
           "model"
         ],
         "type": "object"
@@ -5507,7 +5498,7 @@
         ]
       },
       "put": {
-        "description": "Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.",
+        "description": "The address is spoken to as an OpenAI-compatible server. Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.",
         "operationId": "adminSetAISettings",
         "requestBody": {
           "content": {
@@ -5581,7 +5572,7 @@
             "description": "Internal Server Error"
           }
         },
-        "summary": "Set the AI provider, address, model and key (platform admins)",
+        "summary": "Set the AI address, model and key (platform admins)",
         "tags": [
           "admin"
         ]
