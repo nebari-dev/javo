@@ -3,6 +3,7 @@ import type { SharedApp, Workspace } from '../../api'
 import { useTemplateName } from '../../lib/queries'
 import { appLink, heldStep, pillStatus, problemNote, stopNote } from './status'
 import { RunActions } from './AppCard'
+import { DeleteAppButton } from './DeleteApp'
 import { listedKey, type ListedApp } from './listed'
 import { OpenAppLink } from './OpenAppLink'
 import { sharedHow } from './SharedCard'
@@ -34,6 +35,7 @@ function AppRow({ ws }: { ws: Workspace }) {
       <td className="col-act">
         <div className="btn-row">
           <RunActions ws={ws} />
+          <DeleteAppButton ws={ws} />
         </div>
       </td>
     </tr>

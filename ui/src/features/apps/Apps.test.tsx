@@ -36,6 +36,26 @@ function rowOf(name: string): HTMLElement {
 }
 
 describe('Apps', () => {
+  it.each(['Cards', 'List'])('deletes an own app from its trash icon in the %s view after the confirmation, and shows no trash on a shared app', async (view) => {
+    const api = withApps({
+      'GET /api/shared': {
+        body: { items: [{ name: 'kpis', displayName: 'Team KPIs', template: 'streamlit', kind: 'streamlit', phase: 'Running', url: 'https://apps.example.com/u/bob/kpis/', owner: { id: 'bob-bbbbbbbb', displayName: 'bob' }, via: 'user' }] },
+      },
+      'DELETE /api/workspaces/sales-app': { status: 204 },
+    })
+    renderApp('/apps')
+    await screen.findByText('Team KPIs')
+    await userEvent.click(screen.getByRole('button', { name: view }))
+    expect(screen.queryByRole('button', { name: 'Delete Team KPIs' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Sales app' }))
+    const confirm = await screen.findByRole('alertdialog', { name: /Delete Sales app\?/ })
+    expect(location()).toBe('/apps')
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(api.count('DELETE', '/api/workspaces/sales-app')).toBe(1))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(location()).toBe('/apps')
+  })
+
   it('offers no export or import of apps; those are in the CLI and API', async () => {
     withApps()
     renderApp('/apps')

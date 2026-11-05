@@ -15,7 +15,7 @@ import { PreviewsCard } from './PreviewsCard'
 import { APP_ENV_HINT } from '../environments/EnvEditor'
 import { EnvSetting } from '../environments/EnvSetting'
 import { SourceCard } from './SourceCard'
-import { Confirm } from '../../components/Confirm'
+import { ConfirmDelete } from './DeleteApp'
 import { StopButton } from './StopButton'
 import { Card } from '../../components/Card'
 import { DiagnosedFailure } from '../ai/Diagnosis'
@@ -37,7 +37,6 @@ import { Timeline, type StepState, type TimelineStep } from '../../components/Ti
 import { fieldErrors, problemText } from '../../lib/http'
 import {
   isSettling,
-  useDeleteWorkspace,
   useIdleStopPolicy,
   useSetApiAccess,
   useSetIdleStop,
@@ -140,28 +139,11 @@ function timeline(ws: Workspace, problem: Step | undefined, events: KubeEvent[])
   })
 }
 
-function ConfirmDelete({ ws, onCancel }: { ws: Workspace; onCancel: () => void }) {
-  const del = useDeleteWorkspace(ws.name)
-  const navigate = useNavigate()
-  return (
-    <Confirm
-      title={`Delete ${ws.displayName}?`}
-      body="The app and its link go away. Files in your home folder are kept."
-      confirm="Delete"
-      icon={Trash2}
-      danger
-      busy={del.isPending}
-      error={del.isError ? del.error : undefined}
-      onConfirm={() => del.mutate(undefined, { onSuccess: () => navigate('/apps') })}
-      onCancel={onCancel}
-    />
-  )
-}
-
 function Actions({ ws, managed }: { ws: Workspace; managed: boolean }) {
   const act = useStartStop(ws.name)
   const [confirming, setConfirming] = useState(false)
   const deleteBtn = useRef<HTMLButtonElement>(null)
+  const navigate = useNavigate()
   const open = ws.phase === 'Running' ? appLink(ws.url) : undefined
   const busy = act.isPending
   return (
@@ -194,6 +176,7 @@ function Actions({ ws, managed }: { ws: Workspace; managed: boolean }) {
       {confirming && (
         <ConfirmDelete
           ws={ws}
+          onDeleted={() => navigate('/apps')}
           onCancel={() => {
             setConfirming(false)
             deleteBtn.current?.focus()

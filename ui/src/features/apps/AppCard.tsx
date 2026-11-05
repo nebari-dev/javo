@@ -11,6 +11,7 @@ import { CardMark } from './CardThumb'
 import { EmptyState } from '../../components/EmptyState'
 import { StatusIcon } from '../../components/Pill'
 import { StopButton } from './StopButton'
+import { DeleteAppButton } from './DeleteApp'
 import { Uptime } from './Uptime'
 
 /** Open, Start or Stop for one app, shared by its card and its table row. */
@@ -72,6 +73,7 @@ export function AppCard({ ws }: { ws: Workspace }) {
       <div className="acard-foot">
         <div className="acard-actions">
           <RunActions ws={ws} />
+          <DeleteAppButton ws={ws} />
         </div>
       </div>
     </div>

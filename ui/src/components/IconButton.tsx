@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { useState, type ButtonHTMLAttributes } from 'react'
+import { useState, type ButtonHTMLAttributes, type Ref } from 'react'
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   icon: LucideIcon
@@ -7,6 +7,7 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   label: string
   /** For a toggle: whether it is on. */
   pressed?: boolean
+  ref?: Ref<HTMLButtonElement>
 }
 
 /**
