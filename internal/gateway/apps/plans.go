@@ -117,7 +117,18 @@ func (a *plansAPI) propose(ctx context.Context, source string, p actions.Proposa
 	if err != nil {
 		return plans.Plan{}, err
 	}
-	out, err := a.plans.Create(ctx, authn.User(ctx).ID, source, pl)
+	var by plans.Requester
+	if tok, ok := authn.APIToken(ctx); ok {
+		switch {
+		case tok.App != nil:
+			by.App = tok.App.Short
+		case tok.Job != "":
+			by.Job = true
+		default:
+			by.Token = tok.Name
+		}
+	}
+	out, err := a.plans.Create(ctx, authn.User(ctx).ID, source, by, pl)
 	if err != nil {
 		return plans.Plan{}, problem.Internal("store plan", err)
 	}

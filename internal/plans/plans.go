@@ -52,16 +52,36 @@ var (
 // Plan is a proposed change. ID is the secret handle: it is shown once to
 // the person who may approve it and stored only as a hash.
 type Plan struct {
-	ID      string          `json:"id"`
-	Owner   string          `json:"-"`
-	Source  string          `json:"source"`
-	State   string          `json:"state" enum:"pending,applying,applied,rejected,failed,expired"`
-	Planned actions.Planned `json:"planned"`
-	Error   string          `json:"error,omitempty"`
+	ID     string `json:"id"`
+	Owner  string `json:"-"`
+	Source string `json:"source"`
+	// RequestedBy is the credential that proposed the plan, as the gateway
+	// knows it. Source is what the caller says about itself (an MCP client
+	// names itself), so the approval page shows both.
+	RequestedBy Requester       `json:"requestedBy"`
+	State       string          `json:"state" enum:"pending,applying,applied,rejected,failed,expired"`
+	Planned     actions.Planned `json:"planned"`
+	Error       string          `json:"error,omitempty"`
 	// Message is the catalog text for a plan that can no longer be decided.
 	Message   string    `json:"message,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// Requester is the credential a plan was proposed with: an API token
+// (Token, its name), an app's own token (App, the app's short name) or a
+// job's (Job). All empty is the person's own browser session.
+type Requester struct {
+	Token string `json:"token,omitempty" doc:"Name of the API token that proposed the plan"`
+	App   string `json:"app,omitempty" doc:"Short name of the app whose own token proposed the plan"`
+	Job   bool   `json:"job,omitempty" doc:"A job's own token proposed the plan"`
+}
+
+// body is a plan's stored body: the planned change and who asked. A body
+// stored before RequestedBy existed reads with it empty.
+type body struct {
+	actions.Planned
+	RequestedBy Requester `json:"requestedBy"`
 }
 
 // Service stores plans in the database.
@@ -84,7 +104,7 @@ func key(id string) string {
 }
 
 // Create stores p for owner and returns it with its new id.
-func (s *Service) Create(ctx context.Context, owner, source string, p actions.Planned) (Plan, error) {
+func (s *Service) Create(ctx context.Context, owner, source string, by Requester, p actions.Planned) (Plan, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
 		return Plan{}, err
@@ -94,14 +114,14 @@ func (s *Service) Create(ctx context.Context, owner, source string, p actions.Pl
 		ttl = DefaultTTL
 	}
 	now := s.now()
-	out := Plan{ID: base64.RawURLEncoding.EncodeToString(raw), Owner: owner, Source: source, State: Pending,
+	out := Plan{ID: base64.RawURLEncoding.EncodeToString(raw), Owner: owner, Source: source, RequestedBy: by, State: Pending,
 		Planned: p, CreatedAt: now, ExpiresAt: now.Add(ttl)}
-	body, err := json.Marshal(p)
+	data, err := json.Marshal(body{Planned: p, RequestedBy: by})
 	if err != nil {
 		return Plan{}, err
 	}
 	err = s.DB.Plans().Create(ctx, store.Plan{ID: key(out.ID), Owner: owner, Source: source, State: Pending,
-		Body: body, CreatedAt: out.CreatedAt, ExpiresAt: out.ExpiresAt})
+		Body: data, CreatedAt: out.CreatedAt, ExpiresAt: out.ExpiresAt})
 	return out, err
 }
 
@@ -118,9 +138,11 @@ func (s *Service) Get(ctx context.Context, owner, id string) (Plan, error) {
 		return Plan{}, ErrNotFound
 	}
 	out := Plan{ID: id, Owner: r.Owner, Source: r.Source, State: r.State, Error: r.Error, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt}
-	if err := json.Unmarshal(r.Body, &out.Planned); err != nil {
+	var b body
+	if err := json.Unmarshal(r.Body, &b); err != nil {
 		return Plan{}, err
 	}
+	out.Planned, out.RequestedBy = b.Planned, b.RequestedBy
 	if out.State == Pending && !s.now().Before(out.ExpiresAt) {
 		out.State = Expired
 	}

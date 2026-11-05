@@ -1035,6 +1035,7 @@ export type Plan = {
     id: string;
     message?: string;
     planned: Planned;
+    requestedBy: Requester;
     source: string;
     state: 'pending' | 'applying' | 'applied' | 'rejected' | 'failed' | 'expired';
 };
@@ -1221,6 +1222,21 @@ export type ReleaseInputBody = {
 
 export type ReleaseOutputBody = {
     released: number;
+};
+
+export type Requester = {
+    /**
+     * Short name of the app whose own token proposed the plan
+     */
+    app?: string;
+    /**
+     * A job's own token proposed the plan
+     */
+    job?: boolean;
+    /**
+     * Name of the API token that proposed the plan
+     */
+    token?: string;
 };
 
 export type RestoreRunBody = {
