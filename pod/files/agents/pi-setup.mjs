@@ -9,11 +9,14 @@
 //
 // It writes pi's models.json and settings.json (pi 1.4.0, docs/models.md and
 // docs/settings.md) in the agent folder ($PI_CODING_AGENT_DIR, default
-// ~/.pi/agent) only when they are missing or still exactly what it wrote
-// last (their sha256 is kept in .javo-managed.json), and nothing once pi is
-// signed in (auth.json): a person's own pi setup is never overwritten. The
-// key is never written: models.json names $JAVO_AGENT_KEY and pi reads the
-// variable when it sends a request.
+// ~/.pi/agent). The javo provider in models.json is always pi-setup's: it is
+// rewritten on every start, so code that can write the home cannot point it
+// at another server, and no other provider in models.json or auth.json may
+// name $JAVO_AGENT_KEY. Everything else in those files is the person's and is
+// kept. settings.json is written only when it is missing or still what
+// pi-setup wrote last (its sha256 is kept in .javo-managed.json), and not once
+// pi is signed in (auth.json). The key is never written: models.json names
+// $JAVO_AGENT_KEY and pi reads the variable when it sends a request.
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -51,9 +54,82 @@ function wanted(env) {
     provider.compat = { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: 'max_tokens' }
   }
   return {
-    'models.json': JSON.stringify({ providers: { [PROVIDER]: provider } }, null, 2) + '\n',
+    provider,
     'settings.json': JSON.stringify({ defaultProvider: PROVIDER, defaultModel: env.JAVO_AGENT_MODEL }, null, 2) + '\n',
   }
+}
+
+const KEY = 'JAVO_AGENT_KEY'
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+
+// dropKeyRefs removes, in place, every string in v that names the key ($NAME,
+// ${NAME} or a !command), so no provider but javo's can be given it.
+function dropKeyRefs(v) {
+  if (Array.isArray(v)) {
+    for (let i = v.length - 1; i >= 0; i--) {
+      if (typeof v[i] === 'string' && v[i].includes(KEY)) v.splice(i, 1)
+      else dropKeyRefs(v[i])
+    }
+  } else if (isObject(v)) {
+    for (const [k, x] of Object.entries(v)) {
+      if (typeof x === 'string' && x.includes(KEY)) delete v[k]
+      else dropKeyRefs(x)
+    }
+  }
+}
+
+const stripBom = (s) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s)
+
+function writePrivate(dir, path, content) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  writeFileSync(path, content, { mode: 0o600 })
+}
+
+// ownModels makes models.json's javo provider exactly provider and drops the
+// key from every other provider; it creates the file only when create is
+// set. A file pi-setup cannot read as JSON (pi also takes comments) is
+// replaced, its text kept in models.json.javo-bak. It returns what the file
+// now holds, or undefined when there is none.
+function ownModels(dir, provider, create) {
+  const path = join(dir, 'models.json')
+  const cur = readText(path)
+  if (cur === undefined && !create) return undefined
+  let models
+  try {
+    models = cur === undefined ? {} : JSON.parse(stripBom(cur))
+  } catch {
+    models = undefined
+  }
+  if (!isObject(models) || (models.providers !== undefined && !isObject(models.providers))) {
+    if (cur !== undefined) writePrivate(dir, path + '.javo-bak', cur)
+    models = {}
+  }
+  models.providers ??= {}
+  delete models.providers[PROVIDER]
+  dropKeyRefs(models)
+  models.providers[PROVIDER] = provider
+  const content = JSON.stringify(models, null, 2) + '\n'
+  if (content !== cur) writePrivate(dir, path, content)
+  return content
+}
+
+// ownAuth drops a stored javo credential (it would replace the key) and the
+// key from every other stored credential. pi reads auth.json as plain JSON,
+// so a file that does not parse gives pi nothing either.
+function ownAuth(dir) {
+  const path = join(dir, 'auth.json')
+  const cur = readText(path)
+  let auth
+  try {
+    auth = JSON.parse(stripBom(cur ?? ''))
+  } catch {
+    return
+  }
+  if (!isObject(auth)) return
+  const before = JSON.stringify(auth)
+  delete auth[PROVIDER]
+  dropKeyRefs(auth)
+  if (JSON.stringify(auth) !== before) writePrivate(dir, path, JSON.stringify(auth, null, 2) + '\n')
 }
 
 // signedIn is whether pi holds credentials of its own (/login): pi writes an
@@ -81,39 +157,51 @@ function ourSettings(cur, want) {
   return JSON.stringify({ ...s, ...JSON.parse(want) }, null, 2) + '\n'
 }
 
+// nextSettings writes settings.json while it is pi-setup's (removes it when
+// there is no model) and returns what it wrote.
+function nextSettings(dir, want, managed) {
+  const name = 'settings.json'
+  const path = join(dir, name)
+  const cur = readText(path)
+  let content = want?.[name]
+  if (cur !== undefined && managed[name] !== sha(cur)) {
+    // pi edits its settings itself; they stay ours while it defaults to javo.
+    if (!managed[name] || !want) return undefined
+    content = ourSettings(cur, want[name])
+    if (content === undefined) return undefined
+  }
+  if (!want) {
+    if (cur !== undefined) rmSync(path)
+    return undefined
+  }
+  writePrivate(dir, path, content)
+  return content
+}
+
 export function configure(env) {
   const dir = agentDir(env)
-  if (signedIn(dir)) return
+  const want = wanted(env)
+  if (want) ownAuth(dir)
+  const signed = signedIn(dir)
   let managed = {}
   try {
     managed = JSON.parse(readText(join(dir, MANAGED)) ?? '{}')
   } catch {
     managed = {}
   }
-  const want = wanted(env)
   const next = {}
-  for (const name of ['models.json', 'settings.json']) {
-    const path = join(dir, name)
+  if (want) {
+    const models = ownModels(dir, want.provider, !signed)
+    if (models !== undefined) next['models.json'] = sha(models)
+  } else {
+    const path = join(dir, 'models.json')
     const cur = readText(path)
-    let content = want?.[name]
-    const ours = cur === undefined || managed[name] === sha(cur)
-    if (!ours) {
-      // pi edits its settings itself; they stay ours while it defaults to javo.
-      if (name !== 'settings.json' || !managed[name] || !want) continue
-      content = ourSettings(cur, want[name])
-      if (content === undefined) continue
-    }
-    if (want) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 })
-      writeFileSync(path, content, { mode: 0o600 })
-      next[name] = sha(content)
-    } else if (cur !== undefined) {
-      rmSync(path)
-    }
+    if (cur !== undefined && managed['models.json'] === sha(cur)) rmSync(path)
   }
+  const settings = signed ? undefined : nextSettings(dir, want, managed)
+  if (settings !== undefined) next['settings.json'] = sha(settings)
   if (Object.keys(next).length > 0 || existsSync(join(dir, MANAGED))) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 })
-    writeFileSync(join(dir, MANAGED), JSON.stringify(next) + '\n', { mode: 0o600 })
+    writePrivate(dir, join(dir, MANAGED), JSON.stringify(next) + '\n')
   }
 }
 
