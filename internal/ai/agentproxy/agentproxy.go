@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -32,17 +33,36 @@ const DefaultMaxOutput = 32000
 // maxAnswerBytes bounds an answer that is not streamed.
 const maxAnswerBytes = 32 << 20
 
-// Proxy forwards agents' requests to the admin's provider.
-type Proxy struct {
+// Upstream is the admin's provider the requests go to.
+type Upstream struct {
 	// BaseURL is the provider's OpenAI-compatible base, such as
 	// https://openrouter.ai/api/v1; empty is OpenAI's.
 	BaseURL string
 	APIKey  string
-	// Model replaces any model a request names that Allows refuses.
-	Model  string
-	Allows func(model string) bool
-	// Models are listed by GET /models.
-	Models []string
+	// Model replaces any model a request names that is neither it nor one
+	// of More. GET /models lists Model, then More.
+	Model string
+	More  []string
+	// Client sends the requests; nil is the proxy's Client.
+	Client *http.Client
+}
+
+func (u Upstream) allows(model string) bool {
+	return model != "" && (model == u.Model || slices.Contains(u.More, model))
+}
+
+func (u Upstream) base() string {
+	if u.BaseURL == "" {
+		return "https://api.openai.com/v1"
+	}
+	return strings.TrimRight(u.BaseURL, "/")
+}
+
+// Proxy forwards agents' requests to the admin's provider.
+type Proxy struct {
+	// Upstream is read for every request, so an admin's change applies to
+	// the next one; false while there is no agent model.
+	Upstream func(ctx context.Context) (Upstream, bool)
 	// MaxRequestBytes caps a request body.
 	MaxRequestBytes int64
 	// Caller is who the request comes from, and whether they may use the
@@ -67,13 +87,20 @@ func fail(w http.ResponseWriter, status int, kind, msg string) {
 
 const notAllowed = "Only a coding-agent app's own token may use this model endpoint."
 
+const noModel = "The platform has no model for coding agents now; ask your admin."
+
 func (p *Proxy) models(w http.ResponseWriter, r *http.Request) {
 	if _, ok := p.Caller(r.Context()); !ok {
 		fail(w, http.StatusForbidden, "permission_denied", notAllowed)
 		return
 	}
+	up, ok := p.Upstream(r.Context())
+	if !ok {
+		fail(w, http.StatusServiceUnavailable, "server_error", noModel)
+		return
+	}
 	data := []map[string]any{}
-	for _, m := range p.Models {
+	for _, m := range append([]string{up.Model}, up.More...) {
 		data = append(data, map[string]any{"id": m, "object": "model", "owned_by": "javo"})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -84,6 +111,11 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 	person, ok := p.Caller(r.Context())
 	if !ok {
 		fail(w, http.StatusForbidden, "permission_denied", notAllowed)
+		return
+	}
+	up, ok := p.Upstream(r.Context())
+	if !ok {
+		fail(w, http.StatusServiceUnavailable, "server_error", noModel)
 		return
 	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, p.MaxRequestBytes))
@@ -101,21 +133,21 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid_request_error", "The request is not a JSON object.")
 		return
 	}
-	body, model, stream := p.rewrite(body)
+	body, model, stream := rewrite(body, up)
 	out, _ := json.Marshal(body)
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, p.base()+"/chat/completions", bytes.NewReader(out))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, up.base()+"/chat/completions", bytes.NewReader(out))
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "server_error", "The request could not be made.")
 		return
 	}
 	// Only these headers go out: never the caller's token or cookies.
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	req.Header.Set("Authorization", "Bearer "+up.APIKey)
 	if stream {
 		req.Header.Set("Accept", "text/event-stream")
 	}
-	resp, err := p.client().Do(req)
+	resp, err := p.client(up).Do(req)
 	if err != nil {
 		// The error names the URL, never the key or the body.
 		slog.Warn("agent model call failed", "user", person, "err", err)
@@ -158,10 +190,10 @@ var forwarded = []string{
 var tokenFields = []string{"max_tokens", "max_completion_tokens"}
 
 // rewrite builds the provider's request from in: only the forwarded
-// fields, the admin's model unless in names one Allows, an output limit of
+// fields, the admin's model unless in names one up allows, an output limit of
 // at most DefaultMaxOutput (DefaultMaxOutput when in asks for none), and a
 // streamed answer asked to report its usage (for the audit line).
-func (p *Proxy) rewrite(in map[string]json.RawMessage) (out map[string]json.RawMessage, model string, stream bool) {
+func rewrite(in map[string]json.RawMessage, up Upstream) (out map[string]json.RawMessage, model string, stream bool) {
 	out = map[string]json.RawMessage{}
 	for _, f := range forwarded {
 		if v, ok := in[f]; ok {
@@ -169,8 +201,8 @@ func (p *Proxy) rewrite(in map[string]json.RawMessage) (out map[string]json.RawM
 		}
 	}
 	_ = json.Unmarshal(out["model"], &model)
-	if !p.Allows(model) {
-		model = p.Model
+	if !up.allows(model) {
+		model = up.Model
 		out["model"], _ = json.Marshal(model)
 	}
 	limit := DefaultMaxOutput
@@ -216,14 +248,10 @@ func tokenLimit(raw json.RawMessage) (n int, ok bool) {
 	return int(f), true
 }
 
-func (p *Proxy) base() string {
-	if p.BaseURL == "" {
-		return "https://api.openai.com/v1"
+func (p *Proxy) client(up Upstream) *http.Client {
+	if up.Client != nil {
+		return up.Client
 	}
-	return strings.TrimRight(p.BaseURL, "/")
-}
-
-func (p *Proxy) client() *http.Client {
 	if p.Client != nil {
 		return p.Client
 	}

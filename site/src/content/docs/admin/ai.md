@@ -39,6 +39,17 @@ kubectl -n javo-system create secret generic javo-ai --from-file=api-key=./api-k
 - The daily allowance counts every token a call really uses. Each attempt (a call and its one retry) first reserves the most it can cost (a token per byte sent, the provider's framing and the whole output allowance) and is not sent when that does not fit in what is left, so a call never takes the day past the allowance. What an attempt did not use is given back.
 - When a platform admin explains another person's app, the fixes it proposes act on that person's app, and approving re-checks that the admin may still manage it. The admin does not see what was sent (only the owner does), and the owner's secrets go to the model as `[redacted]` without their names.
 
+## Change it in Settings > AI
+
+With AI on, platform admins set the provider, its address, the model and the API key in **Settings > AI**, without a Helm upgrade. What is saved there is used in place of `ai.provider`, `ai.baseURL`, `ai.model` and the key from `ai.apiKeySecret`; with nothing saved, the Helm values apply as they are. **Use the platform config** removes what was saved. `ai.enabled`, `features`, `timeout`, the allowance and the `agent` settings stay in Helm.
+
+- A save applies to the next model call of every AI feature (Explain more, Describe it and its suggestions, Ask AI, the admin's question) and of the coding agents' endpoint, on every gateway replica, without a restart. The provider self-test runs again for the new settings. Agent apps already running keep the model mode they started with until they restart; their requests go to the new model at once.
+- The key is write-only. It is stored in the database encrypted (Tink AEAD with the gateway's sessions key, from the Secret `javo-sessions-key`, bound to this use), never logged and never returned: the page shows only its last four characters. Leave the field empty to keep it while changing the rest; **Remove key** deletes it. A gateway without `--sessions-key-secret` makes a key at each start, so a saved key has to be saved again after a restart.
+- The key from `ai.apiKeySecret` is sent only to the provider and address set in Helm. Saving another provider or address without a key sends no key (fine for a local server that needs none); `anthropic` then asks for one.
+- The address must be `https` (empty is the provider's own) and may not name a link-local or cloud metadata address (such as 169.254.169.254 or metadata.google.internal); the gateway also refuses to connect to one, whatever a name resolves to. A plain `http` server inside the cluster stays a Helm setting. The model is at most 200 characters and the key at most 4096.
+- Each save and reset is on the audit log (`GET /api/admin/audit`, actions `ai.settings.update` and `ai.settings.reset`) with who made it and which fields changed, never the key.
+- Members see only the line in **Settings > Secrets > AI agent**, which names the model their coding agents use now.
+
 ## The coding agent's model
 
 With AI on and an OpenAI-compatible provider, coding-agent apps (the pi template, whose `agentModel` is set) get a model through the gateway, and the search bar offers **Build with pi** next to Ask AI.

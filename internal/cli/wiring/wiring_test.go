@@ -1,6 +1,7 @@
 package wiring
 
 import (
+	"context"
 	"slices"
 	"testing"
 
@@ -9,23 +10,31 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/store/storetest"
 )
 
-// With ai.enabled false, no provider is built, so nothing ever connects to a
-// model, even with a provider and key configured.
+// With ai.enabled false, no AI settings exist and no provider is built, so
+// nothing ever connects to a model, even with a provider and key configured.
+// On, the provider is built from the config and its key on first use.
 func TestAIOffBuildsNoProvider(t *testing.T) {
-	called := 0
+	var got []provider.Config
 	var r provider.Registry
-	r.Register("spy", func(provider.Config) (provider.Provider, error) { called++; return aitest.New(), nil })
+	r.Register("spy", func(c provider.Config) (provider.Provider, error) { got = append(got, c); return aitest.New(), nil })
 	cfg := config.AICfg{Enabled: false, Provider: "spy", Model: "m"}
-	p, err := newAIProvider(cfg, "a-key", &r)
-	if err != nil || p != nil || called != 0 {
-		t.Fatalf("AI off built %v (%v), factory called %d times", p, err, called)
+	db := storetest.New(t)
+	key, err := secrets.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := aiSettings(cfg, "a-key", db, key, &r); l != nil || len(got) != 0 {
+		t.Fatalf("AI off made settings %v, factory called %d times", l, len(got))
 	}
 	cfg.Enabled = true
-	if _, err := newAIProvider(cfg, "a-key", &r); err != nil || called != 1 {
-		t.Fatalf("AI on: %v, factory called %d times", err, called)
+	l := aiSettings(cfg, "a-key", db, key, &r)
+	if _, err := l.Backend(context.Background()); err != nil || len(got) != 1 || got[0].APIKey != "a-key" || got[0].Model != "m" {
+		t.Fatalf("AI on: %v, built %+v", err, got)
 	}
 }
 

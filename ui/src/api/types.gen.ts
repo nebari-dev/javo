@@ -11,6 +11,56 @@ export type AiFeatures = {
     palette: boolean;
 };
 
+export type AiSettings = {
+    /**
+     * The provider's address in force; empty is the provider's own
+     */
+    baseURL?: string;
+    /**
+     * The platform config's values, which apply when nothing is saved here
+     */
+    config: AiSettingsConfigStruct;
+    /**
+     * ai.enabled in the platform config; false: AI is off and nothing here applies
+     */
+    enabled: boolean;
+    /**
+     * Where the key in force comes from: stored here, the platform config's (sent only to its provider and address), or none
+     */
+    keyFrom?: 'settings' | 'config' | 'none';
+    /**
+     * The last four characters of the stored key
+     */
+    keyLast4?: string;
+    /**
+     * A key is stored here
+     */
+    keyStored: boolean;
+    /**
+     * The model in force
+     */
+    model?: string;
+    /**
+     * Settings saved here are in force; false: the platform config's
+     */
+    overridden: boolean;
+    /**
+     * The provider in force
+     */
+    provider?: string;
+    updatedAt?: string;
+};
+
+export type AiSettingsConfigStruct = {
+    baseURL: string;
+    /**
+     * The platform config has a key
+     */
+    key: boolean;
+    model: string;
+    provider: string;
+};
+
 export type AiStatus = {
     enabled: boolean;
     features: AiFeatures;
@@ -90,6 +140,26 @@ export type AgentStatus = {
     model?: string;
     template: string;
     templateName: string;
+};
+
+export type AiSettingsInputBody = {
+    /**
+     * Write-only: replaces the stored key; leave out to keep it
+     */
+    apiKey?: string;
+    /**
+     * https address of the provider's API; empty is the provider's own
+     */
+    baseURL?: string;
+    model: string;
+    /**
+     * anthropic, or openai for any OpenAI-compatible server
+     */
+    provider: 'anthropic' | 'openai';
+    /**
+     * Remove the stored key
+     */
+    removeKey?: boolean;
 };
 
 export type Amount = {
@@ -2073,6 +2143,117 @@ export type WorkspaceWritable = {
 export type WorkspaceListOutputBodyWritable = {
     items: Array<WorkspaceWritable> | null;
 };
+
+export type AdminResetAiSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/ai';
+};
+
+export type AdminResetAiSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type AdminResetAiSettingsError = AdminResetAiSettingsErrors[keyof AdminResetAiSettingsErrors];
+
+export type AdminResetAiSettingsResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type AdminResetAiSettingsResponse = AdminResetAiSettingsResponses[keyof AdminResetAiSettingsResponses];
+
+export type AdminGetAiSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/ai';
+};
+
+export type AdminGetAiSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type AdminGetAiSettingsError = AdminGetAiSettingsErrors[keyof AdminGetAiSettingsErrors];
+
+export type AdminGetAiSettingsResponses = {
+    /**
+     * OK
+     */
+    200: AiSettings;
+};
+
+export type AdminGetAiSettingsResponse = AdminGetAiSettingsResponses[keyof AdminGetAiSettingsResponses];
+
+export type AdminSetAiSettingsData = {
+    body: AiSettingsInputBody;
+    path?: never;
+    query?: never;
+    url: '/api/admin/ai';
+};
+
+export type AdminSetAiSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type AdminSetAiSettingsError = AdminSetAiSettingsErrors[keyof AdminSetAiSettingsErrors];
+
+export type AdminSetAiSettingsResponses = {
+    /**
+     * OK
+     */
+    200: AiSettings;
+};
+
+export type AdminSetAiSettingsResponse = AdminSetAiSettingsResponses[keyof AdminSetAiSettingsResponses];
 
 export type AskAdminData = {
     body: AskInputBody;

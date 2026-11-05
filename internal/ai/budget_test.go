@@ -94,8 +94,8 @@ func TestAnAICallNeverOvershootsTheAllowance(t *testing.T) {
 	}
 	attempt := b.reserved
 	db := storetest.New(t)
-	s := service(&costly{})
-	p := s.Provider.(*costly)
+	p := &costly{}
+	s := service(p)
 	// Room for one attempt, not two.
 	daily := int64(attempt + attempt/2)
 	s.Budget = &DBBudget{Usage: db.AIUsage(), Daily: daily}

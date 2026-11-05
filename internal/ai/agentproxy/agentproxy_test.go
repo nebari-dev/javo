@@ -62,10 +62,9 @@ func newUpstream(t *testing.T) *upstream {
 }
 
 func proxyFor(u *upstream, caller bool) http.Handler {
+	up := agentproxy.Upstream{BaseURL: u.URL + "/v1", APIKey: adminKey, Model: "admin/model", More: []string{"admin/other"}}
 	p := &agentproxy.Proxy{
-		BaseURL: u.URL + "/v1", APIKey: adminKey, Model: "admin/model",
-		Allows:          func(m string) bool { return m == "admin/model" || m == "admin/other" },
-		Models:          []string{"admin/model", "admin/other"},
+		Upstream:        func(context.Context) (agentproxy.Upstream, bool) { return up, true },
 		MaxRequestBytes: 4096,
 		Caller:          func(context.Context) (string, bool) { return "alice", caller },
 	}
@@ -262,5 +261,47 @@ func TestRefusesABodyThatIsNotAnObject(t *testing.T) {
 	}
 	if u.calls != 0 {
 		t.Fatalf("calls %d", u.calls)
+	}
+}
+
+// The upstream is read for each request: an admin's change of provider, key
+// or model applies to the next request, and with no agent model in force the
+// endpoint says so.
+func TestEachRequestUsesTheUpstreamInForce(t *testing.T) {
+	a, b := newUpstream(t), newUpstream(t)
+	var mu sync.Mutex
+	cur, on := agentproxy.Upstream{BaseURL: a.URL + "/v1", APIKey: "sk-first-PLACEHOLDER", Model: "first/model"}, true
+	p := &agentproxy.Proxy{
+		Upstream: func(context.Context) (agentproxy.Upstream, bool) {
+			mu.Lock()
+			defer mu.Unlock()
+			return cur, on
+		},
+		MaxRequestBytes: 4096,
+		Caller:          func(context.Context) (string, bool) { return "alice", true },
+	}
+	mux := http.NewServeMux()
+	p.Register(mux)
+	body := `{"model":"first/model","messages":[{"role":"user","content":"hi"}]}`
+	if w := post(mux, body); w.Code != http.StatusOK || a.calls != 1 || a.auth != "Bearer sk-first-PLACEHOLDER" {
+		t.Fatalf("first: %d, calls %d, auth %q", w.Code, a.calls, a.auth)
+	}
+	mu.Lock()
+	cur = agentproxy.Upstream{BaseURL: b.URL + "/v1", APIKey: "sk-second-PLACEHOLDER", Model: "second/model"}
+	mu.Unlock()
+	if w := post(mux, body); w.Code != http.StatusOK || b.calls != 1 || a.calls != 1 || b.auth != "Bearer sk-second-PLACEHOLDER" || b.body["model"] != "second/model" {
+		t.Fatalf("second: %d, calls %d/%d, auth %q, model %v", w.Code, a.calls, b.calls, b.auth, b.body["model"])
+	}
+	mu.Lock()
+	on = false
+	mu.Unlock()
+	if w := post(mux, body); w.Code != http.StatusServiceUnavailable || b.calls != 1 {
+		t.Fatalf("off: %d, calls %d", w.Code, b.calls)
+	}
+	r := httptest.NewRequest("GET", agentproxy.Route+"/models", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("models while off: %d", w.Code)
 	}
 }

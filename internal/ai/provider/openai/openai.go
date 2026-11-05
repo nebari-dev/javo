@@ -41,6 +41,9 @@ func New(cfg provider.Config) (provider.Provider, error) {
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
+	if cfg.HTTPClient != nil {
+		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
+	}
 	return &adapter{client: sdk.NewClient(opts...), timeout: cfg.Timeout}, nil
 }
 

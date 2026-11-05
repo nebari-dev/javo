@@ -163,6 +163,20 @@ const facts = [
   row('home', false, 'AdminHomeShared', 'info', 'Files are on shared storage', 'Every machine can reach every home folder, so apps can run anywhere.', 'Nothing to do.', 'StorageClass filestore, one ReadWriteMany drive with a folder per person (storage.home.mode shared).'),
   row('snapshots', false, 'AdminNoSnapshots', 'info', 'Backups copy files one by one', 'This storage cannot take instant copies, so backups of home folders are slower.', 'To change this, add snapshot support to the cluster.', 'No VolumeSnapshotClass was found.'),
 ]
+// The admin's AI settings (Settings > AI), kept while the page is open.
+const aiSettingsFromConfig: Record<string, unknown> & { keyStored: boolean; keyLast4: string } = {
+  enabled: true,
+  overridden: false,
+  provider: 'anthropic',
+  baseURL: '',
+  model: 'claude-opus-5-5',
+  keyStored: false,
+  keyLast4: '',
+  keyFrom: 'config',
+  config: { provider: 'anthropic', baseURL: '', model: 'claude-opus-5-5', key: true },
+}
+let aiSettings = { ...aiSettingsFromConfig }
+
 const adminStorage = quiet
   ? { summary: "Files are stored on this machine's disk. Nothing needs attention.", rows: facts }
   : {
@@ -738,6 +752,30 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const text = `You have 2 apps on machine cpu-standard-3 with 5 CPUs free. ${fits ? 'This app fits.' : 'This app will wait until you stop something.'}`
     const placement = notice(fits ? 'PlacementFits' : 'PlacementWaits', fits ? 'info' : 'warn', 'Will run next to your other apps', text, fits ? 'Nothing to do.' : 'Stop an app to make room, or ask an admin to enable shared storage.')
     return reply(200, { coLocated: noshared, fits, freeCPU: 5, freeMemory: 8 * 2 ** 30, node: 'cpu-standard-3', runningApps: ['Sales app', 'Research lab'], ...(noshared ? { notice: placement } : {}) })
+  }
+  if (url.pathname === '/api/admin/ai' && me.roles.includes('platform-admin')) {
+    if (req.method === 'PUT') {
+      const b = await req.json()
+      const key = b.apiKey ? String(b.apiKey) : ''
+      const keyStored = key ? true : b.removeKey ? false : aiSettings.keyStored
+      aiSettings = {
+        ...aiSettings,
+        overridden: true,
+        provider: b.provider,
+        baseURL: b.baseURL ?? '',
+        model: b.model,
+        keyStored,
+        keyLast4: key ? key.slice(-4) : keyStored ? aiSettings.keyLast4 : '',
+        keyFrom: keyStored ? 'settings' : 'none',
+        updatedAt: new Date().toISOString(),
+      }
+      return reply(200, aiSettings)
+    }
+    if (req.method === 'DELETE') {
+      aiSettings = { ...aiSettingsFromConfig }
+      return reply(204, null)
+    }
+    return reply(200, aiSettings)
   }
   if (key === 'GET /api/admin/storage') {
     return me.roles.includes('platform-admin')

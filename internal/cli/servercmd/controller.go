@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
@@ -270,7 +271,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		CloneImage:     platform.Source.CloneImage, CloneGitConfig: platform.Source.GitConfig, RunnerImage: o.platformImage(),
 		PixiImage:  platform.Environments.PixiImage,
 		NebiURL:    wiring.NebiURL(platform),
-		AgentModel: platform.AI.AgentModel(),
+		AgentModel: aisettings.AgentModelOf(db, platform.AI),
 		SecretKeys: keys,
 		Access:     wiring.JobAccess(db.People(store.IDRange{}), platform.Roles),
 		// Checked again at each pod build, so a tightened list stops

@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   startWorkspace,
   adminBackUpEverythingNow,
+  adminGetAiSettings,
+  adminResetAiSettings,
+  adminSetAiSettings,
   adminBackUpNow,
   adminListApps,
   adminListBackups,
@@ -13,6 +16,7 @@ import {
   adminUsage,
   createJob,
   stopWorkspace,
+  type AdminSetAiSettingsData,
   type RestoreScope,
   type RunRequestBody,
 } from '../../../api'
@@ -23,6 +27,7 @@ const keys = {
   usage: (by: string, days: number) => ['admin', 'usage', by, days] as const,
   backups: ['admin', 'backups'] as const,
   restores: ['admin', 'restores'] as const,
+  ai: ['admin', 'ai'] as const,
 }
 
 /** Whether the signed-in person is a platform admin (GET /api/me roles). */
@@ -177,5 +182,38 @@ export function useRelease() {
     mutationFn: async ({ name, mode, perMinute }: { name: string; mode: 'start' | 'stopped'; perMinute?: number }) =>
       (await adminReleaseRestore({ path: { name }, body: mode === 'start' ? { mode, perMinute } : { mode }, throwOnError: true })).data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.restores }),
+  })
+}
+
+/** The AI settings in force; asked only for a platform admin. */
+export function useAISettings(enabled: boolean) {
+  return useQuery({ queryKey: keys.ai, enabled, queryFn: async () => (await adminGetAiSettings({ throwOnError: true })).data })
+}
+
+/**
+ * Save or reset the AI settings. Every AI answer and the coding agents'
+ * model follow at once, so what the UI knows of them is asked again.
+ */
+export function useSaveAISettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: AdminSetAiSettingsData['body']) => (await adminSetAiSettings({ body, throwOnError: true })).data,
+    onSuccess: (s) => {
+      qc.setQueryData(keys.ai, s)
+      void qc.invalidateQueries({ queryKey: ['ai'] })
+    },
+  })
+}
+
+export function useResetAISettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      await adminResetAiSettings({ throwOnError: true })
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.ai })
+      void qc.invalidateQueries({ queryKey: ['ai'] })
+    },
   })
 }

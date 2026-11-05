@@ -26,7 +26,7 @@ func TestOnlyAgentAppsReachTheModelEndpoint(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
 	}))
 	t.Cleanup(up.Close)
-	p := &agentproxy.Proxy{BaseURL: up.URL, APIKey: "sk-admin", Model: "m", Allows: func(m string) bool { return m == "m" },
+	p := &agentproxy.Proxy{Upstream: apitest.FixedUpstream(agentproxy.Upstream{BaseURL: up.URL, APIKey: "sk-admin", Model: "m"}),
 		MaxRequestBytes: 1 << 20}
 	f := newAgentFixtureWith(t, true, apitest.Options{AgentModel: p})
 	path := agentproxy.Route + "/chat/completions"
@@ -78,7 +78,7 @@ func TestLosingTheTemplateStopsTheAgentsRights(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[]}`)
 	}))
 	t.Cleanup(up.Close)
-	p := &agentproxy.Proxy{BaseURL: up.URL, APIKey: "sk-admin", Model: "m", Allows: func(m string) bool { return m == "m" },
+	p := &agentproxy.Proxy{Upstream: apitest.FixedUpstream(agentproxy.Upstream{BaseURL: up.URL, APIKey: "sk-admin", Model: "m"}),
 		MaxRequestBytes: 1 << 20}
 	// alice is a plain member here: a platform admin may use every template.
 	f := newAgentFixtureWith(t, true, apitest.Options{AgentModel: p, Roles: &config.Roles{}})

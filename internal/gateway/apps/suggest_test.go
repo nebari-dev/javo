@@ -32,7 +32,7 @@ func suggestFixture(t *testing.T, replies ...aitest.Reply) (*apitest.Fixture, *a
 	ws := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
 	ws.Template = "agent"
 	lister := &apitest.StubFilesLister{Entries: []files.Entry{{Name: "sales", IsDir: true}, {Name: "notes.csv"}, {Name: ".ssh", IsDir: true}}}
-	f := apitest.New(t, apitest.Options{Ai: svc, Files: lister, Agent: apps.AgentConfig{Model: "agent/model", Template: "pi"}},
+	f := apitest.New(t, apitest.Options{Ai: svc, Files: lister, Agent: apps.AgentConfig{Model: apitest.AgentModel("agent/model"), Template: "pi"}},
 		st, gatewaytest.Template("secret", "streamlit", "admins-only"), apitest.AgentTemplate(), ws)
 	return f, p, svc
 }

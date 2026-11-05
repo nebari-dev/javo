@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,5 +121,27 @@ func TestRefusalIsNoAnswer(t *testing.T) {
 	 "stop_reason":"refusal","usage":{"input_tokens":1,"output_tokens":0}}`, nil)
 	if _, err := newProvider(t, s.URL).Generate(context.Background(), request()); !errors.Is(err, provider.ErrNoAnswer) {
 		t.Fatalf("refusal: %v", err)
+	}
+}
+
+// countingTransport counts the requests that go through it.
+type countingTransport struct{ n atomic.Int32 }
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// A config's HTTP client sends the requests, so the caller decides where
+// they may connect.
+func TestRequestsGoThroughTheConfigsClient(t *testing.T) {
+	s := server(t, 200, nil, okBody, nil)
+	tr := &countingTransport{}
+	p, err := New(provider.Config{Provider: "anthropic", Model: "claude-opus-5-5", BaseURL: s.URL, APIKey: "test-key", HTTPClient: &http.Client{Transport: tr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Generate(context.Background(), request()); err != nil || tr.n.Load() != 1 {
+		t.Fatalf("err %v, requests through the client %d", err, tr.n.Load())
 	}
 }

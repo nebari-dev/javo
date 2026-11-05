@@ -18,6 +18,17 @@ type AgentSetting struct {
 	UpdatedAt dbtime.Time
 }
 
+type AiSetting struct {
+	ID        int32
+	Provider  string
+	BaseUrl   string
+	Model     string
+	KeySealed []byte
+	KeyLast4  string
+	Rev       string
+	UpdatedAt dbtime.Time
+}
+
 type AiUsage struct {
 	Person string
 	Day    string

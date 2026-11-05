@@ -1,6 +1,6 @@
 // Package admin serves the platform admin's console: every person's apps,
-// usage, held restores, database backups, the backup bucket and the audit
-// log.
+// usage, held restores, database backups, the backup bucket, the audit
+// log and the AI settings.
 package admin
 
 import (
@@ -9,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
@@ -29,6 +30,8 @@ type API struct {
 	// Client and Logs read the backup Jobs' pods and their logs.
 	Client client.Client
 	Logs   podlogs.Source
+	// AI is the AI settings in force; nil while AI is off.
+	AI *aisettings.Live
 }
 
 // Register adds the admin console's routes.
@@ -39,4 +42,5 @@ func (a *API) Register(api huma.API) {
 	a.registerBackups(api)
 	a.registerBucket(api)
 	a.registerAudit(api)
+	a.registerAI(api)
 }

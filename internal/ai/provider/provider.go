@@ -76,6 +76,8 @@ func RetryAfter(r *http.Response) time.Duration {
 type Config struct {
 	Provider, Model, BaseURL, APIKey string
 	Timeout                          time.Duration
+	// HTTPClient sends the requests; nil is the SDK's own.
+	HTTPClient *http.Client
 }
 
 // Factory builds a provider from its config.

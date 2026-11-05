@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/nebari-dev/javo/internal/ai"
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
+	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
@@ -179,6 +180,9 @@ type Config struct {
 	// AgentModel is the coding agents' model endpoint; nil serves none. Only
 	// the token of an app whose template has agentModel may call it.
 	AgentModel *agentproxy.Proxy
+	// AISettings is the AI settings in force, which platform admins change
+	// in Settings > AI; nil while AI is off.
+	AISettings *aisettings.Live
 	// AIIncludeOwners names app owners in the admin report and its answers.
 	AIIncludeOwners bool
 	// MCP serves agents at /mcp when enabled.
@@ -295,7 +299,7 @@ func NewServer(cfg Config) *Server {
 	})
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
-	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs}).Register(api)
+	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs, AI: cfg.AISettings}).Register(api)
 	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,

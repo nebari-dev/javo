@@ -61,7 +61,7 @@ func (s *Service) AskAdmin(ctx context.Context, person, question string, rep adm
 	// The question itself is in the bundle but is not evidence.
 	rows := Bundle{Refs: b.Refs[1:]}
 	res.Refs, res.Dropped.Refs = keepRefs(m.Refs, rows)
-	s.audit(c, "ok", o.usage, res.Dropped)
+	s.audit(c, o.backend, "ok", o.usage, res.Dropped)
 	if len(res.Refs) == 0 {
 		res.Message = reasons.Msg(reasons.MsgAIInvalidAnswer)
 		return res
