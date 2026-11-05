@@ -44,6 +44,7 @@ func renderWithoutVAP(t *testing.T, args ...string) (string, error) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Fatal("helm not on PATH (run with -short to skip chart tests)")
 	}
+	args = append(slices.Clone(testImage), args...)
 	v, _ := renders.LoadOrStore(strings.Join(args, "\x00"), &rendered{})
 	r := v.(*rendered)
 	r.once.Do(func() {

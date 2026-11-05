@@ -1,11 +1,13 @@
 # Image used by every component (one binary: `javo server`, `javo controller`,
-# `javo gateway`, `javo db`). If digest is set it wins over tag. Set digest
-# (sha256:...) in production: a tag can be moved to other contents, and
-# IfNotPresent keeps whatever image a node already has under that tag. No
-# release image is published yet, so there is no default digest.
+# `javo gateway`, `javo db`). If digest is set it wins over tag. A released
+# chart sets repository, tag and digest to the released image
+# (scripts/release/set-chart-release.sh). This source chart sets neither, and
+# does not render until one is given: a tag can be moved to other contents,
+# and IfNotPresent keeps whatever image a node already has under that tag, so
+# set tag only for an image built locally (the dev and single-node installs).
 image:
   repository: javo
-  tag: dev
+  tag: ""
   digest: ""
   pullPolicy: IfNotPresent
 

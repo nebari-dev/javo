@@ -3,7 +3,7 @@
 # <version>, and the image defaults in values.yaml become <repository>, tag
 # <version> and <digest> (the chart then pulls repository@digest). Fails if a
 # line it must change is not where it expects, so a reshaped values.yaml cannot
-# ship a chart that still names the dev image. Used by
+# ship a chart without its image digest. Used by
 # .github/workflows/release.yaml.
 #
 # Usage: scripts/release/set-chart-release.sh <chart-dir> <version> <repository> <digest>
@@ -37,5 +37,5 @@ replace() {
 replace "$chart/Chart.yaml" '^version: .*$' "version: $version"
 replace "$chart/Chart.yaml" '^appVersion: .*$' "appVersion: \"$version\""
 replace "$chart/values.yaml" '^  repository: javo$' "  repository: $repository"
-replace "$chart/values.yaml" '^  tag: dev$' "  tag: \"$version\""
+replace "$chart/values.yaml" '^  tag: ""$' "  tag: \"$version\""
 replace "$chart/values.yaml" '^  digest: ""$' "  digest: \"$digest\""

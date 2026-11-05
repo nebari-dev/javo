@@ -1,8 +1,10 @@
 {{- define "javo.image" -}}
 {{- if .Values.image.digest -}}
 {{ .Values.image.repository }}@{{ .Values.image.digest }}
-{{- else -}}
+{{- else if .Values.image.tag -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag }}
+{{- else -}}
+{{- fail "image.digest is not set: install a released chart (it names its image by digest), or set image.digest (sha256:...), or image.tag for an image built locally" -}}
 {{- end -}}
 {{- end -}}
 
