@@ -35,14 +35,12 @@ import (
 	"github.com/nebari-dev/javo/internal/ai"
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/ai/provider"
+	"github.com/nebari-dev/javo/internal/ai/provider/openai"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
 )
-
-// Providers are the providers an admin may pick: the registered adapters.
-var Providers = []string{"anthropic", "openai"}
 
 // Bounds of what an admin may set.
 const (
@@ -95,12 +93,13 @@ type state struct {
 	agent    bool
 }
 
-// Input is what an admin saves. APIKey replaces the stored key; empty keeps
-// it, unless RemoveKey.
+// Input is what an admin saves. The address is spoken to as an
+// OpenAI-compatible server, whatever the platform config's provider. APIKey
+// replaces the stored key; empty keeps it, unless RemoveKey.
 type Input struct {
-	Provider, BaseURL, Model string
-	APIKey                   string
-	RemoveKey                bool
+	BaseURL, Model string
+	APIKey         string
+	RemoveKey      bool
 }
 
 // FieldError is a refused field and why.
@@ -160,10 +159,32 @@ func effective(c config.AICfg, row *store.AISetting) config.AICfg {
 	return c
 }
 
-// sameEndpoint is whether row sends to the config's provider and address,
-// where the config's key may go.
+// ownAPI is each provider's address when the base URL is empty.
+var ownAPI = map[string]string{"anthropic": "https://api.anthropic.com", openai.ID: "https://api.openai.com"}
+
+// sameEndpoint is whether settings for provider at baseURL send to the
+// server the config sends to (same scheme, host and port), where the
+// config's key may go.
 func (l *Live) sameEndpoint(provider, baseURL string) bool {
-	return provider == l.Config.Provider && baseURL == l.Config.BaseURL
+	o := origin(provider, baseURL)
+	return o != "" && o == origin(l.Config.Provider, l.Config.BaseURL)
+}
+
+// origin is the scheme, host and port that provider at baseURL connects
+// to; "" when unknown.
+func origin(provider, baseURL string) string {
+	if baseURL == "" {
+		baseURL = ownAPI[provider]
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "http": "80"}[u.Scheme]
+	}
+	return u.Scheme + "://" + strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")) + ":" + port
 }
 
 func (l *Live) resolve(row *store.AISetting) *state {
@@ -287,7 +308,7 @@ func (l *Live) Save(ctx context.Context, actor model.Actor, in Input) error {
 	default:
 		prev = &r
 	}
-	next := store.AISetting{Provider: in.Provider, BaseURL: in.BaseURL, Model: in.Model}
+	next := store.AISetting{Provider: openai.ID, BaseURL: in.BaseURL, Model: in.Model}
 	keyChanged := false
 	switch {
 	case in.APIKey != "":
@@ -300,10 +321,6 @@ func (l *Live) Save(ctx context.Context, actor model.Actor, in Input) error {
 		keyChanged = prev != nil && prev.KeySealed != nil
 	case prev != nil:
 		next.KeySealed, next.KeyLast4 = prev.KeySealed, prev.KeyLast4
-	}
-	// anthropic refuses to start without a key.
-	if next.Provider == "anthropic" && next.KeySealed == nil && (l.ConfigKey == "" || !l.sameEndpoint(next.Provider, next.BaseURL)) {
-		return &FieldError{"apiKey", reasons.MsgAISettingsKeyNeeded}
 	}
 	was := effective(l.Config, prev)
 	var changed []string
@@ -341,9 +358,6 @@ func (l *Live) changed() {
 }
 
 func check(in Input) error {
-	if !slices.Contains(Providers, in.Provider) {
-		return &FieldError{"provider", reasons.MsgAISettingsProvider}
-	}
 	if code := checkBaseURL(in.BaseURL); code != "" {
 		return &FieldError{"baseURL", code}
 	}

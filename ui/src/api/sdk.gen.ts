@@ -45,9 +45,9 @@ export const adminGetAiSettings = <ThrowOnError extends boolean = false>(options
 });
 
 /**
- * Set the AI provider, address, model and key (platform admins)
+ * Set the AI address, model and key (platform admins)
  *
- * Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.
+ * The address is spoken to as an OpenAI-compatible server. Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.
  */
 export const adminSetAiSettings = <ThrowOnError extends boolean = false>(options: Options<AdminSetAiSettingsData, ThrowOnError>): RequestResult<AdminSetAiSettingsResponses, AdminSetAiSettingsErrors, ThrowOnError> => (options.client ?? client).put<AdminSetAiSettingsResponses, AdminSetAiSettingsErrors, ThrowOnError>({
     security: [{

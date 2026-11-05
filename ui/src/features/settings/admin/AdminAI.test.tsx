@@ -31,6 +31,11 @@ const saved = {
   updatedAt: '2026-11-02T10:00:00Z',
 }
 
+async function pick(field: string, option: string) {
+  await userEvent.click(screen.getByRole('combobox', { name: field }))
+  await userEvent.click(screen.getByRole('option', { name: option }))
+}
+
 function api(view: object, put: (c: Call) => object = () => saved) {
   return mockApi({
     'GET /api/me': { body: adminMe },
@@ -41,34 +46,61 @@ function api(view: object, put: (c: Call) => object = () => saved) {
 }
 
 describe('AI settings', () => {
-  it('saves the provider, address, model and key, then shows only the key end', async () => {
+  it('fills the address and model from a provider, then shows only the key end', async () => {
     const m = api(fromConfig)
     renderApp('/settings/ai')
     expect(await screen.findByText(/From the platform config/)).toBeTruthy()
-    await userEvent.click(screen.getByRole('radio', { name: 'OpenAI-compatible' }))
-    await userEvent.type(screen.getByLabelText('API address'), 'https://router.example.com/api/v1')
-    const model = screen.getByLabelText('Model')
-    await userEvent.clear(model)
-    await userEvent.type(model, 'vendor/model-a')
+    await pick('Provider', 'OpenRouter')
+    expect((screen.getByLabelText('API address') as HTMLInputElement).value).toBe('https://openrouter.ai/api/v1')
+    await pick('Model', 'anthropic/claude-sonnet-5.5')
     await userEvent.type(screen.getByLabelText('API key'), 'sk-test-4321')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText(/ending in 4321/)).toBeTruthy()
     const put = m.calls.find((c) => c.method === 'PUT')
-    expect(put?.body).toEqual({ provider: 'openai', baseURL: 'https://router.example.com/api/v1', model: 'vendor/model-a', apiKey: 'sk-test-4321' })
+    expect(put?.body).toEqual({ baseURL: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-5.5', apiKey: 'sk-test-4321' })
     expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('')
     expect(document.body.textContent).not.toContain('sk-test-4321')
+  })
+
+  it('takes any address and model id with Custom', async () => {
+    const m = api(fromConfig)
+    renderApp('/settings/ai')
+    await screen.findByText(/From the platform config/)
+    await pick('Provider', 'Custom')
+    const url = screen.getByLabelText('API address')
+    await userEvent.clear(url)
+    await userEvent.type(url, 'https://router.example.com/api/v1')
+    const id = screen.getByLabelText('Model id')
+    await userEvent.clear(id)
+    await userEvent.type(id, 'vendor/model-a')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await vi.waitFor(() => expect(m.count('PUT', '/api/admin/ai')).toBe(1))
+    expect(m.calls.find((c) => c.method === 'PUT')?.body).toEqual({ baseURL: 'https://router.example.com/api/v1', model: 'vendor/model-a' })
+  })
+
+  it("starts an anthropic platform config at Anthropic's OpenAI-compatible address", async () => {
+    const m = api(fromConfig)
+    renderApp('/settings/ai')
+    await screen.findByText(/From the platform config/)
+    expect(screen.getByRole('combobox', { name: 'Provider' }).textContent).toContain('Anthropic')
+    expect(screen.getByRole('combobox', { name: 'Model' }).textContent).toBe('claude-opus-5-5')
+    await pick('Model', 'claude-sonnet-5-5')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await vi.waitFor(() => expect(m.count('PUT', '/api/admin/ai')).toBe(1))
+    expect(m.calls.find((c) => c.method === 'PUT')?.body).toEqual({ baseURL: 'https://api.anthropic.com/v1/', model: 'claude-sonnet-5-5' })
   })
 
   it('keeps the stored key when it is left empty, and replaces it when one is typed', async () => {
     const m = api(saved)
     renderApp('/settings/ai')
     expect(await screen.findByText(/ending in 4321/)).toBeTruthy()
-    const model = screen.getByLabelText('Model')
+    expect((screen.getByLabelText('API address') as HTMLInputElement).value).toBe('https://router.example.com/api/v1')
+    const model = screen.getByLabelText('Model id')
     await userEvent.clear(model)
     await userEvent.type(model, 'vendor/model-b')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await vi.waitFor(() => expect(m.count('PUT', '/api/admin/ai')).toBe(1))
-    expect(m.calls.find((c) => c.method === 'PUT')?.body).toEqual({ provider: 'openai', baseURL: 'https://router.example.com/api/v1', model: 'vendor/model-b' })
+    expect(m.calls.find((c) => c.method === 'PUT')?.body).toEqual({ baseURL: 'https://router.example.com/api/v1', model: 'vendor/model-b' })
 
     await userEvent.type(screen.getByLabelText('API key'), 'sk-new-9999')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -105,7 +137,9 @@ describe('AI settings', () => {
       },
     })
     renderApp('/settings/ai')
-    await userEvent.type(await screen.findByLabelText('API address'), 'http://llm.example.com')
+    const url = await screen.findByLabelText('API address')
+    await userEvent.clear(url)
+    await userEvent.type(url, 'http://llm.example.com')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Give the https address of the provider.')).toBeTruthy()
   })

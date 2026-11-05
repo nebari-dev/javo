@@ -38,8 +38,7 @@ type aiSettingsOutput struct{ Body AISettings }
 
 type aiSettingsInput struct {
 	Body struct {
-		Provider  string `json:"provider" enum:"anthropic,openai" doc:"anthropic, or openai for any OpenAI-compatible server"`
-		BaseURL   string `json:"baseURL,omitempty" maxLength:"512" doc:"https address of the provider's API; empty is the provider's own"`
+		BaseURL   string `json:"baseURL,omitempty" maxLength:"512" doc:"https address of an OpenAI-compatible API; empty is OpenAI's own"`
 		Model     string `json:"model" maxLength:"200"`
 		APIKey    string `json:"apiKey,omitempty" maxLength:"4096" doc:"Write-only: replaces the stored key; leave out to keep it"`
 		RemoveKey bool   `json:"removeKey,omitempty" doc:"Remove the stored key"`
@@ -56,8 +55,8 @@ func (a *API) registerAI(api huma.API) {
 
 	authn.RegisterAdmin(api, a.Roles, huma.Operation{
 		OperationID: "adminSetAISettings", Method: http.MethodPut, Path: "/api/admin/ai",
-		Summary:     "Set the AI provider, address, model and key (platform admins)",
-		Description: "Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.",
+		Summary:     "Set the AI address, model and key (platform admins)",
+		Description: "The address is spoken to as an OpenAI-compatible server. Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.",
 		Errors:      []int{http.StatusConflict, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *aiSettingsInput) (*aiSettingsOutput, error) {
 		if a.AI == nil {
@@ -65,7 +64,7 @@ func (a *API) registerAI(api huma.API) {
 		}
 		b := in.Body
 		err := a.AI.Save(ctx, authn.Actor(ctx), aisettings.Input{
-			Provider: b.Provider, BaseURL: b.BaseURL, Model: b.Model, APIKey: b.APIKey, RemoveKey: b.RemoveKey,
+			BaseURL: b.BaseURL, Model: b.Model, APIKey: b.APIKey, RemoveKey: b.RemoveKey,
 		})
 		var fe *aisettings.FieldError
 		switch {

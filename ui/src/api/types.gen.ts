@@ -148,14 +148,10 @@ export type AiSettingsInputBody = {
      */
     apiKey?: string;
     /**
-     * https address of the provider's API; empty is the provider's own
+     * https address of an OpenAI-compatible API; empty is OpenAI's own
      */
     baseURL?: string;
     model: string;
-    /**
-     * anthropic, or openai for any OpenAI-compatible server
-     */
-    provider: 'anthropic' | 'openai';
     /**
      * Remove the stored key
      */

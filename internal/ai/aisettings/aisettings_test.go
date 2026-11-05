@@ -78,14 +78,15 @@ func TestSettingsOverrideTheConfigAndResetFallsBack(t *testing.T) {
 	if c := b.last(); c.Provider != "openai" || c.BaseURL != "https://helm.example.com/v1" || c.APIKey != configKey || c.HTTPClient != nil {
 		t.Fatalf("config build %+v", c)
 	}
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "anthropic", BaseURL: "https://llm.example.com", Model: "ui/model", APIKey: uiKey}); err != nil {
+	// A saved address is spoken to as an OpenAI-compatible server.
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.com", Model: "ui/model", APIKey: uiKey}); err != nil {
 		t.Fatal(err)
 	}
 	second, err := l.Backend(ctx)
 	if err != nil || second.Model != "ui/model" || second.Rev == first.Rev {
 		t.Fatalf("after save %+v, %v", second, err)
 	}
-	if c := b.last(); c.Provider != "anthropic" || c.BaseURL != "https://llm.example.com" || c.APIKey != uiKey || c.HTTPClient == nil {
+	if c := b.last(); c.Provider != "openai" || c.BaseURL != "https://llm.example.com" || c.APIKey != uiKey || c.HTTPClient == nil {
 		t.Fatalf("settings build %+v", c)
 	}
 	// Unchanged settings build nothing new.
@@ -106,14 +107,14 @@ func TestSettingsOverrideTheConfigAndResetFallsBack(t *testing.T) {
 func TestKeyIsSealedKeptAndRemoved(t *testing.T) {
 	ctx := context.Background()
 	l, b, db := newLive(t, helm())
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", BaseURL: "https://llm.example.com/v1", Model: "m1", APIKey: uiKey}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.com/v1", Model: "m1", APIKey: uiKey}); err != nil {
 		t.Fatal(err)
 	}
 	row, err := db.AISettings().Get(ctx)
 	if err != nil || len(row.KeySealed) == 0 || bytes.Contains(row.KeySealed, []byte(uiKey)) || row.KeyLast4 != "9876" {
 		t.Fatalf("stored %+v, %v", row, err)
 	}
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", BaseURL: "https://llm.example.com/v1", Model: "m2"}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.com/v1", Model: "m2"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != uiKey || b.last().Model != "m2" {
@@ -123,7 +124,7 @@ func TestKeyIsSealedKeptAndRemoved(t *testing.T) {
 	if err != nil || v.KeyLast4 != "9876" || !v.KeyStored || v.KeyFrom != aisettings.KeyFromSettings || v.Model != "m2" || !v.Overridden {
 		t.Fatalf("view %+v, %v", v, err)
 	}
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", BaseURL: "https://llm.example.com/v1", Model: "m2", RemoveKey: true}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.com/v1", Model: "m2", RemoveKey: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != "" {
@@ -135,12 +136,11 @@ func TestKeyIsSealedKeptAndRemoved(t *testing.T) {
 }
 
 // The config's key goes only to the config's provider and address: with
-// another address and no key pasted, no key is sent, and a provider that
-// needs one is refused.
+// another address and no key pasted, no key is sent.
 func TestConfigKeyStaysWithTheConfigsEndpoint(t *testing.T) {
 	ctx := context.Background()
 	l, b, _ := newLive(t, helm())
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", BaseURL: "https://helm.example.com/v1", Model: "other"}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://helm.example.com/v1", Model: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != configKey {
@@ -149,22 +149,40 @@ func TestConfigKeyStaysWithTheConfigsEndpoint(t *testing.T) {
 	if v, _ := l.View(ctx); v.KeyFrom != aisettings.KeyFromConfig {
 		t.Fatalf("key from %q", v.KeyFrom)
 	}
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", BaseURL: "https://elsewhere.example.com/v1", Model: "other"}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://elsewhere.example.com/v1", Model: "other"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != "" {
 		t.Fatalf("another endpoint got key %q, %v", b.last().APIKey, err)
 	}
-	err := l.Save(ctx, admin, aisettings.Input{Provider: "anthropic", BaseURL: "", Model: "claude"})
-	if fe := (*aisettings.FieldError)(nil); !errors.As(err, &fe) || fe.Field != "apiKey" || fe.Code != reasons.MsgAISettingsKeyNeeded {
-		t.Fatalf("anthropic without a key: %v", err)
+}
+
+// With the config on a provider's own API, the config's key goes to that
+// provider's other addresses (such as Anthropic's OpenAI-compatible one),
+// and still to no other server.
+func TestConfigKeyFollowsTheConfigsServer(t *testing.T) {
+	ctx := context.Background()
+	c := helm()
+	c.Provider, c.BaseURL = "anthropic", ""
+	l, b, _ := newLive(t, c)
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://api.anthropic.com/v1/", Model: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != configKey || b.last().Provider != "openai" {
+		t.Fatalf("same server: %+v, %v", b.last(), err)
+	}
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://api.anthropic.com.example.com/v1", Model: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != "" {
+		t.Fatalf("another server got key %q, %v", b.last().APIKey, err)
 	}
 }
 
 func TestSaveRefusesBadInput(t *testing.T) {
 	ctx := context.Background()
 	l, _, db := newLive(t, helm())
-	ok := aisettings.Input{Provider: "openai", BaseURL: "https://llm.example.com/v1", Model: "m", APIKey: uiKey}
+	ok := aisettings.Input{BaseURL: "https://llm.example.com/v1", Model: "m", APIKey: uiKey}
 	for name, tc := range map[string]struct {
 		edit  func(*aisettings.Input)
 		field string
@@ -184,7 +202,6 @@ func TestSaveRefusesBadInput(t *testing.T) {
 		"key too long":       {func(i *aisettings.Input) { i.APIKey = strings.Repeat("k", aisettings.MaxKeyBytes+1) }, "apiKey", reasons.MsgAISettingsKey},
 		"key with newline":   {func(i *aisettings.Input) { i.APIKey = "sk-a\nb" }, "apiKey", reasons.MsgAISettingsKey},
 		"key and remove":     {func(i *aisettings.Input) { i.RemoveKey = true }, "apiKey", reasons.MsgAISettingsKeyOrRemove},
-		"unknown provider":   {func(i *aisettings.Input) { i.Provider = "other" }, "provider", reasons.MsgAISettingsProvider},
 	} {
 		in := ok
 		tc.edit(&in)
@@ -196,7 +213,7 @@ func TestSaveRefusesBadInput(t *testing.T) {
 	if _, err := db.AISettings().Get(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a refused save was stored: %v", err)
 	}
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", Model: "m"}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{Model: "m"}); err != nil {
 		t.Fatalf("an empty address is the provider's own: %v", err)
 	}
 }
@@ -216,7 +233,7 @@ func TestAgentEndpointFollowsTheSettings(t *testing.T) {
 	if m, err := agentModel(ctx); err != nil || m != "" {
 		t.Fatalf("controller sees %q, %v", m, err)
 	}
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", BaseURL: "https://router.example.com/api/v1", Model: "ui/agent", APIKey: uiKey}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://router.example.com/api/v1", Model: "ui/agent", APIKey: uiKey}); err != nil {
 		t.Fatal(err)
 	}
 	up, ok := l.Upstream(ctx)
@@ -244,7 +261,7 @@ func TestChangesAreAnnounced(t *testing.T) {
 	l, _, _ := newLive(t, helm())
 	n := 0
 	l.Changed = func() { n++ }
-	if err := l.Save(ctx, admin, aisettings.Input{Provider: "openai", Model: "m"}); err != nil {
+	if err := l.Save(ctx, admin, aisettings.Input{Model: "m"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := l.Reset(ctx, admin); err != nil {
@@ -267,7 +284,7 @@ func TestConcurrentCallsAndSaves(t *testing.T) {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				if i == 0 {
-					_ = l.Save(ctx, admin, aisettings.Input{Provider: "openai", Model: "m"})
+					_ = l.Save(ctx, admin, aisettings.Input{Model: "m"})
 					continue
 				}
 				if _, err := l.Backend(ctx); err != nil {
