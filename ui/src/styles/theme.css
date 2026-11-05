@@ -1,7 +1,7 @@
 :root{
   --font-sans:'Fira Sans',-apple-system,BlinkMacSystemFont,sans-serif;
   /* Type scale: the only place font sizes are set. Body is --fs-md. */
-  --fs-2xs:13.5px; --fs-xs:14.5px; --fs-sm:15.5px; --fs-md:17px; --fs-lg:24px; --fs-xl:26px; --fs-2xl:30px;
+  --fs-2xs:12.5px; --fs-xs:13.5px; --fs-sm:14.5px; --fs-md:15.5px; --fs-lg:22px; --fs-xl:24px; --fs-2xl:27px;
   /* Button sizes: the only place they are set (standard 40px controls, 88px minimum width). */
   --btn-h:40px; --btn-px:20px; --btn-min-w:88px; --btn-h-sm:34px; --btn-px-sm:14px; --btn-min-w-sm:72px;
   --font-mono:'Fira Code',ui-monospace,Menlo,monospace;
