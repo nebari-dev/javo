@@ -14,6 +14,7 @@ afterEach(() => {
 function detail(...replies: object[]) {
   return mockApi({
     'GET /api/me': { body: me },
+    'GET /api/info': { body: { apiDocs: false, version: 'v0.2.22', commit: '0123456789abcdef0123456789abcdef01234567' } },
     'GET /api/workspaces/sales-app': replies.map((body) => ({ body })),
   })
 }
@@ -378,6 +379,12 @@ describe('App status page', () => {
     expect(within(card).getByText(run.environment)).toBeTruthy()
     expect(card.querySelector('.cmdline code')?.textContent).toBe(run.line)
     expect(within(card).getByRole('button', { name: 'Copy command' })).toBeTruthy()
+    // The launcher links to its source at the running release.
+    await waitFor(() =>
+      expect(within(card).getByRole('link', { name: '/opt/javo/pod-user.sh' }).getAttribute('href')).toBe(
+        'https://github.com/nebari-dev/javo/blob/v0.2.22/pod/files/pod-user.sh',
+      ),
+    )
   })
 
   it("starts the running app's log with the command it started with", async () => {

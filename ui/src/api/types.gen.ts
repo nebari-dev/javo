@@ -825,9 +825,17 @@ export type Info = {
      */
     apiDocs: boolean;
     /**
+     * The full git commit the server was built from; absent when the build does not know it
+     */
+    commit?: string;
+    /**
      * The longest expiry a new token may have, in days; 0 allows tokens that never expire
      */
     tokenMaxDays: number;
+    /**
+     * The release tag the server was built from (v0.2.22), or dev for a build that is not a release
+     */
+    version: string;
 };
 
 export type Item = {

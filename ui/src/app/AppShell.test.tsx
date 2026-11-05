@@ -9,8 +9,10 @@ import { makeQueryClient } from '../lib/queries'
 import { mockApi } from '../test/api'
 import { me, storageView } from '../test/fixtures'
 
-function setup(path = '/', who: object = me) {
-  mockApi({ 'GET /api/me': { body: who }, 'GET /api/storage': { body: storageView() } })
+const sha = '0123456789abcdef0123456789abcdef01234567'
+
+function setup(path = '/', who: object = me, info: object = { apiDocs: false, version: 'v0.2.22', commit: sha }) {
+  mockApi({ 'GET /api/me': { body: who }, 'GET /api/storage': { body: storageView() }, 'GET /api/info': { body: info } })
   return render(
     <QueryClientProvider client={makeQueryClient()}>
     <MemoryRouter initialEntries={[path]}>
@@ -100,6 +102,20 @@ describe('AppShell', () => {
     const foot = screen.getByRole('navigation', { name: 'Settings and help' })
     await userEvent.click(within(foot).getByRole('link', { name: 'Settings' }))
     expect(screen.getByText('Settings placeholder')).toBeTruthy()
+  })
+
+  it('shows the running release above Settings, linking to its release page', async () => {
+    setup()
+    const foot = screen.getByRole('navigation', { name: 'Settings and help' })
+    const version = await within(foot).findByRole('link', { name: 'v0.2.22' })
+    expect(version.getAttribute('href')).toBe('https://github.com/nebari-dev/javo/releases/tag/v0.2.22')
+    expect(version.compareDocumentPosition(within(foot).getByRole('link', { name: 'Settings' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows a dev build by its short commit, linking to the commit', async () => {
+    setup('/', me, { apiDocs: false, version: 'dev', commit: sha })
+    const version = await screen.findByRole('link', { name: 'dev+0123456' })
+    expect(version.getAttribute('href')).toBe(`https://github.com/nebari-dev/javo/commit/${sha}`)
   })
 
   it('goes home from the logo and product name', async () => {

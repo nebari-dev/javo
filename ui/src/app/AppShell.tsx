@@ -10,7 +10,8 @@ import { useIdpOutage } from '../lib/idp'
 import { ThemeSwitch } from '../components/ThemeSwitch'
 import { UserMenu } from './UserMenu'
 import { features } from '../features'
-import { useLogout, useMe, useWarmHome } from '../lib/queries'
+import { useLogout, useMe, useServerInfo, useWarmHome } from '../lib/queries'
+import { buildLink } from '../lib/github'
 import { BrandLogo, BrandName } from '../components/BrandLogo'
 import { readStored, writeStored } from '../lib/storage'
 
@@ -23,6 +24,8 @@ export function AppShell() {
   // Signed in: the file picker may be opened any moment.
   useWarmHome(!!me)
   const idpOutage = useIdpOutage()
+  const info = useServerInfo().data
+  const build = info?.version ? buildLink(info) : null
   const [collapsed, setCollapsed] = useState(() => readStored(SIDEBAR_KEY) === 'collapsed')
   const toggle = () => {
     setCollapsed(!collapsed)
@@ -85,6 +88,11 @@ export function AppShell() {
           ))}
         </nav>
         <nav className="nav nav-foot" aria-label="Settings and help">
+          {build && (
+            <a className="side-version" href={build.href} target="_blank" rel="noopener noreferrer" title="This build on GitHub">
+              {build.label}
+            </a>
+          )}
           <NavLink to="/settings" aria-label="Settings" title="Settings">
             <PART_ICONS.settings size={17} aria-hidden="true" />
             <span className="lbl">Settings</span>

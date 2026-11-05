@@ -132,7 +132,7 @@ kind_up() {
   # The only image built: apps and jobs run upstream images, which the
   # cluster pulls.
   local image=javo:dev
-  docker build -t "$image" .
+  docker build --build-arg JAVO_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" -t "$image" .
 
   step "load the image into kind"
   kind load docker-image --name "$cluster" "$image"

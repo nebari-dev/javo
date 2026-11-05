@@ -16,6 +16,7 @@ describe('sign-in service outage banner', () => {
       'GET /api/me': { body: me, headers },
       'GET /api/workspaces': { body: { items: [] }, headers },
       'GET /api/shared': { body: { items: [] }, headers },
+      'GET /api/info': { body: { apiDocs: false, version: 'dev' }, headers },
     })
     renderApp('/')
     expect(await screen.findByText('Sign-in service unreachable. You stay signed in until 14:05 UTC.')).toBeTruthy()
