@@ -216,6 +216,7 @@ two policies above still bound. Use postgres to keep them apart. */ -}}
 {{- $owner := include "javo.groupKey" "owner" }}
 {{- $identity := (default (dict) .Values.config.identity) }}
 {{- $uids := (default (dict "first" 100000 "last" 199999) $identity.uidRange) }}
+{{- $gids := (default (dict "first" 200000 "last" 299999) $identity.gidRange) }}
 {{- $name = printf "%s-%s-javo-gateway-pods" .Release.Name .Release.Namespace }}
 ---
 # Pods the internet-facing gateway creates (it may create pods in workspace
@@ -306,6 +307,22 @@ spec:
         || (object.spec.securityContext.runAsUser >= {{ $uids.first | int64 }} && object.spec.securityContext.runAsUser <= {{ $uids.last | int64 }}))
         && variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.runAsUser))
       message: the Javo gateway's pods must run as a person's uid (identity.uidRange, or 1000 when uids are fixed)
+    # Groups: the people's primary group, plus only group folders' gids
+    # (identity.gidRange), and no fsGroup, so a file pod reads no claim
+    # through another group's gid.
+    - expression: >-
+        object.spec.securityContext.?runAsGroup.orValue(-1) == 100
+        && !has(object.spec.securityContext.fsGroup)
+        && object.spec.securityContext.?supplementalGroups.orValue([]).all(g, g >= {{ $gids.first | int64 }} && g <= {{ $gids.last | int64 }})
+        && variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.runAsGroup))
+      message: the Javo gateway's pods must run in the people's group (gid 100), with extra groups only from identity.gidRange and no fsGroup
+    # No priority above the default (it could preempt other people's pods),
+    # the default scheduler, and the default runtime.
+    - expression: >-
+        object.spec.?priority.orValue(0) <= 0
+        && object.spec.?schedulerName.orValue('default-scheduler') == 'default-scheduler'
+        && !has(object.spec.runtimeClassName)
+      message: the Javo gateway's pods may not set a priority above 0, a scheduler or a RuntimeClass
     # Placement only by the scheduler (no node chosen by the creator), and
     # only the tolerations the API server adds to every pod.
     - expression: >-

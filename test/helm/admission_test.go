@@ -11,7 +11,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +26,7 @@ import (
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
@@ -486,10 +489,13 @@ func (noStorage) Home(_ context.Context, _, owner string) (model.Home, error) {
 // picker: a pod creator there could otherwise mount any Secret or claim, or
 // run any image. Its own file pods (made by the real code) still start;
 // anything else from its account is refused.
-// fixedUID gives every owner the same uid, as a single-user install would.
+// fixedUID gives every owner the same uid, as a single-user install would,
+// and the people's group, as the gateway's ids.People does.
 type fixedUID struct{}
 
-func (fixedUID) UID(context.Context, string) (int64, int64, error) { return 100000, 100000, nil }
+func (fixedUID) UID(context.Context, string) (int64, int64, error) {
+	return 100000, podspec.FixedGID, nil
+}
 
 func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 	t.Parallel()
@@ -586,6 +592,19 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 	if err := gw.Create(ctx, variant(func(p *corev1.Pod) { homeClaim(p).ClaimName += "-2" })); err != nil {
 		t.Fatalf("a home's second generation: %v", err)
 	}
+	// A person with group folders: the folders' gids, from identity.gidRange.
+	if err := gw.Create(ctx, variant(func(p *corev1.Pod) {
+		p.Spec.SecurityContext.SupplementalGroups = []int64{200000, 299999}
+		p.Spec.SecurityContext.SupplementalGroupsPolicy = ptr.To(corev1.SupplementalGroupsPolicyStrict)
+	})); err != nil {
+		t.Fatalf("a file pod with group folders: %v", err)
+	}
+	if err := admin.Create(ctx, &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: "javo-test-high"}, Value: 1000000}); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Create(ctx, &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "javo-test-runtime"}, Handler: "other"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		name   string
 		change func(*corev1.Pod)
@@ -644,6 +663,15 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 		{"root", func(p *corev1.Pod) { p.Spec.SecurityContext.RunAsUser = ptr.To[int64](0) }},
 		{"uid-outside-the-range", func(p *corev1.Pod) { p.Spec.SecurityContext.RunAsUser = ptr.To[int64](5000) }},
 		{"container-uid", func(p *corev1.Pod) { ctr(p).SecurityContext.RunAsUser = ptr.To[int64](100001) }},
+		{"root-group", func(p *corev1.Pod) { p.Spec.SecurityContext.RunAsGroup = ptr.To[int64](0) }},
+		{"no-group", func(p *corev1.Pod) { p.Spec.SecurityContext.RunAsGroup = nil }},
+		{"container-group", func(p *corev1.Pod) { ctr(p).SecurityContext.RunAsGroup = ptr.To[int64](0) }},
+		{"supplemental-group-outside-the-range", func(p *corev1.Pod) { p.Spec.SecurityContext.SupplementalGroups = []int64{200000, 4} }},
+		{"supplemental-people-group", func(p *corev1.Pod) { p.Spec.SecurityContext.SupplementalGroups = []int64{100} }},
+		{"fs-group", func(p *corev1.Pod) { p.Spec.SecurityContext.FSGroup = ptr.To[int64](200000) }},
+		{"priority-class", func(p *corev1.Pod) { p.Spec.PriorityClassName, p.Spec.Priority = "javo-test-high", nil }},
+		{"scheduler", func(p *corev1.Pod) { p.Spec.SchedulerName = "other-scheduler" }},
+		{"runtime-class", func(p *corev1.Pod) { p.Spec.RuntimeClassName = ptr.To("javo-test-runtime") }},
 		{"node-name", func(p *corev1.Pod) { p.Spec.NodeName = "node-1" }},
 		{"toleration", func(p *corev1.Pod) {
 			p.Spec.Tolerations = append(p.Spec.Tolerations, corev1.Toleration{Key: "node-role.kubernetes.io/control-plane", Operator: corev1.TolerationOpExists})
