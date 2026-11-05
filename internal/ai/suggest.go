@@ -62,7 +62,7 @@ func (s *Service) Suggest(ctx context.Context, person, model, text string, tpls 
 	if o.raw == nil || json.Unmarshal(o.raw, &m) != nil {
 		return out
 	}
-	s.audit(c, "ok", o.usage, Dropped{})
+	s.audit(c, o.backend, "ok", o.usage, Dropped{})
 	for _, v := range m.Suggestions {
 		v = strings.Join(strings.Fields(javomodel.PrintableText(v)), " ")
 		if v == text || !strings.HasPrefix(v, text) || utf8.RuneCountInString(v) > suggestMaxRunes {

@@ -94,8 +94,11 @@ func (a *aiAPI) register(api huma.API) {
 		if a.svc == nil {
 			return &aiStatusOutput{Body: AIStatus{Message: reasons.Msg(reasons.MsgAIOff)}}, nil
 		}
-		st := AIStatus{Enabled: true, Features: a.features, Model: a.svc.Model}
-		if r, ok := a.svc.SelfTestResult(); ok {
+		st := AIStatus{Enabled: true, Features: a.features}
+		if b, err := a.svc.Backend(ctx); err == nil {
+			st.Model = b.Model
+		}
+		if r, ok := a.svc.SelfTestResult(ctx); ok {
 			// The provider's own words can name internal addresses or part of
 			// a key: platform admins see them (the log has them too),
 			// members only that the check failed.
@@ -306,8 +309,11 @@ func (a *aiAPI) suggest(ctx context.Context, in *suggestInput) (*suggestOutput, 
 	out.Body.Suggestions = []string{}
 	u := authn.User(ctx)
 	text := strings.TrimSpace(in.Body.Text)
-	agentModel := a.ws.cfg.Agent.Model
-	if a.svc == nil || agentModel == "" || utf8.RuneCountInString(text) < ai.SuggestMinRunes {
+	if a.svc == nil {
+		return out, nil
+	}
+	agentModel := a.ws.cfg.Agent.model(ctx)
+	if agentModel == "" || utf8.RuneCountInString(text) < ai.SuggestMinRunes {
 		return out, nil
 	}
 	if _, ok := a.limit.Take(ratelimit.Bucket{Key: "suggest/" + u.ID, Spec: suggestLimit}); !ok {

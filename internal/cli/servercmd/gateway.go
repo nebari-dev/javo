@@ -24,6 +24,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/nebari-dev/javo/internal/activity"
+	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
@@ -227,7 +228,8 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if err != nil {
 		return err
 	}
-	aiSvc, err := wiring.AIService(ctx, platform.AI, db, fp)
+	aiLive := wiring.AISettings(platform.AI, db, sessionsKey)
+	aiSvc, err := wiring.AIService(ctx, platform.AI, aiLive, db, fp)
 	if err != nil {
 		return err
 	}
@@ -284,9 +286,10 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Diagnose:        wiring.DiagnoseEngine(),
 		Plans:           proposals,
 		AI:              aiSvc,
-		AgentModel:      wiring.AgentModel(platform.AI),
+		AgentModel:      wiring.AgentModel(ctx, platform.AI, aiLive),
+		AISettings:      aiLive,
 		InternalHost:    o.internalHost,
-		Agent:           apps.AgentConfig{Model: platform.AI.AgentModel(), Template: platform.AI.Agent.Template},
+		Agent:           apps.AgentConfig{Model: agentModelOf(aiLive), Template: platform.AI.Agent.Template},
 		AIFeatures:      platform.AI.Features,
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
 		MCP:             platform.MCP,
@@ -398,4 +401,13 @@ func (o *gatewayOptions) sessionsKeyOf(ctx context.Context, c client.Client, nam
 		return nil, fmt.Errorf("the sessions key in Secret %s/%s: %w", namespace, o.sessionsKeySecret, err)
 	}
 	return k, nil
+}
+
+// agentModelOf is the agent model of the AI settings in force; nil (AI off)
+// is always off.
+func agentModelOf(l *aisettings.Live) func(context.Context) string {
+	if l == nil {
+		return nil
+	}
+	return l.AgentModel
 }

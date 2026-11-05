@@ -629,6 +629,11 @@ config:
   # default: then nothing connects to a model and no AI control shows. The
   # rules-based diagnosis, plans and MCP work either way. The key comes from
   # the Secret named in ai.apiKeySecret below, never from these values.
+  # With AI on, platform admins may set provider, baseURL, model and the key
+  # in Settings > AI instead; what they save there is used in place of these
+  # and of ai.apiKeySecret at once, without a restart, and with nothing saved
+  # these apply. The key from ai.apiKeySecret is sent only to the provider
+  # and baseURL set here.
   ai:
     enabled: false
     # anthropic, or openai for any OpenAI-compatible server (OpenAI, Azure
@@ -694,7 +699,8 @@ config:
   environments:
     pixiImage: ghcr.io/prefix-dev/pixi:0.83.0-trixie-slim@sha256:e68dfe75f1cc276c65163a4bea38d964b5bf59fd7966bf9a433ee0498b095a95
 
-# The Secret holding the model API key (used only with config.ai.enabled).
+# The Secret holding the model API key (used only with config.ai.enabled). A
+# key a platform admin saves in Settings > AI is used in its place.
 ai:
   apiKeySecret:
     name: ""

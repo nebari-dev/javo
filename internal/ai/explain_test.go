@@ -37,7 +37,7 @@ func (a *allowAll) Reserve(_ context.Context, _ string, n int) (func(int), error
 }
 
 func service(p provider.Provider) *Service {
-	return &Service{Provider: p, Model: "test-model", Budget: &allowAll{}, MaxInputRunes: 10000}
+	return &Service{Backend: Fixed(p, "test-model"), Budget: &allowAll{}, MaxInputRunes: 10000}
 }
 
 const injected = `{"summary":"The app crashed.","cause":"See the log.","confidence":"medium","fix":"Restart it.",

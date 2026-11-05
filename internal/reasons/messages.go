@@ -275,6 +275,14 @@ const (
 	MsgAgentRequestInvalid    MessageCode = "AgentRequestInvalid"
 	MsgAgentUnavailable       MessageCode = "AgentUnavailable"
 	MsgAgentPromptNotTaken    MessageCode = "AgentPromptNotTaken"
+	MsgAISettingsProvider     MessageCode = "AISettingsProvider"
+	MsgAISettingsBaseURL      MessageCode = "AISettingsBaseURL"
+	MsgAISettingsBaseURLHost  MessageCode = "AISettingsBaseURLHost"
+	MsgAISettingsModel        MessageCode = "AISettingsModel"
+	MsgAISettingsKey          MessageCode = "AISettingsKey"
+	MsgAISettingsKeyNeeded    MessageCode = "AISettingsKeyNeeded"
+	MsgAISettingsKeyOrRemove  MessageCode = "AISettingsKeyOrRemove"
+	MsgAISettingsOff          MessageCode = "AISettingsOff"
 	MsgRewriteOwnerOnly       MessageCode = "RewriteOwnerOnly"
 	MsgEnvValueInvalid        MessageCode = "EnvValueInvalid"
 	MsgEnvValueOrSecret       MessageCode = "EnvValueOrSecret"
@@ -553,6 +561,14 @@ var messages = map[MessageCode]string{
 	MsgAgentKeyRequired:       "Paste the API key.",
 	MsgAgentRequestInvalid:    "Say what to build in up to 4000 characters of text.",
 	MsgAgentUnavailable:       "The coding agent is not available to you. Ask your admin to turn it on.",
+	MsgAISettingsProvider:     "Pick anthropic, or openai for any OpenAI-compatible server.",
+	MsgAISettingsBaseURL:      "Give the https address of the provider's API, such as https://openrouter.ai/api/v1, or leave it empty for the provider's own.",
+	MsgAISettingsBaseURLHost:  "That address is a link-local or cloud metadata address; the key is never sent there.",
+	MsgAISettingsModel:        "Name the model in up to 200 characters, such as claude-opus-5-5.",
+	MsgAISettingsKey:          "Paste the key as it is, at most 4096 characters, with no spaces or line breaks.",
+	MsgAISettingsKeyNeeded:    "Paste an API key: this provider needs one, and the platform config's key is only sent to the provider and address set there.",
+	MsgAISettingsKeyOrRemove:  "Paste a new key or remove the stored one, not both.",
+	MsgAISettingsOff:          "AI is off in the platform config (ai.enabled), so there is nothing to set here.",
 	MsgAgentPromptNotTaken:    "This kind of app takes no first prompt.",
 	MsgAgentNeedsPerson:       "A coding agent cannot do this itself: the app or job holds a secret, an API token or a Nebi token, belongs to someone else, or the change would give it one. Ask the person to do it in the browser, or propose it as a plan (POST /api/plans) for them to approve.",
 	MsgWorkloadTokenReadOnly:  "An app's or job's own API token can read, start, stop and run, but cannot change files or create or change apps and jobs. Use the browser, or a personal token from Settings.",

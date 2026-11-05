@@ -104,10 +104,11 @@ type Reconciler struct {
 	// PixiImage installs the environment of an app that runs in one
 	// (internal/pixienv). Required when any app names an environment.
 	PixiImage string
-	// AgentModel is the admin's model for coding-agent apps
-	// (config.AICfg.AgentModel); empty while it is off, and then an agent
-	// app uses its owner's own key, if they stored one.
-	AgentModel string
+	// AgentModel is the admin's model for coding-agent apps in force
+	// (config.AICfg.AgentModel of the AI settings in force, read at each
+	// pod build); "" while it is off, and nil is always off. Then an agent
+	// app gets its owner's own model, if they set one.
+	AgentModel func(ctx context.Context) (string, error)
 	// NebiURL is Nebi's address as apps reach it, set while the platform's
 	// Nebi integration is on: apps whose template asks for it then get
 	// their owner's Nebi token (WithNebi). Empty gives no app Nebi.

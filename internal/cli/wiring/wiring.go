@@ -7,16 +7,17 @@ package wiring
 import (
 	"context"
 	"fmt"
-	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"log/slog"
-	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/spf13/pflag"
+	"github.com/tink-crypto/tink-go/v2/tink"
 
 	"github.com/nebari-dev/javo/internal/ai"
+	"github.com/nebari-dev/javo/internal/ai/agentproxy"
+	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/ai/provider/anthropic"
 	"github.com/nebari-dev/javo/internal/ai/provider/openai"
@@ -172,31 +173,51 @@ func aiProviders() *provider.Registry {
 	return &r
 }
 
-// newAIProvider builds the configured model provider behind a circuit
-// breaker, or nil when AI is off: then no factory runs and nothing connects
-// to a model.
-func newAIProvider(c config.AICfg, apiKey string, r *provider.Registry) (provider.Provider, error) {
-	if !c.Enabled {
-		return nil, nil
-	}
-	p, err := r.New(provider.Config{Provider: c.Provider, Model: c.Model, BaseURL: c.BaseURL, APIKey: apiKey, Timeout: c.Timeout.Duration})
-	if err != nil {
-		return nil, err
-	}
-	return provider.WithBreaker(p), nil
+// AISettings is the AI settings in force (the config's, with what a
+// platform admin set in Settings > AI in their place), or nil when AI is
+// off: then no factory ever runs and nothing connects to a model. The
+// config's key comes only from the environment (JAVO_AI_API_KEY, a Secret in
+// the chart); seal is the gateway's sessions key, which seals the admin's.
+func AISettings(c config.AICfg, db *store.Store, seal tink.AEAD) *aisettings.Live {
+	return aiSettings(c, os.Getenv("JAVO_AI_API_KEY"), db, seal, aiProviders())
 }
 
-// AIService builds the AI features from the config, or nil when AI is
-// off. The key comes only from the environment (JAVO_AI_API_KEY, a Secret in
-// the chart). The provider self-test runs once in the background.
+func aiSettings(c config.AICfg, key string, db *store.Store, seal tink.AEAD, r *provider.Registry) *aisettings.Live {
+	if !c.Enabled {
+		return nil
+	}
+	return &aisettings.Live{
+		Config: c, ConfigKey: key, DB: db, Seal: seal,
+		// Each provider gets its own circuit breaker.
+		Build: func(pc provider.Config) (provider.Provider, error) {
+			p, err := r.New(pc)
+			if err != nil {
+				return nil, err
+			}
+			return provider.WithBreaker(p), nil
+		},
+	}
+}
+
+// AIService builds the AI features over the settings in force, or nil when
+// AI is off (live nil). A config that does not build fails the start, as it
+// always has; settings an admin saved only log it, so the admin can fix
+// them in the UI. The provider self-test runs in the background now and
+// again after each change.
 //
 // fp finds the owners' stored secret values in log lines before anything is
 // sent; nil (no fingerprint key) withholds the log lines of every owner who
 // has secrets.
-func AIService(ctx context.Context, c config.AICfg, db *store.Store, fp *secrets.Fingerprinter) (*ai.Service, error) {
-	p, err := newAIProvider(c, os.Getenv("JAVO_AI_API_KEY"), aiProviders())
-	if err != nil || p == nil {
-		return nil, err
+func AIService(ctx context.Context, c config.AICfg, live *aisettings.Live, db *store.Store, fp *secrets.Fingerprinter) (*ai.Service, error) {
+	if live == nil {
+		return nil, nil
+	}
+	if _, err := live.Backend(ctx); err != nil {
+		over, oerr := live.Overridden(ctx)
+		if oerr != nil || !over {
+			return nil, err
+		}
+		slog.Error("the AI settings saved in Settings > AI do not build a provider; AI calls fail until they are fixed", "err", err)
 	}
 	// Secrets in log lines are hidden before anything is sent (gitleaks rules).
 	scan, err := redact.NewScanner()
@@ -204,7 +225,7 @@ func AIService(ctx context.Context, c config.AICfg, db *store.Store, fp *secrets
 		return nil, fmt.Errorf("load the secret scanner: %w", err)
 	}
 	svc := &ai.Service{
-		Provider: p, Model: c.Model, MaxInputRunes: c.MaxInputRunes, Redactor: scan,
+		Backend: live.Backend, MaxInputRunes: c.MaxInputRunes, Redactor: scan,
 		Budget: &ai.DBBudget{Usage: db.AIUsage(), Daily: c.DailyTokensPerUser},
 		SecretsOf: func(ctx context.Context, owner string) (func(string) []redact.Span, bool, error) {
 			find, unchecked, err := secrets.Lookout(ctx, db, fp, owner)
@@ -220,35 +241,23 @@ func AIService(ctx context.Context, c config.AICfg, db *store.Store, fp *secrets
 			}, unchecked, nil
 		},
 	}
+	live.Changed = func() { go svc.SelfTest(context.WithoutCancel(ctx)) }
 	go svc.SelfTest(ctx)
 	return svc, nil
 }
 
-// AgentModel is the coding agents' model endpoint, or nil while
-// c.AgentModel is off. It forwards with the same key the AI features use
-// (JAVO_AI_API_KEY); spend is capped at the provider, not here.
-func AgentModel(c config.AICfg) *agentproxy.Proxy {
-	m := c.AgentModel()
-	if m == "" {
-		if c.Enabled {
-			slog.Info("the coding agents' model endpoint is off", "provider", c.Provider, "why", "it needs ai.provider openai (any OpenAI-compatible server) and ai.agent.enabled")
-		}
+// AgentModel is the coding agents' model endpoint, or nil while AI is off.
+// It forwards with the key of the settings in force; spend is capped at the
+// provider, not here. While those settings give no agent model
+// (config.AICfg.AgentModel) it answers that there is none.
+func AgentModel(ctx context.Context, c config.AICfg, live *aisettings.Live) *agentproxy.Proxy {
+	if live == nil {
 		return nil
 	}
-	return &agentproxy.Proxy{
-		BaseURL: c.BaseURL, APIKey: os.Getenv("JAVO_AI_API_KEY"), Model: m, Allows: c.AgentAllows,
-		Models: append([]string{m}, c.Agent.Models...), MaxRequestBytes: c.Agent.MaxRequestBytes,
-		Client: agentModelClient(c.Timeout.Duration),
+	if live.AgentModel(ctx) == "" {
+		slog.Info("the coding agents' model endpoint has no model now", "why", "it needs provider openai (any OpenAI-compatible server) and ai.agent.enabled, in the config or in Settings > AI")
 	}
-}
-
-// agentModelClient waits at most the longer of timeout and five minutes for
-// a provider's first answer byte; a streamed answer then takes as long as it
-// takes, until the agent hangs up.
-func agentModelClient(timeout time.Duration) *http.Client {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ResponseHeaderTimeout = max(timeout, 5*time.Minute)
-	return &http.Client{Transport: t}
+	return &agentproxy.Proxy{Upstream: live.Upstream, MaxRequestBytes: c.Agent.MaxRequestBytes}
 }
 
 // JobAccess is the only place the job reconciler's access rule is chosen:

@@ -68,7 +68,7 @@ func (s *Service) Draft(ctx context.Context, person, text string, tpls []DraftTe
 		res.Message = reasons.Msg(reasons.MsgAIInvalidAnswer)
 		return res
 	}
-	s.audit(call{feature: "draft", person: person, bundle: b}, "ok", o.usage, Dropped{})
+	s.audit(call{feature: "draft", person: person, bundle: b}, o.backend, "ok", o.usage, Dropped{})
 	res.Model = o.model
 	for _, f := range []struct{ name, v string }{{"displayName", res.Draft.DisplayName}, {"template", res.Draft.Template}, {"file", res.Draft.File}} {
 		if f.v != "" {

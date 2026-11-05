@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/nebari-dev/javo/internal/ai"
+	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/ai/provider"
 )
 
@@ -15,7 +16,7 @@ func (Unlimited) Reserve(_ context.Context, _ string, _ int) (func(int), error) 
 }
 
 func AiService(p provider.Provider) *ai.Service {
-	return &ai.Service{Provider: p, Model: "test-model", Budget: Unlimited{}, MaxInputRunes: 20000}
+	return &ai.Service{Backend: ai.Fixed(p, "test-model"), Budget: Unlimited{}, MaxInputRunes: 20000}
 }
 
 type ExplainJSON struct {
@@ -45,4 +46,14 @@ type CommandDraftJSON struct {
 	Reply string
 	Plans []PlanJSON
 	Draft *DraftJSON
+}
+
+// AgentModel is an admin's agent model that never changes; "" is off.
+func AgentModel(m string) func(context.Context) string {
+	return func(context.Context) string { return m }
+}
+
+// FixedUpstream is a coding agents' upstream that never changes.
+func FixedUpstream(u agentproxy.Upstream) func(context.Context) (agentproxy.Upstream, bool) {
+	return func(context.Context) (agentproxy.Upstream, bool) { return u, true }
 }

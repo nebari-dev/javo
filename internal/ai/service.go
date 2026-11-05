@@ -21,10 +21,26 @@ import (
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
-// Service runs the AI features. It exists only when AI is on.
-type Service struct {
+// Backend is the provider the features call and the model they ask for.
+// Rev names this pair: a new Rev is a new backend, with its own self-test.
+type Backend struct {
 	Provider provider.Provider
 	Model    string
+	Rev      string
+}
+
+// Fixed is a backend that never changes.
+func Fixed(p provider.Provider, model string) func(context.Context) (Backend, error) {
+	b := Backend{Provider: p, Model: model, Rev: "fixed"}
+	return func(context.Context) (Backend, error) { return b, nil }
+}
+
+// Service runs the AI features. It exists only when AI is on.
+type Service struct {
+	// Backend is asked at the start of every call, so a change an admin
+	// makes applies to the next call; an error answers as an unavailable
+	// provider.
+	Backend func(ctx context.Context) (Backend, error)
 	// Redactor hides secrets in what is sent; nil withholds log lines.
 	Redactor      Redactor
 	Budget        Budget
@@ -40,8 +56,10 @@ type Service struct {
 	cache *lru.Cache
 	self  struct {
 		sync.Mutex
-		done bool
-		res  provider.SelfTestResult
+		// rev is the backend the result (done) or the running test is for.
+		rev           string
+		done, running bool
+		res           provider.SelfTestResult
 	}
 }
 
@@ -79,6 +97,8 @@ type outcome struct {
 	message    string
 	retryAfter int
 	usage      provider.Usage
+	// backend is the one that answered, for the feature's audit line.
+	backend Backend
 }
 
 // call is one model request of a feature.
@@ -104,11 +124,11 @@ func (s *Service) maxOut(c call) int {
 	return 16000
 }
 
-func (s *Service) model(c call) string {
+func modelOf(c call, b Backend) string {
 	if c.model != "" {
 		return c.model
 	}
-	return s.Model
+	return b.Model
 }
 
 // requestOverhead is what a provider adds to a request in tokens: message
@@ -130,8 +150,14 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 	if err != nil {
 		return outcome{message: reasons.Msg(reasons.MsgServerError)}
 	}
+	b, err := s.Backend(ctx)
+	if err != nil {
+		slog.Warn("ai backend", "feature", c.feature, "err", err)
+		s.audit(c, Backend{}, "unavailable", provider.Usage{}, Dropped{})
+		return outcome{message: reasons.Msg(reasons.MsgAIUnavailable)}
+	}
 	req := provider.Request{
-		Model: s.model(c), System: c.system, Untrusted: c.bundle.Text, Task: c.task,
+		Model: modelOf(c, b), System: c.system, Untrusted: c.bundle.Text, Task: c.task,
 		Schema: schemaJSON, SchemaName: c.feature, MaxOutputTokens: s.maxOut(c),
 	}
 	// The most one attempt can cost: a token per byte sent (a token is at
@@ -146,13 +172,13 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 		var used *BudgetUsedError
 		switch {
 		case errors.As(err, &used):
-			s.audit(c, "budget", spent, Dropped{})
+			s.audit(c, b, "budget", spent, Dropped{})
 			return outcome{message: reasons.Msg(reasons.MsgAIBudgetUsed, used.ResetAt.UTC().Format("15:04")+" UTC")}
 		case err != nil:
 			slog.Error("reserve AI allowance", "err", err)
 			return outcome{message: reasons.Msg(reasons.MsgServerError)}
 		}
-		resp, err := s.Provider.Generate(ctx, req)
+		resp, err := b.Provider.Generate(ctx, req)
 		release(resp.Usage.InputTokens + resp.Usage.OutputTokens)
 		spent.InputTokens += resp.Usage.InputTokens
 		spent.OutputTokens += resp.Usage.OutputTokens
@@ -160,32 +186,36 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 		switch {
 		case errors.As(err, &rl):
 			secs := int(math.Ceil(rl.RetryAfter.Seconds()))
-			s.audit(c, "busy", spent, Dropped{})
+			s.audit(c, b, "busy", spent, Dropped{})
 			return outcome{message: reasons.Msg(reasons.MsgAIBusy, secs), retryAfter: secs}
 		case errors.Is(err, provider.ErrUnavailable):
-			s.audit(c, "unavailable", spent, Dropped{})
+			s.audit(c, b, "unavailable", spent, Dropped{})
 			return outcome{message: reasons.Msg(reasons.MsgAIUnavailable)}
 		case errors.Is(err, provider.ErrNoAnswer):
 			continue
 		case err != nil:
 			slog.Warn("ai call failed", "feature", c.feature, "err", err)
-			s.audit(c, "error", spent, Dropped{})
+			s.audit(c, b, "error", spent, Dropped{})
 			return outcome{message: reasons.Msg(reasons.MsgAIUnavailable)}
 		}
 		var v any
 		if json.Unmarshal(resp.JSON, &v) != nil || resolved.Validate(v) != nil {
 			continue
 		}
-		return outcome{raw: resp.JSON, model: resp.Model, usage: spent}
+		return outcome{raw: resp.JSON, model: resp.Model, usage: spent, backend: b}
 	}
-	s.audit(c, "invalid", spent, Dropped{})
+	s.audit(c, b, "invalid", spent, Dropped{})
 	return outcome{message: reasons.Msg(reasons.MsgAIInvalidAnswer)}
 }
 
 // audit writes one line per call: who, which feature, what it cost and
 // what was dropped. Never the prompt or the answer.
-func (s *Service) audit(c call, result string, u provider.Usage, d Dropped) {
-	slog.Info("ai.call", "user", c.person, "feature", c.feature, "provider", s.Provider.ID(), "model", s.model(c),
+func (s *Service) audit(c call, b Backend, result string, u provider.Usage, d Dropped) {
+	id := ""
+	if b.Provider != nil {
+		id = b.Provider.ID()
+	}
+	slog.Info("ai.call", "user", c.person, "feature", c.feature, "provider", id, "model", modelOf(c, b),
 		"tokens_in", u.InputTokens, "tokens_out", u.OutputTokens, "hidden", c.bundle.Hidden, "withheld", c.bundle.Withheld,
 		"dropped_refs", d.Refs, "dropped_actions", d.Actions, "outcome", result)
 }
@@ -214,23 +244,46 @@ func cacheKey(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// SelfTestResult is the remembered self-test, if it ran.
-func (s *Service) SelfTestResult() (provider.SelfTestResult, bool) {
+// SelfTestResult is the remembered self-test of the backend in force, if
+// it ran; a backend that cannot be built is a failed one.
+func (s *Service) SelfTestResult(ctx context.Context) (provider.SelfTestResult, bool) {
+	b, err := s.Backend(ctx)
+	if err != nil {
+		return provider.SelfTestResult{Err: err.Error()}, true
+	}
 	s.self.Lock()
 	defer s.self.Unlock()
-	return s.self.res, s.self.done
+	if !s.self.done || s.self.rev != b.Rev {
+		return provider.SelfTestResult{}, false
+	}
+	return s.self.res, true
 }
 
-// SelfTest runs the provider self-test once and remembers the result.
+// SelfTest runs the provider self-test of the backend in force, once per
+// backend, and remembers the result. While one runs, a second call returns
+// at once with an empty result.
 func (s *Service) SelfTest(ctx context.Context) provider.SelfTestResult {
+	b, err := s.Backend(ctx)
+	if err != nil {
+		return provider.SelfTestResult{Err: err.Error()}
+	}
+	s.self.Lock()
+	if s.self.rev == b.Rev && (s.self.done || s.self.running) {
+		res := s.self.res
+		s.self.Unlock()
+		return res
+	}
+	s.self.rev, s.self.done, s.self.running = b.Rev, false, true
+	s.self.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	res := provider.SelfTest(ctx, b.Provider, b.Model)
 	s.self.Lock()
 	defer s.self.Unlock()
-	if !s.self.done {
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-		s.self.res, s.self.done = provider.SelfTest(ctx, s.Provider, s.Model), true
+	if s.self.rev == b.Rev {
+		s.self.res, s.self.done, s.self.running = res, true, false
 	}
-	return s.self.res
+	return res
 }
 
 // keepRefs keeps the refs that are in the bundle and counts the rest.

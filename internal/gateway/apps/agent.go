@@ -24,11 +24,19 @@ import (
 
 // AgentConfig is what the coding-agent routes need of config.ai.agent.
 type AgentConfig struct {
-	// Model is the admin's agent model; empty while it is off
-	// (config.AICfg.AgentModel).
-	Model string
+	// Model is the admin's agent model in force (config.AICfg.AgentModel
+	// of the AI settings in force), read per request; it returns "" while
+	// that is off, and nil is always off.
+	Model func(ctx context.Context) string
 	// Template is the template "Build with pi" starts.
 	Template string
+}
+
+func (c AgentConfig) model(ctx context.Context) string {
+	if c.Model == nil {
+		return ""
+	}
+	return c.Model(ctx)
 }
 
 // AgentStatus says where the caller's agents get their model.
@@ -174,10 +182,11 @@ func (s *Workspaces) agentStatus(ctx context.Context) (AgentStatus, error) {
 			own = store.AgentSetting{}
 		}
 	}
-	st.Mode = model.AgentMode(c.Model, own.Owner != "")
+	platform := c.model(ctx)
+	st.Mode = model.AgentMode(platform, own.Owner != "")
 	switch st.Mode {
 	case model.AgentModePlatform:
-		st.Model = c.Model
+		st.Model = platform
 	case model.AgentModeOwn:
 		st.Model, st.BaseURL = own.Model, own.BaseURL
 	}

@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/nebari-dev/javo/internal/ai"
+	"github.com/nebari-dev/javo/internal/ai/aisettings"
+	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
@@ -54,6 +56,7 @@ import (
 	"github.com/nebari-dev/javo/internal/jobs/engine"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/netprobe"
+	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
@@ -70,6 +73,8 @@ type Fixture struct {
 	Store  *session.DBStore
 	Tokens *token.DBStore
 	Srv    *gateway.Server
+	// AI is the AI settings in force, with Options.AIConfig.
+	AI *aisettings.Live
 	// Revalidator is the gateway's, for a proxy mounted on it.
 	Revalidator *authn.Revalidator
 	secure      bool
@@ -133,6 +138,14 @@ type Options struct {
 	Idle config.IdleStopCfg
 	// Ai, when set, turns the AI features on with this service (all features).
 	Ai *ai.Service
+	// AIConfig, when set, turns AI on over the AI settings in force
+	// (Fixture.AI): this config, with AIConfigKey as its key and providers
+	// built by AIBuild, overridden by what admins save. They back the AI
+	// service, the agents' endpoint and agent model, unless Ai, AgentModel
+	// or Agent.Model say otherwise.
+	AIConfig    *config.AICfg
+	AIConfigKey string
+	AIBuild     func(provider.Config) (provider.Provider, error)
 	// Mcp serves /mcp.
 	Mcp bool
 	// AgentModel serves the coding agents' model endpoint.
@@ -238,6 +251,23 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	if o.Nebi != nil {
 		nebiTokens = &nebi.Tokens{Store: db, Source: o.Nebi}
 	}
+	var live *aisettings.Live
+	if o.AIConfig != nil {
+		key, err := secrets.NewKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		live = &aisettings.Live{Config: *o.AIConfig, ConfigKey: o.AIConfigKey, DB: db, Seal: key, Build: o.AIBuild}
+		if o.Ai == nil {
+			o.Ai = &ai.Service{Backend: live.Backend, Budget: Unlimited{}, MaxInputRunes: 20000}
+		}
+		if o.AgentModel == nil {
+			o.AgentModel = &agentproxy.Proxy{Upstream: live.Upstream, MaxRequestBytes: 1 << 20}
+		}
+		if o.Agent.Model == nil {
+			o.Agent.Model = live.AgentModel
+		}
+	}
 	rv := authn.NewRevalidator(providers, sessions, people, 0, o.Now)
 	var exp exposure.Backend = exposurepath.New(o.Urls)
 	if o.Urls.Mode == "subdomain" {
@@ -254,11 +284,11 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Logs: o.Logs, Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
 		URLs: o.Urls, Exposure: exp, Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
-		AI:       o.Ai, AgentModel: o.AgentModel, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
+		AI:       o.Ai, AgentModel: o.AgentModel, AISettings: live, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
 		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage,
 	})
-	return &Fixture{T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, Revalidator: rv, secure: o.Urls.SecureCookies(o.Secure)}
+	return &Fixture{AI: live, T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, Revalidator: rv, secure: o.Urls.SecureCookies(o.Secure)}
 }
 
 // aliceHash is alice's password as an argon2id hash with the smallest cost

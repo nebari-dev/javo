@@ -25,6 +25,88 @@
         ],
         "type": "object"
       },
+      "AISettings": {
+        "additionalProperties": false,
+        "properties": {
+          "baseURL": {
+            "description": "The provider's address in force; empty is the provider's own",
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/AISettingsConfigStruct",
+            "description": "The platform config's values, which apply when nothing is saved here"
+          },
+          "enabled": {
+            "description": "ai.enabled in the platform config; false: AI is off and nothing here applies",
+            "type": "boolean"
+          },
+          "keyFrom": {
+            "description": "Where the key in force comes from: stored here, the platform config's (sent only to its provider and address), or none",
+            "enum": [
+              "settings",
+              "config",
+              "none"
+            ],
+            "type": "string"
+          },
+          "keyLast4": {
+            "description": "The last four characters of the stored key",
+            "type": "string"
+          },
+          "keyStored": {
+            "description": "A key is stored here",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "The model in force",
+            "type": "string"
+          },
+          "overridden": {
+            "description": "Settings saved here are in force; false: the platform config's",
+            "type": "boolean"
+          },
+          "provider": {
+            "description": "The provider in force",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "overridden",
+          "keyStored",
+          "config"
+        ],
+        "type": "object"
+      },
+      "AISettingsConfigStruct": {
+        "additionalProperties": false,
+        "properties": {
+          "baseURL": {
+            "type": "string"
+          },
+          "key": {
+            "description": "The platform config has a key",
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "baseURL",
+          "model",
+          "key"
+        ],
+        "type": "object"
+      },
       "AIStatus": {
         "additionalProperties": false,
         "properties": {
@@ -257,6 +339,42 @@
           "template",
           "templateName",
           "available"
+        ],
+        "type": "object"
+      },
+      "AiSettingsInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKey": {
+            "description": "Write-only: replaces the stored key; leave out to keep it",
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "baseURL": {
+            "description": "https address of the provider's API; empty is the provider's own",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "provider": {
+            "description": "anthropic, or openai for any OpenAI-compatible server",
+            "enum": [
+              "anthropic",
+              "openai"
+            ],
+            "type": "string"
+          },
+          "removeKey": {
+            "description": "Remove the stored key",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "model"
         ],
         "type": "object"
       },
@@ -5286,6 +5404,189 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/ai": {
+      "delete": {
+        "operationId": "adminResetAISettings",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Go back to the platform config's AI settings (platform admins)",
+        "tags": [
+          "admin"
+        ]
+      },
+      "get": {
+        "operationId": "adminGetAISettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AISettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "The AI settings in force (platform admins)",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Used in place of the platform config's at once, by every AI feature and the coding agents' endpoint. The key is stored encrypted and shown again only as its last four characters. Each change is on the audit log, without the key.",
+        "operationId": "adminSetAISettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiSettingsInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AISettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Set the AI provider, address, model and key (platform admins)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/admin/ai/ask": {
       "post": {
         "operationId": "askAdmin",

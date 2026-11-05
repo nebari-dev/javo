@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -33,7 +34,9 @@ func plainEnv(pod *corev1.Pod, name string) (string, bool) {
 // comes in a variable.
 func TestAgentAppGetsThePlatformModel(t *testing.T) {
 	t.Parallel()
-	fx := newEnv(t, func(r *Reconciler) { r.AgentModel = "admin/model" })
+	fx := newEnv(t, func(r *Reconciler) {
+		r.AgentModel = func(context.Context) (string, error) { return "admin/model", nil }
+	})
 	fx.newAgentTemplate(t, "pi-plat")
 	alice := fx.signedIn(t, "alice-plat")
 	// A prompt stored with characters nobody sees reaches the pod without them.

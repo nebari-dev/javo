@@ -198,7 +198,7 @@ func (s *Service) Explain(ctx context.Context, person string, d diagnose.Diagnos
 			res.Dropped.Actions += len(ex.Actions)
 			ex.Actions = []actions.Proposal{}
 		}
-		s.audit(c, "ok", o.usage, res.Dropped)
+		s.audit(c, o.backend, "ok", o.usage, res.Dropped)
 		if len(ex.Evidence) == 0 {
 			// An answer that cites nothing it was given is not shown as fact.
 			res.Message = reasons.Msg(reasons.MsgAIInvalidAnswer)

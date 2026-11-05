@@ -89,6 +89,6 @@ func (s *Service) Command(ctx context.Context, person, text string, apps []AppSu
 	}
 	res.Reply, res.Model, res.Create = m.Reply, o.model, m.Create
 	res.Proposals, res.Dropped.Actions = scope.keep(m.Actions)
-	s.audit(c, "ok", o.usage, res.Dropped)
+	s.audit(c, o.backend, "ok", o.usage, res.Dropped)
 	return res
 }

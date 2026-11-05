@@ -31,7 +31,7 @@ func agentFixture(t *testing.T, platformModel string, lister *apitest.StubFilesL
 	if lister == nil {
 		lister = &apitest.StubFilesLister{}
 	}
-	f := apitest.New(t, apitest.Options{Files: lister, Agent: apps.AgentConfig{Model: platformModel, Template: "pi"}},
+	f := apitest.New(t, apitest.Options{Files: lister, Agent: apps.AgentConfig{Model: apitest.AgentModel(platformModel), Template: "pi"}},
 		piTemplate(), gatewaytest.Template("streamlit", "streamlit"))
 	f.WithSecretKeys()
 	return f

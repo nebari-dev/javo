@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -132,5 +133,27 @@ func TestRateLimitAndOutages(t *testing.T) {
 	closed.Close()
 	if _, err := newProvider(t, closed.URL+"/v1").Generate(context.Background(), request()); !errors.Is(err, provider.ErrUnavailable) {
 		t.Fatalf("refused: %v", err)
+	}
+}
+
+// countingTransport counts the requests that go through it.
+type countingTransport struct{ n atomic.Int32 }
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// A config's HTTP client sends the requests, so the caller decides where
+// they may connect.
+func TestRequestsGoThroughTheConfigsClient(t *testing.T) {
+	s := serve(t, &recorded{}, func(_ map[string]any, w http.ResponseWriter) { io.WriteString(w, chatOK) })
+	tr := &countingTransport{}
+	p, err := New(provider.Config{Provider: "openai", Model: "qwen3", BaseURL: s.URL + "/v1", APIKey: "k", HTTPClient: &http.Client{Transport: tr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Generate(context.Background(), request()); err != nil || tr.n.Load() != 1 {
+		t.Fatalf("err %v, requests through the client %d", err, tr.n.Load())
 	}
 }

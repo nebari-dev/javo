@@ -36,9 +36,17 @@ func (r *Reconciler) agentModelOf(ctx context.Context, app *model.App, tpl *mode
 	if !tpl.Spec.AgentModel {
 		return agentModel{}, nil
 	}
-	if r.AgentModel != "" {
+	platform := ""
+	if r.AgentModel != nil {
+		m, err := r.AgentModel(ctx)
+		if err != nil {
+			return agentModel{}, err
+		}
+		platform = m
+	}
+	if platform != "" {
 		base := cmp.Or(r.APIInternalURL, r.APIURL)
-		return agentModel{mode: model.AgentModePlatform, model: r.AgentModel, baseURL: strings.TrimRight(base, "/") + agentproxy.Route}, nil
+		return agentModel{mode: model.AgentModePlatform, model: platform, baseURL: strings.TrimRight(base, "/") + agentproxy.Route}, nil
 	}
 	own, err := r.Store.AgentSettings().Get(ctx, app.Owner)
 	switch {
