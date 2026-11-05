@@ -133,3 +133,21 @@ func TestSuggestIsRefusedToAnonymousAndAppTokens(t *testing.T) {
 		t.Fatalf("the model was called %d times", p.Calls())
 	}
 }
+
+// Characters a person cannot see (format, bidirectional and tag
+// characters) are taken out of a suggestion, so pressing Tab never adds
+// hidden text to the request.
+func TestSuggestionsCarryNoHiddenCharacters(t *testing.T) {
+	t.Parallel()
+	f, _, _ := suggestFixture(t, aitest.Reply{
+		JSON: `{"suggestions":["A Streamlit dashboard​ of sales‮⁦󠁁󠁂 by month"]}`,
+	})
+	alice := f.Session(apitest.PlanOwner)
+	w := f.Do("POST", "/api/ai/agent/suggest", `{"text":"A Streamlit dash"}`, alice)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if got := apitest.Decode[suggestJSON](t, w).Suggestions; !slices.Equal(got, []string{"A Streamlit dashboard of sales by month"}) {
+		t.Fatalf("suggestions %+q", got)
+	}
+}

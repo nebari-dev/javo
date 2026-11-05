@@ -36,7 +36,8 @@ func TestAgentAppGetsThePlatformModel(t *testing.T) {
 	fx := newEnv(t, func(r *Reconciler) { r.AgentModel = "admin/model" })
 	fx.newAgentTemplate(t, "pi-plat")
 	alice := fx.signedIn(t, "alice-plat")
-	app := fx.newApp(t, "ws-pi-plat", alice, "pi-plat", func(a *model.App) { a.AgentPrompt = "build a dashboard" })
+	// A prompt stored with characters nobody sees reaches the pod without them.
+	app := fx.newApp(t, "ws-pi-plat", alice, "pi-plat", func(a *model.App) { a.AgentPrompt = "build a\u200b dashboard\U000E0041\u202e" })
 	pod := fx.appPod(t, app.ObjectName(), "pod", hasTokenEnv)
 	for name, want := range map[string]string{
 		"JAVO_AGENT_MODE": model.AgentModePlatform, "JAVO_AGENT_MODEL": "admin/model",

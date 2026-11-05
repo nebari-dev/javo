@@ -154,6 +154,14 @@ func TestBuildWithTheAgent(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("second build: %d %s", w.Code, w.Body)
 	}
+	// Characters the person cannot see never reach the agent.
+	w = f.Do("POST", "/api/ai/agent/build", `{"request":"`+req+`\u202e\u200b\udb40\udc41 now"}`, alice)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("build with hidden characters: %d %s", w.Code, w.Body)
+	}
+	if hidden := f.GetWorkspace(apitest.LocalAlice(), apitest.Decode[apitest.WorkspaceJSON](t, w).Name); hidden == nil || hidden.AgentPrompt != req+" now" {
+		t.Fatalf("app %+v, want the prompt without hidden characters", hidden)
+	}
 	if second := apitest.Decode[apitest.WorkspaceJSON](t, w); second.Name == got.Name {
 		t.Fatalf("the second build reused %q", got.Name)
 	}

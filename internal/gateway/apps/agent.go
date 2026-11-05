@@ -234,8 +234,12 @@ func (s *Workspaces) buildWithAgent(ctx context.Context, in *agentBuildInput) (*
 		return nil, err
 	}
 	u := authn.User(ctx)
+	// Control characters are refused; characters nobody sees are dropped.
 	req := strings.TrimSpace(in.Body.Request)
-	if req == "" || (&model.App{AgentPrompt: req}).ValidateAgentPrompt() != nil {
+	if (&model.App{AgentPrompt: req}).ValidateAgentPrompt() != nil {
+		return nil, problem.FieldError("request", reasons.MsgAgentRequestInvalid)
+	}
+	if req = strings.TrimSpace(model.PrintableText(req)); req == "" {
 		return nil, problem.FieldError("request", reasons.MsgAgentRequestInvalid)
 	}
 	t, err := templates.Usable(ctx, s.db.Templates(), s.Roles, u, s.cfg.Agent.Template)
