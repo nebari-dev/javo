@@ -37,6 +37,7 @@ export function DeleteAppButton({ ws }: { ws: Workspace }) {
         ref={btn}
         icon={Trash}
         label={`Delete ${ws.displayName}`}
+        className="danger"
         onClick={(e) => {
           // The card's link covers the card; the click must not open the app.
           e.stopPropagation()
