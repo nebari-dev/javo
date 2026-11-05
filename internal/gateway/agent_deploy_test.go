@@ -104,6 +104,7 @@ func TestAgentTokenNeverReachesCredentials(t *testing.T) {
 		{"create an app with a secret", "POST", "/api/workspaces", `{"displayName":"x","template":"streamlit","file":"a.py","env":[{"name":"K","secret":"API_KEY"}]}`},
 		{"create an app with API access", "POST", "/api/workspaces", `{"displayName":"x","template":"streamlit","file":"a.py","apiAccess":"Read"}`},
 		{"create an app whose template gives an API token", "POST", "/api/workspaces", `{"displayName":"x","template":"pi"}`},
+		{"create an app that gets a model key, without API access", "POST", "/api/workspaces", `{"displayName":"x","template":"pi","apiAccess":"None"}`},
 		{"create an app from a repository with a token", "POST", "/api/workspaces", `{"displayName":"x","template":"streamlit","file":"a.py","source":{"url":"https://git.example.com/a/b.git","tokenSecret":"API_KEY"}}`},
 		{"create a job with a secret", "POST", "/api/jobs", `{"displayName":"x","template":"lab","engine":"command","command":"true","env":[{"name":"K","secret":"API_KEY"}]}`},
 		{"give an app a secret", "PUT", "/api/workspaces/plain/env", `{"env":[{"name":"K","secret":"API_KEY"}]}`},

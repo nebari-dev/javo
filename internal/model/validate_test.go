@@ -1005,14 +1005,18 @@ func TestTemplateDefaultResourcesFollowTheCustomMinimum(t *testing.T) {
 // ---- coding agents
 
 // A template's agent capabilities ride on its apps' own API token, and deploy
-// rights only on a template whose apps can never be shared: anyone an app is
-// shared with can make its token act.
+// rights and a model key only on a template whose apps can never be shared:
+// anyone an app is shared with can make its token act, or read the key.
 func TestAgentCapabilitiesNeedAPITokenAndPrivateApps(t *testing.T) {
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) { s.AgentDeploy = true }).Validate(), "spec.agentDeploy", "apiToken")
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) { s.AgentModel = true }).Validate(), "spec.agentModel", "apiToken")
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) {
 		s.APIToken, s.AgentDeploy, s.MaxSharing = true, true, model.AccessRestricted
 	}).Validate(), "spec.agentDeploy", "Private")
+	// The owner's own model key reaches anyone the app is shared with.
+	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) {
+		s.APIToken, s.AgentModel, s.MaxSharing = true, true, model.AccessSignedIn
+	}).Validate(), "spec.agentModel", "Private")
 	valid(t, newTemplate(func(s *model.TemplateSpec) {
 		s.APIToken, s.AgentDeploy, s.AgentModel, s.MaxSharing = true, true, true, model.AccessPrivate
 	}).Validate())
