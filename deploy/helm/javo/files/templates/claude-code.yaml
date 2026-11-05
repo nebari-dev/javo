@@ -56,8 +56,9 @@ spec:
   # What an app runs at when no size is picked (as a custom amount, or the
   # smallest size that holds it). The agent installs packages and runs
   # builds (npm install plus a bundler for a React app needed over 1Gi and
-  # was OOMKilled), so this is the chart's medium size.
-  defaultResources: {cpu: "2", memory: 4Gi}
+  # was OOMKilled at 1Gi). 1 CPU keeps it small enough to share a node with
+  # the owner's other apps, which run on the node holding their home disk.
+  defaultResources: {cpu: "1", memory: 3Gi}
   resources:
     requests: {cpu: 250m, memory: 512Mi}
     limits: {memory: 2Gi}
