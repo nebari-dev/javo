@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<p align="center"><b>The agent-first data science platform on Kubernetes.</b></p>
+<p align="center"><b>The agent-first platform on Kubernetes for notebooks, internal tools, dashboards and AI-built apps.</b></p>
 
 <p align="center">Notebooks, apps and jobs that you and your AI agents run through one API, with agents working over MCP.</p>
 
@@ -18,7 +18,14 @@
   <img src="https://img.shields.io/github/go-mod/go-version/nebari-dev/javo" alt="Go version">
 </p>
 
-Javo runs notebooks, web apps and scheduled jobs for data teams on Kubernetes, from one place.
+Javo runs notebooks, web apps and scheduled jobs on Kubernetes, from one place.
+
+## Who it's for
+
+- **Data scientists**: work in JupyterLab, then share the results as live dashboards and apps.
+- **Engineers**: deploy internal tools and APIs from a Git repository.
+- **People who don't code** (ops, finance, marketing, etc.): ask an AI agent for a sales dashboard or an expense tracker, and get a working app your team can open, in a safe sandbox.
+- **Platform teams**: run all of it on your own Kubernetes, with GPU sizes, idle shutdown and backups built in.
 
 > [!WARNING]
 > **Javo is experimental.** It is under active development: the API, the Helm values and the Kubernetes resources it creates may change between releases without a migration path, and it has not been run in production yet. Try it on a test cluster, and expect to reinstall when you upgrade.
