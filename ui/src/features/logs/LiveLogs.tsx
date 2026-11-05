@@ -18,13 +18,16 @@ function streamURL(name: string): string {
  * The app's log, live. The server replays the latest lines on every
  * (re)connect, so each open starts from an empty list. The view follows the
  * newest line until the user scrolls up, and "Jump to latest" resumes it.
+ * Folded, it is just its header and opens no stream.
  */
-export function LiveLogs({ name, restarts, title = 'Logs', hide, top }: { name: string; restarts: number; title?: string; hide?: ReactNode; top?: ReactNode }) {
+export function LiveLogs({ name, restarts, title = 'Logs', top, fold }: { name: string; restarts: number; title?: string; top?: ReactNode; fold?: { open: boolean; onToggle: () => void } }) {
   const [lines, setLines] = useState<LogLine[]>([])
   const [previous, setPrevious] = useState(false)
-  const prev = useWorkspaceLogs(name, { tail: 500, previous: true, enabled: previous })
+  const open = !fold || fold.open
+  const prev = useWorkspaceLogs(name, { tail: 500, previous: true, enabled: open && previous })
 
   useEffect(() => {
+    if (!open) return
     const es = new EventSource(streamURL(name))
     es.onopen = () => setLines([])
     let seq = 0
@@ -37,11 +40,12 @@ export function LiveLogs({ name, restarts, title = 'Logs', hide, top }: { name: 
       es.removeEventListener('line', onLine)
       es.close()
     }
-  }, [name])
+  }, [name, open])
 
   return (
     <LogView
       card
+      fold={fold}
       top={top}
       title={title}
       label={previous ? 'Previous run log' : 'App log'}
@@ -55,12 +59,7 @@ export function LiveLogs({ name, restarts, title = 'Logs', hide, top }: { name: 
           ? { title: 'No log lines', body: 'The run before the last restart wrote nothing.' }
           : { title: 'No log lines yet', body: 'Lines the app writes show up here as they happen.' }
       }
-      actions={
-        <>
-          {restarts > 0 && <IconButton icon={History} label="Show previous run" pressed={previous} onClick={() => setPrevious(!previous)} />}
-          {hide}
-        </>
-      }
+      actions={restarts > 0 && <IconButton icon={History} label="Show previous run" pressed={previous} onClick={() => setPrevious(!previous)} />}
     />
   )
 }

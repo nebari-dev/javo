@@ -278,9 +278,16 @@ describe('App status page', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Started in 42 s/ }))
     const items = within(screen.getByRole('list', { name: 'Startup steps' })).getAllByRole('listitem')
     expect(within(items[0]).queryByText(/Successfully assigned/)).toBeNull()
-    await userEvent.click(within(items[0]).getByRole('button', { name: /Show events and log lines/ }))
+    // The step's own row is the toggle.
+    const row = within(items[0]).getByRole('button', { name: /Find a machine/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    await userEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
     expect(await within(items[0]).findByText(logText('Successfully assigned javo-apps/x to node-1'))).toBeTruthy()
     expect(within(items[0]).queryByText(/Pulling image/)).toBeNull()
+    await userEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(within(items[0]).queryByText(logText('Successfully assigned javo-apps/x to node-1'))).toBeNull()
   })
 
   it('opens the failed step with its events and the app log lines', async () => {
@@ -304,7 +311,7 @@ describe('App status page', () => {
     const failed = within(steps).getAllByRole('listitem')[3]
     expect(await within(failed).findByText('Back-off restarting failed container app')).toBeTruthy()
     expect(await within(failed).findByText(logText("ModuleNotFoundError: No module named 'plotly'"))).toBeTruthy()
-    expect(within(failed).getByRole('button', { name: /Hide events and log lines/ }).getAttribute('aria-expanded')).toBe('true')
+    expect(within(failed).getByRole('button', { name: /Start the app/ }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('shows what each done step recorded, long after its events are gone', async () => {
@@ -329,8 +336,9 @@ describe('App status page', () => {
     renderApp('/apps/sales-app')
     await userEvent.click(await screen.findByRole('button', { name: /Started/ }))
     const items = within(screen.getByRole('list', { name: 'Startup steps' })).getAllByRole('listitem')
+    const names = ['Find a machine', 'Attach your home folder', 'Download the image', 'Start the app', 'Check it answers']
     for (const [i, type] of ['Scheduled', 'HomeReady', 'ImageReady', 'Started', 'Ready'].entries()) {
-      await userEvent.click(within(items[i]).getByRole('button', { name: /Show events and log lines/ }))
+      await userEvent.click(within(items[i]).getByRole('button', { name: new RegExp(names[i]) }))
       for (const line of recorded[type]) expect(within(items[i]).getByText(line)).toBeTruthy()
     }
     // The app's log belongs to starting the app, not to the answer check.
@@ -352,15 +360,20 @@ describe('App status page', () => {
   it("keeps the running app's log folded until asked, then follows it live", async () => {
     detail(ws('sales-app', 'Sales app', 'Running', allReady()))
     renderApp('/apps/sales-app')
-    const show = await screen.findByRole('button', { name: "Show the running app's log" })
-    expect(show.getAttribute('aria-expanded')).toBe('false')
+    // One header in both states: its title is the toggle.
+    const toggle = await screen.findByRole('button', { name: "Running app's log" })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('heading', { name: "Running app's log" })).toBeTruthy()
     // Folded: no stream is opened.
     expect(FakeEventSource.instances).toHaveLength(0)
-    await userEvent.click(show)
-    expect(screen.getByRole('heading', { name: "Running app's log" })).toBeTruthy()
+    expect(screen.queryByRole('log')).toBeNull()
+    await userEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('log')).toBeTruthy()
     expect(FakeEventSource.latest().url).toBe('/api/workspaces/sales-app/logs/stream')
-    await userEvent.click(screen.getByRole('button', { name: "Hide the running app's log" }))
-    expect(screen.queryByRole('heading', { name: "Running app's log" })).toBeNull()
+    await userEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('log')).toBeNull()
     expect(FakeEventSource.latest().closed).toBe(true)
   })
 
@@ -390,7 +403,7 @@ describe('App status page', () => {
   it("starts the running app's log with the command it started with", async () => {
     detail(ws('sales-app', 'Sales app', 'Running', allReady(), { run }))
     renderApp('/apps/sales-app')
-    await userEvent.click(await screen.findByRole('button', { name: "Show the running app's log" }))
+    await userEvent.click(await screen.findByRole('button', { name: "Running app's log" }))
     const log = screen.getByRole('heading', { name: "Running app's log" }).closest('section') as HTMLElement
     const started = within(log).getByRole('group', { name: 'Started with' })
     expect(started.querySelector('code')?.textContent).toBe(run.line)

@@ -1,6 +1,28 @@
 import { ChevronRight } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 
+interface MoreToggleProps {
+  open: boolean
+  onToggle: () => void
+  /** The id of the region it shows and hides. */
+  controls?: string
+  className?: string
+  children: ReactNode
+}
+
+/**
+ * The one disclosure header: a chevron first, then the label. Opening only
+ * turns the chevron; the label may change words but nothing moves.
+ */
+export function MoreToggle({ open, onToggle, controls, className, children }: MoreToggleProps) {
+  return (
+    <button type="button" className={className ? `more-toggle ${className}` : 'more-toggle'} aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+      <ChevronRight size={15} aria-hidden="true" className={`more-chevron${open ? ' open' : ''}`} />
+      {children}
+    </button>
+  )
+}
+
 interface MoreProps {
   closed: ReactNode
   open: ReactNode
@@ -14,16 +36,9 @@ export function More({ closed, open, defaultOpen = false, children }: MoreProps)
   const regionId = useId()
   return (
     <div className="more">
-      <button
-        type="button"
-        className="more-toggle"
-        aria-expanded={isOpen}
-        aria-controls={regionId}
-        onClick={() => setOpen(!isOpen)}
-      >
-        <ChevronRight size={15} aria-hidden="true" className={`more-chevron${isOpen ? ' open' : ''}`} />
+      <MoreToggle open={isOpen} onToggle={() => setOpen(!isOpen)} controls={regionId}>
         {isOpen ? open : closed}
-      </button>
+      </MoreToggle>
       <div id={regionId} className="more-body">
         {isOpen && children}
       </div>

@@ -164,8 +164,15 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 
 /* Timeline */
 .tl{list-style:none;margin:0;padding:0}
-.tl > li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;padding:10px 0;position:relative}
-.tl > li:not(:last-child)::before{content:"";position:absolute;left:13px;top:34px;bottom:-6px;width:2px;background:var(--border)}
+/* Each step is a row like a CI job's: chevron, status, title, time. The row is the toggle; a step with nothing to show keeps the chevron's room. */
+.tl > li{padding:4px 0;position:relative;--tl-chev:15px;--tl-gap:10px}
+.tl > li:not(:last-child)::before{content:"";position:absolute;left:calc(var(--tl-chev) + var(--tl-gap) + 13px);top:34px;bottom:-6px;width:2px;background:var(--border)}
+.tl-row{display:grid;grid-template-columns:var(--tl-chev) 28px minmax(0,1fr) auto;align-items:center;column-gap:var(--tl-gap);width:100%;padding-block:6px;font:inherit;color:var(--text)}
+.tl .more-toggle.tl-row{display:grid;width:calc(100% + 16px);font-weight:inherit;font-size:inherit;color:var(--text)}
+.tl .more-toggle.tl-row .more-chevron{color:var(--text-3)}
+.tl-text{display:grid;min-width:0}
+.tl-body{padding-left:calc(var(--tl-chev) + var(--tl-gap) * 2 + 28px);margin-top:4px}
+.tl-body:empty{display:none}
 .tl .n{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:var(--fs-sm);font-weight:700;background:var(--surface-2);border:2px solid var(--border-strong);color:var(--text-3);z-index:1}
 .tl .done .n{background:var(--ok);border-color:var(--ok);color:#fff}
 .tl .now .n{background:var(--info);border-color:var(--info);color:#fff;animation:pulse 1.2s ease-in-out infinite}
@@ -173,7 +180,6 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .tl .t{font-weight:600}.tl .d{font-size:var(--fs-sm);color:var(--text-2)}
 .tl .time{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-3);white-space:nowrap}
 /* Logs: events and app lines, untrusted text in a compact monospace list */
-.tl .more{margin-top:2px}
 .step-logs{display:grid;gap:8px}
 .step-logs .k{font-size:var(--fs-2xs);font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
 /* What the API recorded about a step: short facts, kept after its events expire. */
@@ -226,6 +232,11 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .lv.card-lv .log li{padding:0 22px}
 .lv.card-lv .lv-body{border-radius:0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px)}
 .lv-icon{flex:none;color:var(--text-3)}
+/* A log that folds: its title is the toggle, in the same place open or folded; folded it is just the header. */
+.lv-title:has(.lv-toggle){overflow:visible}
+.lv .more-toggle.lv-toggle{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;gap:8px;max-width:100%}
+.lv .more-toggle.lv-toggle:hover{color:var(--text)}
+.lv.folded .lv-head{border-bottom:0;border-radius:inherit}
 .lv-title{margin:0;min-width:0;letter-spacing:0;font-size:var(--fs-sm);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lv-status{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font-size:var(--fs-2xs);font-weight:500;white-space:nowrap}
 .lv-status.live{color:var(--ok)}
