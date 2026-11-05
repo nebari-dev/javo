@@ -331,11 +331,12 @@ func sharedWith(p Principal, a *model.App, t *model.Template) Decision {
 			}
 		}
 	}
-	if level >= model.AccessRank(model.AccessSignedIn) && signedIn(p) {
-		return allow("signed-in")
-	}
+	// The widest grant names Via, so a public app is "public" for everyone.
 	if level >= model.AccessRank(model.AccessPublic) {
 		return allow("public")
+	}
+	if level >= model.AccessRank(model.AccessSignedIn) && signedIn(p) {
+		return allow("signed-in")
 	}
 	return deny(reasons.MsgAppNotFound)
 }

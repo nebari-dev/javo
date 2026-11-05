@@ -18,6 +18,10 @@ The picker searches people by the first three or more letters of their username 
 
 **Copy link** copies the app's address. People you share with never get your sign-in.
 
+## Apps shared with you
+
+Every app someone else shares with you shows on **Home** and **Apps**, whatever the level: shared with you by name, with one of your groups, with everyone signed in, or with anyone who has the link. Each card says how: "Shared with you", "Shared with your group ml", "Shared with everyone signed in" or "Anyone with the link". Once anything is shared with you, the **Shared with me** filter appears to list only those apps. Your own apps and apps you could not open are never listed.
+
 ## What sharing hands people
 
 A shared app runs as you, so the people you share it with can do whatever the app lets them do. The Sharing tab warns what that is for the kind of app:

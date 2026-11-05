@@ -153,7 +153,8 @@ type SharedApp struct {
 	Phase       string `json:"phase"`
 	URL         string `json:"url"`
 	Owner       Owner  `json:"owner"`
-	// Via is what granted access: "user" or "group:<value>".
+	// Via is what granted access: "user", "group:<value>", "signed-in" or
+	// "public".
 	Via string `json:"via"`
 	// Thumbnail is the app's picture; absent when thumbnails are off.
 	Thumbnail *Thumbnail `json:"thumbnail,omitempty"`
@@ -373,9 +374,9 @@ func (s *sharing) directory(ctx context.Context, in *directoryInput) (*directory
 	return out, nil
 }
 
-// shared lists the apps other people shared with the caller by name or by
-// group. Apps open to everyone signed in or to the public are not listed:
-// they are reached by link.
+// shared lists the apps other people shared with the caller: by name, by
+// group, with everyone signed in or with anyone who has the link. Apps the
+// caller opens only by admin rights are not listed.
 func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput, error) {
 	p := authn.User(ctx)
 	apps, err := s.ws.db.Apps().ListShared(ctx, p.ID, p.Groups, in.Previews) // newest first
@@ -396,7 +397,7 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 			return nil, problem.Internal("read the parent of a preview", err)
 		}
 		d, refusal := authz.OpenOn(p, roles, authz.Object{App: app, Parent: parent, Template: API[app.Template]}, origin)
-		if !d.Allowed || refusal != "" || d.Via != "user" && !strings.HasPrefix(d.Via, "group:") {
+		if !d.Allowed || refusal != "" || !sharedVia(d.Via) {
 			continue
 		}
 		owner := Owner{ID: app.Owner, DisplayName: app.Owner}
@@ -416,4 +417,10 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 		out.Body.Empty = reasons.Msg(reasons.MsgNothingShared)
 	}
 	return out, nil
+}
+
+// sharedVia is true when an open decision came from the app's sharing, not
+// from being its owner or an admin.
+func sharedVia(via string) bool {
+	return via == "user" || via == "signed-in" || via == "public" || strings.HasPrefix(via, "group:")
 }

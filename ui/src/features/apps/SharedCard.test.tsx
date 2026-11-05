@@ -13,7 +13,7 @@ describe('SharedCard', () => {
         <SharedCard
           app={{
             displayName: 'Sales app', kind: 'streamlit', name: 'sales-app', template: 'streamlit', phase: 'Running',
-            url: '/u/bob/sales-app/', via: 'person', owner: { id: 'u-2', displayName: 'Bob' } as never,
+            url: '/u/bob/sales-app/', via: 'user', owner: { id: 'u-2', displayName: 'Bob' } as never,
           }}
         />
       </QueryClientProvider>,
@@ -24,6 +24,30 @@ describe('SharedCard', () => {
     expect(link.getAttribute('rel')).toBe('noopener')
   })
 
+  it('says how the app is shared with the viewer', () => {
+    mockApi({ 'GET /api/templates': { body: [] } })
+    const cases: [string, string][] = [
+      ['user', 'Shared with you'],
+      ['group:/org/ml', 'Shared with your group ml'],
+      ['signed-in', 'Shared with everyone signed in'],
+      ['public', 'Anyone with the link'],
+    ]
+    for (const [via, words] of cases) {
+      const { unmount } = render(
+        <QueryClientProvider client={makeQueryClient()}>
+          <SharedCard
+            app={{
+              displayName: 'Sales app', kind: 'streamlit', name: 'sales-app', template: 'streamlit', phase: 'Stopped',
+              url: '/u/bob/sales-app/', via, owner: { id: 'u-2', displayName: 'Bob' } as never,
+            }}
+          />
+        </QueryClientProvider>,
+      )
+      expect(screen.getByText(words)).toBeTruthy()
+      unmount()
+    }
+  })
+
   it('shows its status as a named icon, not a text pill', () => {
     mockApi({ 'GET /api/templates': { body: [] } })
     const { container } = render(
@@ -31,7 +55,7 @@ describe('SharedCard', () => {
         <SharedCard
           app={{
             displayName: 'Sales app', kind: 'streamlit', name: 'sales-app', template: 'streamlit', phase: 'Stopped',
-            url: '/u/bob/sales-app/', via: 'person', owner: { id: 'u-2', displayName: 'Bob' } as never,
+            url: '/u/bob/sales-app/', via: 'user', owner: { id: 'u-2', displayName: 'Bob' } as never,
           }}
         />
       </QueryClientProvider>,

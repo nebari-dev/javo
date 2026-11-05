@@ -17,6 +17,7 @@ export function SharedCard({ app }: { app: SharedApp }) {
           <div className="acard-sub">
             {template} · <span>from {app.owner.displayName}</span>
           </div>
+          <div className="acard-sub">{sharedHow(app.via)}</div>
         </div>
         <StatusIcon status={pillStatus(app.phase)} />
       </div>
@@ -29,4 +30,12 @@ export function SharedCard({ app }: { app: SharedApp }) {
   ) : (
     <div className="card acard">{body}</div>
   )
+}
+
+/** How an app reaches the viewer, from the listing's `via`. */
+function sharedHow(via: string): string {
+  if (via.startsWith('group:')) return `Shared with your group ${via.slice('group:'.length).split('/').pop()}`
+  if (via === 'signed-in') return 'Shared with everyone signed in'
+  if (via === 'public') return 'Anyone with the link'
+  return 'Shared with you'
 }

@@ -432,6 +432,71 @@ func (q *Queries) ListAppsByOwner(ctx context.Context, arg ListAppsByOwnerParams
 	return items, nil
 }
 
+const listAppsOpenToAll = `-- name: ListAppsOpenToAll :many
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps
+WHERE access IN ('SignedIn', 'Public') AND owner <> $1 AND deleted_at IS NULL
+  AND (parent_id IS NULL OR CAST($2 AS BOOLEAN))
+ORDER BY created_at DESC, id DESC
+`
+
+type ListAppsOpenToAllParams struct {
+	Owner   string
+	Column2 bool
+}
+
+// Candidates for "shared with me" open to everyone signed in or to anyone with
+// the link: other people's apps at those levels. Whether the person may open
+// one (the template's cap among others) is authz.Decide's answer.
+func (q *Queries) ListAppsOpenToAll(ctx context.Context, arg ListAppsOpenToAllParams) ([]App, error) {
+	rows, err := q.db.QueryContext(ctx, listAppsOpenToAll, arg.Owner, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []App
+	for rows.Next() {
+		var i App
+		if err := rows.Scan(
+			&i.ID,
+			&i.Namespace,
+			&i.Name,
+			&i.ObjectName,
+			&i.Owner,
+			&i.Template,
+			&i.Size,
+			&i.Paused,
+			&i.Access,
+			&i.Spec,
+			&i.Version,
+			&i.CreatedAt,
+			&i.RestartRequestedAt,
+			&i.TokenRevoked,
+			&i.DeletedAt,
+			&i.Status,
+			&i.ObservedVersion,
+			&i.StatusAt,
+			&i.CpuMillis,
+			&i.MemoryBytes,
+			&i.IdleStopMinutes,
+			&i.LastActiveAt,
+			&i.ParentID,
+			&i.PullNumber,
+			&i.RestoreHold,
+			&i.RestoreReleaseAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAppsSharedWith = `-- name: ListAppsSharedWith :many
 SELECT a.id, a.namespace, a.name, a.object_name, a.owner, a.template, a.size, a.paused, a.access, a.spec, a.version, a.created_at, a.restart_requested_at, a.token_revoked, a.deleted_at, a.status, a.observed_version, a.status_at, a.cpu_millis, a.memory_bytes, a.idle_stop_minutes, a.last_active_at, a.parent_id, a.pull_number, a.restore_hold, a.restore_release_at FROM apps a
 JOIN app_shares s ON s.app_id = a.id

@@ -392,16 +392,13 @@ func (a *Apps) ListAll(ctx context.Context) ([]model.App, error) {
 }
 
 // ListShared returns other people's apps that name the person or one of
-// their groups in their sharing list, newest first. It only finds candidates:
-// whether the person may open one is authz.Decide's answer. Previews are left
-// out unless previews is true.
+// their groups in their sharing list, or that are open to everyone signed in
+// or to anyone with the link, newest first. It only finds candidates: whether
+// the person may open one is authz.Decide's answer. Previews are left out
+// unless previews is true.
 func (a *Apps) ListShared(ctx context.Context, person string, groups []string, previews bool) ([]model.App, error) {
 	byID := map[string]model.App{}
-	add := func(kind, value string) error {
-		rows, err := a.s.q.ListAppsSharedWith(ctx, sqlcgen.ListAppsSharedWithParams{Kind: kind, Value: value, Owner: person, Column4: previews})
-		if err != nil {
-			return err
-		}
+	addRows := func(rows []sqlcgen.App) error {
 		for _, row := range rows {
 			if _, seen := byID[row.ID]; seen {
 				continue
@@ -418,6 +415,13 @@ func (a *Apps) ListShared(ctx context.Context, person string, groups []string, p
 		}
 		return nil
 	}
+	add := func(kind, value string) error {
+		rows, err := a.s.q.ListAppsSharedWith(ctx, sqlcgen.ListAppsSharedWithParams{Kind: kind, Value: value, Owner: person, Column4: previews})
+		if err != nil {
+			return err
+		}
+		return addRows(rows)
+	}
 	if err := add(shareUser, person); err != nil {
 		return nil, err
 	}
@@ -425,6 +429,13 @@ func (a *Apps) ListShared(ctx context.Context, person string, groups []string, p
 		if err := add(shareGroup, g); err != nil {
 			return nil, err
 		}
+	}
+	open, err := a.s.q.ListAppsOpenToAll(ctx, sqlcgen.ListAppsOpenToAllParams{Owner: person, Column2: previews})
+	if err != nil {
+		return nil, err
+	}
+	if err := addRows(open); err != nil {
+		return nil, err
 	}
 	out := make([]model.App, 0, len(byID))
 	for _, app := range byID {

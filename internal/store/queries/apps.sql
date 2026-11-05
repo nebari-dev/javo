@@ -34,6 +34,15 @@ WHERE s.kind = $1 AND s.value = $2 AND a.owner <> $3 AND a.deleted_at IS NULL
   AND (a.parent_id IS NULL OR CAST($4 AS BOOLEAN))
 ORDER BY a.created_at DESC, a.id DESC;
 
+-- Candidates for "shared with me" open to everyone signed in or to anyone with
+-- the link: other people's apps at those levels. Whether the person may open
+-- one (the template's cap among others) is authz.Decide's answer.
+-- name: ListAppsOpenToAll :many
+SELECT * FROM apps
+WHERE access IN ('SignedIn', 'Public') AND owner <> $1 AND deleted_at IS NULL
+  AND (parent_id IS NULL OR CAST($2 AS BOOLEAN))
+ORDER BY created_at DESC, id DESC;
+
 -- Spec columns only; status columns are never touched here.
 -- name: UpdateAppSpec :execrows
 UPDATE apps

@@ -3,6 +3,7 @@ package store_test
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 
@@ -398,6 +399,34 @@ func TestListSharedByGroup(t *testing.T) {
 	}
 	if got[0].Name != "to-both" {
 		t.Errorf("shared apps not newest first: %v", names(got))
+	}
+}
+
+// Apps open to everyone signed in or to anyone with the link are candidates
+// too, so they show in the person's shared list; the person's own are not.
+func TestListSharedIncludesAppsOpenToEveryone(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	share := func(owner, name string, sh model.Sharing) {
+		app := createApp(t, s, owner, name)
+		if _, err := s.Apps().UpdateSpec(ctx, model.Actor{Person: owner}, app.ID, app.Version, func(a *model.App) error {
+			a.Sharing = sh
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	share("alice", "signed-in", model.Sharing{Access: model.AccessSignedIn})
+	share("alice", "public", model.Sharing{Access: model.AccessPublic})
+	share("alice", "restricted", model.Sharing{Access: model.AccessRestricted, Users: []string{"carol"}})
+	createApp(t, s, "alice", "private")
+	share("bob", "bobs-public", model.Sharing{Access: model.AccessPublic})
+	got, err := s.Apps().ListShared(ctx, "bob", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, want := names(got), []string{"public", "signed-in"}; !slices.Equal(slices.Sorted(slices.Values(n)), want) {
+		t.Fatalf("shared = %v, want %v", n, want)
 	}
 }
 

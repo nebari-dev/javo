@@ -39,6 +39,36 @@ func TestSharingWithBobShowsInBobsSharedList(t *testing.T) {
 	}
 }
 
+// An app open to everyone signed in, or to anyone with the link, is shared
+// with every signed-in person, so it is listed for them saying how; never for
+// its owner, and never above the template's cap.
+func TestAppsOpenToEveryoneAreListedSayingHow(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ access, cap, via string }{
+		{model.AccessSignedIn, model.AccessPublic, "signed-in"},
+		{model.AccessPublic, model.AccessPublic, "public"},
+		{model.AccessPublic, model.AccessRestricted, ""},
+	} {
+		report := gatewaytest.Workspace("report", apitest.AliceID, "Report")
+		report.Sharing = model.Sharing{Access: tc.access}
+		f := apitest.New(t, apitest.Options{Urls: apitest.SeparateHosts, People: []apitest.TestPerson{apitest.SignedIn("alice", time.Now()), apitest.SignedIn("bob", time.Now())}},
+			apitest.SharableTemplate(tc.cap), report)
+		got := apitest.Decode[apitest.SharedJSON](t, f.Do("GET", "/api/shared", "", f.Session(apitest.BobID)))
+		if tc.via == "" {
+			if len(got.Items) != 0 {
+				t.Errorf("%s capped at %s: items %+v, want none", tc.access, tc.cap, got.Items)
+			}
+			continue
+		}
+		if len(got.Items) != 1 || got.Items[0].Via != tc.via || got.Items[0].Owner.ID != apitest.AliceID {
+			t.Errorf("%s: items %+v, want one via %q", tc.access, got.Items, tc.via)
+		}
+		if mine := apitest.Decode[apitest.SharedJSON](t, f.Do("GET", "/api/shared", "", f.Session(apitest.AliceID))); len(mine.Items) != 0 {
+			t.Errorf("%s: alice sees her own app as shared: %+v", tc.access, mine.Items)
+		}
+	}
+}
+
 // A share made while the install had an apps host is not listed once apps
 // are on the UI host without allowOneHost: it would not open.
 func TestOneHostSharesAreNotListedWithoutAllowOneHost(t *testing.T) {

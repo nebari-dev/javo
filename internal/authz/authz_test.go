@@ -105,6 +105,7 @@ func TestDecide(t *testing.T) {
 		{"anonymous denied restricted", anon, authz.ActOpenApp, authz.Object{App: ws("Restricted", []string{""}, nil), Template: open}, false, "", reasons.MsgAppNotFound},
 		{"signed-in opens", carol, authz.ActOpenApp, authz.Object{App: ws("SignedIn", nil, nil), Template: open}, true, "signed-in", ""},
 		{"anonymous denied signed-in", anon, authz.ActOpenApp, authz.Object{App: ws("SignedIn", nil, nil), Template: open}, false, "", reasons.MsgAppNotFound},
+		{"signed-in person opens public via the link", carol, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: open}, true, "public", ""},
 		{"anonymous opens public", anon, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: open}, true, "public", ""},
 		{"public capped to signed-in: anonymous denied", anon, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: tpl("SignedIn", nil, nil)}, false, "", reasons.MsgAppNotFound},
 		{"public capped to signed-in: bob allowed", bob, authz.ActOpenApp, authz.Object{App: ws("Public", nil, nil), Template: tpl("SignedIn", nil, nil)}, true, "signed-in", ""},
