@@ -119,7 +119,17 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
   const syncScroll = () => {
     if (ghostRef.current && boxRef.current) ghostRef.current.scrollTop = boxRef.current.scrollTop
   }
-  useLayoutEffect(syncScroll, [text, rest])
+  // The box grows with its text and the suggested rest, between the min and
+  // max height the styles set (CSS field-sizing is not in every browser
+  // yet), then scrolls.
+  useLayoutEffect(() => {
+    const b = boxRef.current
+    const g = ghostRef.current
+    if (!b || !g) return
+    b.style.height = 'auto'
+    b.style.height = `${Math.max(b.scrollHeight, g.scrollHeight) + b.offsetHeight - b.clientHeight}px`
+    syncScroll()
+  }, [text, rest])
   const name = agent.templateName || agent.template
   const site = kindSite(agent.template)
   const id = useId()
