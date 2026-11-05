@@ -48,7 +48,7 @@ describe('Live startup steps', () => {
     await screen.findByRole('list', { name: 'Startup steps' })
     const item = stepItem(3)
     expect(within(item).getByText('Set up the environment')).toBeTruthy()
-    expect(within(item).getByRole('button', { name: /Hide events and log lines/ }).getAttribute('aria-expanded')).toBe('true')
+    expect(within(item).getByRole('button', { name: /Set up the environment/ }).getAttribute('aria-expanded')).toBe('true')
 
     env.send({ kind: 'start', container: 'env-install' }, line('env-install', 'Installing the template\'s environment'))
     await waitFor(() => expect(linesIn(item)).toEqual(['env-install', "Installing the template's environment"]))
@@ -114,7 +114,7 @@ describe('Live startup steps', () => {
     await screen.findByRole('list', { name: 'Startup steps' })
     const item = stepItem(3)
     expect(api.count('GET', '/api/workspaces/sales-app/steps/EnvReady/log')).toBe(0)
-    await userEvent.click(within(item).getByRole('button', { name: /Show events and log lines/ }))
+    await userEvent.click(within(item).getByRole('button', { name: /Set up the environment/ }))
     await waitFor(() => expect(linesIn(item)).toEqual(['env-install', 'done installing', 'env-install exited with code 0 (Completed)']))
     await new Promise((r) => setTimeout(r, 1500))
     expect(api.count('GET', '/api/workspaces/sales-app/steps/EnvReady/log')).toBe(1)

@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronUp, CircleCheck, Clock3, FileText, Play, RotateCcw, ScrollText, Terminal, Trash2, X } from 'lucide-react'
+import { CircleCheck, Clock3, FileText, Play, RotateCcw, Terminal, Trash2, X } from 'lucide-react'
 import { PartIcon } from '../../components/Section'
 import { OpenAppLink } from './OpenAppLink'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -26,7 +26,7 @@ import { CommandLine, StartedWith } from './RunCommand'
 import { LiveLogs } from '../logs/LiveLogs'
 import { StepLog } from '../logs/StepLog'
 import { LogView } from '../logs/LogView'
-import { More } from '../../components/More'
+import { More, MoreToggle } from '../../components/More'
 import { Pill } from '../../components/Pill'
 import { choiceOf, SizeSetting } from '../sizes/SizeSetting'
 import { SharingPanel } from '../sharing/SharingPanel'
@@ -315,11 +315,10 @@ function StartedSteps({ started, hold, children }: { started: string; hold: bool
   }, [open])
   return (
     <div className="more">
-      <button type="button" className="more-toggle" aria-expanded={open} aria-controls={regionId} onClick={() => setOpen(!open)}>
-        <ChevronRight size={15} aria-hidden="true" className={`more-chevron${open ? ' open' : ''}`} />
+      <MoreToggle open={open} onToggle={() => setOpen(!open)} controls={regionId}>
         <CircleCheck size={15} aria-hidden="true" className="started-ok" />
         {open ? `${started}: hide the startup steps` : `${started}: show the startup steps`}
-      </button>
+      </MoreToggle>
       <div id={regionId} className="fold" data-open={open ? 'true' : 'false'}>
         <div className="fold-inner">{shown && children}</div>
       </div>
@@ -334,23 +333,13 @@ const LOGS_CARD_TAIL = 20
 function LogsCard({ name, run }: { name: string; run?: PodRun }) {
   const [open, setOpen] = useState(false)
   const logs = useWorkspaceLogs(name, { tail: LOGS_CARD_TAIL, enabled: open })
-  if (!open)
-    return (
-      <Card className="pad">
-        <button type="button" className="more-toggle" aria-expanded="false" onClick={() => setOpen(true)}>
-          <ChevronRight size={15} aria-hidden="true" className="more-chevron" />
-          <ScrollText size={15} aria-hidden="true" />
-          Show the running app's log
-        </button>
-      </Card>
-    )
   return (
     <LiveLogs
       name={name}
       title="Running app's log"
       top={run && <StartedWith run={run} />}
       restarts={logs.data?.restarts ?? 0}
-      hide={<IconButton icon={ChevronUp} label="Hide the running app's log" onClick={() => setOpen(false)} />}
+      fold={{ open, onToggle: () => setOpen(!open) }}
     />
   )
 }
