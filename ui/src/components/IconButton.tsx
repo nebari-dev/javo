@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
-import { useState, type ButtonHTMLAttributes, type Ref } from 'react'
+import type { ButtonHTMLAttributes, Ref } from 'react'
+import { useTooltip } from './Tooltip'
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   icon: LucideIcon
@@ -11,34 +12,43 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
 }
 
 /**
- * A compact key with only an icon, named by its tooltip. The tooltip is drawn
- * from the label (not extra text in the page), shows on hover and keyboard
- * focus, and Escape hides it (WCAG 1.4.13).
+ * A compact key with only an icon, named by its tooltip (useTooltip), which
+ * is drawn from the label.
  */
-export function IconButton({ icon: Icon, label, pressed, className, onKeyDown, onBlur, onMouseLeave, ...rest }: IconButtonProps) {
-  const [hidden, setHidden] = useState(false)
+export function IconButton({ icon: Icon, label, pressed, className, onKeyDown, onBlur, onFocus, onMouseEnter, onMouseLeave, ...rest }: IconButtonProps) {
+  const tip = useTooltip(label)
   return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={pressed}
-      data-tip={label}
-      className={['icon-btn', hidden ? 'tip-off' : '', className ?? ''].filter(Boolean).join(' ')}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') setHidden(true)
-        onKeyDown?.(e)
-      }}
-      onBlur={(e) => {
-        setHidden(false)
-        onBlur?.(e)
-      }}
-      onMouseLeave={(e) => {
-        setHidden(false)
-        onMouseLeave?.(e)
-      }}
-      {...rest}
-    >
-      <Icon size={16} aria-hidden="true" />
-    </button>
+    <>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={pressed}
+        className={['icon-btn', className ?? ''].filter(Boolean).join(' ')}
+        onKeyDown={(e) => {
+          tip.handlers.onKeyDown(e)
+          onKeyDown?.(e)
+        }}
+        onFocus={(e) => {
+          tip.handlers.onFocus(e)
+          onFocus?.(e)
+        }}
+        onBlur={(e) => {
+          tip.handlers.onBlur()
+          onBlur?.(e)
+        }}
+        onMouseEnter={(e) => {
+          tip.handlers.onMouseEnter(e)
+          onMouseEnter?.(e)
+        }}
+        onMouseLeave={(e) => {
+          tip.handlers.onMouseLeave()
+          onMouseLeave?.(e)
+        }}
+        {...rest}
+      >
+        <Icon size={16} aria-hidden="true" />
+      </button>
+      {tip.node}
+    </>
   )
 }
