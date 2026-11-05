@@ -55,7 +55,7 @@ javo-api /api/secrets                # 403 for you: secrets are the person's
 
    ```sh
    javo-api POST /api/workspaces '{"displayName":"<Title>","template":"streamlit","file":"agents/<short-name>/app.py"}'
-   javo-api POST /api/workspaces '{"displayName":"<Title>","template":"custom","file":"agents/<short-name>","command":"python server.py --port {{.Port}}"}'
+   javo-api POST /api/workspaces '{"displayName":"<Title>","template":"custom","file":"agents/<short-name>","command":"pixi run python server.py --port {{.Port}}"}'
    ```
 
    `name` in the answer is the app's short name (NAME below). Optional
@@ -75,6 +75,25 @@ Each template runs in its own pinned environment with its framework and
 common data packages; prefer what is there. A Git repository with a
 `pixi.toml` and `pixi.lock` at its root runs in that environment instead. Do
 not install packages into the home folder at start without asking.
+
+## Python: always through pixi
+
+Every Python project you start gets its own pixi workspace in its folder,
+and every Python command runs through it. Never call `python3`, `pip` or
+`python -m venv` directly, and never `pip install` into the home folder.
+
+```sh
+cd ~/agents/<short-name>
+pixi init                          # pixi.toml for this project
+pixi add python=3.12 <packages>    # from conda-forge; pixi add --pypi <pkg> only for what conda-forge lacks
+pixi run python app.py             # run, test and debug through pixi run
+```
+
+Keep `pixi.toml` and `pixi.lock` in the folder. When the project becomes an
+app on the `custom` template, its command runs through pixi too
+(`pixi run python server.py --port {{.Port}}`); for a framework template
+(streamlit, dash, fastapi...), add to the project only what that template's
+environment lacks.
 
 ## Deploy a published container image
 
