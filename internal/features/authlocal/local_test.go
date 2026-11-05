@@ -15,6 +15,7 @@ import (
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/features/authlocal"
+	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
@@ -68,8 +69,10 @@ func (h *fakeHost) LimitLogin(context.Context, string) (func(bool), error) {
 	return func(right bool) { h.outcomes = append(h.outcomes, right) }, nil
 }
 func (h *fakeHost) Now() time.Time { return now }
+
+// Reject answers what the gateway's host answers: a catalog problem.
 func (h *fakeHost) Reject(status int, c reasons.MessageCode) error {
-	return huma.NewError(status, reasons.Msg(c))
+	return problem.New(status, reasons.Msg(c))
 }
 func (h *fakeHost) Complete(_ context.Context, c identity.Claims, s session.Session) (authprovider.Signed, error) {
 	h.completed = append(h.completed, c)
