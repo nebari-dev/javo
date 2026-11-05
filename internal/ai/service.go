@@ -11,7 +11,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"k8s.io/utils/lru"
@@ -112,6 +111,10 @@ func (s *Service) model(c call) string {
 	return s.Model
 }
 
+// requestOverhead is what a provider adds to a request in tokens: message
+// framing and its own instructions for a structured answer.
+const requestOverhead = 1024
+
 // run sends c within the person's allowance and returns the first answer that
 // matches the schema; one bad answer is retried silently.
 func (s *Service) run(ctx context.Context, c call) outcome {
@@ -127,25 +130,30 @@ func (s *Service) run(ctx context.Context, c call) outcome {
 	if err != nil {
 		return outcome{message: reasons.Msg(reasons.MsgServerError)}
 	}
-	estimate := (utf8.RuneCountInString(c.system)+utf8.RuneCountInString(c.task)+utf8.RuneCountInString(c.bundle.Text))/3 + s.maxOut(c)
-	release, err := s.Budget.Reserve(ctx, c.person, estimate)
-	var used *BudgetUsedError
-	switch {
-	case errors.As(err, &used):
-		s.audit(c, "budget", provider.Usage{}, Dropped{})
-		return outcome{message: reasons.Msg(reasons.MsgAIBudgetUsed, used.ResetAt.UTC().Format("15:04")+" UTC")}
-	case err != nil:
-		slog.Error("reserve AI allowance", "err", err)
-		return outcome{message: reasons.Msg(reasons.MsgServerError)}
-	}
-	var spent provider.Usage
-	defer func() { release(spent.InputTokens + spent.OutputTokens) }()
 	req := provider.Request{
 		Model: s.model(c), System: c.system, Untrusted: c.bundle.Text, Task: c.task,
 		Schema: schemaJSON, SchemaName: c.feature, MaxOutputTokens: s.maxOut(c),
 	}
+	// The most one attempt can cost: a token per byte sent (a token is at
+	// least one byte), the provider's own framing, and the whole output.
+	most := len(req.System) + len(req.Untrusted) + len(req.Task) + len(req.Schema) + requestOverhead + req.MaxOutputTokens
+	var spent provider.Usage
 	for attempt := 0; attempt < 2; attempt++ {
+		// Each attempt, the retry included, is reserved before it is sent
+		// and settled with what it used, so a call never takes the day past
+		// the allowance.
+		release, err := s.Budget.Reserve(ctx, c.person, most)
+		var used *BudgetUsedError
+		switch {
+		case errors.As(err, &used):
+			s.audit(c, "budget", spent, Dropped{})
+			return outcome{message: reasons.Msg(reasons.MsgAIBudgetUsed, used.ResetAt.UTC().Format("15:04")+" UTC")}
+		case err != nil:
+			slog.Error("reserve AI allowance", "err", err)
+			return outcome{message: reasons.Msg(reasons.MsgServerError)}
+		}
 		resp, err := s.Provider.Generate(ctx, req)
+		release(resp.Usage.InputTokens + resp.Usage.OutputTokens)
 		spent.InputTokens += resp.Usage.InputTokens
 		spent.OutputTokens += resp.Usage.OutputTokens
 		var rl *provider.RateLimitedError
