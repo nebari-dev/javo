@@ -90,5 +90,6 @@ The apps host never sees the web UI's session cookie. When a signed-in person op
 - Checks again, on every request, that the visitor may open the app (its sharing, its template, the visitor's session), and every 30 seconds for a websocket, event stream or download still open.
 - While apps share an origin, refuses requests that another app's page starts (see [the cross-app guard](#the-cross-app-guard)).
 - Removes Javo's own cookies and API tokens from the request, so the app never sees them; anonymous visitors send no cookies at all.
+- Keeps the cookies an app sets within the app: it removes their `Domain` attribute and, in path mode, sets their `Path` to the app's own path (an app's `__Host-` cookie is dropped there, since it needs `Path=/`), and drops any cookie named like Javo's own (`javo_...`). A page's script can still set cookies itself with `document.cookie`, which the gateway does not see; an apps domain that is not under the web UI's domain keeps those away from the web UI.
 - Removes the app's prefix before forwarding, for templates that serve at `/` (such as Container image), and says what it removed in `X-Forwarded-Prefix`.
 - Counts the traffic as use, for [idle stop](/admin/idle-stop/).

@@ -351,16 +351,19 @@ func TestBackendCannotSetTheGatewaysHostCookies(t *testing.T) {
 		h := w.Header()
 		h.Add("Set-Cookie", "__Host-javo_session=evil; Path=/; Secure")
 		h.Add("Set-Cookie", "__Host-javo_app=evil; Path=/; Secure")
-		h.Add("Set-Cookie", "__Host-app_pref=ok; Path=/; Secure")
+		// Path=/ would reach the web UI and every app: a __Host- cookie
+		// cannot be scoped to the app under a path, so it is dropped.
+		h.Add("Set-Cookie", "__Host-app_pref=no; Path=/; Secure")
+		h.Add("Set-Cookie", "app_pref=ok; Path=/; Secure")
 	}))
 	r := httptest.NewRequest("GET", "/u/"+f.aliceSl+"/nb1/", nil)
 	r.AddCookie(f.login(t, "alice-aaaaaaaa", "alice"))
 	w := f.do(r)
 	var names []string
 	for _, c := range w.Result().Cookies() {
-		names = append(names, c.Name)
+		names = append(names, c.Name+" "+c.Path)
 	}
-	if len(names) != 1 || names[0] != "__Host-app_pref" {
+	if len(names) != 1 || names[0] != "app_pref /u/"+f.aliceSl+"/nb1" {
 		t.Fatalf("cookies reaching browser: %v", names)
 	}
 }

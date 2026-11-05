@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -302,9 +303,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				pr.Out.Header[k] = slices.Clone(v)
 			}
 		},
-		Transport:      p.transport,
-		ModifyResponse: sanitizeResponse,
-		ErrorHandler:   func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
+		Transport: p.transport,
+		ModifyResponse: func(resp *http.Response) error {
+			return sanitizeResponse(resp, p.cfg.Exposure.BasePath(t.Owner, t.Name))
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
 	}
 	aw := &activityWriter{ResponseWriter: w, activity: p.cfg.Activity, app: app.ID}
 	if tpl != nil && tpl.Spec.Activity == model.ActivityJupyter {
@@ -605,9 +608,10 @@ func foreignOrigin(r *http.Request) bool {
 	return err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host)
 }
 
-// sanitizeResponse stops an app from replacing the gateway session, claiming
+// sanitizeResponse stops an app from replacing the gateway session, setting
+// cookies outside its own scope (scopeCookie; base is its BasePath), claiming
 // the whole origin for a service worker, or wiping the browser's site data.
-func sanitizeResponse(resp *http.Response) error {
+func sanitizeResponse(resp *http.Response, base string) error {
 	resp.Header.Del("Service-Worker-Allowed")
 	resp.Header.Del("Clear-Site-Data")
 	// The host's HTTPS pinning is the gateway's: an app could clear it
@@ -615,11 +619,8 @@ func sanitizeResponse(resp *http.Response) error {
 	resp.Header.Del("Strict-Transport-Security")
 	var kept []string
 	for _, line := range resp.Header.Values("Set-Cookie") {
-		// A cookie with no name is sent back as its value alone, so
-		// "=javo_session=x" would come back as the gateway's cookie.
-		name, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		if name = strings.TrimSpace(name); name != "" && !isGatewayCookie(name) {
-			kept = append(kept, line)
+		if l, ok := scopeCookie(line, base); ok {
+			kept = append(kept, l)
 		}
 	}
 	if !setsFrameAncestors(resp.Header) {
@@ -631,6 +632,63 @@ func sanitizeResponse(resp *http.Response) error {
 		resp.Header.Add("Set-Cookie", l)
 	}
 	return nil
+}
+
+// scopeCookie keeps a Set-Cookie line of an app within the app: with no
+// Domain attribute (host-only), and, when the app is served under a path
+// (base is not "/"), with a Path inside base, else base itself; a cookie
+// with no Path would get the directory of the request, which can be above
+// the app. It refuses (ok false) a cookie with no name (sent back as its
+// value alone, so "=javo_session=x" would come back as the gateway's
+// cookie), one named like the gateway's, and a __Host- cookie under a path,
+// which needs Path=/ and so cannot be scoped to the app.
+func scopeCookie(line, base string) (string, bool) {
+	parts := strings.Split(line, ";")
+	name, _, _ := strings.Cut(parts[0], "=")
+	name = strings.TrimSpace(name)
+	if name == "" || gatewayLike(name) {
+		return "", false
+	}
+	scoped := base != "/"
+	if scoped && hasPrefixFold(name, "__Host-") {
+		return "", false
+	}
+	app := strings.TrimSuffix(base, "/")
+	out := []string{strings.TrimSpace(parts[0])}
+	for _, attr := range parts[1:] {
+		attr = strings.TrimSpace(attr)
+		k, v, _ := strings.Cut(attr, "=")
+		switch k = strings.TrimSpace(k); {
+		case attr == "":
+		case strings.EqualFold(k, "Domain"):
+		case strings.EqualFold(k, "Path") && scoped:
+			if v = strings.TrimSpace(v); v == app || strings.HasPrefix(v, base) && path.Clean(v) == v {
+				app = v
+			}
+		default:
+			out = append(out, attr)
+		}
+	}
+	if scoped {
+		out = append(out, "Path="+app)
+	}
+	return strings.Join(out, "; "), true
+}
+
+// gatewayLike is true for a cookie name the gateway uses or might: javo_...,
+// in any case and under either cookie prefix.
+func gatewayLike(name string) bool {
+	for _, p := range []string{"__Host-", "__Secure-"} {
+		if hasPrefixFold(name, p) {
+			name = name[len(p):]
+			break
+		}
+	}
+	return isGatewayCookie(name) || hasPrefixFold(name, model.ProductName+"_")
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // setsFrameAncestors is true when h already says who may frame the page.
