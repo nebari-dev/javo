@@ -129,6 +129,9 @@ type Workspace struct {
 	Run *templates.PodRun `json:"run,omitempty"`
 	// CreatedAt is when the app was created; lists are newest first.
 	CreatedAt time.Time `json:"createdAt,omitempty"`
+	// AgentPrompt is the request a coding-agent app was built on, shown
+	// like a description to whoever may see the app; absent for other apps.
+	AgentPrompt string `json:"agentPrompt,omitempty"`
 }
 
 // Workspaces is the app API: /api/workspaces and every route about one app.
@@ -834,6 +837,7 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 		Thumbnail:    s.thumbnailOf(ctx, app),
 		Environment:  environments.ViewOf(app.Environment),
 		Run:          run,
+		AgentPrompt:  app.AgentPrompt,
 	}
 }
 

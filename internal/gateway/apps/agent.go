@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/secrets"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -222,20 +222,18 @@ func (s *Workspaces) agentFolder(ctx context.Context, owner, request string) str
 	return ""
 }
 
-// agentDisplayName is the start of request, cut at a word, for the app's name.
-func agentDisplayName(request string) string {
-	words := strings.Fields(request)
-	out := ""
-	for _, w := range words {
-		if utf8.RuneCountInString(out)+1+utf8.RuneCountInString(w) > 40 {
-			break
+// agentTitle is the name of an app built on request: the title the
+// admin's agent model gives, when AI is on and it answers in time, else
+// naming.PromptTitle.
+func (s *Workspaces) agentTitle(ctx context.Context, person, request string) string {
+	if s.cfg.AI != nil {
+		if t := s.cfg.AI.Title(ctx, person, s.cfg.Agent.model(ctx), request); t != "" {
+			if _, err := naming.WorkspaceName(t); err == nil {
+				return t
+			}
 		}
-		out = strings.TrimSpace(out + " " + w)
 	}
-	if out == "" {
-		out = string([]rune(request)[:min(40, utf8.RuneCountInString(request))])
-	}
-	return out
+	return naming.PromptTitle(request)
 }
 
 func (s *Workspaces) buildWithAgent(ctx context.Context, in *agentBuildInput) (*workspaceOutput, error) {
@@ -255,7 +253,7 @@ func (s *Workspaces) buildWithAgent(ctx context.Context, in *agentBuildInput) (*
 	if err != nil || !t.Spec.AgentModel {
 		return nil, problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgAgentUnavailable))
 	}
-	base := agentDisplayName(req)
+	base := s.agentTitle(ctx, u.ID, req)
 	folder := s.agentFolder(ctx, u.ID, req)
 	for n := 1; n <= templates.MaxSampleNames; n++ {
 		out, err := s.createFor(ctx, u, appRequest{displayName: templates.SampleName(base, n), template: t.Name, file: folder, agentPrompt: req})

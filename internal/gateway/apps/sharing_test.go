@@ -39,6 +39,35 @@ func TestSharingWithBobShowsInBobsSharedList(t *testing.T) {
 	}
 }
 
+// A person an agent app is shared with sees the request it was built on,
+// as they would its description.
+func TestSharedAgentAppCarriesItsPrompt(t *testing.T) {
+	t.Parallel()
+	agent := gatewaytest.Workspace("stocks", apitest.AliceID, "Stocks")
+	agent.AgentPrompt = "explore stock prices"
+	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts}, agent)
+	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
+	for _, app := range []string{"report", "stocks"} {
+		if w := f.Do("PUT", "/api/workspaces/"+app+"/sharing", `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":[]}`, alice); w.Code != http.StatusOK {
+			t.Fatalf("share %s: %d %s", app, w.Code, w.Body)
+		}
+	}
+	got := apitest.Decode[struct {
+		Items []struct {
+			Name        string
+			AgentPrompt *string
+		}
+	}](t, f.Do("GET", "/api/shared", "", bob))
+	if len(got.Items) != 2 {
+		t.Fatalf("items %+v", got.Items)
+	}
+	for _, it := range got.Items {
+		if want := it.Name == "stocks"; want != (it.AgentPrompt != nil) || want && *it.AgentPrompt != "explore stock prices" {
+			t.Errorf("%s: prompt %v", it.Name, it.AgentPrompt)
+		}
+	}
+}
+
 // A shared app carries when it was created, the same date its owner's list
 // shows, so a viewer's own and shared apps sort together, newest first.
 func TestSharedAppCarriesItsCreationDate(t *testing.T) {

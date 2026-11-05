@@ -4026,6 +4026,9 @@
       "SharedApp": {
         "additionalProperties": false,
         "properties": {
+          "agentPrompt": {
+            "type": "string"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -5251,6 +5254,9 @@
       "Workspace": {
         "additionalProperties": false,
         "properties": {
+          "agentPrompt": {
+            "type": "string"
+          },
           "apiAccess": {
             "enum": [
               "None",

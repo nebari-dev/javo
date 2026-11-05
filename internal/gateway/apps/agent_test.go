@@ -2,10 +2,12 @@ package apps_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/nebari-dev/javo/internal/ai/aitest"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
@@ -147,7 +149,7 @@ func TestBuildWithTheAgent(t *testing.T) {
 	}
 	got := apitest.Decode[apitest.WorkspaceJSON](t, w)
 	app := f.GetWorkspace(apitest.LocalAlice(), got.Name)
-	if app == nil || app.Template != "pi" || app.AgentPrompt != req || app.File != "" || !strings.HasPrefix(app.DisplayName, "create a Streamlit app") {
+	if app == nil || app.Template != "pi" || app.AgentPrompt != req || app.File != "" || app.DisplayName != "Streamlit app that shows a random number" {
 		t.Fatalf("app %+v", app)
 	}
 	w = f.Do("POST", "/api/ai/agent/build", `{"request":"`+req+`"}`, alice)
@@ -181,5 +183,86 @@ func TestBuildWithTheAgent(t *testing.T) {
 	}
 	if w := f.Do("POST", "/api/ai/agent/build", `{"request":"x\u001b[2J"}`, alice); w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("control characters: %d %s", w.Code, w.Body)
+	}
+}
+
+type promptJSON struct {
+	Name, DisplayName string
+	AgentPrompt       *string
+}
+
+// The request an agent app was built on comes back with the app, on its
+// page and in the list; an app made without one has none.
+func TestBuiltAppCarriesItsPrompt(t *testing.T) {
+	t.Parallel()
+	f := agentFixture(t, "admin/model", nil)
+	alice := f.LoginAlice()
+	req := "create a Streamlit app that lets me explore stock prices"
+	built := apitest.Decode[promptJSON](t, f.Do("POST", "/api/ai/agent/build", `{"request":"`+req+`"}`, alice))
+	if built.AgentPrompt == nil || *built.AgentPrompt != req {
+		t.Fatalf("build answer %+v, want the prompt", built)
+	}
+	got := apitest.Decode[promptJSON](t, f.Do("GET", "/api/workspaces/"+built.Name, "", alice))
+	if got.AgentPrompt == nil || *got.AgentPrompt != req {
+		t.Fatalf("app %+v, want the prompt", got)
+	}
+	f.Do("POST", "/api/workspaces", `{"displayName":"Dash","template":"streamlit","file":"a.py"}`, alice)
+	list := apitest.Decode[struct{ Items []promptJSON }](t, f.Do("GET", "/api/workspaces", "", alice))
+	for _, it := range list.Items {
+		switch {
+		case it.Name == built.Name && (it.AgentPrompt == nil || *it.AgentPrompt != req):
+			t.Errorf("listed %+v, want the prompt", it)
+		case it.Name == "dash" && it.AgentPrompt != nil:
+			t.Errorf("listed %+v, want no prompt", it)
+		}
+	}
+}
+
+// titleFixture is agentFixture with the AI features on over a model that
+// answers with replies.
+func titleFixture(t *testing.T, replies ...aitest.Reply) (*apitest.Fixture, *aitest.Scripted) {
+	t.Helper()
+	p := aitest.New(replies...)
+	f := apitest.New(t, apitest.Options{Ai: apitest.AiService(p), Files: &apitest.StubFilesLister{},
+		Agent: apps.AgentConfig{Model: apitest.AgentModel("agent/model"), Template: "pi"}},
+		piTemplate(), gatewaytest.Template("streamlit", "streamlit"))
+	return f, p
+}
+
+// With the admin's agent model on, the app is named by a title the model
+// gives, and its address follows that title.
+func TestBuildNamesTheAppWithTheModelsTitle(t *testing.T) {
+	t.Parallel()
+	f, p := titleFixture(t, aitest.Reply{JSON: `{"title":"Nvidia stock explorer."}`})
+	req := "create a streamlit app that lets me look at nvidia stock prices over time"
+	w := f.Do("POST", "/api/ai/agent/build", `{"request":"`+req+`"}`, f.LoginAlice())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("build: %d %s", w.Code, w.Body)
+	}
+	got := apitest.Decode[promptJSON](t, w)
+	if got.DisplayName != "Nvidia stock explorer" || got.Name != "nvidia-stock-explorer" {
+		t.Fatalf("app %+v, want the model's title", got)
+	}
+	if p.Calls() != 1 || p.Requests[0].Model != "agent/model" || !strings.Contains(p.Requests[0].Untrusted, req) || strings.Contains(p.Requests[0].System, req) {
+		t.Fatalf("requests %+v, want one to the agent model with the request as data", p.Requests)
+	}
+}
+
+// A model that fails, or answers with no usable title, leaves the name to
+// the request's own words.
+func TestBuildFallsBackWhenTheModelGivesNoTitle(t *testing.T) {
+	t.Parallel()
+	for name, r := range map[string]aitest.Reply{
+		"error": {Err: errors.New("provider down")},
+		"empty": {JSON: `{"title":"  "}`},
+		"long":  {JSON: `{"title":"` + strings.Repeat("word ", 30) + `"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, _ := titleFixture(t, r, r)
+			w := f.Do("POST", "/api/ai/agent/build", `{"request":"create a streamlit app that lets me explore stock prices"}`, f.LoginAlice())
+			if got := apitest.Decode[promptJSON](t, w); w.Code != http.StatusCreated || got.DisplayName != "Streamlit app to explore stock prices" {
+				t.Fatalf("%d %+v, want the heuristic title", w.Code, got)
+			}
+		})
 	}
 }
