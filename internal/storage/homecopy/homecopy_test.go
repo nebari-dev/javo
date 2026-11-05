@@ -131,6 +131,30 @@ func TestLostAndFoundIsLeftAlone(t *testing.T) {
 	}
 }
 
+// The new home's top folder is the prepare step's (on shared storage its
+// owner is root, so the copy could not change it): the copy leaves its mode
+// and time alone and still copies everything inside.
+func TestTheNewTopFolderIsLeftAsPrepared(t *testing.T) {
+	old, new := dirs(t)
+	write(t, filepath.Join(old, "app", "main.py"), "print(1)\n", 0o644)
+	must(t, os.Chmod(old, 0o700))
+	must(t, os.Chmod(new, 0o2770))
+	before, err := os.Lstat(new)
+	must(t, err)
+	must(t, copyTree(old, new, io.Discard))
+	after, err := os.Lstat(new)
+	must(t, err)
+	if after.Mode() != before.Mode() || !after.ModTime().Equal(before.ModTime()) {
+		t.Errorf("top folder changed: mode %v -> %v, time %v -> %v", before.Mode(), after.Mode(), before.ModTime(), after.ModTime())
+	}
+	if b, err := os.ReadFile(filepath.Join(new, "app", "main.py")); err != nil || string(b) != "print(1)\n" {
+		t.Fatalf("file not copied: %q, %v", b, err)
+	}
+	if diffs, err := verifyTree(old, new); err != nil || len(diffs) != 0 {
+		t.Fatalf("verify: %v, %v", diffs, err)
+	}
+}
+
 // A file the copy cannot read fails the copy and is named; the rest is
 // still copied.
 func TestAnUnreadableFileFailsTheCopyAndIsNamed(t *testing.T) {

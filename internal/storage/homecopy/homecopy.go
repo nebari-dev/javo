@@ -103,6 +103,11 @@ func (c *copier) visit(p string, d fs.DirEntry, walkErr error) error {
 		}
 		return nil
 	}
+	if rel == "." {
+		// The new top folder is the prepare step's: on shared storage its
+		// owner is root, so its group, mode and time are not the copy's.
+		return nil
+	}
 	fi, err := os.Lstat(p)
 	if err != nil {
 		c.fail(rel, err)
