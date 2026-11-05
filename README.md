@@ -8,7 +8,7 @@
 
 <p align="center"><b>The agent-first platform on Kubernetes for notebooks, internal tools, dashboards and AI-built apps.</b></p>
 
-<p align="center">Notebooks, apps and jobs that you and your AI agents run through one API, with agents working over MCP.</p>
+<p align="center">Notebooks, apps and jobs that you and your AI agents run through the API or MCP.</p>
 
 <p align="center">
   <a href="https://github.com/nebari-dev/javo/actions/workflows/go.yml"><img src="https://github.com/nebari-dev/javo/actions/workflows/go.yml/badge.svg?branch=main" alt="Go"></a>
