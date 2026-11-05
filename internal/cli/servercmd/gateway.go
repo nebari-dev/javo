@@ -305,6 +305,9 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Store: db, Sessions: sessions, Activity: used,
 		Exposure: exp, Roles: platform.Roles, URLs: platform.URLs, Sharing: platform.Sharing, Revalidator: revalidator,
 		NebiTokens: nebi, SecureCookies: o.secure,
+		// Every replica has the sessions key, so any of them reads the
+		// route cookie another one set.
+		Seal: sessionsKey,
 	}))
 	if o.proxySecretFile == "" {
 		return serve(ctx, o.listen, srv)

@@ -79,6 +79,28 @@ So in path mode, with or without an apps host, share apps only with people who t
 
 In subdomain mode every app has an origin of its own, but all apps and the web UI's host are one site (`example.com`). Browsers send a cookie with requests from the same site whatever its `SameSite` setting, so a page of one app could send requests to another app with the visitor's cookie for it. The proxy refuses, with "This app cannot be opened from inside another app", every request whose `Sec-Fetch-Site` is `same-site` unless it is a top-level `GET` navigation (following a link, which is also how the sign-in hop through the UI host arrives): a `fetch`, an image, a frame or iframe, a websocket or a form post from another host of the site does not reach the app. Requests from the app's own pages are `same-origin` and are not affected. A frame on another site gets no cookie of the visitor's, so it opens the app only as an anonymous visitor would.
 
+## Apps that use absolute paths
+
+In path mode a template with `basePath: Strip` (Container image, for example) has the app's prefix removed, so the app serves at `/`. Many apps then write absolute paths in their pages: `<script src="/assets/index.js">`, `fetch("/api/items")`, a websocket to `/ws`, a redirect to `/login`. The browser asks for those outside `/u/<owner>/<app>/`. The gateway takes such a request (a root request) as the app's own, so most apps work as they are:
+
+- **By `Referer`.** A request outside `/u/` whose `Referer` is a page of an app on the same host goes to that app, with its path unchanged (the app sees it at its root, as with the prefix stripped). When a request has a `Referer`, it alone decides: one from a page of the web UI or of another host goes to no app.
+- **By cookie, for requests without a `Referer`.** Websockets carry none. When the gateway serves an app's page to a top-level navigation it sets a cookie (`__Host-javo_app_route`, `HttpOnly`, `SameSite=Lax`, `Secure`, `Path=/`, valid for an hour) naming the app, sealed with the sessions key so it cannot be made to name another app. A root request with no `Referer` goes to the app it names.
+- **Redirects.** A redirect of a stripped app to one of its own absolute paths (`Location: /login`, or an absolute URL on the same host) gets the prefix added, unless it already starts with it.
+- **Cookies.** As for every app in path mode, a cookie the app sets with `Path=/` or no `Path` gets the app's own path (see below).
+
+A root request is decided exactly like a request for the same path under the app's prefix: the visitor must be able to open that app, and the cross-app guard applies with the `Referer` as given (it is that app's own page). A request from another site (`Sec-Fetch-Site` other than `same-origin`) never uses the cookie or a `Referer`. Templates that keep the prefix (`basePath: Prefix`) get no root requests: their apps already write it in their links. Subdomain mode needs none of this, since each app is at the root of its own host.
+
+On an apps host, the app's session cookie lives on the app's path, which a root request does not match, so opening an app's page also sets `__Host-javo_app_root_<app>` on `/` with the same app session. Like every Javo cookie, apps never see it.
+
+On one host, a root request reaches an app only for a path the gateway does not serve itself: never `/api`, `/u`, a route of the gateway, a file of the built web UI, or a top-level navigation (the web UI routes its own pages in the browser, so any path may be one of them). A link in an app's page to an absolute path therefore opens the web UI, not the app, and requests without `Sec-Fetch-*` headers are never an app's there.
+
+Limits:
+
+- **Two apps open at once.** The cookie names the app whose page the browser opened last. A request without a `Referer` from one app (a websocket) while another app was opened later in another tab goes to the later one.
+- **Pages that drop the `Referer`.** A `fetch` from a page with `Referrer-Policy: no-referrer` is refused by the cross-app guard, as it would be under the prefix.
+- **An app's own cookies.** An app's cookies are kept on its path, so its requests to absolute paths do not carry them; an app that needs its cookies on such requests (a login of its own read by `/api/...`) needs a base-path setting.
+- **Links and bodies are not rewritten.** The gateway does not change HTML, CSS or JavaScript. An app that has a public URL or root path setting should still get it: it is more reliable than the fallback.
+
 ## Open websockets
 
 Every request is checked when it arrives. A websocket, a stream of server-sent events or a long download stays open after that, so the gateway checks it again every 30 seconds, with the same rules as a new request, and closes it once the visitor may no longer open the app: a share was removed, the session ended, or the app was deleted. Until that check, up to 30 seconds, an open connection keeps working. A check that cannot reach the database closes the connection too.
@@ -94,4 +116,5 @@ The apps host never sees the web UI's session cookie. When a signed-in person op
 - Removes Javo's own cookies and API tokens from the request, so the app never sees them; anonymous visitors send no cookies at all.
 - Keeps the cookies an app sets within the app: it removes their `Domain` attribute and, in path mode, sets their `Path` to the app's own path (an app's `__Host-` cookie is dropped there, since it needs `Path=/`), and drops any cookie named like Javo's own (`javo_...`). A page's script can still set cookies itself with `document.cookie`, which the gateway does not see; an apps domain that is not under the web UI's domain keeps those away from the web UI.
 - Removes the app's prefix before forwarding, for templates that serve at `/` (such as Container image), and says what it removed in `X-Forwarded-Prefix`.
+- For those templates in path mode, sends the app's requests for absolute paths to it and adds the prefix to its redirects (see [apps that use absolute paths](#apps-that-use-absolute-paths)).
 - Counts the traffic as use, for [idle stop](/admin/idle-stop/).

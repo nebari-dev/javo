@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tink-crypto/tink-go/v2/tink"
+
 	"github.com/nebari-dev/javo/internal/activity"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
@@ -75,6 +77,11 @@ type Config struct {
 	// SecureCookies is the gateway's (see config.URLs.SecureCookies): it names
 	// the UI session cookie apps read when they share the UI's origin.
 	SecureCookies bool
+	// Seal seals the route cookie that names the app a browser opened last
+	// (see rootroute.go); share the sessions key, which every replica has.
+	// Nil sets no route cookie, so root requests without a Referer go to no
+	// app.
+	Seal tink.AEAD
 }
 
 // Backend is where a workspace's app listens and how the proxy talks to it.
@@ -212,8 +219,10 @@ func notFound(w http.ResponseWriter) {
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t, ok := p.cfg.Exposure.Match(r)
 	if !ok {
-		notFound(w)
-		return
+		if r, t, ok = p.atApp(r); !ok {
+			notFound(w)
+			return
+		}
 	}
 	if p.startedByAnotherApp(r, t) || foreignOrigin(r) {
 		refuseFromAnotherApp(w, r)
@@ -266,6 +275,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		badGateway(w, t.Name)
 		return
 	}
+	stripped := backend.StripPrefix && backend.Prefix != ""
+	if isRoot(r) && !stripped {
+		notFound(w)
+		return
+	}
 
 	p.cfg.Activity.Touch(app.ID)
 	rp := &httputil.ReverseProxy{
@@ -305,7 +319,14 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 		Transport: p.transport,
 		ModifyResponse: func(resp *http.Response) error {
-			return sanitizeResponse(resp, p.cfg.Exposure.BasePath(t.Owner, t.Name))
+			if err := sanitizeResponse(resp, p.cfg.Exposure.BasePath(t.Owner, t.Name)); err != nil || !stripped {
+				return err
+			}
+			prefixLocation(resp.Header, r.Host, backend.Prefix)
+			if pageView(r) && isHTML(resp.Header) {
+				p.setRootCookies(resp.Header, r.Host, t, a.appToken)
+			}
+			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
 	}
@@ -346,10 +367,12 @@ func recheck(ctx context.Context, every time.Duration, end context.CancelFunc, a
 // access is what ServeHTTP decides a request on: the app, the person and
 // whether they may open it.
 type access struct {
-	app      *model.App
-	tpl      *model.Template
-	who      authz.Principal
-	uiID     string
+	app  *model.App
+	tpl  *model.Template
+	who  authz.Principal
+	uiID string
+	// appToken is the app session the request came with, on an apps host.
+	appToken string
 	signedIn bool
 	decision authz.Decision
 	// refusal is set (refused true) when authz allows the open but where
@@ -368,7 +391,7 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 	obj := p.apps.object(r.Context(), t)
 	a.app, a.tpl = obj.App, obj.Template
 	var sess session.Session
-	sess, a.uiID, a.signedIn = p.session(r, t, a.app)
+	sess, a.uiID, a.appToken, a.signedIn = p.session(r, t, a.app)
 	a.who = authz.Principal{Anonymous: true}
 	if a.signedIn {
 		a.who = sess.Principal
@@ -399,34 +422,38 @@ func (p *proxy) appsShareOrigin() bool {
 
 // session returns the live session the request carries for this app: the app
 // cookie when apps are on their own host (it must be minted for this very
-// app), the UI cookie when they share the UI's origin. uiID is the ID of the
-// ui session behind it.
-func (p *proxy) session(r *http.Request, t exposure.Target, app *model.App) (sess session.Session, uiID string, ok bool) {
+// app; a root request's comes in the app's root session cookie), the UI
+// cookie when they share the UI's origin. uiID is the ID of the ui session
+// behind it, and tok the app session's token.
+func (p *proxy) session(r *http.Request, t exposure.Target, app *model.App) (sess session.Session, uiID, tok string, ok bool) {
 	name, kind := model.CookieName(model.SessionCookieName, p.cfg.URLs.SecureCookies(p.cfg.SecureCookies)), session.KindUI
 	if p.cfg.Exposure.SeparateHost() {
 		name, kind = p.appCookie(t).Name, session.KindApp
+		if isRoot(r) {
+			name = p.rootSessionCookie(t).Name
+		}
 	}
 	c, err := r.Cookie(name)
 	if err != nil {
-		return session.Session{}, "", false
+		return session.Session{}, "", "", false
 	}
 	sess, err = p.cfg.Sessions.Get(r.Context(), c.Value)
 	if err != nil {
 		if !errors.Is(err, session.ErrSessionNotFound) && !errors.Is(err, session.ErrSessionExpired) {
 			slog.Error("session lookup", "err", err)
 		}
-		return session.Session{}, "", false
+		return session.Session{}, "", "", false
 	}
 	if sess.Kind != kind || kind == session.KindApp && (app == nil || sess.Workspace != app.Namespace+"/"+app.ObjectName()) {
-		return session.Session{}, "", false
+		return session.Session{}, "", "", false
 	}
 	if kind == session.KindApp {
 		sess, ok = p.revalidateParent(r.Context(), sess)
-		return sess, sess.Parent, ok
+		return sess, sess.Parent, c.Value, ok
 	}
 	id := session.ID(c.Value)
 	sess, ok = p.revalidateUI(r.Context(), id, sess)
-	return sess, id, ok
+	return sess, id, "", ok
 }
 
 // revalidateUI asks the provider about the ui session sess, whose ID is id,
@@ -535,7 +562,8 @@ func redirectToLogin(w http.ResponseWriter, r *http.Request) {
 func isGatewayCookie(name string) bool {
 	for _, secure := range []bool{false, true} {
 		if name == model.CookieName(model.SessionCookieName, secure) || name == model.CookieName(model.AppCookieName, secure) ||
-			name == model.CookieName(ticketNonceCookie, secure) ||
+			name == model.CookieName(ticketNonceCookie, secure) || name == model.CookieName(routeCookieName, secure) ||
+			strings.HasPrefix(name, model.CookieName(rootSessionPrefix, secure)) ||
 			strings.HasPrefix(name, model.CookieName(model.OIDCFlowCookiePrefix, secure)) {
 			return true
 		}

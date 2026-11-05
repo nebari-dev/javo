@@ -54,6 +54,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 	"sync"
@@ -217,6 +218,9 @@ type Server struct {
 	// internalHost serves /api/ like uiHost (Config.InternalHost).
 	internalHost string
 	apps         http.Handler
+	// ui is the built UI's files (nil without one): on one host they are
+	// never an app's root request.
+	ui http.FileSystem
 	// https says the install is served over TLS, so its hosts get HSTS.
 	https bool
 }
@@ -361,7 +365,11 @@ func NewServer(cfg Config) *Server {
 		}
 		bodies.ServeHTTP(w, r)
 	})
-	return &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, internalHost: cfg.InternalHost, https: cfg.URLs.URLScheme() == "https"}
+	srv := &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, internalHost: cfg.InternalHost, https: cfg.URLs.URLScheme() == "https"}
+	if cfg.UIDir != "" {
+		srv.ui = http.Dir(cfg.UIDir)
+	}
+	return srv
 }
 
 // readyFor is how long one answer of the readiness check is reused.
@@ -430,7 +438,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.https {
 		w.Header().Set("Strict-Transport-Security", hsts)
 	}
-	if s.apps != nil && s.forApps(r) {
+	if s.apps != nil && (s.forApps(r) || s.appAtRoot(r)) {
 		s.apps.ServeHTTP(w, r)
 		return
 	}
@@ -469,6 +477,42 @@ func (s *Server) forApps(r *http.Request) bool {
 		return isApp || (r.URL.Path != "/healthz" && r.URL.Path != "/readyz")
 	}
 	return isApp
+}
+
+// rootClaimer is the app proxy (proxy.New): it says whether a request
+// outside /u/ is a root request of an app, one its page sent for an absolute
+// path.
+type rootClaimer interface{ ClaimsRoot(r *http.Request) bool }
+
+// appAtRoot is true, when apps share the UI host, for a root request of an
+// app (rootClaimer) for a path the gateway does not serve itself: not a
+// route of its own (any method), not /api or /u, not a file of the built UI
+// and not a navigation, since the web UI routes its own pages in the browser
+// and the server cannot tell which paths those are. Requests without Fetch
+// Metadata are never an app's here, for the same reason.
+func (s *Server) appAtRoot(r *http.Request) bool {
+	c, ok := s.apps.(rootClaimer)
+	if !ok || s.exp == nil || s.exp.SeparateHost() {
+		return false
+	}
+	if mode := r.Header.Get("Sec-Fetch-Mode"); mode == "" || mode == "navigate" {
+		return false
+	}
+	p := path.Clean("/" + r.URL.Path)
+	if p == "/" || p == "/index.html" || p == "/api" || p == "/u" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/u/") {
+		return false
+	}
+	if s.ui != nil && isFile(s.ui, p) {
+		return false
+	}
+	for _, m := range []string{r.Method, http.MethodGet, http.MethodPost} {
+		q := *r
+		q.Method = m
+		if _, pattern := s.mux.Handler(&q); pattern != "" && pattern != "/" {
+			return false
+		}
+	}
+	return c.ClaimsRoot(r)
 }
 
 // catalogFallback answers requests that match no route (the mux's own 404

@@ -66,7 +66,10 @@ javo-api /api/secrets                # 403 for you: secrets are the person's
    addresses, and serve under its base path (`$BASE_URL`, `{{.BaseURL}}`):
    with `basePath: Prefix` requests arrive with that prefix (pass it to the
    framework); with `Strip` the prefix is removed, the app serves at `/`, and
-   the prefix is in the `X-Forwarded-Prefix` header.
+   the prefix is in the `X-Forwarded-Prefix` header. With `Strip` most apps
+   work as they are: the gateway sends the page's requests for absolute
+   paths (`/assets/...`, `/api/...`) to the app and adds the prefix to its
+   redirects. A base path setting is still better when the app has one.
 
 Each template runs in its own pinned environment with its framework and
 common data packages; prefer what is there. A Git repository with a
@@ -99,10 +102,12 @@ template with `userImage: true`, the admin turned images off: tell the person.
    - Whether it can run under a URL path. The gateway strips the app's
      prefix (`basePath: Strip`): requests arrive at `/`, with the prefix in
      `X-Forwarded-Prefix`. If the app's `url` has a path after the host and
-     the app writes absolute links, set its public URL or root path setting
-     to that `url`, but only a setting that changes the links it writes, not
-     one that makes it expect the prefix on incoming requests. On its own
-     subdomain (`url` ends at the host) nothing is needed.
+     the app writes absolute links, it usually works as it is (the gateway
+     sends those requests to the app), but when the app has a public URL or
+     root path setting, set it to that `url`: only a setting that changes the
+     links it writes, not one that makes it expect the prefix on incoming
+     requests. On its own subdomain (`url` ends at the host) nothing is
+     needed.
    - The settings it needs, as environment variables or command arguments.
 4. Pick a size from `GET /api/sizes` that holds the memory the docs ask for
    (`fits: true`); leave `size` out for the default.
