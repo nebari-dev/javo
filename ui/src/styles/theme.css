@@ -9,6 +9,8 @@
   --text:#1d2133; --text-2:#5b6175; --text-3:#8a90a3;
   --ink:#1d2133; --on-ink:#ffffff; --key-edge:#d3d8e1; --key-hi:rgba(255,255,255,.9);
   --accent:#3d63dd; --accent-soft:#eaeefb; --accent-text:#2f50bd;
+  /* Hover tint laid over a control's own background: --hover on light grounds, --hover-ink on ink-filled controls. */
+  --hover:rgba(29,33,51,.065); --hover-ink:rgba(255,255,255,.14);
   --ok:#1f8a4c; --ok-soft:#e5f4ea; --warn:#a66400; --warn-soft:#fdf2df; --err:#c8283a; --err-soft:#fbe9eb; --info:#3d63dd; --info-soft:#eaeefb; --idle:#7d8396; --idle-soft:#eef0f4;
   --shadow:0 1px 0 var(--key-edge),0 1px 3px rgba(29,33,51,.04); --shadow-lg:0 24px 64px rgba(29,33,51,.22); --scrim:rgba(29,33,51,.28);
   --logo-marimo:#1c7361;
@@ -29,6 +31,7 @@
   --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#737a8c;
   --ink:#e9ebf1; --on-ink:#12141a; --key-edge:#08090c; --key-hi:rgba(255,255,255,.05);
   --accent:#7c9bff; --accent-soft:#1b2342; --accent-text:#9db4ff;
+  --hover:rgba(255,255,255,.065); --hover-ink:rgba(18,20,26,.12);
   --ok:#3ccf7a; --ok-soft:#10261a; --warn:#f0b04a; --warn-soft:#2b220e; --err:#ff6b6b; --err-soft:#341417; --info:#7c9bff; --info-soft:#1b2342; --idle:#8b91a3; --idle-soft:#1c2028;
   --shadow:0 1px 0 var(--key-edge),0 2px 8px rgba(0,0,0,.25); --scrim:rgba(0,0,0,.56);
   --logo-marimo:#cccccc;
@@ -41,6 +44,7 @@
   --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#737a8c;
   --ink:#e9ebf1; --on-ink:#12141a; --key-edge:#08090c; --key-hi:rgba(255,255,255,.05);
   --accent:#7c9bff; --accent-soft:#1b2342; --accent-text:#9db4ff;
+  --hover:rgba(255,255,255,.065); --hover-ink:rgba(18,20,26,.12);
   --ok:#3ccf7a; --ok-soft:#10261a; --warn:#f0b04a; --warn-soft:#2b220e; --err:#ff6b6b; --err-soft:#341417; --info:#7c9bff; --info-soft:#1b2342; --idle:#8b91a3; --idle-soft:#1c2028;
   --shadow:0 1px 0 var(--key-edge),0 2px 8px rgba(0,0,0,.25); --scrim:rgba(0,0,0,.56);
   --logo-marimo:#cccccc;

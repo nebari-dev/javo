@@ -1,4 +1,4 @@
-import { BookOpen, ExternalLink, Monitor, Moon, Play, Plus, Square, Sun, type LucideIcon } from 'lucide-react'
+import { BookOpen, CircleStop, ExternalLink, Monitor, Moon, Play, Plus, Sun, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { SharedApp, Template, Workspace } from '../../api'
@@ -59,7 +59,7 @@ function AppActions({ ws }: { ws: Workspace }) {
         />
       )}
       {ws.phase !== 'Stopped' && ws.phase !== 'Stopping' && (
-        <PaletteAction icon={Square} label={ws.phase === 'Failed' ? 'Stop retrying' : 'Stop'} onSelect={() => setAsking(true)} />
+        <PaletteAction icon={CircleStop} label={ws.phase === 'Failed' ? 'Stop retrying' : 'Stop'} onSelect={() => setAsking(true)} />
       )}
       {asking && (
         <PalettePanel>

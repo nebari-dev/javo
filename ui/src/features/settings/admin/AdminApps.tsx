@@ -1,4 +1,4 @@
-import { Play, Square } from 'lucide-react'
+import { CircleStop, Play } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { AdminApp } from '../../../api'
 import { Banner } from '../../../components/Banner'
@@ -46,7 +46,7 @@ function StopFor({ item }: { item: AdminApp }) {
   const { app, owner } = item
   return (
     <span className="stop-wrap">
-      <Button ref={btn} size="sm" icon={Square} aria-label={`Stop ${app.displayName}`} disabled={stop.isPending} onClick={() => setAsking(true)}>
+      <Button ref={btn} size="sm" icon={CircleStop} aria-label={`Stop ${app.displayName}`} disabled={stop.isPending} onClick={() => setAsking(true)}>
         <span className="atable-act-label">Stop</span>
       </Button>
       {asking && (
@@ -58,7 +58,7 @@ function StopFor({ item }: { item: AdminApp }) {
           }
           body={`${owner.displayName} sees that an admin stopped it. Their files and settings are kept, and they can start it again.`}
           confirm="Stop"
-          icon={Square}
+          icon={CircleStop}
           danger
           busy={stop.isPending}
           error={stop.isError ? stop.error : undefined}

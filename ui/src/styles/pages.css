@@ -118,7 +118,6 @@ a.btn{text-decoration:none}
 .attn{padding:6px}
 .attn-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px;border-radius:12px;color:var(--text)}
 .attn-item+.attn-item{border-top:1px solid var(--border)}
-.attn-item:hover{background:var(--surface-2)}
 .attn-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center}
 .attn-name{font-weight:600;display:block}
 .attn-more{padding:2px 14px 10px}
@@ -207,7 +206,6 @@ a.btn{text-decoration:none}
 .stepper .unit{right:10px}
 .stepper .input::-webkit-inner-spin-button,.stepper .input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .stepper .icon-btn{width:40px;height:auto;align-self:stretch;border-radius:10px;border-color:var(--border-strong);background:var(--surface);color:var(--text);box-shadow:inset 0 1px 0 var(--key-hi),0 1px 0 var(--key-edge)}
-.stepper .icon-btn:hover{background:var(--surface-2)}
 .stepper .icon-btn:disabled{background:var(--surface);border-color:var(--border-strong);box-shadow:none}
 .sample-card{border:1.5px solid var(--border)}
 .sample-card:hover{border-color:var(--border-strong)}
