@@ -58,10 +58,13 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,id=javo-go-mod,target=/go/pkg/mod go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
+# The release tag and full commit the UI shows (internal/buildinfo); unset,
+# the build says "dev" and knows no commit.
+ARG JAVO_VERSION= JAVO_COMMIT=
 RUN --mount=type=cache,id=javo-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=javo-go-build,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags='-s -w' -o /out/javo ./cmd/javo
+    go build -trimpath -ldflags="-s -w -X github.com/nebari-dev/javo/internal/buildinfo.version=${JAVO_VERSION} -X github.com/nebari-dev/javo/internal/buildinfo.commit=${JAVO_COMMIT}" -o /out/javo ./cmd/javo
 
 # restic 0.19.1 (backups to the S3-compatible bucket): restic's own image,
 # pinned by index digest; the image for each architecture carries that

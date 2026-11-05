@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
@@ -388,6 +389,16 @@ func TestInfoSaysWhetherAPIDocsAreOn(t *testing.T) {
 		if got.APIDocs != on {
 			t.Fatalf("docs %v: info %+v", on, got)
 		}
+	}
+}
+
+func TestInfoSaysWhichBuildIsRunning(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{})
+	got := apitest.Decode[struct{ Version, Commit string }](t, f.Do("GET", "/api/info", "", f.LoginAlice()))
+	want := buildinfo.Get()
+	if got.Version != want.Version || got.Commit != want.Commit || got.Version == "" {
+		t.Fatalf("info %+v, want %+v", got, want)
 	}
 }
 

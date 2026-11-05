@@ -122,6 +122,9 @@ jobs:
       # The image's javo binaries, both architectures at once (the image's
       # javo-bin stage is replaced by this folder).
       - name: Compile javo
+        env:
+          JAVO_VERSION: ${{ github.ref_name }}
+          JAVO_COMMIT: ${{ github.sha }}
         run: scripts/build/cross-build-javo.sh "$RUNNER_TEMP/javo-bin"
 
       # The runner is thrown away after the job, so the builder is not

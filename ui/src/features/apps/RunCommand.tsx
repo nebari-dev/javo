@@ -1,7 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { PodRun } from '../../api'
 import { CopyButton } from '../../components/CopyButton'
+import { sourceLink } from '../../lib/github'
+import { useServerInfo } from '../../lib/queries'
 import type { CodeToken } from '../files/fileSyntax'
+
+/** The launcher pods run commands through, and where it lives in the repository. */
+const POD_USER = '/opt/javo/pod-user.sh'
+const POD_USER_SOURCE = 'pod/files/pod-user.sh'
+
+/** The text with the launcher's path, wherever it appears, as a link to its source. */
+function linkLauncher(text: string, href: string, style?: CSSProperties): ReactNode[] {
+  return text.split(POD_USER).flatMap((piece, i) => [
+    ...(i > 0
+      ? [
+          <a key={`l${i}`} href={href} target="_blank" rel="noopener noreferrer" style={style} title="pod-user.sh on GitHub">
+            {POD_USER}
+          </a>,
+        ]
+      : []),
+    ...(piece ? [<span key={`t${i}`} style={style}>{piece}</span>] : []),
+  ])
+}
 
 /** The command line a pod runs, shell-coloured once the grammar loads (plain until then), wrapped, with a copy icon. */
 export function CommandLine({ line, label = 'Copy command' }: { line: string; label?: string }) {
@@ -17,16 +37,15 @@ export function CommandLine({ line, label = 'Copy command' }: { line: string; la
     }
   }, [line])
   const parts = tokens?.line === line ? tokens.parts : null
+  const launcher = sourceLink(useServerInfo().data, POD_USER_SOURCE)
   return (
     <div className="codeblock cmdline">
       <code>
         {parts
           ? parts.map((t, i) => (
-              <span key={i} style={{ color: t.color, fontStyle: t.italic ? 'italic' : undefined }}>
-                {t.content}
-              </span>
+              <span key={i}>{linkLauncher(t.content, launcher, { color: t.color, fontStyle: t.italic ? 'italic' : undefined })}</span>
             ))
-          : line}
+          : linkLauncher(line, launcher)}
       </code>
       <CopyButton label={label} text={() => line} />
     </div>

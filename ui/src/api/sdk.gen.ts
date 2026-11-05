@@ -619,7 +619,7 @@ export const getIdleStopPolicy = <ThrowOnError extends boolean = false>(options?
 });
 
 /**
- * Which optional parts of the server are on
+ * Which optional parts of the server are on, and which build it is
  */
 export const serverInfo = <ThrowOnError extends boolean = false>(options?: Options<ServerInfoData, ThrowOnError>): RequestResult<ServerInfoResponses, ServerInfoErrors, ThrowOnError> => (options?.client ?? client).get<ServerInfoResponses, ServerInfoErrors, ThrowOnError>({
     security: [{

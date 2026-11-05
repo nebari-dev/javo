@@ -2311,15 +2311,24 @@
             "description": "The API docs page is served at /api/docs/",
             "type": "boolean"
           },
+          "commit": {
+            "description": "The full git commit the server was built from; absent when the build does not know it",
+            "type": "string"
+          },
           "tokenMaxDays": {
             "description": "The longest expiry a new token may have, in days; 0 allows tokens that never expire",
             "format": "int64",
             "type": "integer"
+          },
+          "version": {
+            "description": "The release tag the server was built from (v0.2.22), or dev for a build that is not a release",
+            "type": "string"
           }
         },
         "required": [
           "apiDocs",
-          "tokenMaxDays"
+          "tokenMaxDays",
+          "version"
         ],
         "type": "object"
       },
@@ -8493,7 +8502,7 @@
             "description": "Internal Server Error"
           }
         },
-        "summary": "Which optional parts of the server are on",
+        "summary": "Which optional parts of the server are on, and which build it is",
         "tags": [
           "auth"
         ]

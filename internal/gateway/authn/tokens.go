@@ -12,6 +12,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -54,7 +55,9 @@ type TokenBody struct {
 type Info struct {
 	APIDocs bool `json:"apiDocs" doc:"The API docs page is served at /api/docs/"`
 	// TokenMaxDays is api.tokens.maxLifetime in days.
-	TokenMaxDays int `json:"tokenMaxDays" doc:"The longest expiry a new token may have, in days; 0 allows tokens that never expire"`
+	TokenMaxDays int    `json:"tokenMaxDays" doc:"The longest expiry a new token may have, in days; 0 allows tokens that never expire"`
+	Version      string `json:"version" doc:"The release tag the server was built from (v0.2.22), or dev for a build that is not a release"`
+	Commit       string `json:"commit,omitempty" doc:"The full git commit the server was built from; absent when the build does not know it"`
 }
 
 // TokensAPI serves /api/tokens: a person's personal API tokens. MaxLifetime
@@ -210,10 +213,11 @@ func (t *TokensAPI) Register(api huma.API) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "serverInfo", Method: http.MethodGet, Path: "/api/info",
-		Summary: "Which optional parts of the server are on", Tags: []string{"auth"},
+		Summary: "Which optional parts of the server are on, and which build it is", Tags: []string{"auth"},
 		Errors: []int{http.StatusUnauthorized},
 	}, func(context.Context, *struct{}) (*struct{ Body Info }, error) {
-		return &struct{ Body Info }{Body: Info{APIDocs: t.Docs, TokenMaxDays: int(t.MaxLifetime / (24 * time.Hour))}}, nil
+		b := buildinfo.Get()
+		return &struct{ Body Info }{Body: Info{APIDocs: t.Docs, TokenMaxDays: int(t.MaxLifetime / (24 * time.Hour)), Version: b.Version, Commit: b.Commit}}, nil
 	})
 }
 

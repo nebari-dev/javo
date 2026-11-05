@@ -108,7 +108,7 @@ if on_node sudo k3s ctr -n k8s.io images ls -q | grep -qxF "docker.io/library/$r
 else
   start=$SECONDS
   DOCKER_HOST="ssh://$ssh_host" docker buildx build --builder default --platform "$platform" \
-    --provenance=false --load -t "$ref" .
+    --provenance=false --build-arg JAVO_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)" --load -t "$ref" .
   on_node "docker save $ref | sudo k3s ctr -n k8s.io images import --platform $platform -"
   # Refuse to go on with an image the node cannot run.
   got=$(on_node sudo k3s ctr -n k8s.io images ls "name==docker.io/library/$ref" | awk 'NR==2{print $(NF-1)}')
