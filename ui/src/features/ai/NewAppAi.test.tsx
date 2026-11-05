@@ -86,6 +86,27 @@ describe('Describe it suggestion', () => {
     expect(ghost()).toBe('')
   })
 
+  it('goes when letters are deleted, and the next pause brings it back after the shorter text', async () => {
+    api({ 'POST /api/ai/agent/suggest': { body: { suggestions: [suggestion] } } })
+    renderApp('/apps/new')
+    await typeInBox('A Streamlit dash')
+    await vi.waitFor(() => expect(ghost()).toBe('board of sales/data.csv'))
+    await userEvent.keyboard('{Backspace}')
+    expect(ghost()).toBe('')
+    await vi.waitFor(() => expect(ghost()).toBe('hboard of sales/data.csv'))
+  })
+
+  it('shows only while the caret is at the end of the text', async () => {
+    api({ 'POST /api/ai/agent/suggest': { body: { suggestions: [suggestion] } } })
+    renderApp('/apps/new')
+    await typeInBox('A Streamlit dash')
+    await vi.waitFor(() => expect(ghost()).toBe('board of sales/data.csv'))
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(ghost()).toBe('')
+    await userEvent.keyboard('{End}')
+    expect(ghost()).toBe('board of sales/data.csv')
+  })
+
   it('is not asked for under three characters', async () => {
     const calls = api({ 'POST /api/ai/agent/suggest': { body: { suggestions: [suggestion] } } })
     renderApp('/apps/new')

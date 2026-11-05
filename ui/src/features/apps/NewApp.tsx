@@ -1,5 +1,5 @@
 import { File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentLabel, useAgentStatus, useAgentSuggestions, useBuildWithAgent } from '../ai/ai'
 import type { DraftView, Template } from '../../api'
@@ -101,15 +101,25 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
   const [closed, setClosed] = useState(false)
   // Suggestions come from the admin's agent model, so only with that one in effect.
   const fetched = useAgentSuggestions(text, agent.mode === 'platform' && !closed)[0]
-  // The last suggestion stays while the typing goes on along it; a new one
-  // replaces it after the next pause.
+  // The last suggestion stays while the typing goes on along it; deleting
+  // drops it, and a new one replaces it after the next pause.
   const [suggestion, setSuggestion] = useState<string>()
   useEffect(() => {
     if (fetched) setSuggestion(fetched)
   }, [fetched])
+  // The rest is drawn after the text, so it shows only with the caret there.
+  const [caretAtEnd, setCaretAtEnd] = useState(true)
   // The rest of the suggestion, shown after the text in the box while the
   // typing still matches it; Tab takes it.
-  const rest = !closed && suggestion && suggestion.startsWith(text) && suggestion.length > text.length ? suggestion.slice(text.length) : ''
+  const rest =
+    !closed && caretAtEnd && suggestion && suggestion.startsWith(text) && suggestion.length > text.length ? suggestion.slice(text.length) : ''
+  // The grey copy behind the box scrolls with it, so the rest stays after the text.
+  const ghostRef = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLTextAreaElement>(null)
+  const syncScroll = () => {
+    if (ghostRef.current && boxRef.current) ghostRef.current.scrollTop = boxRef.current.scrollTop
+  }
+  useLayoutEffect(syncScroll, [text, rest])
   const name = agent.templateName || agent.template
   const site = kindSite(agent.template)
   const id = useId()
@@ -133,7 +143,7 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
         <label htmlFor={id}>Describe the app</label>
         <div className="ghost-wrap">
           {/* The typed text, invisible, then the rest in grey: drawn behind the box, in its font and padding. */}
-          <div className="input ghost" aria-hidden="true">
+          <div ref={ghostRef} className="input ghost" aria-hidden="true">
             <span className="ghost-typed">{text}</span>
             <span className="ghost-rest">{rest}</span>
           </div>
@@ -144,10 +154,18 @@ function DescribeIt({ agent }: { agent: { template: string; templateName: string
             value={text}
             placeholder="A Streamlit dashboard of sales/data.csv"
             aria-describedby={rest ? `${id}-hint` : undefined}
+            ref={boxRef}
             onChange={(e) => {
-              setText(e.target.value)
+              const next = e.target.value
+              if (!next.startsWith(text)) setSuggestion(undefined)
+              setText(next)
               setClosed(false)
             }}
+            onSelect={(e) => {
+              const b = e.currentTarget
+              setCaretAtEnd(b.selectionStart === b.value.length && b.selectionEnd === b.value.length)
+            }}
+            onScroll={syncScroll}
             onKeyDown={onKeyDown}
             onBlur={() => setClosed(true)}
           />
