@@ -88,7 +88,9 @@ export function AdminApps() {
           <thead>
             <tr>
               <th scope="col">App</th>
-              <th scope="col">Owner</th>
+              <th scope="col" className="col-owner">
+                Owner
+              </th>
               <th scope="col">Status</th>
               <th scope="col" className="col-type">
                 Last used
@@ -110,11 +112,13 @@ export function AdminApps() {
                       <KindLogo kind={item.app.kind} />
                       <div className="atable-name">
                         <span className="atable-title">{item.app.displayName}</span>
+                        {/* On a phone the owner shows here and its column goes, to leave room for the actions. */}
+                        <span className="atable-why atable-owner-sub" data-owner={item.owner.displayName} />
                         {note && <span className="atable-why warn">{note}</span>}
                       </div>
                     </div>
                   </th>
-                  <td>
+                  <td className="col-owner">
                     <span title={shared.has(item.owner.displayName) ? item.owner.username : undefined}>{item.owner.displayName}</span>
                   </td>
                   <td>

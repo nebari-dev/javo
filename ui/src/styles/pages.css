@@ -31,6 +31,8 @@ ul.plain{list-style:none;margin:6px 0 0;padding:0}
 .atable-name a{color:var(--text);font-weight:600;font-size:var(--fs-md)}
 .atable-name a:hover{text-decoration:underline}
 .atable-why{font-size:var(--fs-xs)}
+.atable-owner-sub{display:none}
+.atable-owner-sub::after{content:attr(data-owner)}
 .atable-why.err{color:var(--err)}
 .atable-why.warn{color:var(--text-2)}
 .atable-status{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
@@ -47,6 +49,14 @@ ul.plain{list-style:none;margin:6px 0 0;padding:0}
 @media (max-width:900px){.atable .col-file{display:none}}
 @media (max-width:640px){
   .atable .col-type{display:none}
+  /* The run strip ends with the last run, so its own column goes on a phone. */
+  .atable .col-last{display:none}
+  .atable .col-owner{display:none}
+  .atable .atable-owner-sub{display:block;color:var(--text-2)}
+  .run-strip{gap:2px}
+  .atable th.col-runs{white-space:normal}
+  .atable .atable-acts{gap:4px}
+  .run-cell{width:6px}
   .atable th,.atable td{padding:8px 10px}
   .atable-app{min-width:0}
   .atable .col-act .btn{min-width:0;width:var(--btn-h-sm);padding:0}
@@ -242,9 +252,9 @@ a.btn{text-decoration:none}
 .pk-note{font-size:var(--fs-xs);padding:8px 10px}
 
 /* Sign in */
-.login{min-height:100vh;display:grid;place-items:center;padding:24px 16px;position:relative}
+.login{min-height:100vh;display:grid;grid-template-columns:minmax(0,1fr);place-items:center;padding:24px 16px;position:relative}
 .login-top{position:absolute;top:16px;right:16px}
-.login-card{width:400px;max-width:100%;display:flex;flex-direction:column;gap:18px}
+.login-card{width:100%;max-width:400px;box-sizing:border-box;display:flex;flex-direction:column;gap:18px}
 .login-card .brand{padding:0}
 .login-card h1{font-size:var(--fs-xl);margin:0}
 .login-form{display:flex;flex-direction:column}
@@ -259,6 +269,8 @@ a.btn{text-decoration:none}
   .dhead .grow .row{flex-wrap:wrap}
   .dhead .actions-col{margin-left:0;align-items:flex-start;flex-basis:100%}
   .dhead .actions{justify-content:flex-start}
+  /* Settings sections wrap onto a second line instead of scrolling out of sight. */
+  .subnav{flex-wrap:wrap;overflow-x:visible;box-shadow:none;border-bottom:1px solid var(--border)}
 }
 .login-or{text-align:center;margin:2px 0}
 

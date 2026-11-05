@@ -53,7 +53,7 @@ function JobRow({ job }: { job: JobView }) {
       <td>
         <RunStrip recent={job.recent ?? []} />
       </td>
-      <td>
+      <td className="col-last">
         <LastRunPill job={job} />
       </td>
       <td className="col-file">
@@ -102,8 +102,12 @@ export function JobsList() {
                     <th scope="col" className="col-type">
                       Schedule
                     </th>
-                    <th scope="col">Last 12 runs</th>
-                    <th scope="col">Last run</th>
+                    <th scope="col" className="col-runs">
+                      Last 12 runs
+                    </th>
+                    <th scope="col" className="col-last">
+                      Last run
+                    </th>
                     <th scope="col" className="col-file">
                       Next
                     </th>
