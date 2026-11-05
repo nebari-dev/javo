@@ -650,3 +650,28 @@ func TestPiTemplateIsTheCodingAgent(t *testing.T) {
 		t.Fatalf("tmux runs %q, want the start script", last)
 	}
 }
+
+// A template that hands its agent the API guide (apiGuidePaths) gives it the
+// deploy rights the guide describes: its token may create and change the
+// owner's apps and jobs (agentDeploy), on apps that are never shared.
+func TestTemplatesWithTheAgentGuideMayDeploy(t *testing.T) {
+	t.Parallel()
+	files, err := filepath.Glob(filepath.Join("..", "..", "..", "deploy", "helm", "javo", "files", "templates", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	guided := 0
+	for _, f := range files {
+		tpl := shippedTemplate(t, strings.TrimSuffix(filepath.Base(f), ".yaml"))
+		if len(tpl.Spec.APIGuidePaths) == 0 {
+			continue
+		}
+		guided++
+		if !tpl.Spec.AgentDeploy || model.MaxSharing(tpl) != model.AccessPrivate {
+			t.Errorf("%s mounts the API guide but its agent may not deploy (agentDeploy %v, maxSharing %s)", tpl.Name, tpl.Spec.AgentDeploy, model.MaxSharing(tpl))
+		}
+	}
+	if guided < 2 {
+		t.Fatalf("only %d shipped templates mount the API guide", guided)
+	}
+}

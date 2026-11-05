@@ -64,8 +64,12 @@ spec:
   sample:
     path: /opt/javo/samples/claude-code
     title: Starter project
-  # The app gets a read and write API token of its owner (JAVO_URL,
-  # JAVO_TOKEN) and a guide to the API, which Claude Code reads as its
-  # managed instructions file, so the agent can create and manage apps.
+  # The app gets an API token of its owner (JAVO_URL, JAVO_TOKEN) and a
+  # guide to the API, which Claude Code reads as its managed instructions
+  # file.
   apiToken: true
   apiGuidePaths: [/etc/claude-code/CLAUDE.md]
+  # Its token may create, change, restart and delete the owner's apps and
+  # jobs that hold no secret, API token or Nebi token; anything else is left
+  # to the person in the browser.
+  agentDeploy: true
