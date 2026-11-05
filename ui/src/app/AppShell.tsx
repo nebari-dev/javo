@@ -12,6 +12,7 @@ import { UserMenu } from './UserMenu'
 import { features } from '../features'
 import { useLogout, useMe, useServerInfo, useWarmHome } from '../lib/queries'
 import { buildLink } from '../lib/github'
+import { SlidingNav } from './NavHover'
 import { BrandLogo, BrandName } from '../components/BrandLogo'
 import { readStored, writeStored } from '../lib/storage'
 
@@ -67,7 +68,7 @@ export function AppShell() {
             <ToggleIcon size={18} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
-        <nav className="nav" aria-label="Main">
+        <SlidingNav className="nav" label="Main">
           <NavLink to="/" end aria-label="Home" title="Home">
             <PART_ICONS.home size={17} aria-hidden="true" />
             <span className="lbl">Home</span>
@@ -86,18 +87,18 @@ export function AppShell() {
               <span className="lbl">{label}</span>
             </NavLink>
           ))}
-        </nav>
-        <nav className="nav nav-foot" aria-label="Settings and help">
-          {build && (
-            <a className="side-version" href={build.href} target="_blank" rel="noopener noreferrer" title="This build on GitHub">
-              {build.label}
-            </a>
-          )}
+        </SlidingNav>
+        {build && (
+          <a className="side-version" href={build.href} target="_blank" rel="noopener noreferrer" title="This build on GitHub">
+            {build.label}
+          </a>
+        )}
+        <SlidingNav className="nav nav-foot" label="Settings and help">
           <NavLink to="/settings" aria-label="Settings" title="Settings">
             <PART_ICONS.settings size={17} aria-hidden="true" />
             <span className="lbl">Settings</span>
           </NavLink>
-        </nav>
+        </SlidingNav>
       </aside>
       {navOpen && <div className="nav-backdrop" data-testid="nav-backdrop" aria-hidden="true" onClick={() => setNavOpen(false)} />}
       <div className="app-col">
