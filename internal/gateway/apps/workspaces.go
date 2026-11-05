@@ -174,9 +174,8 @@ type Workspaces struct {
 	cfg Config
 }
 
-// AppsShareOrigin says whether app pages share an origin with the UI or
-// with each other (exposure.SharesOrigin).
-func (s *Workspaces) AppsShareOrigin() bool { return exposure.SharesOrigin(s.exp) }
+// Origin is where app pages are served, for authz.OpenOn.
+func (s *Workspaces) Origin() authz.Origin { return authz.OriginOf(s.exp, s.cfg.Sharing.AllowOneHost) }
 
 // appURL is the address people open the app at.
 func (s *Workspaces) appURL(app *model.App) string {

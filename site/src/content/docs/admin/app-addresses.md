@@ -32,7 +32,7 @@ Javo refuses state-changing API calls from other sites: the web UI marks each ca
 
 - a platform admin or template admin cannot open other people's apps, even ones shared with them, since the app's page would act with their admin rights (they get "Admins cannot open other people's apps while apps share one address"); they still open their own;
 - nobody can open a preview of a pull request, from a fork or from the same repository: it runs code the owner has not necessarily read;
-- **sharing beyond Private is refused.** Serve apps on an apps host or on subdomains and sharing works (an apps host in path mode still puts all apps in one origin, see below). To allow sharing on one host anyway, knowing the risk, set:
+- **sharing beyond Private is refused**, and apps shared earlier, while the install had an apps host, no longer open for the people they were shared with. Serve apps on an apps host or on subdomains and sharing works (an apps host in path mode still puts all apps in one origin, see below). To allow sharing on one host anyway, knowing the risk, set:
 
 ```yaml
 config:
@@ -47,6 +47,10 @@ The Docker Compose install does this, since it serves everything on one address.
 An apps host keeps apps away from the web UI, but in path mode every app of every owner is served from the same origin (`https://apps.example.com`). Browsers isolate pages by origin, not by path: a cookie's `Path` does not keep it from a script on another path of the same origin. So a page of one app can load another app the visitor can open in a frame and script it as them, for example a JupyterLab terminal. **Only subdomain mode gives each app an origin of its own, and only it isolates apps from each other.**
 
 Path mode with an apps host gets the same refusals as one host: platform admins and template admins cannot open other people's apps, and previews of pull requests do not open. Sharing is still allowed there.
+
+## Admins and apps that run code as their owner
+
+In every mode, a platform admin cannot open someone else's app that runs code as its owner: a terminal, JupyterLab, VS Code, RStudio, a coding agent, or any app whose template keeps it Private. It would give the admin a shell or editor as that person, with their secrets. They get "Only its owner opens this app", and **Settings > All apps** shows no Open button for it. They still start, stop and delete it and read its logs. In subdomain mode they open other people's other apps, and a code editor its owner shared with them.
 
 ### The cross-app guard
 

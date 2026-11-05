@@ -7,9 +7,11 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 )
 
@@ -48,8 +50,10 @@ type AdminApp struct {
 	// absent before any.
 	LastActiveAt *time.Time `json:"lastActiveAt,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
-	// CanOpen is whether the calling admin may open the app: their own, or
-	// any when apps have their own origins (exposure.SharesOrigin).
+	// CanOpen is whether the calling admin may open the app, exactly as the
+	// proxy decides (authz.OpenOn): their own (but no preview while apps
+	// share an origin), or, when apps have their own origins, someone else's
+	// that does not run code as its owner.
 	CanOpen bool `json:"canOpen"`
 }
 
@@ -79,7 +83,14 @@ func (a *API) registerApps(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
-		caller, shared := authn.User(ctx).ID, s.AppsShareOrigin()
+		caller, origin := authn.User(ctx), s.Origin()
+		roles := authz.RolesOf(caller, a.Roles)
+		live := map[string]*model.App{}
+		for i := range all {
+			if all[i].DeletedAt.IsZero() {
+				live[all[i].ID] = &all[i]
+			}
+		}
 		owners := map[string]PersonRef{}
 		out := &adminAppsOutput{}
 		out.Body.Items = []AdminApp{}
@@ -96,8 +107,14 @@ func (a *API) registerApps(api huma.API) {
 			item := AdminApp{
 				ID: app.ID, Owner: owner,
 				App: s.View(ctx, app, tpls), CreatedAt: app.CreatedAt,
-				CanOpen: !shared || app.Owner == caller,
 			}
+			// The parent as ParentOf reads it: nil when gone or deleted.
+			var parent *model.App
+			if app.ParentID != "" {
+				parent = live[app.ParentID]
+			}
+			d, refusal := authz.OpenOn(caller, roles, authz.Object{App: app, Parent: parent, Template: tpls[app.Template]}, origin)
+			item.CanOpen = d.Allowed && refusal == ""
 			if !app.LastActiveAt.IsZero() {
 				t := app.LastActiveAt
 				item.LastActiveAt = &t

@@ -40,6 +40,9 @@ type Config struct {
 	// Roles bind groups to roles; URLs say where the UI host and the apps are.
 	Roles config.Roles
 	URLs  config.URLs
+	// Sharing is the platform's sharing settings: on one host a share opens
+	// only with allowOneHost.
+	Sharing config.SharingCfg
 	// Store holds the apps and templates a request is decided on. Every
 	// time a platform admin opens someone else's app it also gets an audit
 	// row (at most one per admin and app every adminOpenEvery).
@@ -234,6 +237,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			p.redirectToSignIn(w, r)
 			return
 		}
+		// A platform admin, who sees the app in All apps, is told why.
+		if d.Code == reasons.MsgOwnerOnlyOpens {
+			writePage(w, http.StatusForbidden, page{Title: reasons.Msg(d.Code), Link: "/apps", LinkText: "See your apps"})
+			return
+		}
 		notFound(w)
 		return
 	}
@@ -341,8 +349,8 @@ type access struct {
 	uiID     string
 	signedIn bool
 	decision authz.Decision
-	// refusal is set (refused true) when authz allows the open but the
-	// apps' shared origin does not (sharedOriginRefusal).
+	// refusal is set (refused true) when authz allows the open but where
+	// apps are served does not (authz.OpenOn).
 	refusal reasons.MessageCode
 	refused bool
 }
@@ -365,33 +373,9 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 	if a.app == nil {
 		return a
 	}
-	roles := authz.RolesOf(a.who, p.cfg.Roles)
-	a.decision = authz.Decide(a.who, roles, authz.ActOpenApp, obj)
-	if a.decision.Allowed {
-		a.refusal, a.refused = p.sharedOriginRefusal(a.app, a.decision, roles)
-	}
+	a.decision, a.refusal = authz.OpenOn(a.who, authz.RolesOf(a.who, p.cfg.Roles), obj, authz.OriginOf(p.cfg.Exposure, p.cfg.Sharing.AllowOneHost))
+	a.refused = a.refusal != ""
 	return a
-}
-
-// sharedOriginRefusal refuses what must not open while an app shares its
-// origin with the UI (one host) or with the other apps (path mode with an apps
-// host). There a page of one app can act as whoever views it: on one host it
-// calls the API with their session, on an apps host it scripts their other
-// apps. So a viewer holding any admin role (roles) opens only their own apps,
-// since someone else's page would act with that role, and nobody opens a
-// preview of a pull request, which runs code the owner has not necessarily
-// read (a stranger's, for a fork).
-func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision, roles []authz.Role) (reasons.MessageCode, bool) {
-	if !p.appsShareOrigin() {
-		return "", false
-	}
-	switch {
-	case d.Via != "owner" && authz.Elevated(roles):
-		return reasons.MsgAdminOpenNeedsAppsHost, true
-	case app.ParentID != "":
-		return reasons.MsgPreviewNeedsAppsHost, true
-	}
-	return "", false
 }
 
 // startedByAnotherApp is true when a page of another app could have sent r:

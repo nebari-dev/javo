@@ -63,6 +63,48 @@ func TestAdminAppsSayWhichTheAdminMayOpen(t *testing.T) {
 	}
 }
 
+// canOpen agrees with the proxy: with apps on their own hosts an admin opens
+// someone else's plain app but not one that runs code as its owner (a
+// terminal), and on a shared origin not even their own preview of a pull
+// request.
+func TestAdminAppsCanOpenAgreesWithTheProxy(t *testing.T) {
+	t.Parallel()
+	plain := gatewaytest.Template("t", "streamlit")
+	plain.Spec.MaxSharing = model.AccessPublic
+	shell := gatewaytest.Template("shell", "terminal")
+	app := func(owner, name, tpl string) *model.App {
+		a := gatewaytest.App(owner, name)
+		a.Template = tpl
+		return a
+	}
+	canOpen := func(f *apitest.Fixture) map[string]bool {
+		t.Helper()
+		w := f.Do(http.MethodGet, "/api/admin/apps", "", f.Session(apitest.AdminID, "javo-admins"))
+		if w.Code != http.StatusOK {
+			t.Fatalf("list: %d %s", w.Code, w.Body)
+		}
+		got := map[string]bool{}
+		for _, it := range apitest.Decode[apitest.AdminAppsJSON](t, w).Items {
+			got[it.App.Name] = it.CanOpen
+		}
+		return got
+	}
+
+	sub := apitest.New(t, apitest.Options{Urls: apitest.Subdomains},
+		plain, shell, app(apitest.MemberID, "site", "t"), app(apitest.MemberID, "term", "shell"), app(apitest.AdminID, "myterm", "shell"))
+	if got := canOpen(sub); !got["site"] || got["term"] || !got["myterm"] {
+		t.Errorf("subdomain canOpen = %v, want site and myterm only", got)
+	}
+
+	one := apitest.New(t, apitest.Options{}, plain, app(apitest.AdminID, "mine", "t"))
+	pr := app(apitest.AdminID, "mine-pr-7", "t")
+	pr.ParentID, pr.PullNumber = one.GetWorkspace(apitest.AdminID, "mine").ID, 7
+	gatewaytest.Seed(t, one.Db, []any{pr})
+	if got := canOpen(one); !got["mine"] || got["mine-pr-7"] {
+		t.Errorf("one host canOpen = %v, want mine only", got)
+	}
+}
+
 // The owner is labelled by their display name, else their username, never
 // the internal identity name: a local account has no display name, and a
 // person deleted since keeps only the readable part of their identity name.

@@ -386,7 +386,7 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 	if err != nil {
 		return nil, err
 	}
-	roles := authz.RolesOf(p, s.roles)
+	roles, origin := authz.RolesOf(p, s.roles), s.ws.Origin()
 	out := &sharedOutput{}
 	out.Body.Items = []SharedApp{}
 	for i := range apps {
@@ -395,8 +395,8 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 		if err != nil {
 			return nil, problem.Internal("read the parent of a preview", err)
 		}
-		d := authz.Decide(p, roles, authz.ActOpenApp, authz.Object{App: app, Parent: parent, Template: API[app.Template]})
-		if !d.Allowed || d.Via != "user" && !strings.HasPrefix(d.Via, "group:") {
+		d, refusal := authz.OpenOn(p, roles, authz.Object{App: app, Parent: parent, Template: API[app.Template]}, origin)
+		if !d.Allowed || refusal != "" || d.Via != "user" && !strings.HasPrefix(d.Via, "group:") {
 			continue
 		}
 		owner := Owner{ID: app.Owner, DisplayName: app.Owner}

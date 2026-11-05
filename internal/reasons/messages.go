@@ -23,21 +23,24 @@ const (
 	// each other (path mode with an apps host).
 	MsgAdminOpenNeedsAppsHost MessageCode = "AdminOpenNeedsAppsHost"
 	MsgPreviewNeedsAppsHost   MessageCode = "PreviewNeedsAppsHost"
-	MsgOpenedFromAnotherApp   MessageCode = "OpenedFromAnotherApp"
-	MsgAppNotFound            MessageCode = "AppNotFound"
-	MsgAppChanged             MessageCode = "AppChanged"
-	MsgTemplateChanged        MessageCode = "TemplateChanged"
-	MsgTemplateManagedByHelm  MessageCode = "TemplateManagedByHelm"
-	MsgTemplateNameInvalid    MessageCode = "TemplateNameInvalid"
-	MsgNameNeedsLetter        MessageCode = "NameNeedsLetter"
-	MsgNameInvalid            MessageCode = "NameInvalid"
-	MsgNameTaken              MessageCode = "NameTaken"
-	MsgNameTakenByYou         MessageCode = "NameTakenByYou" // arg: existing display name
-	MsgTemplateUnavailable    MessageCode = "TemplateUnavailable"
-	MsgSizeUnavailable        MessageCode = "SizeUnavailable"
-	MsgSizeTooBig             MessageCode = "SizeTooBig" // args: the largest machine's CPU and memory in words
-	MsgSizeTooBigShort        MessageCode = "SizeTooBigShort"
-	MsgSizeNoMachine          MessageCode = "SizeNoMachine" // arg: what the size needs in words, with its GPUs and labels
+	MsgSharedNeedsAppsHost    MessageCode = "SharedNeedsAppsHost"
+	// A platform admin and someone else's app that runs code as its owner.
+	MsgOwnerOnlyOpens        MessageCode = "OwnerOnlyOpens"
+	MsgOpenedFromAnotherApp  MessageCode = "OpenedFromAnotherApp"
+	MsgAppNotFound           MessageCode = "AppNotFound"
+	MsgAppChanged            MessageCode = "AppChanged"
+	MsgTemplateChanged       MessageCode = "TemplateChanged"
+	MsgTemplateManagedByHelm MessageCode = "TemplateManagedByHelm"
+	MsgTemplateNameInvalid   MessageCode = "TemplateNameInvalid"
+	MsgNameNeedsLetter       MessageCode = "NameNeedsLetter"
+	MsgNameInvalid           MessageCode = "NameInvalid"
+	MsgNameTaken             MessageCode = "NameTaken"
+	MsgNameTakenByYou        MessageCode = "NameTakenByYou" // arg: existing display name
+	MsgTemplateUnavailable   MessageCode = "TemplateUnavailable"
+	MsgSizeUnavailable       MessageCode = "SizeUnavailable"
+	MsgSizeTooBig            MessageCode = "SizeTooBig" // args: the largest machine's CPU and memory in words
+	MsgSizeTooBigShort       MessageCode = "SizeTooBigShort"
+	MsgSizeNoMachine         MessageCode = "SizeNoMachine" // arg: what the size needs in words, with its GPUs and labels
 	// Custom CPU and memory (authz.ActCustomSize and the request checks).
 	MsgCustomSizeNotAllowed MessageCode = "CustomSizeNotAllowed"
 	MsgCustomSizeOverLimit  MessageCode = "CustomSizeOverLimit" // arg: the limit in words, "4 CPU and 16 GB"
@@ -310,6 +313,9 @@ var messages = map[MessageCode]string{
 		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgPreviewNeedsAppsHost: "Previews of pull requests do not open while apps share one address, because the pull request's code could act as you. " +
 		"Ask your platform admin to give each app its own address (urls.mode subdomain with urls.appsDomain).",
+	MsgSharedNeedsAppsHost: "Shared apps do not open while apps share this page's address, because the app's page could act as you. " +
+		"Ask the owner to show you, or ask your platform admin to give apps their own address (urls.appsDomain).",
+	MsgOwnerOnlyOpens:        "Only its owner opens this app: it runs code as its owner, with their files and secrets. You can still start, stop, delete it and see its logs. Ask the owner to show you.",
 	MsgOpenedFromAnotherApp:  "This app cannot be opened from inside another app. Open it from its own address or from your list of apps.",
 	MsgAppNotFound:           "No app with that name.",
 	MsgAppChanged:            "The app changed while you were working on it. Reload and try again.",
