@@ -55,6 +55,7 @@ import {
 import type { SizeChoice } from '../../lib/sizes'
 import { startupSeconds, stepTimes } from './startup'
 import { appLink, heldStep, migratingStep, pillStatus, problemStep, stopNote } from './status'
+import { PromptBlock } from './AgentPrompt'
 
 // What each startup step does, in the order the API sends them.
 const STEP_NAMES: Record<string, string> = {
@@ -744,6 +745,7 @@ export function AppDetail() {
         </div>
         <Actions ws={ws} managed={managed} />
       </div>
+      <PromptBlock prompt={ws.agentPrompt} />
 
       <div className="section">
         {ws.canShare && !managed ? (

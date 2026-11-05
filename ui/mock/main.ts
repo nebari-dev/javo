@@ -192,6 +192,21 @@ const adminStorage = quiet
 
 
 const apps = [
+  // Coding-agent apps built from a prompt: a short one and one long enough to fold.
+  ws('stock-explorer', 'Nvidia stock explorer', 'Running', allReady(), {
+    kind: 'claude-code', template: 'claude-code', file: '', apiAccess: 'ReadWrite',
+    agentPrompt: 'Create a Streamlit app that lets me look at Nvidia stock prices over time, with a date range picker and a moving average.',
+  }),
+  ws('churn-notebook', 'Churn analysis notebook', 'Stopped', allStopped(), {
+    kind: 'pi', template: 'pi', file: '', apiAccess: 'ReadWrite',
+    agentPrompt: [
+      'Build a Jupyter notebook in ~/projects/churn that analyses customer churn from data/customers.csv.',
+      'Start with a short data quality check: missing values, duplicate customer ids and odd dates.',
+      'Then plot churn rate by plan, by signup month and by region, and fit a simple logistic regression with plan, tenure and monthly spend as features.',
+      'Explain each step in a markdown cell written for a non-technical reader, and finish with three concrete recommendations for the retention team.',
+      'Keep the notebook runnable top to bottom and pin the packages you use in a pixi.toml next to it.',
+    ].join('\n'),
+  }),
   ws('plots', 'Plot explorer', 'Running', recordedSteps(), {
     kind: 'bokeh', template: 'bokeh', file: 'plots/app.py', idleStopMinutes: 60,
     env: [{ name: 'LOG_LEVEL', value: 'info' }, { name: 'OPENAI_API_KEY', secret: 'OPENAI_KEY' }, { name: 'PGPASSWORD', secret: 'WAREHOUSE_PASSWORD' }],
@@ -745,6 +760,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       empty: 'Nothing has been shared with you yet.',
       items: [
         { name: 'forecast', displayName: 'Sales forecast', template: 'panel', kind: 'panel', phase: 'Running', url: 'https://apps.example.com/u/bob/forecast/', owner: { id: 'bob-bbbbbbbb', displayName: 'Bob' }, via: 'user', createdAt: at(-86400 * 2.5) },
+        { name: 'pricing', displayName: 'Pricing simulator', template: 'claude-code', kind: 'claude-code', phase: 'Running', url: 'https://apps.example.com/u/bob/pricing/', owner: { id: 'bob-bbbbbbbb', displayName: 'Bob' }, via: 'user', createdAt: at(-86400 * 3.5), agentPrompt: 'Make a pricing simulator where I can drag a price slider and see projected revenue and churn.' },
         { name: 'kpis', displayName: 'Team KPIs', template: 'dash', kind: 'dash', phase: 'Stopped', url: 'https://apps.example.com/u/carol/kpis/', owner: { id: 'carol-cccccccc', displayName: 'Carol' }, via: 'group', createdAt: at(-86400 * 6.5) },
       ],
     })

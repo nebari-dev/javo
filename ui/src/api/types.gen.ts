@@ -1490,6 +1490,7 @@ export type SelfTestResult = {
 };
 
 export type SharedApp = {
+    agentPrompt?: string;
     createdAt?: string;
     displayName: string;
     kind: string;
@@ -1909,6 +1910,7 @@ export type WebhookOutputBody = {
 };
 
 export type Workspace = {
+    agentPrompt?: string;
     apiAccess: 'None' | 'Read' | 'ReadWrite';
     canShare: boolean;
     command: string;
@@ -2119,6 +2121,7 @@ export type JobDetailWritable = {
 };
 
 export type WorkspaceWritable = {
+    agentPrompt?: string;
     apiAccess: 'None' | 'Read' | 'ReadWrite';
     canShare: boolean;
     command: string;

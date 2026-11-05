@@ -5,6 +5,7 @@ import { CardMark } from './CardThumb'
 import { StatusIcon } from '../../components/Pill'
 import { useIsAdmin } from '../settings/admin/queries'
 import { OthersAppActions } from './OthersAppActions'
+import { PromptLine } from './AgentPrompt'
 
 /**
  * An app another person shared; it opens the app itself, since viewers have
@@ -28,8 +29,10 @@ export function SharedCard({ app }: { app: SharedApp }) {
           ) : (
             title
           )}
+          <PromptLine prompt={app.agentPrompt} className="acard-sub" />
           <div className="acard-sub">
-            {template} · <span>from {app.owner.displayName}</span>
+            {!app.agentPrompt && <>{template} · </>}
+            <span>from {app.owner.displayName}</span>
           </div>
           <div className="acard-sub">{sharedHow(app.via)}</div>
         </div>

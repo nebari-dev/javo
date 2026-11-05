@@ -160,6 +160,8 @@ type SharedApp struct {
 	Thumbnail *Thumbnail `json:"thumbnail,omitempty"`
 	// CreatedAt is when the app was created, as on the owner's own list.
 	CreatedAt time.Time `json:"createdAt,omitempty"`
+	// AgentPrompt: see Workspace.
+	AgentPrompt string `json:"agentPrompt,omitempty"`
 }
 
 type sharedOutput struct {
@@ -413,6 +415,7 @@ func (s *sharing) shared(ctx context.Context, in *previewsInput) (*sharedOutput,
 		out.Body.Items = append(out.Body.Items, SharedApp{
 			Name: v.Name, DisplayName: v.DisplayName, Template: v.Template, Kind: v.Kind, Phase: v.Phase,
 			URL: v.URL, Owner: owner, Via: d.Via, Thumbnail: v.Thumbnail, CreatedAt: v.CreatedAt,
+			AgentPrompt: v.AgentPrompt,
 		})
 	}
 	if len(out.Body.Items) == 0 {

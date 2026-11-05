@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
-import { adminMe, allowance, allReady, allStopped, me, NOTICES, sizes, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
+import { adminMe, agentTemplate, allowance, allReady, allStopped, me, NOTICES, sizes, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -147,6 +147,29 @@ describe('Apps', () => {
     const empty = heading.closest('.empty-state') as HTMLElement
     expect(within(empty).getByText('Start JupyterLab, VS Code or a Streamlit app in a few clicks. Apps you create show up here.')).toBeTruthy()
     expect(within(empty).getByRole('link', { name: 'Create your first app' }).getAttribute('href')).toBe('/apps/new')
+  })
+
+  it.each(['Cards', 'List'])('shows an agent app\'s prompt under its name in the %s view, whole in its tooltip, instead of its type', async (view) => {
+    const prompt = 'Create a Streamlit app that lets me explore stock prices by ticker and date range'
+    const agent = ws('stocks', 'Streamlit app to explore stock prices', 'Running', allReady(), { template: 'claude-code', kind: 'claude-code', file: '', agentPrompt: prompt })
+    withApps({
+      'GET /api/workspaces': { body: { items: [agent, stopped] } },
+      'GET /api/templates': { body: { items: [...templates, agentTemplate] } },
+      'GET /api/shared': {
+        body: { items: [{ name: 'kpis', displayName: 'Team KPIs', template: 'claude-code', kind: 'claude-code', phase: 'Running', url: 'https://apps.example.com/u/bob/kpis/', owner: { id: 'bob-bbbbbbbb', displayName: 'bob' }, via: 'user', agentPrompt: 'Track the team KPIs' }] },
+      },
+    })
+    renderApp('/apps')
+    await screen.findByText('Team KPIs')
+    if (view === 'List') await listView()
+    const own = view === 'List' ? rowOf('Streamlit app to explore stock prices') : cardOf('Streamlit app to explore stock prices')
+    const line = within(own).getByText(prompt)
+    expect(line.getAttribute('title')).toBe(prompt)
+    const shared = screen.getByText('Track the team KPIs')
+    expect(shared.getAttribute('title')).toBe('Track the team KPIs')
+    if (view === 'Cards') expect(within(own).queryByText('Claude Code')).toBeNull()
+    else await waitFor(() => expect(within(own).getByText('Claude Code')).toBeTruthy())
+    expect(within(view === 'List' ? rowOf('Sales app') : cardOf('Sales app')).queryByTitle(prompt)).toBeNull()
   })
 
   it('shows cards by default and switches to a list that persists', async () => {

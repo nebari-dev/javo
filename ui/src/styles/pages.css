@@ -35,6 +35,10 @@ ul.plain{list-style:none;margin:6px 0 0;padding:0}
 .atable-owner-sub::after{content:attr(data-owner)}
 .atable-why.err{color:var(--err)}
 .atable-why.warn{color:var(--text-2)}
+/* An agent app's prompt: one muted line, cut with an ellipsis. */
+.prompt-line{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* In the table it takes the column's width and never widens it. */
+.atable-prompt{color:var(--text-3);width:0;min-width:100%}
 .atable-status{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
 .atable .col-type,.atable .col-file{color:var(--text-2);white-space:nowrap}
 .atable thead th.col-type,.atable thead th.col-file{color:var(--text-3)}
@@ -133,6 +137,12 @@ a.btn{text-decoration:none}
 /* App detail */
 .crumbs{font-size:var(--fs-sm);color:var(--text-2);margin-bottom:14px}
 .dhead{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+/* The prompt an agent app was built on, quoted under the page head. */
+.prompt-block{margin:20px 0 0;max-width:72ch}
+.prompt-head{display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em}
+.prompt-text{margin:4px 0 0;padding:2px 0 2px 12px;border-left:3px solid var(--border-strong);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.prompt-text.clamped{display:-webkit-box;-webkit-line-clamp:4;line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.prompt-block .more-toggle{margin-top:2px}
 .dhead .logo:not(.inline){width:56px;height:56px;border-radius:14px}
 .dhead .actions-col{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;position:relative}
 .dhead .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}

@@ -13,6 +13,7 @@ import { StatusIcon } from '../../components/Pill'
 import { StopButton } from './StopButton'
 import { DeleteAppButton } from './DeleteApp'
 import { Uptime } from './Uptime'
+import { PromptLine } from './AgentPrompt'
 
 /** Open, Start or Stop for one app, shared by its card and its table row. */
 export function RunActions({ ws }: { ws: Workspace }) {
@@ -52,8 +53,10 @@ export function AppCard({ ws }: { ws: Workspace }) {
           <Link to={`/apps/${encodeURIComponent(ws.name)}`} className="acard-link">
             <h3>{ws.displayName}</h3>
           </Link>
+          {/* An agent app says what it was asked to build instead of its type. */}
+          <PromptLine prompt={ws.agentPrompt} className="acard-sub" />
           <div className="acard-sub">
-            <span>{template}</span> <Uptime ws={ws} />
+            {!ws.agentPrompt && <span>{template}</span>} <Uptime ws={ws} />
           </div>
           {specs && <div className="acard-sub">{specs}</div>}
         </div>
