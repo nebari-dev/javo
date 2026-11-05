@@ -11,6 +11,7 @@ import { sharedHow } from './SharedCard'
 import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
 import { Uptime } from './Uptime'
+import { PromptLine } from './AgentPrompt'
 
 function AppRow({ ws }: { ws: Workspace }) {
   const template = useTemplateName(ws.template)
@@ -23,6 +24,7 @@ function AppRow({ ws }: { ws: Workspace }) {
           <KindLogo kind={ws.kind} />
           <div className="atable-name">
             <Link to={`/apps/${encodeURIComponent(ws.name)}`}>{ws.displayName}</Link>
+            <PromptLine prompt={ws.agentPrompt} className="atable-why atable-prompt" />
             {problem && <span className={`atable-why ${problem.tone}`}>{problem.title}</span>}
             {stopped && <span className="atable-why warn">{stopped}</span>}
           </div>
@@ -60,6 +62,7 @@ function SharedRow({ app }: { app: SharedApp }) {
             ) : (
               <span className="atable-title">{app.displayName}</span>
             )}
+            <PromptLine prompt={app.agentPrompt} className="atable-why atable-prompt" />
             <span className="atable-why warn">
               from {app.owner.displayName} · <span>{sharedHow(app.via)}</span>
             </span>

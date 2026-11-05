@@ -37,6 +37,23 @@ describe('App status page', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sales app')
   })
 
+  it('shows an agent app\'s prompt near the top, quoted, with a copy button, and nothing for an app without one', async () => {
+    const prompt = 'Create a Streamlit app that lets me explore stock prices.\nUse yfinance and a date picker.'
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    detail(ws('sales-app', 'Stock explorer', 'Running', allReady(), { template: 'claude-code', kind: 'claude-code', file: '', agentPrompt: prompt }))
+    const first = renderApp('/apps/sales-app')
+    const block = await screen.findByRole('figure', { name: 'Prompt' })
+    expect(block.querySelector('blockquote')?.textContent).toBe(prompt)
+    await userEvent.click(within(block).getByRole('button', { name: 'Copy prompt' }))
+    expect(writeText).toHaveBeenCalledWith(prompt)
+    first.unmount()
+    detail(ws('sales-app', 'Sales app', 'Running', allReady()))
+    renderApp('/apps/sales-app')
+    await screen.findByRole('heading', { level: 1 })
+    expect(screen.queryByRole('figure', { name: 'Prompt' })).toBeNull()
+  })
+
   it('renders a failed step as a failure card with the rest behind More', async () => {
     detail(ws('sales-app', 'Sales app', 'Failed', stepsAt(3, 'AppCrashed', ["container app terminated: Error, exit code 1"])))
     renderApp('/apps/sales-app')
