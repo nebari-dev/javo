@@ -3,17 +3,31 @@ import { useTemplateName } from '../../lib/queries'
 import { appLink, pillStatus } from './status'
 import { CardMark } from './CardThumb'
 import { StatusIcon } from '../../components/Pill'
+import { useIsAdmin } from '../settings/admin/queries'
+import { OthersAppActions } from './OthersAppActions'
 
-/** An app another person shared; it opens the app itself, since viewers have no management page. */
+/**
+ * An app another person shared; it opens the app itself, since viewers have
+ * no management page. A platform admin also gets Start or Stop and Delete,
+ * so the name's link covers the card instead of the card being the link.
+ */
 export function SharedCard({ app }: { app: SharedApp }) {
   const template = useTemplateName(app.template)
+  const admin = useIsAdmin()
   const href = app.phase === 'Running' ? appLink(app.url) : undefined
+  const title = <h3>{app.displayName}</h3>
   const body = (
     <>
       <div className="acard-head">
         <CardMark kind={app.kind} thumbnail={app.thumbnail} />
         <div className="grow">
-          <h3>{app.displayName}</h3>
+          {admin && href ? (
+            <a href={href} className="acard-link" target="_blank" rel="noopener">
+              {title}
+            </a>
+          ) : (
+            title
+          )}
           <div className="acard-sub">
             {template} · <span>from {app.owner.displayName}</span>
           </div>
@@ -23,6 +37,17 @@ export function SharedCard({ app }: { app: SharedApp }) {
       </div>
     </>
   )
+  if (admin)
+    return (
+      <div className="card acard">
+        {body}
+        <div className="acard-foot">
+          <div className="acard-actions">
+            <OthersAppActions app={app} />
+          </div>
+        </div>
+      </div>
+    )
   return href ? (
     <a href={href} className="card acard" target="_blank" rel="noopener">
       {body}

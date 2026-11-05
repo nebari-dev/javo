@@ -6,6 +6,7 @@ import { RunActions } from './AppCard'
 import { DeleteAppButton } from './DeleteApp'
 import { listedKey, type ListedApp } from './listed'
 import { OpenAppLink } from './OpenAppLink'
+import { OthersAppActions } from './OthersAppActions'
 import { sharedHow } from './SharedCard'
 import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
@@ -42,7 +43,7 @@ function AppRow({ ws }: { ws: Workspace }) {
   )
 }
 
-/** An app another person shared: it opens the app itself, the only thing a viewer may do. */
+/** An app another person shared: it opens the app itself, the only thing a viewer may do; a platform admin may also start, stop and delete it. */
 function SharedRow({ app }: { app: SharedApp }) {
   const template = useTemplateName(app.template)
   const open = app.phase === 'Running' ? appLink(app.url) : undefined
@@ -77,6 +78,7 @@ function SharedRow({ app }: { app: SharedApp }) {
               <span className="atable-act-label">Open</span>
             </OpenAppLink>
           )}
+          <OthersAppActions app={app} />
         </div>
       </td>
     </tr>

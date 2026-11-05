@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
-import { allowance, allReady, allStopped, me, NOTICES, sizes, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
+import { adminMe, allowance, allReady, allStopped, me, NOTICES, sizes, stepsAt, storageView, templates, withSince, ws } from '../../test/fixtures'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -54,6 +54,73 @@ describe('Apps', () => {
     await waitFor(() => expect(api.count('DELETE', '/api/workspaces/sales-app')).toBe(1))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(location()).toBe('/apps')
+  })
+
+  const carols = (phase: string) => ({
+    name: 'sales',
+    displayName: 'Sales',
+    template: 'streamlit',
+    kind: 'streamlit',
+    phase,
+    url: 'https://apps.example.com/u/carol/sales/',
+    owner: { id: 'carol-cccccccc', displayName: 'Carol' },
+    via: 'user',
+  })
+
+  it.each(['Cards', 'List'])('lets an admin start and delete a stopped shared app in the %s view, naming its owner', async (view) => {
+    const api = mockApi({
+      'GET /api/me': { body: adminMe },
+      'GET /api/workspaces': { body: { items: [] } },
+      'GET /api/templates': { body: { items: templates } },
+      'GET /api/shared': { body: { items: [carols('Stopped')] } },
+      'POST /api/workspaces/sales/start': { body: { ...stopped, name: 'sales', phase: 'Starting' } },
+      'DELETE /api/workspaces/sales': { status: 204 },
+    })
+    renderApp('/apps')
+    await screen.findByText('Sales')
+    await userEvent.click(screen.getByRole('button', { name: view }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Start Sales' }))
+    const start = await screen.findByRole('alertdialog', { name: "Start Carol's app Sales?" })
+    expect(within(start).getByText('Carol').className).toBe('confirm-owner')
+    expect(start.textContent).toContain('It runs as Carol')
+    await userEvent.click(within(start).getByRole('button', { name: 'Start' }))
+    await waitFor(() => expect(api.calls.some((c) => c.method === 'POST' && c.path === '/api/workspaces/sales/start?owner=carol-cccccccc')).toBe(true))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Sales' }))
+    const del = await screen.findByRole('alertdialog', { name: 'Delete Sales of Carol?' })
+    expect(del.textContent).toContain('This app belongs to Carol (shared with you). Deleting it removes it for Carol and everyone it is shared with.')
+    await userEvent.click(within(del).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(api.calls.some((c) => c.method === 'DELETE' && c.path === '/api/workspaces/sales?owner=carol-cccccccc')).toBe(true))
+  })
+
+  it('lets an admin stop a running shared app, naming its owner', async () => {
+    const api = mockApi({
+      'GET /api/me': { body: adminMe },
+      'GET /api/workspaces': { body: { items: [] } },
+      'GET /api/templates': { body: { items: templates } },
+      'GET /api/shared': { body: { items: [carols('Running')] } },
+      'POST /api/workspaces/sales/stop': { body: { ...stopped, name: 'sales' } },
+    })
+    renderApp('/apps')
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop Sales' }))
+    const stop = await screen.findByRole('alertdialog', { name: "Stop Carol's app Sales?" })
+    await userEvent.click(within(stop).getByRole('button', { name: 'Stop' }))
+    await waitFor(() => expect(api.calls.some((c) => c.method === 'POST' && c.path === '/api/workspaces/sales/stop?owner=carol-cccccccc')).toBe(true))
+  })
+
+  it.each(['Cards', 'List'])('offers someone who is not an admin only Open on a shared app in the %s view', async (view) => {
+    mockApi({
+      'GET /api/me': { body: me },
+      'GET /api/workspaces': { body: { items: [] } },
+      'GET /api/templates': { body: { items: templates } },
+      'GET /api/shared': { body: { items: [carols('Stopped'), { ...carols('Running'), name: 'kpis', displayName: 'KPIs' }] } },
+    })
+    renderApp('/apps')
+    await screen.findByText('Sales')
+    await userEvent.click(screen.getByRole('button', { name: view }))
+    for (const name of ['Start Sales', 'Delete Sales', 'Stop KPIs', 'Delete KPIs']) expect(screen.queryByRole('button', { name })).toBeNull()
   })
 
   it('offers no export or import of apps; those are in the CLI and API', async () => {

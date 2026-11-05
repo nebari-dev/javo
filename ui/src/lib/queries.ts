@@ -111,6 +111,7 @@ const keys = {
 
 /** The key of the user's secrets list, which names what uses each: a feature that changes that refreshes it. */
 export const SECRETS_KEY = keys.secrets
+export const SHARED_KEY = keys.shared
 
 /** A workspace is still settling while Starting or Pending; poll until it is not. */
 export function isSettling(ws: Pick<Workspace, 'phase'>): boolean {

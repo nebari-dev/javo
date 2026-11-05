@@ -15,12 +15,13 @@ import {
   adminRestoreNow,
   adminUsage,
   createJob,
+  deleteWorkspace,
   stopWorkspace,
   type AdminSetAiSettingsData,
   type RestoreScope,
   type RunRequestBody,
 } from '../../../api'
-import { POLL_MS, useMe } from '../../../lib/queries'
+import { POLL_MS, SHARED_KEY, useMe } from '../../../lib/queries'
 
 const keys = {
   apps: ['admin', 'apps'] as const,
@@ -44,22 +45,33 @@ export function useAdminApps() {
   })
 }
 
-/** Stop someone's app; the owner is told an admin stopped it. */
-export function useAdminStop() {
+type OwnedApp = { name: string; owner: string }
+
+/** A change to someone else's app; the lists that show it, All apps and the shared apps, are asked again. */
+function useOthersAppChange<T>(fn: (app: OwnedApp) => Promise<T>) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ name, owner }: { name: string; owner: string }) =>
-      (await stopWorkspace({ path: { name }, query: { owner }, throwOnError: true })).data,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.apps }),
+    mutationFn: fn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.apps })
+      void qc.invalidateQueries({ queryKey: SHARED_KEY })
+    },
   })
 }
 
+/** Stop someone's app; the owner is told an admin stopped it. */
+export function useAdminStop() {
+  return useOthersAppChange(async ({ name, owner }) => (await stopWorkspace({ path: { name }, query: { owner }, throwOnError: true })).data)
+}
+
 export function useAdminStart() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ name, owner }: { name: string; owner: string }) =>
-      (await startWorkspace({ path: { name }, query: { owner }, throwOnError: true })).data,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.apps }),
+  return useOthersAppChange(async ({ name, owner }) => (await startWorkspace({ path: { name }, query: { owner }, throwOnError: true })).data)
+}
+
+/** Delete someone's app; it goes for its owner and everyone it is shared with. */
+export function useAdminDelete() {
+  return useOthersAppChange(async ({ name, owner }) => {
+    await deleteWorkspace({ path: { name }, query: { owner }, throwOnError: true })
   })
 }
 
