@@ -20,6 +20,8 @@
 
 Javo runs notebooks, web apps and scheduled jobs on Kubernetes, from one place.
 
+![The Javo home page: a list of apps (a container image, an app built by a coding agent, Pluto.jl, Dash, VS Code, Claude Code) with their status, and scheduled jobs below](site/screenshots/home.png)
+
 ## Who it's for
 
 - **Data scientists**: work in JupyterLab, then share the results as live dashboards and apps.
