@@ -13,11 +13,11 @@
 .brand-home{display:flex;align-items:center;gap:10px;min-width:0;color:inherit;text-decoration:none;border-radius:10px}
 .brand-home:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 .collapse-btn{margin-left:auto;width:32px;height:32px;border-radius:8px;border:none;background:transparent;color:var(--text-3);display:grid;place-items:center;flex:none;padding:0;cursor:pointer;transition:background .12s,color .12s}
-.collapse-btn:hover{color:var(--text);background:var(--surface-2)}
+.collapse-btn:hover{color:var(--text)}
 .collapse-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .nav-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--border)}
 .nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--text-2);font-weight:500;font-size:var(--fs-sm)}
-.nav a:hover{background:var(--surface-2);color:var(--text)}
+.nav a:hover{color:var(--text)}
 .nav a.active{background:var(--ink);color:var(--on-ink);box-shadow:0 1px 0 var(--key-edge)}
 .side-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--border);color:var(--text-3);font-size:var(--fs-xs);line-height:1.35}
 .side-foot svg{flex:none}
@@ -65,12 +65,10 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 
 /* Button */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:var(--btn-h);min-width:var(--btn-min-w);padding:0 var(--btn-px);border-radius:9px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-weight:500;font-size:var(--fs-sm);white-space:nowrap;box-shadow:inset 0 1px 0 var(--key-hi),0 1px 0 var(--key-edge);transition:transform .06s ease,background .12s ease}
-.btn:hover{background:var(--surface-2)}
 .btn:active{transform:translateY(1px);box-shadow:inset 0 1px 0 var(--key-hi)}
 .btn svg{color:var(--text-2);flex:none}
 .btn.primary{background:var(--ink);border-color:var(--ink);color:var(--on-ink);box-shadow:0 1px 0 var(--key-edge),inset 0 1px 0 rgba(255,255,255,.12)}
 .btn.primary svg{color:var(--on-ink)}
-.btn.primary:hover{background:var(--ink);opacity:.92}
 .btn.danger{color:var(--err)}
 .btn.danger svg{color:var(--err)}
 .btn.ghost{border-color:transparent;background:transparent;box-shadow:none}
@@ -91,7 +89,7 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .menu-name{font-weight:600;font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .menu-item{display:flex;align-items:center;gap:10px;width:100%;height:var(--btn-h-sm);padding:0 10px;border:none;border-radius:8px;background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);cursor:pointer;text-align:left}
 .menu-item svg{color:var(--text-2)}
-.menu-item:hover,.menu-item:focus-visible{background:var(--surface-2);outline:none}
+.menu-item:focus-visible{outline:none}
 
 /* Segmented */
 .seg{display:inline-flex;align-items:center;padding:3px;gap:2px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border)}
@@ -279,21 +277,17 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .pk-side{border-right:1px solid var(--border);padding:12px 10px;overflow:auto;background:var(--surface-2);display:flex;flex-direction:column;gap:8px}
 .pk-side .nav-sec{padding:4px 10px;margin-bottom:10px}
 .pk-side button{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;color:var(--text-2);font-weight:500;border:0;background:transparent;text-align:left}
-.pk-side button:hover{background:var(--surface)}
 .pk-place{display:flex;flex-direction:column}
 .pk-side button[aria-disabled=true]{opacity:.6;cursor:not-allowed}
-.pk-side button[aria-disabled=true]:hover{background:transparent}
 .pk-why{padding:0 10px 6px 34px;font-size:var(--fs-2xs);color:var(--text-3)}
 .pk-side button.on{background:var(--accent-soft);color:var(--accent-text)}
 .pk-main{display:flex;flex-direction:column;min-height:0}
 .pk-crumbs{display:flex;align-items:center;gap:4px;padding:12px 20px;font-size:var(--fs-sm);flex-wrap:wrap}
 .pk-crumb{display:inline-flex;align-items:center;gap:4px}
 .pk-crumb button{border:0;background:transparent;color:var(--text);padding:2px 6px;border-radius:6px}
-.pk-crumb button:hover{background:var(--surface-2)}
 .pk-list{overflow:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;min-height:0}
 .pk-list .banner{margin:6px 10px}
 .pk-row{display:grid;grid-template-columns:28px minmax(0,1fr) 110px 80px;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;border:0;background:transparent;color:var(--text);text-align:left;width:100%}
-.pk-row:hover{background:var(--surface-2)}
 .pk-row.sel{background:var(--accent-soft)}
 .pk-row.dim{opacity:.45;cursor:not-allowed}
 .pk-row .fi{display:grid;place-items:center;color:var(--text-2)}
@@ -303,7 +297,6 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .pk-row .sz{text-align:right;font-family:var(--font-mono)}
 .pk-tag{display:block;font-size:var(--fs-xs);font-weight:400;color:var(--accent-text);white-space:normal}
 .pk-item{display:grid;grid-template-columns:minmax(0,1fr) var(--btn-h-sm);gap:8px;align-items:center;padding-right:6px;border-radius:8px}
-.pk-item:hover{background:var(--surface-2)}
 .pk-item:has(> .pk-row.sel){background:var(--accent-soft)}
 .pk-item > .pk-row{background:transparent}
 .pk-head .switch{flex:none}
@@ -313,7 +306,6 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 @keyframes pk-spin{to{transform:rotate(360deg)}}
 .pk-skeleton{display:flex;flex-direction:column;gap:1px}
 .pk-row.sk{cursor:default;line-height:normal;min-height:calc(1lh + 16px)}
-.pk-row.sk:hover{background:transparent}
 .sk-bar{display:block;height:10px;border-radius:5px;background:var(--surface-2)}
 .sk-bar.sk-icon{width:16px;height:16px;border-radius:4px}
 .sk-bar.sk-meta{width:64%}
@@ -379,7 +371,7 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .pal-hint{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 .pal-hint .kbd:last-of-type{margin-right:4px}
 .pal-hint-btn{height:32px;padding:0 8px;margin:0 -8px;border:none;border-radius:8px;background:transparent;color:var(--text-2);font-size:var(--fs-2xs);font-weight:500}
-.pal-hint-btn:hover{background:var(--surface);color:var(--text)}
+.pal-hint-btn:hover{color:var(--text)}
 .pal-foot-end{margin-left:auto}
 @media (max-width:760px){
   .search-trigger{flex:none;min-width:0;width:var(--btn-h);padding:0;justify-content:center}
@@ -470,3 +462,19 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 
 /* Whose app an admin acts on, set apart in a confirmation's title. */
 .confirm-owner{color:var(--accent-text)}
+
+/* Hover: one tint (theme tokens --hover, --hover-ink) for everything clickable,
+   laid over the control's own background as an image, so it shows on any
+   surface and keeps the control's colour. Disabled controls get none; keyboard
+   focus keeps its outline. Lists driven by a highlight (menus of Select,
+   Downshift and cmdk) already follow the pointer and are not listed. */
+:is(button,a.btn,[role="button"],.nav a,a.side-foot,.subnav a,.attn-item,.choice,.acard:has(.acard-link),.pk-item,.sample-card>a):hover:not(:disabled,[aria-disabled="true"],.choice.off,.pk-row.dim,.pk-row.sk,.pk-item>.pk-row,.textlink),
+.menu-item:focus-visible{background-image:linear-gradient(var(--hover-tint,var(--hover)),var(--hover-tint,var(--hover)))}
+.btn.primary,.nav a.active,.seg button.on{--hover-tint:var(--hover-ink)}
+/* The tint follows the shape: full-width buttons in a card take its corners, tabs round their top. */
+.sample-card>button,.sample-card>a{border-radius:inherit}
+.tablist button,.subnav a{border-radius:8px 8px 0 0}
+/* A text-only toggle gets room for the tint without moving its text. */
+.more-toggle{padding-inline:8px;margin-inline:-8px;border-radius:8px}
+/* The avatar is covered by its picture, so its hover is a ring. */
+.avatar-btn:hover{box-shadow:0 0 0 1px var(--border-strong),0 1px 0 1px var(--key-edge),0 0 0 5px var(--hover)}

@@ -1,4 +1,4 @@
-import { Pause, Pencil, Play, RotateCcw, ScrollText, Square } from 'lucide-react'
+import { CircleStop, Pause, Pencil, Play, RotateCcw, ScrollText } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import type { JobDetail as JobDetailData, RunView } from '../../api'
@@ -62,7 +62,7 @@ function RunRow({ job, run, logOpen, onLog }: { job: JobDetailData; run: RunView
         <td className="col-act">
           <span className="btn-row">
             {running && (
-              <Button size="sm" icon={Square} disabled={cancel.isPending} onClick={() => cancel.mutate(run.id)}>
+              <Button size="sm" icon={CircleStop} disabled={cancel.isPending} onClick={() => cancel.mutate(run.id)}>
                 <span className="atable-act-label">Cancel</span>
               </Button>
             )}
