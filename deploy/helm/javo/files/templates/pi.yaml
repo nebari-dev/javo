@@ -29,6 +29,16 @@ spec:
   # pod-user.sh gives the pod's uid a passwd entry, then runs the rest.
   command: ["/opt/javo/pod-user.sh"]
   args:
+    # agent-serve.sh starts the agent in a detached tmux session (tmux.conf
+    # from the pod files) in this folder at container start, then runs the
+    # ttyd below with a tmux attached to it: every tab attaches to the one
+    # session, so the agent works before any tab opens and keeps running
+    # when a tab closes.
+    - "/opt/javo/agents/agent-serve.sh"
+    - "{{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
+    # pi-start.sh sets pi's model up, runs pi with the app's first prompt
+    # on its first start, and leaves a shell in the folder when pi quits.
+    - "/opt/javo/agents/pi-start.sh"
     - "ttyd"
     - "--port={{.Port}}"
     # ttyd is read-only unless told otherwise.
@@ -37,20 +47,6 @@ spec:
     - "--check-origin"
     # The terminal page: Fira Code, and OSC 52 copy to the browser clipboard.
     - "--index=/opt/javo/agents/terminal.html"
-    # Every tab attaches to the one tmux session, so the agent keeps running
-    # when a tab closes. pi-start.sh sets pi's model up, runs pi with the
-    # app's first prompt on its first start, and leaves a shell in the folder
-    # when pi quits.
-    - "tmux"
-    - "-f"
-    - "/opt/javo/agents/tmux.conf"
-    - "new-session"
-    - "-A"
-    - "-s"
-    - "agent"
-    - "-c"
-    - "{{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
-    - "/opt/javo/agents/pi-start.sh"
   # ttyd serves at /; its page finds the websocket relative to its own URL.
   basePath: Strip
   appLogin: Disabled

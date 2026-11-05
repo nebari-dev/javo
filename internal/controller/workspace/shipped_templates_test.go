@@ -210,38 +210,78 @@ func TestShippedContainerTemplate(t *testing.T) {
 }
 
 // The coding agents run in tmux behind ttyd, with the platform's tmux
-// settings from the pod files. The terminal opens in the folder the user
-// chose (the sample's folder, or the home), and every tab attaches to the
-// same tmux session, so closing a tab keeps the agent running.
-func TestAgentTemplatesStartTmuxInTheChosenFolder(t *testing.T) {
+// settings from the pod files, in the folder the user chose (the sample's
+// folder, or the home). agent-serve.sh starts the agent's tmux session
+// detached before ttyd, so the agent starts working (pi on the app's first
+// prompt) without anyone opening the app; every tab then attaches to that
+// session, or makes a new one if the agent's shell has exited. The start
+// command runs here against stub tmux and ttyd that log their arguments.
+func TestAgentTemplatesStartTheSessionBeforeTtyd(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"claude-code", "pi"} {
-		tpl := shippedTemplate(t, name)
+	script, err := filepath.Abs(filepath.Join("..", "..", "..", "pod", "files", "agents", "agent-serve.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, agent string }{
+		{"claude-code", "claude; exec bash"},
+		{"pi", "/opt/javo/agents/pi-start.sh"},
+	} {
+		tpl := shippedTemplate(t, tc.name)
 		cases := []struct {
-			label  string
-			sample bool
-			file   string
-			want   string
+			label    string
+			sample   bool
+			file     string
+			want     string
+			tmuxFail bool
 		}{
-			{"folder", false, "projects/api", "/home/user/projects/api"},
-			{"no folder", false, "", "/home/user"},
-			{"sample", true, SampleFileOf(tpl), "/home/user/samples/" + name},
+			{"folder", false, "projects/api", "/home/user/projects/api", false},
+			{"no folder", false, "", "/home/user", false},
+			{"sample", true, SampleFileOf(tpl), "/home/user/samples/" + tc.name, false},
+			// A session that cannot be made at start does not keep the
+			// terminal down: the first tab makes it.
+			{"tmux fails", false, "", "/home/user", true},
 		}
 		for _, c := range cases {
-			t.Run(name+" "+c.label, func(t *testing.T) {
+			t.Run(tc.name+" "+c.label, func(t *testing.T) {
+				t.Parallel()
 				ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name, File: c.file, Sample: c.sample}
 				pod, err := BuildPod(ws, tpl, "/u/a/agent/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 				if err != nil {
 					t.Fatal(err)
 				}
-				argv := append(append([]string{}, pod.Spec.Containers[0].Command...), pod.Spec.Containers[0].Args...)
-				i := slices.Index(argv, "tmux")
-				if i < 0 || !slices.Contains(argv[:i], "ttyd") {
-					t.Fatalf("argv = %v, want ttyd running tmux", argv)
+				argv := slices.Concat(pod.Spec.Containers[0].Command, pod.Spec.Containers[0].Args)
+				if len(argv) < 2 || argv[0] != "/opt/javo/pod-user.sh" || argv[1] != "/opt/javo/agents/agent-serve.sh" {
+					t.Fatalf("argv = %q, want pod-user.sh running agent-serve.sh", argv)
 				}
-				want := []string{"tmux", "-f", "/opt/javo/agents/tmux.conf", "new-session", "-A", "-s", "agent", "-c", c.want}
-				if got := argv[i:min(len(argv), i+len(want))]; !slices.Equal(got, want) {
-					t.Fatalf("tmux argv = %v, want %v", argv[i:], want)
+				bin := t.TempDir()
+				log := filepath.Join(bin, "calls")
+				tmuxExit := "0"
+				if c.tmuxFail {
+					tmuxExit = "1"
+				}
+				for name, exit := range map[string]string{"tmux": tmuxExit, "ttyd": "0"} {
+					stub := "#!/bin/sh\n{ printf '%s' " + name + "; for a; do printf ' [%s]' \"$a\"; done; echo; } >>" + log + "\nexit " + exit + "\n"
+					if err := os.WriteFile(filepath.Join(bin, name), []byte(stub), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+				cmd := exec.Command(script, argv[2:]...)
+				cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("%q: %v\n%s", argv, err, out)
+				}
+				data, err := os.ReadFile(log)
+				if err != nil {
+					t.Fatal(err)
+				}
+				session := " [-f] [/opt/javo/agents/tmux.conf] [new-session] %s [-s] [agent] [-c] [" + c.want + "] [" + tc.agent + "]"
+				ttyd := "ttyd [--port=7681] [--writable] [--check-origin] [--index=/opt/javo/agents/terminal.html] [tmux]"
+				want := []string{
+					"tmux" + fmt.Sprintf(session, "[-d]"),
+					ttyd + fmt.Sprintf(session, "[-A]"),
+				}
+				if got := strings.Split(strings.TrimSpace(string(data)), "\n"); !slices.Equal(got, want) {
+					t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 				}
 			})
 		}
@@ -638,16 +678,14 @@ func TestStaticSiteSampleIsCopiedBeforeItIsServed(t *testing.T) {
 }
 
 // The shipped pi is the coding agent that "Build with pi" starts: its token
-// may deploy and use the model endpoint, and its window runs the start
-// script that sets the model up and passes the first prompt.
+// may deploy and use the model endpoint. Its session runs the start script
+// that sets the model up and passes the first prompt (checked in
+// TestAgentTemplatesStartTheSessionBeforeTtyd).
 func TestPiTemplateIsTheCodingAgent(t *testing.T) {
 	t.Parallel()
 	tpl := shippedTemplate(t, "pi")
 	if !tpl.Spec.AgentDeploy || !tpl.Spec.AgentModel || model.MaxSharing(tpl) != model.AccessPrivate {
 		t.Fatalf("spec %+v", tpl.Spec)
-	}
-	if last := tpl.Spec.Args[len(tpl.Spec.Args)-1]; last != "/opt/javo/agents/pi-start.sh" {
-		t.Fatalf("tmux runs %q, want the start script", last)
 	}
 }
 
