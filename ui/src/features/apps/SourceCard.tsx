@@ -112,7 +112,7 @@ export function SourceCard({ ws }: { ws: Workspace }) {
               Home file
             </dt>
             <dd className="wide">
-              <CodeBlock text={ws.file} label="Copy path" />
+              <CodeBlock text={ws.file} label="Copy path" path={ws.filePath} />
             </dd>
           </>
         )}

@@ -697,4 +697,26 @@ describe('The file on the app page', () => {
     renderApp('/apps/sales-app')
     expect(await screen.findByText('/home/user/sales/app.py')).toBeTruthy()
   })
+
+  it('links the path to the file, opened on the Files page', async () => {
+    const app = ws('sales-app', 'Sales app', 'Running', allReady(), { file: 'sales/app.py', filePath: '/home/user/sales/app.py' })
+    mockApi({
+      'GET /api/me': { body: me },
+      'GET /api/workspaces/sales-app': { body: app },
+      'GET /api/files/raw': { body: 'print(1)\n', headers: { ETag: '"9-1"', 'Content-Length': '9' } },
+    })
+    renderApp('/apps/sales-app')
+    await userEvent.click(await screen.findByRole('link', { name: '/home/user/sales/app.py' }))
+    await waitFor(() => expect(location()).toBe('/files/view?path=sales%2Fapp.py'))
+    expect(await screen.findByRole('region', { name: 'Contents of app.py' })).toBeTruthy()
+  })
+
+  it('links a home path in the command line, and leaves other paths alone', async () => {
+    const run = { image: 'ghcr.io/example/pixi:1', command: [], line: '/opt/javo/pod-user.sh streamlit run /home/user/sales/app.py', environment: '' }
+    detail(ws('sales-app', 'Sales app', 'Running', allReady(), { run }))
+    renderApp('/apps/sales-app')
+    const card = (await screen.findByText('What runs')).closest('.card') as HTMLElement
+    await waitFor(() => expect(within(card).getByRole('link', { name: '/home/user/sales/app.py' }).getAttribute('href')).toBe('/files/view?path=sales%2Fapp.py'))
+    expect(card.querySelector('.cmdline code')?.textContent).toBe(run.line)
+  })
 })

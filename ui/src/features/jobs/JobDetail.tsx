@@ -7,6 +7,7 @@ import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { EnvironmentRow } from '../environments/EnvironmentCard'
 import { CodeBlock } from '../../components/CodeBlock'
+import { HOME_DIR } from '../../lib/homeLinks'
 import { FailureCard } from '../logs/FailureCard'
 import { KindLogo } from '../../components/KindLogo'
 import { More } from '../../components/More'
@@ -108,7 +109,7 @@ function Details({ job, size }: { job: JobDetailData; size: SizePick }) {
               Command
             </dt>
             <dd className="wide">
-              <CodeBlock text={job.command} label="Copy command" />
+              <CodeBlock text={job.command} label="Copy command" linkPaths />
             </dd>
           </>
         ) : (
@@ -118,7 +119,7 @@ function Details({ job, size }: { job: JobDetailData; size: SizePick }) {
               Source
             </dt>
             <dd className="wide">
-              <CodeBlock text={job.source} label="Copy path" />
+              <CodeBlock text={job.source} label="Copy path" path={`${HOME_DIR}/${job.source}`} />
             </dd>
           </>
         )}

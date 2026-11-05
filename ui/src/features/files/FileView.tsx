@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Pencil, Save } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { fileViewUrl, formatSize, isHtmlPage, rawFileUrl } from '../../lib/files'
 import { ApiError, problemText } from '../../lib/http'
+import { useHomeFolder } from '../../lib/queries'
 import { readHomeFile, saveHomeFile, type FileRead } from './fileApi'
 import { fileKind, languageOf, type Language } from './fileKind'
 import type { CodeToken } from './fileSyntax'
@@ -280,6 +281,10 @@ export function FileView() {
     retry: (n, err) => err instanceof ApiError && err.status === 503 && n < 30,
     retryDelay: 1000,
   })
+  // A link to a home path may name a folder: when there is no such file, see whether it is one.
+  const missing = read.error instanceof ApiError && read.error.status === 404
+  const folder = useHomeFolder(path, missing)
+  if (missing && folder.data?.kind === 'listed') return <Navigate replace to={`/files?path=${encodeURIComponent(path)}`} />
 
   let body
   if (showPage) {

@@ -181,4 +181,15 @@ describe('the file view', () => {
     await userEvent.click(screen.getByRole('link', { name: 'notes' }))
     await waitFor(() => expect(location()).toBe('/files?path=notes'))
   })
+
+  it('opens a folder in the file browser when the path is a folder', async () => {
+    mockApi({
+      'GET /api/me': ME,
+      'GET /api/files/raw': { status: 404, body: { title: 'File not found', status: 404 } },
+      'GET /api/files': { body: { path: 'agents/data', entries: [{ name: 'rows.csv', kind: 'file', size: 3, modified: '2026-10-30T10:00:00Z' }], count: 1, truncated: false, stale: false, ageSeconds: 0 } },
+    })
+    renderApp('/files/view?path=agents/data')
+    expect(await screen.findByRole('link', { name: /rows\.csv/ })).toBeTruthy()
+    expect(location()).toBe('/files?path=agents%2Fdata')
+  })
 })

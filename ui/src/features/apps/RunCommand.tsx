@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { PodRun } from '../../api'
 import { CopyButton } from '../../components/CopyButton'
+import { HomeLinkedText } from '../../components/HomePath'
 import { sourceLink } from '../../lib/github'
 import { useServerInfo } from '../../lib/queries'
 import type { CodeToken } from '../files/fileSyntax'
@@ -9,8 +10,8 @@ import type { CodeToken } from '../files/fileSyntax'
 const POD_USER = '/opt/javo/pod-user.sh'
 const POD_USER_SOURCE = 'pod/files/pod-user.sh'
 
-/** The text with the launcher's path, wherever it appears, as a link to its source. */
-function linkLauncher(text: string, href: string, style?: CSSProperties): ReactNode[] {
+/** The text with the launcher's path, wherever it appears, as a link to its source, and home paths as links to the Files page. */
+function linkLauncher(text: string, href: string, style?: CSSProperties, home = true): ReactNode[] {
   return text.split(POD_USER).flatMap((piece, i) => [
     ...(i > 0
       ? [
@@ -19,12 +20,12 @@ function linkLauncher(text: string, href: string, style?: CSSProperties): ReactN
           </a>,
         ]
       : []),
-    ...(piece ? [<span key={`t${i}`} style={style}>{piece}</span>] : []),
+    ...(piece ? [home ? <HomeLinkedText key={`t${i}`} text={piece} style={style} /> : <span key={`t${i}`} style={style}>{piece}</span>] : []),
   ])
 }
 
 /** The command line a pod runs, shell-coloured once the grammar loads (plain until then), wrapped, with a copy icon. */
-export function CommandLine({ line, label = 'Copy command' }: { line: string; label?: string }) {
+export function CommandLine({ line, label = 'Copy command', linkHome = true }: { line: string; label?: string; linkHome?: boolean }) {
   const [tokens, setTokens] = useState<{ line: string; parts: CodeToken[] } | null>(null)
   useEffect(() => {
     let live = true
@@ -43,9 +44,9 @@ export function CommandLine({ line, label = 'Copy command' }: { line: string; la
       <code>
         {parts
           ? parts.map((t, i) => (
-              <span key={i}>{linkLauncher(t.content, launcher, { color: t.color, fontStyle: t.italic ? 'italic' : undefined })}</span>
+              <span key={i}>{linkLauncher(t.content, launcher, { color: t.color, fontStyle: t.italic ? 'italic' : undefined }, linkHome)}</span>
             ))
-          : linkLauncher(line, launcher)}
+          : linkLauncher(line, launcher, undefined, linkHome)}
       </code>
       <CopyButton label={label} text={() => line} />
     </div>
@@ -79,7 +80,7 @@ export function TemplateRuns({ run, file, command, image }: { run: PodRun; file:
         <span className="started-with-label">Runs</span>
         <span className="muted mono started-with-image">{fill(run.image)}</span>
       </div>
-      {line ? <CommandLine line={line} /> : <p className="muted small tight">The image&apos;s own command</p>}
+      {line ? <CommandLine line={line} linkHome={false} /> : <p className="muted small tight">The image&apos;s own command</p>}
     </div>
   )
 }

@@ -711,7 +711,7 @@ export function AppDetail() {
                     File
                   </dt>
                   <dd className="wide">
-                    <CodeBlock text={ws.filePath || ws.file} label="Copy path" />
+                    <CodeBlock text={ws.filePath || ws.file} label="Copy path" path={ws.filePath} />
                   </dd>
                 </>
               )}

@@ -208,7 +208,8 @@ const apps = [
     ].join('\n'),
   }),
   ws('plots', 'Plot explorer', 'Running', recordedSteps(), {
-    kind: 'bokeh', template: 'bokeh', file: 'plots/app.py', idleStopMinutes: 60,
+    kind: 'bokeh', template: 'bokeh', file: 'plots/app.py', filePath: '/home/user/plots/app.py', idleStopMinutes: 60,
+    run: { image: 'ghcr.io/example/pixi:1', command: [], line: '/opt/javo/pod-user.sh bokeh serve /home/user/plots/app.py --port 8080', environment: '' },
     env: [{ name: 'LOG_LEVEL', value: 'info' }, { name: 'OPENAI_API_KEY', secret: 'OPENAI_KEY' }, { name: 'PGPASSWORD', secret: 'WAREHOUSE_PASSWORD' }],
   }),
   ws('sales-app', 'Sales app', 'Starting', stepsAt(2, 'Starting')),
@@ -279,6 +280,7 @@ const folders: Record<string, { name: string; kind: 'file' | 'folder'; size: num
     { name: 'README.md', kind: 'file', size: 2048, modified: '2026-09-02T10:00:00Z' },
   ],
   notebooks: [],
+  plots: [{ name: 'app.py', kind: 'file', size: 92, modified: '2026-10-30T11:02:00Z' }],
   'sales/pages': [],
   sales: [
     { name: 'pages', kind: 'folder', size: 0, modified: '2026-10-29T10:00:00Z' },
@@ -867,6 +869,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     return reply(200, { path: p, entries, count: entries.length, truncated: false, stale, ageSeconds: stale ? 40 : 0 })
   }
   if (key === 'POST /api/files/warm') return reply(204, null)
+  if (key === 'GET /api/files/raw' && url.searchParams.get('path') === 'plots/app.py') {
+    const text = 'from bokeh.plotting import curdoc, figure\n\np = figure(title="Plots")\np.line([1, 2, 3], [4, 6, 5])\ncurdoc().add_root(p)\n'
+    return new Response(text, { status: 200, headers: { 'Content-Type': 'text/plain', ETag: '"92-1"', 'Content-Length': String(text.length) } })
+  }
   if (key === 'GET /api/info') return reply(200, { apiDocs: tokenParams.get('docs') !== '0', tokenMaxDays: 90 })
   if (key === 'GET /api/tokens') return reply(200, tokens)
   if (key === 'POST /api/tokens') {

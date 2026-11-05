@@ -10,6 +10,7 @@ import { OthersAppActions } from './OthersAppActions'
 import { sharedHow } from './SharedCard'
 import { KindLogo } from '../../components/KindLogo'
 import { Pill } from '../../components/Pill'
+import { HomePath } from '../../components/HomePath'
 import { Uptime } from './Uptime'
 import { PromptLine } from './AgentPrompt'
 
@@ -34,7 +35,7 @@ function AppRow({ ws }: { ws: Workspace }) {
       <td>
         <Pill status={pillStatus(ws.phase)} /> <Uptime ws={ws} />
       </td>
-      <td className="col-file mono">{ws.file}</td>
+      <td className="col-file mono">{ws.filePath ? <HomePath path={ws.filePath}>{ws.file}</HomePath> : ws.file}</td>
       <td className="col-act">
         <div className="btn-row">
           <RunActions ws={ws} />
