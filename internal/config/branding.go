@@ -70,6 +70,15 @@ func (c BrandingCfg) validate(bad func(key, format string, a ...any)) {
 	}
 }
 
+// hostPort is a host name or IPv4 address with an optional port: letters,
+// digits, dots and hyphens only.
+var hostPort = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]{1,5})?$`)
+
+// ValidHost is true when host is a plain host[:port]. Anything else (a ';',
+// a space, a quote) could add a directive where the host is written into a
+// Content-Security-Policy.
+func ValidHost(host string) bool { return hostPort.MatchString(host) }
+
 func (i BrandImage) validate(key string, bad func(key, format string, a ...any)) {
 	if i.URL != "" && i.File != "" {
 		bad(key, "set url or file, not both")
@@ -77,8 +86,8 @@ func (i BrandImage) validate(key string, bad func(key, format string, a ...any))
 	}
 	if i.URL != "" {
 		u, err := url.Parse(i.URL)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
-			bad(key+".url", "must be an https address with a host and no user name or password")
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || !ValidHost(u.Host) {
+			bad(key+".url", "must be an https address with a plain host name and no user name or password")
 		}
 	}
 	if i.File != "" && !filepath.IsAbs(i.File) {
