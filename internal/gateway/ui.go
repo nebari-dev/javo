@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/nebari-dev/javo/internal/config"
 )
 
 const uiCSP = "default-src 'self'; style-src 'self'; font-src 'self'; " +
@@ -26,7 +28,7 @@ func uiHandler(dir string, imgOrigins []string) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Security-Policy", csp)
+		w.Header().Set("Content-Security-Policy", frameSrc(r.Host)+csp)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if p != "/" && p != "/index.html" && isFile(root, p) {
 			files.ServeHTTP(w, r)
@@ -34,6 +36,17 @@ func uiHandler(dir string, imgOrigins []string) http.Handler {
 		}
 		serveIndex(w, r, root)
 	})
+}
+
+// frameSrc lets the UI frame only raw files of the home on its own host (the
+// file viewer): a page shown in that frame cannot navigate it to another
+// site or to an app under /u/, and no CSP directive of the page's own can
+// stop that. A host that is not a plain host[:port] frames nothing.
+func frameSrc(host string) string {
+	if !config.ValidHost(host) {
+		return "frame-src 'none'; "
+	}
+	return "frame-src " + host + "/api/files/raw; "
 }
 
 func isFile(root http.FileSystem, name string) bool {

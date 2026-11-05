@@ -256,19 +256,33 @@ var rawTypes = map[string]string{
 
 // rawSandbox lets a run's HTML script itself but gives it an opaque origin
 // (no allow-same-origin): it cannot read the session or call the API as the
-// user, nor reach another user's files.
-const rawSandbox = "sandbox allow-scripts allow-popups"
+// user, nor reach another user's files. It may not open windows or navigate
+// the top window (no allow-popups, no allow-top-navigation), either of
+// which could carry what the viewer types to another site.
+const rawSandbox = "sandbox allow-scripts"
 
 // rawDocumentPolicy is the policy for files a browser runs as a page (HTML,
-// SVG). The page sits on the platform's own address, so it could pass for a
-// sign-in prompt; it gets no network at all: no fetch or websocket, no form
-// post, no external script, style, font, image or frame that could carry what
-// the viewer types elsewhere, and no other site may frame it. Inline script
-// and data: or blob: resources still work, which is what self-contained
-// reports use.
+// SVG). The page could pass for a sign-in prompt, so nothing it loads or
+// sends reaches the network: no fetch or websocket, no form post, no
+// external script, style, font, image or frame, no <base>, and only the web
+// UI may frame it. Inline script and data: or blob: resources still work,
+// which is what self-contained reports use. No CSP directive stops a page
+// navigating itself (location = "https://elsewhere/?typed"), so such a page
+// is served inline only into a frame (activeDocument), where the web UI's
+// own frame-src keeps the frame on raw files.
 const rawDocumentPolicy = rawSandbox + "; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data: blob:; " +
 	"style-src 'unsafe-inline' data:; img-src data: blob:; font-src data:; media-src data: blob:; " +
 	"connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+
+// activeDocument is true for a type that runs script when a browser shows
+// it as a page.
+func activeDocument(typ string) bool { return typ == rawTypes[".html"] || typ == rawTypes[".svg"] }
+
+// showsInline says whether an active document loaded as dest (the request's
+// Sec-Fetch-Dest) may be shown: in a frame, or as an image (an SVG in an img
+// runs no script). Opened as a page of its own, or by a client that does
+// not say, it is a download instead.
+func showsInline(dest string) bool { return dest == "iframe" || dest == "frame" || dest == "image" }
 
 type rawInput struct {
 	Team string `query:"team" maxLength:"63" doc:"Team whose home the file is in; needed only when namespaces are per team and the user is in several"`
@@ -316,6 +330,9 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 		typ, inline := rawTypes[strings.ToLower(path.Ext(info.Name))]
 		return &huma.StreamResponse{Body: func(hc huma.Context) {
 			defer body.Close()
+			if inline && activeDocument(typ) && !showsInline(hc.Header("Sec-Fetch-Dest")) {
+				inline = false
+			}
 			if inline {
 				hc.SetHeader("Content-Type", typ)
 			} else {
@@ -323,7 +340,7 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 				hc.SetHeader("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": info.Name}))
 			}
 			csp := rawSandbox
-			if typ == rawTypes[".html"] || typ == rawTypes[".svg"] {
+			if activeDocument(typ) {
 				csp = rawDocumentPolicy
 			}
 			hc.SetHeader("Content-Security-Policy", csp)

@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
-import { formatSize, rawFileUrl } from '../../lib/files'
+import { fileViewUrl, formatSize, isHtmlPage, rawFileUrl } from '../../lib/files'
 import { ApiError, problemText } from '../../lib/http'
 import { readHomeFile, saveHomeFile, type FileRead } from './fileApi'
 import { fileKind, languageOf, type Language } from './fileKind'
@@ -121,6 +121,7 @@ function Editor(p: { doc: string; language: Language; onChange: (dirty: boolean)
 }
 
 function TextFile({ path, name, read }: { path: string; name: string; read: Extract<FileRead, { kind: 'text' }> }) {
+  const page = isHtmlPage(path)
   const qc = useQueryClient()
   const language = languageOf(name)
   const [editing, setEditing] = useState(false)
@@ -189,6 +190,11 @@ function TextFile({ path, name, read }: { path: string; name: string; read: Extr
               {saved ? 'Saved' : ''}
             </span>
             <span className="fv-actions">
+              {page && (
+                <Link className="btn" to={fileViewUrl(path, true)}>
+                  Show page
+                </Link>
+              )}
               <a className="btn" href={rawFileUrl(path)} download={name}>
                 <Download size={16} aria-hidden="true" />
                 Download
@@ -263,11 +269,12 @@ export function FileView() {
   const name = path.slice(path.lastIndexOf('/') + 1)
   const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
   const kind = fileKind(name)
+  const showPage = isHtmlPage(path) && params.get('show') === 'page'
   const [broken, setBroken] = useState(false)
   const read = useQuery({
     queryKey: fileKey(path),
     queryFn: () => readHomeFile(path),
-    enabled: kind === 'text' && path !== '',
+    enabled: kind === 'text' && path !== '' && !showPage,
     staleTime: Infinity,
     // The home folder is opening: ask again until it is.
     retry: (n, err) => err instanceof ApiError && err.status === 503 && n < 30,
@@ -275,7 +282,29 @@ export function FileView() {
   })
 
   let body
-  if (kind === 'image') {
+  if (showPage) {
+    // The page may run its own script, so it runs in a frame with an origin
+    // of its own and no network (the gateway's policy), and may not open
+    // windows or navigate this page; the UI's policy keeps the frame on raw
+    // files, so it cannot go elsewhere with what is typed into it either.
+    body = (
+      <>
+        <div className="fv-bar">
+          <span className="fv-actions">
+            <Link className="btn" to={fileViewUrl(path)}>
+              Show source
+            </Link>
+            <a className="btn" href={rawFileUrl(path)} download={name}>
+              <Download size={16} aria-hidden="true" />
+              Download
+            </a>
+          </span>
+        </div>
+        <Banner tone="info" title="This page was written by whoever made the file. It cannot reach the network; do not type a password into it." />
+        <iframe className="fv-pdf" sandbox="allow-scripts" src={rawFileUrl(path)} title={name} />
+      </>
+    )
+  } else if (kind === 'image') {
     body = broken ? (
       <DownloadOnly path={path} name={name} why="This picture could not be shown." />
     ) : (
