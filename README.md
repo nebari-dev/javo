@@ -24,7 +24,7 @@ Javo runs notebooks, web apps and scheduled jobs on Kubernetes, from one place.
 
 - **Data scientists**: work in JupyterLab, then share the results as live dashboards and apps.
 - **Engineers**: deploy internal tools and APIs from a Git repository.
-- **People who don't code** (ops, finance, marketing, etc.): ask an AI agent for a sales dashboard or an expense tracker, and get a working app your team can open, in a safe sandbox.
+- **People who don't code** (ops, finance, marketing, project managers, etc.): ask an AI agent for a sales dashboard or a project burndown, and get a working app your team can open, in a safe sandbox.
 - **Platform teams**: run all of it on your own Kubernetes, with GPU sizes, idle shutdown and backups built in.
 
 > [!WARNING]
