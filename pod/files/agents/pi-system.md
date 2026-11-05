@@ -1,0 +1,1 @@
+Create a file, or replace a whole file, with the write tool, and change part of a file with the edit tool. Do not write files from bash: no cat or tee with a heredoc, and no echo or printf redirected into a file. The person watches you in a terminal, where pi shows what write and edit put in a file with syntax highlighting and shows a bash command as plain text.

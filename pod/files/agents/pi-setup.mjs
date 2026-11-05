@@ -7,16 +7,17 @@
 //   pi-setup.mjs first-start  exit 0 the first time this app starts with its
 //                             first prompt (JAVO_AGENT_PROMPT), 1 after
 //
-// It writes pi's models.json and settings.json (pi 1.4.0, docs/models.md and
-// docs/settings.md) in the agent folder ($PI_CODING_AGENT_DIR, default
-// ~/.pi/agent). The javo provider in models.json is always pi-setup's: it is
-// rewritten on every start, so code that can write the home cannot point it
-// at another server, and no other provider in models.json or auth.json may
-// name $JAVO_AGENT_KEY. Everything else in those files is the person's and is
-// kept. settings.json is written only when it is missing or still what
-// pi-setup wrote last (its sha256 is kept in .javo-managed.json), and not once
-// pi is signed in (auth.json). The key is never written: models.json names
-// $JAVO_AGENT_KEY and pi reads the variable when it sends a request.
+// It writes pi's models.json, settings.json (pi 1.4.0, docs/models.md and
+// docs/settings.md) and APPEND_SYSTEM.md (see ownAppendSystem) in the agent
+// folder ($PI_CODING_AGENT_DIR, default ~/.pi/agent). The javo provider in
+// models.json is always pi-setup's: it is rewritten on every start, so code
+// that can write the home cannot point it at another server, and no other
+// provider in models.json or auth.json may name $JAVO_AGENT_KEY. Everything
+// else in those files is the person's and is kept. settings.json is written
+// only when it is missing or still what pi-setup wrote last (its sha256 is
+// kept in .javo-managed.json), and not once pi is signed in (auth.json). The
+// key is never written: models.json names $JAVO_AGENT_KEY and pi reads the
+// variable when it sends a request.
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -178,6 +179,26 @@ function nextSettings(dir, want, managed) {
   return content
 }
 
+// pi shows what its write and edit tools put in a file with syntax
+// highlighting, and a bash command (a heredoc's file included) as plain text
+// (pi 1.4.0, core/tools/renderers/write.js and bash.js). APPEND_SYSTEM.md in
+// the agent folder is added to pi's system prompt (docs/configuration.md);
+// pi-system.md asks pi to write files with those tools. It is written while
+// it is missing or still what pi-setup wrote last, so a person's own file is
+// kept. Not the --append-system-prompt flag: that would hide the person's
+// APPEND_SYSTEM.md from pi.
+const APPEND_SYSTEM = 'APPEND_SYSTEM.md'
+const appendSystem = () => readFileSync(new URL('./pi-system.md', import.meta.url), 'utf8')
+
+function ownAppendSystem(dir, managed) {
+  const path = join(dir, APPEND_SYSTEM)
+  const cur = readText(path)
+  if (cur !== undefined && managed[APPEND_SYSTEM] !== sha(cur)) return undefined
+  const content = appendSystem()
+  if (content !== cur) writePrivate(dir, path, content)
+  return content
+}
+
 export function configure(env) {
   const dir = agentDir(env)
   const want = wanted(env)
@@ -200,6 +221,8 @@ export function configure(env) {
   }
   const settings = signed ? undefined : nextSettings(dir, want, managed)
   if (settings !== undefined) next['settings.json'] = sha(settings)
+  const append = ownAppendSystem(dir, managed)
+  if (append !== undefined) next[APPEND_SYSTEM] = sha(append)
   if (Object.keys(next).length > 0 || existsSync(join(dir, MANAGED))) {
     writePrivate(dir, join(dir, MANAGED), JSON.stringify(next) + '\n')
   }

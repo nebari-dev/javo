@@ -177,3 +177,25 @@ test("pi follows the page's light or dark look unless the person picked a theme"
   writeFileSync(join(h, '.pi/agent/settings.json'), '{"theme":"dark"}')
   assert.deepEqual(themeArgs({ HOME: h }), [])
 })
+
+const guide = readFileSync(new URL('./pi-system.md', import.meta.url), 'utf8')
+
+test("pi's system prompt tells it to write files with its file tools, with or without a model", () => {
+  for (const env of [(h) => ({ HOME: h }), platform]) {
+    const h = home()
+    configure(env(h))
+    assert.equal(readFileSync(agent(h, 'APPEND_SYSTEM.md'), 'utf8'), guide)
+  }
+})
+
+test("a person's own APPEND_SYSTEM.md is kept, planted before or edited after", () => {
+  const h = home()
+  plant(h, 'APPEND_SYSTEM.md', 'mine\n')
+  configure(platform(h))
+  assert.equal(readFileSync(agent(h, 'APPEND_SYSTEM.md'), 'utf8'), 'mine\n')
+  const h2 = home()
+  configure(platform(h2))
+  writeFileSync(agent(h2, 'APPEND_SYSTEM.md'), 'edited\n')
+  configure(platform(h2))
+  assert.equal(readFileSync(agent(h2, 'APPEND_SYSTEM.md'), 'utf8'), 'edited\n')
+})
