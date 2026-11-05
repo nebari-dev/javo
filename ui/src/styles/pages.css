@@ -122,6 +122,13 @@ a.btn{text-decoration:none}
 .attn-name{font-weight:600;display:block}
 .attn-more{padding:2px 14px 10px}
 .attn-more .more-body .attn-item{padding:14px 0}
+/* A list that shows everything and scrolls in place: the next row is cut part way, and the scrollbar stays visible (macOS hides overlay scrollbars until a scroll), so it reads as scrollable. The 4px padding keeps card lifts and focus rings from being clipped. */
+.scroll-box{max-height:440px;overflow:hidden auto;padding:4px;margin:-4px;border-radius:var(--radius)}
+.scroll-box.card{padding:6px;margin:0}
+.scroll-box::-webkit-scrollbar{width:8px}
+.scroll-box::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:8px}
+.scroll-box::-webkit-scrollbar-track{background:transparent}
+@supports not selector(::-webkit-scrollbar){.scroll-box{scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}}
 
 /* App detail */
 .crumbs{font-size:var(--fs-sm);color:var(--text-2);margin-bottom:14px}

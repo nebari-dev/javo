@@ -739,6 +739,15 @@ describe('Run once', () => {
 })
 
 describe('Home', () => {
+  it('lists every job, with no See all link', async () => {
+    const jobs = Array.from({ length: 5 }, (_, i) => ({ ...weeklyView, name: `job-${i}`, displayName: `Job ${i}` }))
+    base({ 'GET /api/jobs': { body: { items: jobs } } })
+    renderApp('/')
+    const section = (await screen.findByRole('heading', { name: 'Jobs' })).closest('section')!
+    for (const j of jobs) expect(within(section).getByRole('link', { name: new RegExp(j.displayName) })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /see all/i })).toBeNull()
+  })
+
   it('lists a failed run under Needs your attention with a link to its job', async () => {
     base()
     renderApp('/')

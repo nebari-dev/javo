@@ -74,11 +74,13 @@ describe('All, Mine and Shared with me where apps are listed', () => {
     expect(screen.queryByRole('region', { name: 'Shared with you' })).toBeNull()
   })
 
-  it('shows no filter when nothing is shared', async () => {
+  it.each(['/apps', '/'])('%s offers All, Mine and Shared with me even when nothing is shared', async (path) => {
     render([])
-    renderApp('/apps')
-    await screen.findByRole('heading', { name: 'No apps yet' })
-    expect(screen.queryByRole('radiogroup', { name: 'Show' })).toBeNull()
+    renderApp(path)
+    const filter = await screen.findByRole('radiogroup', { name: 'Show' })
+    expect(within(filter).getAllByRole('radio').map((r) => r.textContent)).toEqual(['All', 'Mine', 'Shared with me'])
+    await userEvent.click(within(filter).getByRole('radio', { name: 'Shared with me' }))
+    expect(await screen.findByText('Nothing has been shared with you yet.')).toBeTruthy()
   })
 
   it('shows the API message when the shared list fails', async () => {

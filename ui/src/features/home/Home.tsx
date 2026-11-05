@@ -5,6 +5,7 @@ import { AppsList, ShowFilter, useShowFilter } from '../apps/AppsFilter'
 import { Banner } from '../../components/Banner'
 import { Card } from '../../components/Card'
 import { More } from '../../components/More'
+import { ScrollBox } from '../../components/ScrollBox'
 import { SampleGallery } from '../templates/SampleGallery'
 import { PartTitle } from '../../components/Section'
 import { useFeatureAttention, features, type AttentionEntry } from '..'
@@ -15,7 +16,6 @@ import { count } from '../../lib/plural'
 import { problemStep } from '../apps/status'
 
 const SHOWN_ATTENTION = 2
-const SHOWN_APPS = 6
 
 function AttentionItem({ item }: { item: AttentionEntry }) {
   const Icon = item.failed ? CircleAlert : Hourglass
@@ -37,7 +37,7 @@ export function Home() {
   const apps = useWorkspaces()
   const storage = useStorage()
   const templates = useTemplates()
-  const { show, setShow, shared, offered, sharedCount } = useShowFilter()
+  const { show, setShow, shared, sharedCount } = useShowFilter()
   const list = apps.data ?? []
   const total = (show === 'shared' ? 0 : list.length) + (show === 'mine' ? 0 : sharedCount)
   const featureAttention = useFeatureAttention()
@@ -59,7 +59,14 @@ export function Home() {
 
   return (
     <>
-      <h1>Home</h1>
+      {/* The filter sits in the page head, above everything that comes and goes, so it never moves. */}
+      <div className="section-head page-head">
+        <h1>Home</h1>
+        <div className="right row">
+          <ShowFilter show={show} onChange={setShow} />
+          <ViewSwitch view={view} onChange={setView} />
+        </div>
+      </div>
       <p className="sub">{apps.data ? `${running} ${running === 1 ? 'app' : 'apps'} running` : ' '}</p>
       {apps.isError && (
         <div className="section">
@@ -107,13 +114,10 @@ export function Home() {
               Apps
             </PartTitle>
             <span className="sub">{total}</span>
-            <div className="right row">
-              {offered && <ShowFilter show={show} onChange={setShow} />}
-              {total > SHOWN_APPS && <Link to={show === 'all' ? '/apps' : `/apps?show=${show}`}>See all {total}</Link>}
-              {show !== 'shared' && list.length > 0 && <ViewSwitch view={view} onChange={setView} />}
-            </div>
           </div>
-          <AppsList mine={list} shared={shared} show={show} view={view} limit={SHOWN_APPS} />
+          <ScrollBox label="All apps">
+            <AppsList mine={list} shared={shared} show={show} view={view} />
+          </ScrollBox>
         </section>
       )}
 

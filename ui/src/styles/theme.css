@@ -54,6 +54,8 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
+/* Room for the page scrollbar is kept even when the page is short, so nothing shifts sideways when a list grows long enough to scroll. */
+html{scrollbar-gutter:stable}
 body{background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:var(--fs-md);line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:var(--accent-text);text-decoration:none}
 button,input{font-family:inherit;font-size:inherit}

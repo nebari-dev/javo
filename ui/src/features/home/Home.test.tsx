@@ -53,6 +53,15 @@ describe('Home', () => {
     expect(within(attn).queryByText('Research lab')).toBeNull()
   })
 
+  it('lists every app, with no See all link', async () => {
+    const many = Array.from({ length: 9 }, (_, i) => ws(`app-${i}`, `App ${i}`, 'Running', allReady()))
+    mockApi({ 'GET /api/me': { body: me }, 'GET /api/workspaces': { body: { items: many } } })
+    renderApp('/')
+    await screen.findByText('App 0')
+    for (const w of many) expect(screen.getByText(w.displayName)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /see all/i })).toBeNull()
+  })
+
   it('has no attention section when nothing needs it', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/workspaces': { body: { items: [running, starting] } } })
     renderApp('/')

@@ -15,7 +15,8 @@ type Show = 'all' | 'mine' | 'shared'
 /**
  * Which apps a list shows: all by default, or only the user's own, or only
  * those shared with them. Kept in the address (?show=mine|shared) so a reload
- * or a link keeps it. Offered only when something is shared (or asked for).
+ * or a link keeps it. Always offered, so the control never appears, vanishes
+ * or moves as the data changes.
  */
 export function useShowFilter() {
   const [params, setParams] = useSearchParams()
@@ -32,7 +33,7 @@ export function useShowFilter() {
       { replace: true },
     )
   const sharedCount = shared.data?.items?.length ?? 0
-  return { show, setShow, shared, offered: sharedCount > 0 || show !== 'all', sharedCount }
+  return { show, setShow, shared, sharedCount }
 }
 
 export function ShowFilter({ show, onChange }: { show: Show; onChange: (s: Show) => void }) {
@@ -60,9 +61,8 @@ export function AppsList(props: {
   shared: ReturnType<typeof useShared>
   show: Show
   view: AppsView
-  limit?: number
 }) {
-  const { shared, show, view, limit } = props
+  const { shared, show, view } = props
   const mine = show === 'shared' ? [] : props.mine
   const others = show === 'mine' ? [] : (shared.data?.items ?? [])
   const sharedErr = show !== 'mine' && shared.isError ? <Banner tone="err" title={problemText(shared.error)} /> : null
@@ -71,20 +71,18 @@ export function AppsList(props: {
     if (show === 'shared') return shared.data ? <Card className="empty">{shared.data.empty}</Card> : null
     return <NoApps />
   }
-  const shownMine = mine.slice(0, limit)
-  const shownOthers = others.slice(0, limit === undefined ? undefined : Math.max(0, limit - shownMine.length))
-  const sharedCards = shownOthers.map((a) => <SharedCard key={`${a.owner.id}/${a.name}`} app={a} />)
+  const sharedCards = others.map((a) => <SharedCard key={`${a.owner.id}/${a.name}`} app={a} />)
   return (
     <>
       {sharedErr}
-      {view === 'list' && shownMine.length > 0 ? (
+      {view === 'list' && mine.length > 0 ? (
         <>
-          <AppTable apps={shownMine} />
+          <AppTable apps={mine} />
           {sharedCards.length > 0 && <div className="grid section-sm">{sharedCards}</div>}
         </>
       ) : (
         <div className="grid">
-          {shownMine.map((w) => (
+          {mine.map((w) => (
             <AppCard key={w.name} ws={w} />
           ))}
           {sharedCards}

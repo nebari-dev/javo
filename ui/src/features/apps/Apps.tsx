@@ -9,14 +9,14 @@ export function Apps() {
   const apps = useWorkspaces()
   const storage = useStorage()
   const [view, setView] = useAppsView()
-  const { show, setShow, shared, offered } = useShowFilter()
+  const { show, setShow, shared } = useShowFilter()
   return (
     <>
       <div className="section-head page-head">
         <h1>Apps</h1>
         <div className="right row">
-          {offered && <ShowFilter show={show} onChange={setShow} />}
-          {show !== 'shared' && !!apps.data?.length && <ViewSwitch view={view} onChange={setView} />}
+          <ShowFilter show={show} onChange={setShow} />
+          <ViewSwitch view={view} onChange={setView} />
         </div>
       </div>
       <p className="sub">Everything you run, and apps others shared with you. Stopped apps keep their settings and files.</p>
