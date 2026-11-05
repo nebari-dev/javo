@@ -1,11 +1,13 @@
 # Image used by every component (one binary: `javo server`, `javo controller`,
-# `javo gateway`, `javo db`). If digest is set it wins over tag. Set digest
-# (sha256:...) in production: a tag can be moved to other contents, and
-# IfNotPresent keeps whatever image a node already has under that tag. No
-# release image is published yet, so there is no default digest.
+# `javo gateway`, `javo db`). If digest is set it wins over tag. A released
+# chart sets repository, tag and digest to the released image
+# (scripts/release/set-chart-release.sh). This source chart sets neither, and
+# does not render until one is given: a tag can be moved to other contents,
+# and IfNotPresent keeps whatever image a node already has under that tag, so
+# set tag only for an image built locally (the dev and single-node installs).
 image:
   repository: javo
-  tag: dev
+  tag: ""
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -49,7 +51,7 @@ database:
     storageClass: ""
     # pg_dump and its shell script, postgres only. Use a major version at
     # least that of the server.
-    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
 
 # Backups to an S3-compatible bucket (AWS S3, MinIO, Backblaze B2,
 # Cloudflare R2; site/src/content/docs/admin/backups.mdx). Off by default; when off nothing

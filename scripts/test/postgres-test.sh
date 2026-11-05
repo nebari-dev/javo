@@ -9,7 +9,7 @@
 # Usage: scripts/test/postgres-test.sh <command> [args...]
 set -eu
 
-image=postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+image=postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
 name=javo-test-postgres-$$
 password=$(openssl rand -hex 24)
 

@@ -93,7 +93,7 @@ func TestTwoRendersAreIdentical(t *testing.T) {
 	for _, engine := range engines {
 		var outs [2]string
 		for i := range outs {
-			out, err := exec.Command("helm", append(append([]string{"template", "javo", chart, "--namespace", "javo-system"}, vapAPI...), engineArgs(engine)...)...).CombinedOutput()
+			out, err := exec.Command("helm", append(append(append([]string{"template", "javo", chart, "--namespace", "javo-system"}, vapAPI...), testImage...), engineArgs(engine)...)...).CombinedOutput()
 			if err != nil {
 				t.Fatalf("%s render: %v\n%s", engine, err, out)
 			}

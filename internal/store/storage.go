@@ -33,8 +33,10 @@ const (
 	settingRequests  = "requests"
 )
 
-// Homes is the homes table. The controller writes it, and the gateway adds
-// a member's home row the first time their files are needed (EnsureHome).
+// Homes is the homes table. The controller keeps each row's status; the
+// gateway adds a member's missing home the first time their files are
+// needed (Ensure, from the Files endpoints) and records admins' backup and
+// restore requests; the javo CLI changes sizes and deletes homes.
 type Homes struct{ s *Store }
 
 // Homes returns the homes table.

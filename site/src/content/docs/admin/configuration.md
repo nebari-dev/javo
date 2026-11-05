@@ -16,7 +16,7 @@ Values fall in two groups:
 
 | Value | What it does |
 |---|---|
-| `image.repository`, `image.tag` (or `image.digest`) | The `javo` image you built and pushed. |
+| `image.repository`, `image.digest` (or `image.tag`) | The `javo` image. A released chart already names its image by digest; the source chart does not render until you set one. |
 | `database.engine` | `sqlite` (default; one pod) or `postgres` (separate gateway and controller, more than one replica each). |
 | `database.postgres.dsnSecret` | With Postgres: a Secret whose key `dsn` holds the connection string. |
 | `publicHost` | The host (and port) browsers use. Panel and Bokeh check websocket origins against it. Defaults to `config.urls.uiHost`. |
