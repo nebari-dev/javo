@@ -51,7 +51,11 @@ function StopFor({ item }: { item: AdminApp }) {
       </Button>
       {asking && (
         <Confirm
-          title={`Stop ${app.displayName} of ${owner.displayName}?`}
+          title={
+            <>
+              Stop {app.displayName} of <span className="confirm-owner">{owner.displayName}</span>?
+            </>
+          }
           body={`${owner.displayName} sees that an admin stopped it. Their files and settings are kept, and they can start it again.`}
           confirm="Stop"
           icon={Square}
@@ -80,7 +84,7 @@ export function AdminApps() {
   return (
     <>
       <p className="sub">Every app on this install. Opening someone else's app is recorded in the audit log. Stopping one tells its owner an admin did it; their files and settings are kept.
-        {closed && " Apps here share one address, so you can open only your own: another person's app could act with your admin rights."}
+        {closed && " Apps here share one address, so you open another person's app only when it is shared with you, not through admin rights."}
       </p>
       <div className="section-sm card atable-wrap">
         <table className="atable">

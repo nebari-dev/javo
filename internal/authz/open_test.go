@@ -20,6 +20,7 @@ func TestOpenOn(t *testing.T) {
 	subdomain := exposuresubdomain.New(config.URLs{Mode: "subdomain", UIHost: "javo.example.com", AppsDomain: "apps.example.com"})
 	open := tpl("Public", nil, nil)
 	shared := ws("Restricted", []string{bob.ID}, nil)
+	sharedWithAdmin := ws("Restricted", []string{admin.ID}, nil)
 	preview := func(owner string) *model.App {
 		a := ws("Restricted", []string{bob.ID}, nil)
 		a.Owner, a.ParentID = owner, "parent-1"
@@ -46,6 +47,11 @@ func TestOpenOn(t *testing.T) {
 		{"one host: the owner opens", oneHost, false, alice, authz.Object{App: shared, Template: open}, true, ""},
 		{"one host: an admin does not open another's app", oneHost, true, admin, authz.Object{App: shared, Template: open}, true, reasons.MsgAdminOpenNeedsAppsHost},
 		{"apps host: a share opens", appsHost, false, bob, authz.Object{App: shared, Template: open}, true, ""},
+		// A share opens for an admin too: the shared origin's risk is accepted
+		// for shares (documented), refused only for admin rights alone.
+		{"apps host: an app shared with an admin opens for them", appsHost, false, admin, authz.Object{App: sharedWithAdmin, Template: open}, true, ""},
+		{"apps host: an admin does not open another's app by admin rights alone", appsHost, false, admin, authz.Object{App: shared, Template: open}, true, reasons.MsgAdminOpenNeedsAppsHost},
+		{"one host with allowOneHost: an admin does not open even an app shared with them", oneHost, true, admin, authz.Object{App: sharedWithAdmin, Template: open}, true, reasons.MsgAdminOpenNeedsAppsHost},
 		{"apps host: nobody opens a preview, not even its admin owner", appsHost, false, adminOwn, authz.Object{App: preview(alice.ID), Parent: parent(alice.ID), Template: open}, true, reasons.MsgPreviewNeedsAppsHost},
 		{"subdomain: an admin opens another's plain app", subdomain, false, admin, authz.Object{App: shared, Template: open}, true, ""},
 		{"subdomain: an admin opens their own preview", subdomain, false, adminOwn, authz.Object{App: preview(alice.ID), Parent: parent(alice.ID), Template: open}, true, ""},

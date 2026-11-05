@@ -309,8 +309,8 @@ var messages = map[MessageCode]string{
 	MsgTooManyAppOpens:    "Too many apps opened in a short time. Wait a moment, then try again.",
 	MsgTooManySearches:    "Too many searches in a short time. Wait a moment, then try again.",
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
-	MsgAdminOpenNeedsAppsHost: "Admins cannot open other people's apps while apps share one address, because the app's page could act as you, with your admin rights. " +
-		"Ask the owner to show you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
+	MsgAdminOpenNeedsAppsHost: "Admins cannot open other people's apps through admin rights while apps share one address, because the app's page could act as you, with your admin rights. " +
+		"Ask the owner to share it with you, or give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgPreviewNeedsAppsHost: "Previews of pull requests do not open while apps share one address, because the pull request's code could act as you. " +
 		"Ask your platform admin to give each app its own address (urls.mode subdomain with urls.appsDomain).",
 	MsgSharedNeedsAppsHost: "Shared apps do not open while apps share this page's address, because the app's page could act as you. " +

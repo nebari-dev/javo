@@ -265,8 +265,8 @@ func isOwner(p Principal, a *model.App) bool {
 	return signedIn(p) && p.ID == a.Owner
 }
 
-// openApp lets the owner in, then a platform admin unless the app runs code
-// as its owner (ownerRunsCode), then whoever the app is shared with.
+// openApp lets the owner in, then whoever the app is shared with, then a
+// platform admin unless the app runs code as its owner (ownerRunsCode).
 func openApp(p Principal, admin bool, obj Object) Decision {
 	a := obj.App
 	if a == nil {
@@ -282,10 +282,13 @@ func openApp(p Principal, admin bool, obj Object) Decision {
 		}
 		return deny(reasons.MsgOwnerOnlyOpens)
 	}
-	if admin {
-		return allow("platform-admin")
+	// A share comes before admin rights, so an admin opening an app shared
+	// with them opens it as anyone it is shared with (OpenOn tells the two
+	// apart).
+	if d := sharedWithOrParent(p, obj); d.Allowed || !admin {
+		return d
 	}
-	return sharedWithOrParent(p, obj)
+	return allow("platform-admin")
 }
 
 // ownerRunsCode is true when whoever opens an app from t gets a shell, a

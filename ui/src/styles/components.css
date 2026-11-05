@@ -467,3 +467,6 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .started-with-label{font-size:var(--fs-xs);font-weight:600;color:var(--text-2)}
 .started-with-image{overflow-wrap:anywhere}
 .codeblock.cmdline code{color:var(--code-foreground,var(--text));overflow-wrap:anywhere}
+
+/* Whose app an admin acts on, set apart in a confirmation's title. */
+.confirm-owner{color:var(--accent-text)}

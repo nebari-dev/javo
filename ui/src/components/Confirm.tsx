@@ -1,12 +1,12 @@
 import type { LucideIcon } from 'lucide-react'
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { problemText } from '../lib/http'
 import { Button } from './Button'
 
 /** A confirmation over the page: Cancel is focused first; Escape or a click outside cancels. */
 export function Confirm(props: {
-  title: string
+  title: ReactNode
   body: string
   confirm: string
   icon: LucideIcon

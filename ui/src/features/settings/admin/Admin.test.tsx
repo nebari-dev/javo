@@ -141,7 +141,7 @@ describe('Settings for platform admins', () => {
     expect(within(within(table).getByRole('row', { name: /Notes/ })).queryByRole('button', { name: /Stop/ })).toBeNull()
     await userEvent.click(within(r).getByRole('button', { name: 'Stop Plots' }))
     const dialog = screen.getByRole('alertdialog')
-    expect(within(dialog).getByText('Stop Plots of Alice?')).toBeTruthy()
+    expect(dialog.textContent).toContain('Stop Plots of Alice?')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Stop' }))
     expect(api.calls.find((c) => c.method === 'POST')?.path).toBe('/api/workspaces/plots/stop?owner=alice-aaaaaaaa')
   })
@@ -165,7 +165,7 @@ describe('Settings for platform admins', () => {
     expect(open.getAttribute('target')).toBe('_blank')
     expect(within(within(table).getByRole('row', { name: /Notes/ })).queryByRole('link', { name: /Open/ })).toBeNull()
     expect(within(within(table).getByRole('row', { name: /Maps/ })).queryByRole('link', { name: /Open/ })).toBeNull()
-    expect(screen.getByText(/you can open only your own/)).toBeTruthy()
+    expect(screen.getByText(/only when it is shared with you/)).toBeTruthy()
   })
 
   it('says how long each running app has run, from when it last became ready', async () => {

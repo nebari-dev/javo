@@ -30,7 +30,7 @@ An app runs code its owner chose. When apps share the web UI's host, a page in a
 
 Javo refuses state-changing API calls from other sites: the web UI marks each call with an `X-Javo-Request` header that another site cannot add, and calls whose `Sec-Fetch-Site`, `Origin` or `Referer` point at another site or at a page under `/u/` are refused too. Clients with an API token (`Authorization: Bearer`) need no header. Reads that can create a person's home folder or start its file pod get the same checks: listing files and reading storage usage need the header, and a raw file (which the web UI also loads as an image, a frame or a link) must come from a page of the web UI itself, so a page of an app on another host of the same site cannot trigger them. None of this stops a page served under `/u/` on the UI's own host. So while apps share the UI's host:
 
-- a platform admin or template admin cannot open other people's apps, even ones shared with them, since the app's page would act with their admin rights (they get "Admins cannot open other people's apps while apps share one address"); they still open their own;
+- a platform admin or template admin cannot open other people's apps, even ones shared with them, since the app's page would act with their admin rights on the web UI itself (they get "Admins cannot open other people's apps while apps share one address"); they still open their own;
 - nobody can open a preview of a pull request, from a fork or from the same repository: it runs code the owner has not necessarily read;
 - **sharing beyond Private is refused**, and apps shared earlier, while the install had an apps host, no longer open for the people they were shared with. Serve apps on an apps host or on subdomains and sharing works (an apps host in path mode still puts all apps in one origin, see below). To allow sharing on one host anyway, knowing the risk, set:
 
@@ -46,7 +46,9 @@ The Docker Compose install does this, since it serves everything on one address.
 
 An apps host keeps apps away from the web UI, but in path mode every app of every owner is served from the same origin (`https://apps.example.com`). Browsers isolate pages by origin, not by path: a cookie's `Path` does not keep it from a script on another path of the same origin. So a page of one app can load another app the visitor can open in a frame and script it as them, for example a JupyterLab terminal. **Only subdomain mode gives each app an origin of its own, and only it isolates apps from each other.**
 
-Path mode with an apps host gets the same refusals as one host: platform admins and template admins cannot open other people's apps, and previews of pull requests do not open. Sharing is still allowed there.
+In path mode with an apps host, an app shared with someone opens for them, admins included: an admin opens another person's app when it is shared with them, but never by admin rights alone. Previews of pull requests do not open. Sharing is allowed.
+
+**Known limitation:** while apps share one origin, a shared app's page can act as whoever opens it on the apps host, for example by scripting their own JupyterLab or terminal there. Share apps only with people who trust the app's owner, and keep apps that hold secrets private. Per-app subdomain addresses, which give every app an origin of its own and remove this limit, will be added to the standard setup.
 
 ## Admins and apps that run code as their owner
 

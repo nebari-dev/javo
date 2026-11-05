@@ -32,6 +32,10 @@ An app with [API access](/using/api/) also lets them call the Javo API as you; t
 
 **A shared app sees your files read-only.** While an app is shared at any level above Private, it can read your home folder and group folders but not change them, so nobody you share it with can change the files your other apps and jobs run. Its caches (`~/.cache`) and `/tmp` stay writable. Changing an app's sharing between Private and any other level restarts it. Give an app that must write files to others a private copy, or keep it private.
 
+## A known limitation: apps share one address
+
+On most installs every app is served from the same web address, with each app under its own path. Browsers keep pages apart by address, not by path, so a shared app's page can act as whoever opens it there: for example, it could drive their own JupyterLab or terminal while they have it open. Admins who open an app shared with them take the same risk. Share apps only with people who trust you, and keep apps that hold secrets private. Giving every app an address of its own (a subdomain) removes this; that will be added to the standard setup.
+
 ## Why a level may be missing
 
 **Terminal, JupyterLab and coding agents are always private.** The Terminal, JupyterLab, Whybook, Claude Code, pi, herdr and any other coding agent hand whoever opens them code running as you, with your files. Javo refuses to share them, whatever their template says, in the web UI and the API alike.
