@@ -36,15 +36,18 @@ type Details struct {
 // failed).
 func (e *Details) Error() string { return e.Title }
 
-// GetHeaders lets huma send the headers set with WithHeader.
-func (e *Details) GetHeaders() http.Header { return e.headers }
-
-// WithHeader sets a response header to send with the problem.
-func (e *Details) WithHeader(k, v string) *Details {
+// GetHeaders lets huma send the headers set with WithHeader. It never
+// returns nil: huma.ErrorWithHeaders adds to the map it returns.
+func (e *Details) GetHeaders() http.Header {
 	if e.headers == nil {
 		e.headers = http.Header{}
 	}
-	e.headers.Set(k, v)
+	return e.headers
+}
+
+// WithHeader sets a response header to send with the problem.
+func (e *Details) WithHeader(k, v string) *Details {
+	e.GetHeaders().Set(k, v)
 	return e
 }
 

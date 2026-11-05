@@ -16,12 +16,25 @@ describe('Plan page', () => {
       'POST /api/plans/p1/approve': { body: { ...fromAgent, state: 'applied' } },
     })
     renderApp('/plans/p1')
-    expect(await screen.findByText('Requested by claude-code')).toBeTruthy()
+    expect(await screen.findByText('Requested by an agent that calls itself claude-code')).toBeTruthy()
     const review = screen.getByLabelText('Stop Sales app')
     expect(within(review).getByLabelText('Changes').textContent).toContain('Stopped')
     await userEvent.click(within(review).getByRole('button', { name: 'Approve' }))
     await within(review).findByText('Done.')
     expect(calls.count('POST', '/api/plans/p1/approve')).toBe(1)
+  })
+
+  it('names the credential that asked, not only the name the agent gave itself', async () => {
+    for (const [requestedBy, want] of [
+      [{ token: 'laptop-cli' }, 'Requested with your API token laptop-cli, by an agent that calls itself claude-code'],
+      [{ app: 'pi-agent' }, 'Requested with the token of your app pi-agent, by an agent that calls itself claude-code'],
+      [{ job: true }, 'Requested with the token of one of your jobs, by an agent that calls itself claude-code'],
+    ] as const) {
+      mockApi({ 'GET /api/me': { body: me }, 'GET /api/plans/p1': { body: { ...fromAgent, requestedBy } } })
+      const { unmount } = renderApp('/plans/p1')
+      expect(await screen.findByText(want)).toBeTruthy()
+      unmount()
+    }
   })
 
   it('rejects it', async () => {

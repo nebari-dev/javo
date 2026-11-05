@@ -38,9 +38,11 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/ext/envsource"
+	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/ext/placement"
 	"github.com/nebari-dev/javo/internal/features/authlocal"
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
+	"github.com/nebari-dev/javo/internal/features/exposuresubdomain"
 	"github.com/nebari-dev/javo/internal/gateway"
 	adminapi "github.com/nebari-dev/javo/internal/gateway/admin"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
@@ -237,6 +239,10 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		nebiTokens = &nebi.Tokens{Store: db, Source: o.Nebi}
 	}
 	rv := authn.NewRevalidator(providers, sessions, people, 0, o.Now)
+	var exp exposure.Backend = exposurepath.New(o.Urls)
+	if o.Urls.Mode == "subdomain" {
+		exp = exposuresubdomain.New(o.Urls)
+	}
 	srv := gateway.NewServer(gateway.Config{
 		NebiTokens: nebiTokens, Revalidator: rv,
 		Tokens: tokens, API: api, IdleStop: o.Idle,
@@ -246,7 +252,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		People: people, Roles: roles, Now: o.Now,
 		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, Branding: o.Branding,
 		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Logs: o.Logs, Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
-		URLs: o.Urls, Exposure: exposurepath.New(o.Urls), Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
+		URLs: o.Urls, Exposure: exp, Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
 		AI:       o.Ai, AgentModel: o.AgentModel, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,

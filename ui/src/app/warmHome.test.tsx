@@ -35,6 +35,22 @@ describe('warming the home folder ahead of the file picker', () => {
     await waitFor(() => expect(api.count('POST', '/api/files/warm')).toBe(2))
   })
 
+  it('never asks for someone who is not a member: only members get a home', async () => {
+    const api = mockApi({
+      'GET /api/me': { body: { ...me, roles: [] } },
+      'GET /api/templates': { body: { items: templates } },
+      'GET /api/workspaces': { body: { items: [] } },
+      'GET /api/sizes': { body: { items: [] } },
+      'GET /api/jobs': { body: { items: [] } },
+      'GET /api/engines': { body: { items: [] } },
+      'POST /api/files/warm': { status: 204 },
+    })
+    renderApp('/apps/new')
+    await waitFor(() => expect(api.count('GET', '/api/me')).toBeGreaterThan(0))
+    await waitFor(() => expect(api.count('GET', '/api/templates')).toBeGreaterThan(0))
+    expect(api.count('POST', '/api/files/warm')).toBe(0)
+  })
+
   it('is a hint: a failed warm-up shows nothing', async () => {
     const api = mockApi({
       'GET /api/me': { body: me },

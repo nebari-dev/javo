@@ -240,7 +240,7 @@ func NewServer(cfg Config) *Server {
 	}
 	hc.Transformers = append(hc.Transformers, problem.Sanitize)
 	api := humago.New(apiMux, hc)
-	api.UseMiddleware(authn.WorkloadTokensReadOnly(api))
+	api.UseMiddleware(authn.WorkloadTokensReadOnly(api), authn.HomeReadsGuard(api))
 
 	if cfg.Providers == nil {
 		cfg.Providers = registry.New[authprovider.Provider]()

@@ -1035,6 +1035,7 @@ export type Plan = {
     id: string;
     message?: string;
     planned: Planned;
+    requestedBy: Requester;
     source: string;
     state: 'pending' | 'applying' | 'applied' | 'rejected' | 'failed' | 'expired';
 };
@@ -1221,6 +1222,21 @@ export type ReleaseInputBody = {
 
 export type ReleaseOutputBody = {
     released: number;
+};
+
+export type Requester = {
+    /**
+     * Short name of the app whose own token proposed the plan
+     */
+    app?: string;
+    /**
+     * A job's own token proposed the plan
+     */
+    job?: boolean;
+    /**
+     * Name of the API token that proposed the plan
+     */
+    token?: string;
 };
 
 export type RestoreRunBody = {
@@ -3345,6 +3361,10 @@ export type ListFilesErrors = {
      */
     401: ErrorModel;
     /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
      * Not Found
      */
     404: ErrorModel;
@@ -3402,6 +3422,10 @@ export type GetRawFileErrors = {
      * Unauthorized
      */
     401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
     /**
      * Not Found
      */
@@ -3473,6 +3497,10 @@ export type SaveRawFileErrors = {
      */
     401: ErrorModel;
     /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
      * Not Found
      */
     404: ErrorModel;
@@ -3530,6 +3558,10 @@ export type WarmFilesErrors = {
      * Unauthorized
      */
     401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
     /**
      * Unprocessable Entity
      */

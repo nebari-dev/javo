@@ -265,14 +265,41 @@ func isOwner(p Principal, a *model.App) bool {
 	return signedIn(p) && p.ID == a.Owner
 }
 
+// openApp lets the owner in, then a platform admin unless the app runs code
+// as its owner (ownerRunsCode), then whoever the app is shared with.
 func openApp(p Principal, admin bool, obj Object) Decision {
 	a := obj.App
-	if d := ownerOrAdmin(p, admin, a); d.Allowed {
-		return d
-	}
 	if a == nil {
 		return deny(reasons.MsgAppNotFound)
 	}
+	if isOwner(p, a) {
+		return allow("owner")
+	}
+	if admin && ownerRunsCode(obj.Template) {
+		// Sharing with the admin still counts: the owner chose that.
+		if d := sharedWithOrParent(p, obj); d.Allowed {
+			return d
+		}
+		return deny(reasons.MsgOwnerOnlyOpens)
+	}
+	if admin {
+		return allow("platform-admin")
+	}
+	return sharedWithOrParent(p, obj)
+}
+
+// ownerRunsCode is true when whoever opens an app from t gets a shell, a
+// kernel, an agent or an editor that runs as the owner, with their files and
+// secrets: its sharing is capped at Private, or it is a code editor. A
+// missing template counts, as it caps at Private.
+func ownerRunsCode(t *model.Template) bool {
+	return model.MaxSharing(t) == model.AccessPrivate || model.RunsAnyCode(t)
+}
+
+// sharedWithOrParent is sharedWith, capped for a preview by its parent's
+// sharing as it is now.
+func sharedWithOrParent(p Principal, obj Object) Decision {
+	a := obj.App
 	if a.ParentID != "" {
 		// A preview copies its parent's sharing only when the code host
 		// answers; the parent's sharing as it is now caps it.

@@ -28,11 +28,11 @@ With an Ingress, the chart adds the apps host, or `*.<appsDomain>`, to the Ingre
 
 An app runs code its owner chose. When apps share the web UI's host, a page in an app runs in the same origin as the web UI: its script can call Javo's API as whoever views it, with their session, and nothing on that one host can tell the two apart. **One-host mode is only for apps everyone who opens them trusts.** The clean fix is a separate origin.
 
-Javo refuses state-changing API calls from other sites: the web UI marks each call with an `X-Javo-Request` header that another site cannot add, and calls whose `Sec-Fetch-Site`, `Origin` or `Referer` point at another site or at a page under `/u/` are refused too. Clients with an API token (`Authorization: Bearer`) need no header. None of this stops a page served under `/u/` on the UI's own host. So while apps share the UI's host:
+Javo refuses state-changing API calls from other sites: the web UI marks each call with an `X-Javo-Request` header that another site cannot add, and calls whose `Sec-Fetch-Site`, `Origin` or `Referer` point at another site or at a page under `/u/` are refused too. Clients with an API token (`Authorization: Bearer`) need no header. Reads that can create a person's home folder or start its file pod get the same checks: listing files and reading storage usage need the header, and a raw file (which the web UI also loads as an image, a frame or a link) must come from a page of the web UI itself, so a page of an app on another host of the same site cannot trigger them. None of this stops a page served under `/u/` on the UI's own host. So while apps share the UI's host:
 
 - a platform admin or template admin cannot open other people's apps, even ones shared with them, since the app's page would act with their admin rights (they get "Admins cannot open other people's apps while apps share one address"); they still open their own;
 - nobody can open a preview of a pull request, from a fork or from the same repository: it runs code the owner has not necessarily read;
-- **sharing beyond Private is refused.** Serve apps on an apps host or on subdomains and sharing works (an apps host in path mode still puts all apps in one origin, see below). To allow sharing on one host anyway, knowing the risk, set:
+- **sharing beyond Private is refused**, and apps shared earlier, while the install had an apps host, no longer open for the people they were shared with. Serve apps on an apps host or on subdomains and sharing works (an apps host in path mode still puts all apps in one origin, see below). To allow sharing on one host anyway, knowing the risk, set:
 
 ```yaml
 config:
@@ -47,6 +47,10 @@ The Docker Compose install does this, since it serves everything on one address.
 An apps host keeps apps away from the web UI, but in path mode every app of every owner is served from the same origin (`https://apps.example.com`). Browsers isolate pages by origin, not by path: a cookie's `Path` does not keep it from a script on another path of the same origin. So a page of one app can load another app the visitor can open in a frame and script it as them, for example a JupyterLab terminal. **Only subdomain mode gives each app an origin of its own, and only it isolates apps from each other.**
 
 Path mode with an apps host gets the same refusals as one host: platform admins and template admins cannot open other people's apps, and previews of pull requests do not open. Sharing is still allowed there.
+
+## Admins and apps that run code as their owner
+
+In every mode, a platform admin cannot open someone else's app that runs code as its owner: a terminal, JupyterLab, VS Code, RStudio, a coding agent, or any app whose template keeps it Private. It would give the admin a shell or editor as that person, with their secrets. They get "Only its owner opens this app", and **Settings > All apps** shows no Open button for it. They still start, stop and delete it and read its logs. In subdomain mode they open other people's other apps, and a code editor its owner shared with them.
 
 ### The cross-app guard
 
@@ -86,5 +90,6 @@ The apps host never sees the web UI's session cookie. When a signed-in person op
 - Checks again, on every request, that the visitor may open the app (its sharing, its template, the visitor's session), and every 30 seconds for a websocket, event stream or download still open.
 - While apps share an origin, refuses requests that another app's page starts (see [the cross-app guard](#the-cross-app-guard)).
 - Removes Javo's own cookies and API tokens from the request, so the app never sees them; anonymous visitors send no cookies at all.
+- Keeps the cookies an app sets within the app: it removes their `Domain` attribute and, in path mode, sets their `Path` to the app's own path (an app's `__Host-` cookie is dropped there, since it needs `Path=/`), and drops any cookie named like Javo's own (`javo_...`). A page's script can still set cookies itself with `document.cookie`, which the gateway does not see; an apps domain that is not under the web UI's domain keeps those away from the web UI.
 - Removes the app's prefix before forwarding, for templates that serve at `/` (such as Container image), and says what it removed in `X-Forwarded-Prefix`.
 - Counts the traffic as use, for [idle stop](/admin/idle-stop/).

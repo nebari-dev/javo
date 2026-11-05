@@ -86,6 +86,8 @@ type (
 	peerKey   struct{}
 	// apiTokenKey holds the id of the API token a request came with.
 	apiTokenKey struct{}
+	// tokenRecordKey holds that token's record (token.Token).
+	tokenRecordKey struct{}
 	// appTokenKey is set (true) when that token was made for an app or a
 	// job (token.Token.Workload).
 	appTokenKey struct{}
@@ -166,6 +168,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 				return
 			}
 			ctx = context.WithValue(ctx, apiTokenKey{}, tok.ID)
+			ctx = context.WithValue(ctx, tokenRecordKey{}, tok)
 			ctx = context.WithValue(ctx, appTokenKey{}, tok.Workload())
 			if tok.App != nil && a.Agents != nil {
 				caps, err := a.Agents(ctx, *tok.App)
@@ -393,6 +396,13 @@ func ViaAgentModelToken(ctx context.Context) bool {
 func Writes(ctx context.Context) bool {
 	w, _ := ctx.Value(writeKey{}).(bool)
 	return w
+}
+
+// APIToken is the record of the API token the request came with; false for
+// a browser session.
+func APIToken(ctx context.Context) (token.Token, bool) {
+	tok, ok := ctx.Value(tokenRecordKey{}).(token.Token)
+	return tok, ok
 }
 
 // viaToken reports whether the request came with an API token.

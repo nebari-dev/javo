@@ -106,7 +106,7 @@ config:
 | **Template admin** | Manage templates on the Templates page. |
 | **Member** | Create and run apps and jobs. |
 
-People who are not members can only open apps shared with them.
+People who are not members can only open apps shared with them. They get no home folder: the Files page and file picker answer 403 for them.
 
 **Give the template admin role only to people you trust as much as a platform admin.** A template decides the image, command and proxy headers of every app made from it. Whoever changes a template made on the Templates page (not one from the Helm values) changes what runs in other people's apps on it at their next start, with their home folder, their secrets and, for apps with API access, their API token. Each change is in the audit log as `template.put`, with the fields it changed. Group names must match exactly what the provider sends.
 

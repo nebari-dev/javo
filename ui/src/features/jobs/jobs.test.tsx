@@ -199,11 +199,11 @@ describe('Job detail', () => {
     expect(api.count('POST', '/api/jobs/weekly-report/run')).toBe(0)
   })
 
-  it('opens the executed notebook as HTML through the raw file endpoint', async () => {
+  it('opens the executed notebook in the file viewer, which frames the HTML in a sandbox', async () => {
     base()
     renderApp('/jobs/weekly-report')
     const link = await screen.findByRole('link', { name: 'Open executed notebook' })
-    expect(link.getAttribute('href')).toBe('/api/files/raw?path=jobs%2Fweekly-report%2Frun-3%2Foutput.html')
+    expect(link.getAttribute('href')).toBe('/files/view?path=jobs%2Fweekly-report%2Frun-3%2Foutput.html&show=page')
   })
 
   it('links each output file of a run, never the run folder', async () => {
@@ -211,7 +211,7 @@ describe('Job detail', () => {
     renderApp('/jobs/weekly-report')
     const runs = await screen.findByRole('table', { name: 'Runs of Weekly report' })
     const hrefs = within(runs).getAllByRole('link').map((a) => a.getAttribute('href'))
-    expect(hrefs).toContain('/api/files/raw?path=jobs%2Fweekly-report%2Frun-2%2Foutput.html')
+    expect(hrefs).toContain('/files/view?path=jobs%2Fweekly-report%2Frun-2%2Foutput.html&show=page')
     expect(hrefs).not.toContain('/api/files/raw?path=jobs%2Fweekly-report%2Frun-2')
   })
 

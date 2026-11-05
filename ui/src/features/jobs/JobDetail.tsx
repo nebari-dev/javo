@@ -15,7 +15,7 @@ import { PartIcon } from '../../components/Section'
 import { JOB_ENV_HINT } from '../environments/EnvEditor'
 import { EnvSetting } from '../environments/EnvSetting'
 import { choiceOf, SizeSetting } from '../sizes/SizeSetting'
-import { rawFileUrl } from '../../lib/files'
+import { openFileUrl } from '../../lib/files'
 import { problemText } from '../../lib/http'
 import { cronText, duration, engineKind, outcomeLabel, outcomeStatus, when } from './format'
 import { NextRun } from './JobsList'
@@ -54,7 +54,7 @@ function RunRow({ job, run, logOpen, onLog }: { job: JobDetailData; run: RunView
         <td className="col-file">{duration(run)}</td>
         <td className="col-type">
           {(run.outputs ?? []).map((o) => (
-            <a key={o} className="block small" href={rawFileUrl(o)} target="_blank" rel="noopener">
+            <a key={o} className="block small" href={openFileUrl(o)} target="_blank" rel="noopener">
               {basename(o)}
             </a>
           ))}
@@ -323,7 +323,7 @@ export function JobDetail() {
                     </Button>
                     {inputsLost && <span className="muted">This run did not keep its inputs.</span>}
                     {output && (
-                      <a className="btn sm" href={rawFileUrl(output)} target="_blank" rel="noopener">
+                      <a className="btn sm" href={openFileUrl(output)} target="_blank" rel="noopener">
                         {notebookHtml ? 'Open executed notebook' : 'Open output'}
                       </a>
                     )}

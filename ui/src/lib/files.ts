@@ -53,6 +53,25 @@ export function rawFileUrl(path: string): string {
   return `/api/files/raw?path=${encodeURIComponent(path)}`
 }
 
+/** Whether a home file is an HTML page, which the file viewer shows only in a sandboxed frame. */
+export function isHtmlPage(path: string): boolean {
+  return path.toLowerCase().endsWith('.html')
+}
+
+/** The file viewer's address for one file of the home; page shows an HTML file as a page. */
+export function fileViewUrl(path: string, page = false): string {
+  return `/files/view?path=${encodeURIComponent(path)}${page ? '&show=page' : ''}`
+}
+
+/**
+ * Where a link that opens a home file goes: an HTML page to the file viewer,
+ * which frames it in a sandbox (the gateway serves it only into a frame,
+ * otherwise as a download); anything else to the file itself.
+ */
+export function openFileUrl(path: string): string {
+  return isHtmlPage(path) ? fileViewUrl(path, true) : rawFileUrl(path)
+}
+
 /** A file size in words: bytes below 1 KB, else KB, MB and up with one decimal under 10. */
 export function formatSize(n: number): string {
   if (n < 1024) return `${n} B`

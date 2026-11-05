@@ -39,6 +39,22 @@ func TestSharingWithBobShowsInBobsSharedList(t *testing.T) {
 	}
 }
 
+// A share made while the install had an apps host is not listed once apps
+// are on the UI host without allowOneHost: it would not open.
+func TestOneHostSharesAreNotListedWithoutAllowOneHost(t *testing.T) {
+	t.Parallel()
+	for _, allow := range []bool{false, true} {
+		report := gatewaytest.Workspace("report", apitest.AliceID, "Report")
+		report.Sharing = model.Sharing{Access: model.AccessRestricted, Users: []string{apitest.BobID}}
+		f := apitest.New(t, apitest.Options{AllowOneHost: allow, People: []apitest.TestPerson{apitest.SignedIn("alice", time.Now()), apitest.SignedIn("bob", time.Now())}},
+			apitest.SharableTemplate(model.AccessSignedIn), report)
+		got := apitest.Decode[apitest.SharedJSON](t, f.Do("GET", "/api/shared", "", f.Session(apitest.BobID)))
+		if want := map[bool]int{false: 0, true: 1}[allow]; len(got.Items) != want {
+			t.Errorf("allowOneHost %v: items %+v, want %d", allow, got.Items, want)
+		}
+	}
+}
+
 func TestRemovingBobEndsHisSharedListing(t *testing.T) {
 	t.Parallel()
 	f := apitest.NewSharingFixture(t, apitest.Options{Urls: apitest.SeparateHosts})

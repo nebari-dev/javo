@@ -641,6 +641,7 @@ export function plan(over: Record<string, unknown> = {}) {
     state: 'pending',
     createdAt: '2026-11-01T12:00:00Z',
     expiresAt: '2026-11-01T12:10:00Z',
+    requestedBy: {},
     planned: { action: 'restart', target: 'sales-app', summary: 'Restart Sales app', destructive: false, changes: [{ field: 'state', from: 'Failed', to: 'Restarted' }] },
     ...over,
   }

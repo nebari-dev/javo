@@ -161,6 +161,16 @@ func (s *API) clusterStorage(ctx context.Context) (*model.ClusterStorage, error)
 	return &cs, err
 }
 
+// member refuses a caller who does not hold the member role: only members
+// get a home, so only they reach what makes one or starts its file pod.
+func (s *API) member(ctx context.Context) error {
+	p := authn.User(ctx)
+	if d := authz.Decide(p, authz.RolesOf(p, s.Roles), authz.ActCreateApp, authz.Object{}); !d.Allowed {
+		return problem.New(http.StatusForbidden, reasons.Msg(d.Code))
+	}
+	return nil
+}
+
 // home returns the caller's home, nil before it is made.
 func (s *API) home(ctx context.Context, ns, owner string) (*model.Home, error) {
 	h, err := s.DB.Homes().ByOwner(ctx, ns, owner)
@@ -236,7 +246,8 @@ func (s *API) get(ctx context.Context, in *storageInput) (*storageOutput, error)
 		v.Notices = slices.Insert(v.Notices, 0, *n)
 	}
 
-	if in.Usage && v.SizeEnforced && s.Usage != nil {
+	// Reading usage starts the file pod, which makes the home: members only.
+	if in.Usage && v.SizeEnforced && s.Usage != nil && s.member(ctx) == nil {
 		u, err := s.Usage.Usage(files.WithNamespace(ctx, ns), p.ID, true)
 		switch {
 		case errors.Is(err, files.ErrHomeStarting), errors.Is(err, files.ErrHomeBusy):

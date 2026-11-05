@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -40,6 +41,9 @@ type Config struct {
 	// Roles bind groups to roles; URLs say where the UI host and the apps are.
 	Roles config.Roles
 	URLs  config.URLs
+	// Sharing is the platform's sharing settings: on one host a share opens
+	// only with allowOneHost.
+	Sharing config.SharingCfg
 	// Store holds the apps and templates a request is decided on. Every
 	// time a platform admin opens someone else's app it also gets an audit
 	// row (at most one per admin and app every adminOpenEvery).
@@ -234,6 +238,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			p.redirectToSignIn(w, r)
 			return
 		}
+		// A platform admin, who sees the app in All apps, is told why.
+		if d.Code == reasons.MsgOwnerOnlyOpens {
+			writePage(w, http.StatusForbidden, page{Title: reasons.Msg(d.Code), Link: "/apps", LinkText: "See your apps"})
+			return
+		}
 		notFound(w)
 		return
 	}
@@ -294,9 +303,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				pr.Out.Header[k] = slices.Clone(v)
 			}
 		},
-		Transport:      p.transport,
-		ModifyResponse: sanitizeResponse,
-		ErrorHandler:   func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
+		Transport: p.transport,
+		ModifyResponse: func(resp *http.Response) error {
+			return sanitizeResponse(resp, p.cfg.Exposure.BasePath(t.Owner, t.Name))
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) { badGateway(w, t.Name) },
 	}
 	aw := &activityWriter{ResponseWriter: w, activity: p.cfg.Activity, app: app.ID}
 	if tpl != nil && tpl.Spec.Activity == model.ActivityJupyter {
@@ -341,8 +352,8 @@ type access struct {
 	uiID     string
 	signedIn bool
 	decision authz.Decision
-	// refusal is set (refused true) when authz allows the open but the
-	// apps' shared origin does not (sharedOriginRefusal).
+	// refusal is set (refused true) when authz allows the open but where
+	// apps are served does not (authz.OpenOn).
 	refusal reasons.MessageCode
 	refused bool
 }
@@ -365,33 +376,9 @@ func (p *proxy) access(r *http.Request, t exposure.Target) access {
 	if a.app == nil {
 		return a
 	}
-	roles := authz.RolesOf(a.who, p.cfg.Roles)
-	a.decision = authz.Decide(a.who, roles, authz.ActOpenApp, obj)
-	if a.decision.Allowed {
-		a.refusal, a.refused = p.sharedOriginRefusal(a.app, a.decision, roles)
-	}
+	a.decision, a.refusal = authz.OpenOn(a.who, authz.RolesOf(a.who, p.cfg.Roles), obj, authz.OriginOf(p.cfg.Exposure, p.cfg.Sharing.AllowOneHost))
+	a.refused = a.refusal != ""
 	return a
-}
-
-// sharedOriginRefusal refuses what must not open while an app shares its
-// origin with the UI (one host) or with the other apps (path mode with an apps
-// host). There a page of one app can act as whoever views it: on one host it
-// calls the API with their session, on an apps host it scripts their other
-// apps. So a viewer holding any admin role (roles) opens only their own apps,
-// since someone else's page would act with that role, and nobody opens a
-// preview of a pull request, which runs code the owner has not necessarily
-// read (a stranger's, for a fork).
-func (p *proxy) sharedOriginRefusal(app *model.App, d authz.Decision, roles []authz.Role) (reasons.MessageCode, bool) {
-	if !p.appsShareOrigin() {
-		return "", false
-	}
-	switch {
-	case d.Via != "owner" && authz.Elevated(roles):
-		return reasons.MsgAdminOpenNeedsAppsHost, true
-	case app.ParentID != "":
-		return reasons.MsgPreviewNeedsAppsHost, true
-	}
-	return "", false
 }
 
 // startedByAnotherApp is true when a page of another app could have sent r:
@@ -621,9 +608,10 @@ func foreignOrigin(r *http.Request) bool {
 	return err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host)
 }
 
-// sanitizeResponse stops an app from replacing the gateway session, claiming
+// sanitizeResponse stops an app from replacing the gateway session, setting
+// cookies outside its own scope (scopeCookie; base is its BasePath), claiming
 // the whole origin for a service worker, or wiping the browser's site data.
-func sanitizeResponse(resp *http.Response) error {
+func sanitizeResponse(resp *http.Response, base string) error {
 	resp.Header.Del("Service-Worker-Allowed")
 	resp.Header.Del("Clear-Site-Data")
 	// The host's HTTPS pinning is the gateway's: an app could clear it
@@ -631,11 +619,8 @@ func sanitizeResponse(resp *http.Response) error {
 	resp.Header.Del("Strict-Transport-Security")
 	var kept []string
 	for _, line := range resp.Header.Values("Set-Cookie") {
-		// A cookie with no name is sent back as its value alone, so
-		// "=javo_session=x" would come back as the gateway's cookie.
-		name, _, _ := strings.Cut(strings.TrimSpace(line), "=")
-		if name = strings.TrimSpace(name); name != "" && !isGatewayCookie(name) {
-			kept = append(kept, line)
+		if l, ok := scopeCookie(line, base); ok {
+			kept = append(kept, l)
 		}
 	}
 	if !setsFrameAncestors(resp.Header) {
@@ -647,6 +632,63 @@ func sanitizeResponse(resp *http.Response) error {
 		resp.Header.Add("Set-Cookie", l)
 	}
 	return nil
+}
+
+// scopeCookie keeps a Set-Cookie line of an app within the app: with no
+// Domain attribute (host-only), and, when the app is served under a path
+// (base is not "/"), with a Path inside base, else base itself; a cookie
+// with no Path would get the directory of the request, which can be above
+// the app. It refuses (ok false) a cookie with no name (sent back as its
+// value alone, so "=javo_session=x" would come back as the gateway's
+// cookie), one named like the gateway's, and a __Host- cookie under a path,
+// which needs Path=/ and so cannot be scoped to the app.
+func scopeCookie(line, base string) (string, bool) {
+	parts := strings.Split(line, ";")
+	name, _, _ := strings.Cut(parts[0], "=")
+	name = strings.TrimSpace(name)
+	if name == "" || gatewayLike(name) {
+		return "", false
+	}
+	scoped := base != "/"
+	if scoped && hasPrefixFold(name, "__Host-") {
+		return "", false
+	}
+	app := strings.TrimSuffix(base, "/")
+	out := []string{strings.TrimSpace(parts[0])}
+	for _, attr := range parts[1:] {
+		attr = strings.TrimSpace(attr)
+		k, v, _ := strings.Cut(attr, "=")
+		switch k = strings.TrimSpace(k); {
+		case attr == "":
+		case strings.EqualFold(k, "Domain"):
+		case strings.EqualFold(k, "Path") && scoped:
+			if v = strings.TrimSpace(v); v == app || strings.HasPrefix(v, base) && path.Clean(v) == v {
+				app = v
+			}
+		default:
+			out = append(out, attr)
+		}
+	}
+	if scoped {
+		out = append(out, "Path="+app)
+	}
+	return strings.Join(out, "; "), true
+}
+
+// gatewayLike is true for a cookie name the gateway uses or might: javo_...,
+// in any case and under either cookie prefix.
+func gatewayLike(name string) bool {
+	for _, p := range []string{"__Host-", "__Secure-"} {
+		if hasPrefixFold(name, p) {
+			name = name[len(p):]
+			break
+		}
+	}
+	return isGatewayCookie(name) || hasPrefixFold(name, model.ProductName+"_")
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // setsFrameAncestors is true when h already says who may frame the page.

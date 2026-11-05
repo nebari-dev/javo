@@ -245,11 +245,17 @@ export function useHomeFolder(path: string, enabled: boolean, place: string = HO
   })
 }
 
-/** Gets the home folder ready when a page that may open the file picker loads (once enabled). */
+/**
+ * Gets the home folder ready when a page that may open the file picker loads
+ * (once enabled). Only members (and platform admins) have a home: for anyone
+ * else the gateway refuses, so nothing is asked.
+ */
 export function useWarmHome(enabled = true) {
+  const roles = useMe().data?.roles
+  const hasHome = !!roles && (roles.includes('member') || roles.includes('platform-admin'))
   useEffect(() => {
-    if (enabled) warmHomeFolder()
-  }, [enabled])
+    if (enabled && hasHome) warmHomeFolder()
+  }, [enabled, hasHome])
 }
 
 /** The template's display name, or its id until templates load or when it is gone. */

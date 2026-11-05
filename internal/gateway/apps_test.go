@@ -689,9 +689,69 @@ func TestOneHostAppNeverSeesTheHostSessionCookie(t *testing.T) {
 	}
 }
 
-func TestOneHostViewerWithTheUISessionOpensASharedApp(t *testing.T) {
+// On one host a shared app's page could act as its viewer, so shares open
+// only when the admin set sharing.allowOneHost: a share made while the
+// install had an apps host stops opening once apps move onto the UI host.
+func TestOneHostSharesOpenOnlyWithAllowOneHost(t *testing.T) {
 	t.Parallel()
 	f := newOneHost(t, salesApp(sharedWithDS()))
+	path := "/u/" + apitest.AliceID + "/sales-app/"
+	w := f.serve(f.proxy, "GET", path, uiCookie(f.ui(bob())))
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), html.EscapeString(reasons.Msg(reasons.MsgSharedNeedsAppsHost))) {
+		t.Fatalf("shared viewer without allowOneHost: %d %s", w.Code, w.Body)
+	}
+	if w := f.serve(f.proxy, "GET", path, uiCookie(f.ui(alice()))); w.Code != 200 {
+		t.Fatalf("owner: %d", w.Code)
+	}
+}
+
+// In subdomain mode a platform admin opens someone else's plain app, but not
+// one that runs code as its owner: no ticket is minted, and an app cookie
+// from before the change no longer opens it.
+func TestPlatformAdminDoesNotOpenAnotherPersonsCodeRunningApp(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, subdomainURLs, model.AccessPrivate, salesApp(nil))
+	salesURL := "https://" + sales + "." + appsHost + "/"
+	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
+	if w := f.ticketFor(f.ui(admin), salesURL); w.Code != http.StatusNotFound {
+		t.Fatalf("ticket: %d %s", w.Code, w.Header())
+	}
+	if w := f.serve(f.srv, "GET", salesURL, f.open(f.ui(alice()), salesURL)); w.Code != 200 {
+		t.Fatalf("owner: %d", w.Code)
+	}
+	if n := len(f.adminOpens()); n != 0 {
+		t.Fatalf("%d admin opens recorded", n)
+	}
+}
+
+// An admin who opened an app before its template was capped at Private is
+// told why it no longer opens, on the next request.
+func TestPlatformAdminLosesAnAppWhoseTemplateBecomesPrivate(t *testing.T) {
+	t.Parallel()
+	f := newApps(t, subdomainURLs, model.AccessRestricted, salesApp(nil))
+	salesURL := "https://" + sales + "." + appsHost + "/"
+	admin := authz.Principal{ID: "carol-9a8b7c6d", Username: "carol", Groups: []string{"javo-admins"}}
+	adminApp := f.open(f.ui(admin), salesURL)
+	if w := f.serve(f.srv, "GET", salesURL, adminApp); w.Code != 200 {
+		t.Fatalf("before: %d", w.Code)
+	}
+	tpl, err := f.db.Templates().Get(context.Background(), "streamlit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl.Spec.MaxSharing = model.AccessPrivate
+	if _, err := f.db.Templates().Put(context.Background(), gatewaytest.Actor, tpl, tpl.Version); err != nil {
+		t.Fatal(err)
+	}
+	w := f.serve(f.srv, "GET", salesURL, adminApp)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), html.EscapeString(reasons.Msg(reasons.MsgOwnerOnlyOpens))) {
+		t.Fatalf("after: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestOneHostViewerWithTheUISessionOpensASharedApp(t *testing.T) {
+	t.Parallel()
+	f := newOneHostSharing(t, salesApp(sharedWithDS()), true)
 	if w := f.serve(f.proxy, "GET", "/u/"+apitest.AliceID+"/sales-app/", uiCookie(f.ui(bob()))); w.Code != 200 {
 		t.Fatalf("shared viewer: %d", w.Code)
 	}
@@ -993,11 +1053,17 @@ func appsRoles() config.Roles {
 }
 
 func newOneHost(t *testing.T, app *model.App) *oneHostFixture {
+	return newOneHostSharing(t, app, false)
+}
+
+// newOneHostSharing is newOneHost with sharing.allowOneHost set to allowOneHost.
+func newOneHostSharing(t *testing.T, app *model.App, allowOneHost bool) *oneHostFixture {
 	f := newApps(t, config.URLs{Mode: "path"}, model.AccessRestricted, app)
 	target, _ := url.Parse(f.backend.URL)
 	roles := appsRoles()
 	return &oneHostFixture{appsFixture: f, proxy: proxy.New(proxy.Config{Store: f.db, Sessions: f.store,
 		Exposure: exposurepath.New(config.URLs{}), Roles: roles, Activity: f.activity, Revalidator: f.rv,
+		Sharing: config.SharingCfg{AllowOneHost: allowOneHost},
 		Resolve: func(context.Context, *model.App, *model.Template) (proxy.Backend, error) {
 			return proxy.Backend{URL: target}, nil
 		}})}

@@ -17,6 +17,10 @@ type PlanJSON struct {
 		Action, Target, Summary string
 		Changes                 []struct{ Field, From, To string }
 	}
+	RequestedBy struct {
+		Token, App string
+		Job        bool
+	}
 	ExpiresAt time.Time
 }
 

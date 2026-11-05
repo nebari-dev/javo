@@ -320,7 +320,8 @@ func TestPreviewsAreHiddenUnlessAsked(t *testing.T) {
 	tpl := gatewaytest.Template("streamlit", "streamlit")
 	tpl.Spec.MaxSharing = model.AccessSignedIn
 	now := time.Now()
-	f := apitest.New(t, apitest.Options{Urls: apitest.SeparateHosts, People: []apitest.TestPerson{apitest.SignedIn("alice", now), apitest.SignedIn("bob", now)}}, tpl, parent)
+	// Previews open only where each app has its own host.
+	f := apitest.New(t, apitest.Options{Urls: apitest.Subdomains, People: []apitest.TestPerson{apitest.SignedIn("alice", now), apitest.SignedIn("bob", now)}}, tpl, parent)
 	child := f.PreviewChild(parent, 7)
 	alice, bob := f.Session(apitest.AliceID), f.Session(apitest.BobID)
 

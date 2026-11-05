@@ -204,3 +204,26 @@ func TestATokenCannotApprove(t *testing.T) {
 		t.Fatal("a token approved a change")
 	}
 }
+
+// An agent names itself in source, so the plan also says which credential
+// asked, as the gateway knows it: the API token's name. The person's own
+// browser session names none.
+func TestAPlanSaysWhichTokenAskedForIt(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), apitest.RunningSalesOf(apitest.LocalAlice()))
+	c := f.LoginAlice()
+	tok := f.NewToken(c, `{"name":"laptop-cli","scope":"read-write"}`).Token
+	w := f.Bearer("POST", "/api/plans", `{"source":"mcp:Your Admin","proposal":{"action":"stop","target":"sales"}}`, tok, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	id := apitest.Decode[apitest.PlanJSON](t, w).ID
+	got := apitest.Decode[apitest.PlanJSON](t, f.Do("GET", "/api/plans/"+id, "", c))
+	if got.Source != "mcp:Your Admin" || got.RequestedBy.Token != "laptop-cli" || got.RequestedBy.App != "" {
+		t.Fatalf("plan %+v", got)
+	}
+	mine := apitest.Decode[apitest.PlanJSON](t, f.Do("POST", "/api/plans", `{"source":"rules","proposal":{"action":"stop","target":"sales"}}`, c))
+	if mine.RequestedBy.Token != "" || mine.RequestedBy.App != "" {
+		t.Fatalf("session plan %+v", mine)
+	}
+}

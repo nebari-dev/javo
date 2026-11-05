@@ -4,10 +4,29 @@ import { usePlan } from './ai'
 import { Card } from '../../components/Card'
 import { PlanReview } from './Plan'
 import { problemText } from '../../lib/http'
+import type { Plan } from '../../api'
 
-/** Who proposed a plan, in words. */
-function requestedBy(source: string): string {
-  if (source.startsWith('mcp:')) return `Requested by ${source.slice(4)}`
+/**
+ * Which credential proposed a plan, as the gateway knows it; empty for the
+ * person's own browser session.
+ */
+function credential(by: Plan['requestedBy'] | undefined): string {
+  if (by?.app) return `the token of your app ${by.app}`
+  if (by?.job) return 'the token of one of your jobs'
+  if (by?.token) return `your API token ${by.token}`
+  return ''
+}
+
+/**
+ * Who proposed a plan, in words. An agent names itself, so its name is
+ * given as what it calls itself, after the credential it used.
+ */
+function requestedBy(source: string, by: Plan['requestedBy'] | undefined): string {
+  if (source.startsWith('mcp:')) {
+    const agent = `an agent that calls itself ${source.slice(4)}`
+    const cred = credential(by)
+    return cred ? `Requested with ${cred}, by ${agent}` : `Requested by ${agent}`
+  }
   if (source === 'palette') return 'Asked for in search'
   if (source === 'ai-diagnosis') return 'Suggested by the AI explanation'
   return 'Suggested by the failure diagnosis'
@@ -34,7 +53,7 @@ export function PlanPage() {
         <Card className="pad plan-page">
           <div className="label">
             <ClipboardCheck size={15} aria-hidden="true" />
-            {requestedBy(p.source)}
+            {requestedBy(p.source, p.requestedBy)}
           </div>
           <PlanReview plan={p} applyLabel="Approve" cancelLabel="Reject" />
         </Card>

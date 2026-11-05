@@ -14,7 +14,15 @@ const NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'wh
 // Control characters anser leaves in the text (such as charset switches); never shown.
 const CONTROL = /\u001b[()][0-9A-Za-z]|[\u0000-\u0008\u000b-\u001f\u007f]/g
 
-const clean = (s: string) => s.replace(CONTROL, '')
+// Characters that reorder or hide text: bidi embeddings, overrides and
+// isolates, zero-width spaces and joiners, word joiners and the BOM. A line
+// could use them to show something other than what it says; each is shown
+// as a visible marker such as <U+202E> instead.
+const INVISIBLE = /[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/g
+
+const marker = (c: string) => `<U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}>`
+
+const clean = (s: string) => s.replace(CONTROL, '').replace(INVISIBLE, marker)
 
 /** Bright colours share their base colour's theme token; palette 0 to 15 are the named ones. */
 function named(cls: string | null): string | undefined {

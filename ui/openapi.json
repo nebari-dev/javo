@@ -2943,6 +2943,9 @@
           "planned": {
             "$ref": "#/components/schemas/Planned"
           },
+          "requestedBy": {
+            "$ref": "#/components/schemas/Requester"
+          },
           "source": {
             "type": "string"
           },
@@ -2961,6 +2964,7 @@
         "required": [
           "id",
           "source",
+          "requestedBy",
           "state",
           "planned",
           "createdAt",
@@ -3459,6 +3463,24 @@
         "required": [
           "released"
         ],
+        "type": "object"
+      },
+      "Requester": {
+        "additionalProperties": false,
+        "properties": {
+          "app": {
+            "description": "Short name of the app whose own token proposed the plan",
+            "type": "string"
+          },
+          "job": {
+            "description": "A job's own token proposed the plan",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "Name of the API token that proposed the plan",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "RestoreRunBody": {
@@ -7649,6 +7671,16 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -7756,6 +7788,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -7919,6 +7961,16 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -8026,6 +8078,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "422": {
             "content": {

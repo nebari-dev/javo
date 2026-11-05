@@ -26,9 +26,42 @@ func TestANamelessSetCookieIsDropped(t *testing.T) {
 	resp.Header.Add("Set-Cookie", "=plain; Path=/")
 	resp.Header.Add("Set-Cookie", "theme=dark; Path=/")
 	resp.Header.Add("Set-Cookie", "javo_ticket=known; Path=/u/alice/sales")
-	_ = sanitizeResponse(resp)
+	_ = sanitizeResponse(resp, "/")
 	if got := resp.Header.Values("Set-Cookie"); len(got) != 1 || got[0] != "theme=dark; Path=/" {
 		t.Fatalf("kept %q", got)
+	}
+}
+
+// An app sets cookies for itself only: never for a parent domain, and in path
+// mode never for a path outside its own, where the browser would send them
+// to the web UI and to every other app. Cookies named like the gateway's are
+// dropped whatever their case or prefix.
+func TestAppCookiesStayInTheAppsScope(t *testing.T) {
+	t.Parallel()
+	const base = "/u/alice-1a2b3c4d/sales/"
+	for _, tc := range []struct {
+		name, base, in, want string
+	}{
+		{"path mode: a parent domain and the root path", base, "bomb=x; Domain=example.com; Path=/", "bomb=x; Path=/u/alice-1a2b3c4d/sales"},
+		{"path mode: no path at all", base, "theme=dark; HttpOnly", "theme=dark; HttpOnly; Path=/u/alice-1a2b3c4d/sales"},
+		{"path mode: a sibling app's path", base, "x=1; path=/u/alice-1a2b3c4d/sales-admin", "x=1; Path=/u/alice-1a2b3c4d/sales"},
+		{"path mode: a path inside the app is kept", base, "x=1; Path=/u/alice-1a2b3c4d/sales/lab; Secure; SameSite=Lax", "x=1; Secure; SameSite=Lax; Path=/u/alice-1a2b3c4d/sales/lab"},
+		{"path mode: the app's own base is kept", base, "x=1; Path=/u/alice-1a2b3c4d/sales", "x=1; Path=/u/alice-1a2b3c4d/sales"},
+		{"path mode: a dot-segment path is not inside", base, "x=1; Path=/u/alice-1a2b3c4d/sales/../other", "x=1; Path=/u/alice-1a2b3c4d/sales"},
+		{"path mode: a __Host- cookie cannot be valid", base, "__Host-x=1; Path=/; Secure", ""},
+		{"path mode: a __Secure- cookie is scoped", base, "__Secure-x=1; Path=/; Secure", "__Secure-x=1; Secure; Path=/u/alice-1a2b3c4d/sales"},
+		{"subdomain: the domain goes, the path stays", "/", "bomb=x; Domain=.apps.example.com; Path=/", "bomb=x; Path=/"},
+		{"subdomain: a __Host- cookie stays valid", "/", "__Host-x=1; Path=/; Secure", "__Host-x=1; Path=/; Secure"},
+		{"gateway name in another case", "/", "JAVO_SESSION=x; Path=/", ""},
+		{"gateway prefix under __Secure-", "/", "__Secure-javo_app=x; Path=/; Secure", ""},
+		{"a new gateway-like name", "/", "javo_anything=x", ""},
+	} {
+		resp := &http.Response{Header: http.Header{"Set-Cookie": {tc.in}}}
+		_ = sanitizeResponse(resp, tc.base)
+		got := strings.Join(resp.Header.Values("Set-Cookie"), "|")
+		if got != tc.want {
+			t.Errorf("%s: %q became %q, want %q", tc.name, tc.in, got, tc.want)
+		}
 	}
 }
 
@@ -95,7 +128,7 @@ func TestAppResponsesGetFrameProtectionUnlessTheySetTheirOwn(t *testing.T) {
 		{"X-Frame-Options", http.Header{"X-Frame-Options": {"DENY"}}, false},
 	} {
 		resp := &http.Response{Header: tc.set.Clone()}
-		_ = sanitizeResponse(resp)
+		_ = sanitizeResponse(resp, "/")
 		ours := false
 		for _, v := range resp.Header.Values("Content-Security-Policy") {
 			ours = ours || v == "frame-ancestors 'self'"

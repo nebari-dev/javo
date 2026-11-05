@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,30 @@ func TestUIServesFilesWithSPAFallbackAndCSP(t *testing.T) {
 	}
 	if w := f.Do("GET", "/healthz", "", nil); w.Code != http.StatusOK {
 		t.Fatalf("healthz %d", w.Code)
+	}
+}
+
+// The UI frames only raw files of the home (the file viewer), so a page shown
+// there cannot navigate its frame elsewhere (to another site, or to an app
+// under /u/) with what the viewer typed. A Host that is not a plain host
+// name frames nothing.
+func TestUIFramesOnlyRawFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>index</html>"), 0o644)
+	f := apitest.New(t, apitest.Options{UiDir: dir})
+	for host, want := range map[string]string{
+		"javo.example.com":      "frame-src javo.example.com/api/files/raw;",
+		"javo.example.com:8443": "frame-src javo.example.com:8443/api/files/raw;",
+		"x;script-src":          "frame-src 'none';",
+	} {
+		r := httptest.NewRequest("GET", "/files/view", nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		f.Srv.ServeHTTP(w, r)
+		if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, want) || strings.Contains(csp, "script-src") {
+			t.Errorf("host %q: csp %q, want %q", host, csp, want)
+		}
 	}
 }
 

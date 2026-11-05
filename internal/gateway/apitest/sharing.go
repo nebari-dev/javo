@@ -18,6 +18,10 @@ var (
 
 var SeparateHosts = config.URLs{UIHost: "javo.example.com", AppsHost: "apps.example.com", Scheme: "https"}
 
+// Subdomains gives every app a host of its own, so no app shares an origin
+// (previews of pull requests open only there).
+var Subdomains = config.URLs{Mode: "subdomain", UIHost: "javo.example.com", AppsDomain: "apps.example.com", Scheme: "https"}
+
 func SharableTemplate(max string) *model.Template {
 	t := gatewaytest.Template("streamlit", "streamlit")
 	t.Spec.MaxSharing = max

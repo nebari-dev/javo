@@ -153,6 +153,26 @@ describe('the file view', () => {
     expect(await screen.findByText(/too large to show here/)).toBeTruthy()
   })
 
+  it('shows an HTML page only in a sandboxed frame that may not open windows or leave the frame', async () => {
+    const api = mockApi({ 'GET /api/me': ME, 'GET /api/files/raw': text('<p>report</p>') })
+    renderApp('/files/view?path=jobs/r1/output.html&show=page')
+    const frame = (await screen.findByTitle('output.html')) as HTMLIFrameElement
+    expect(frame.tagName).toBe('IFRAME')
+    expect(frame.getAttribute('src')).toBe('/api/files/raw?path=jobs%2Fr1%2Foutput.html')
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts')
+    expect(screen.getByText(/written by whoever made the file/)).toBeTruthy()
+    expect(api.count('GET', '/api/files/raw')).toBe(0)
+    await userEvent.click(screen.getByRole('link', { name: 'Show source' }))
+    expect(await screen.findByRole('region', { name: 'Contents of output.html' })).toBeTruthy()
+  })
+
+  it('offers to show the page of an HTML file it shows as text', async () => {
+    mockApi({ 'GET /api/me': ME, 'GET /api/files/raw': text('<p>hi</p>') })
+    renderApp('/files/view?path=r/a.html')
+    await screen.findByRole('region', { name: 'Contents of a.html' })
+    expect(screen.getByRole('link', { name: 'Show page' }).getAttribute('href')).toBe('/files/view?path=r%2Fa.html&show=page')
+  })
+
   it('goes up to the folder from its breadcrumbs', async () => {
     mockApi({ 'GET /api/me': ME, 'GET /api/files/raw': text('x\n'), 'GET /api/files': { body: { path: 'notes', entries: [], count: 0, truncated: false, stale: false, ageSeconds: 0 } } })
     renderApp('/files/view?path=notes/a.py')

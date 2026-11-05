@@ -300,7 +300,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go used.Run(ctx, db.Apps(), activity.FlushEvery)
 	srv.Apps(proxy.New(proxy.Config{
 		Store: db, Sessions: sessions, Activity: used,
-		Exposure: exp, Roles: platform.Roles, URLs: platform.URLs, Revalidator: revalidator,
+		Exposure: exp, Roles: platform.Roles, URLs: platform.URLs, Sharing: platform.Sharing, Revalidator: revalidator,
 		NebiTokens: nebi, SecureCookies: o.secure,
 	}))
 	if o.proxySecretFile == "" {

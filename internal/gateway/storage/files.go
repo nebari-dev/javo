@@ -92,13 +92,16 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 	}
 	registerRawFile(api, lister, nss, st)
 	registerSaveFile(api, lister, nss, st)
-	registerWarm(api, listings, nss)
+	registerWarm(api, listings, nss, st)
 	huma.Register(api, huma.Operation{
 		OperationID: "listFiles", Method: http.MethodGet, Path: "/api/files",
 		Summary: "List a folder of the user's home", Tags: []string{"files"},
-		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
+		Errors: []int{http.StatusForbidden, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
 			http.StatusConflict, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *filesInput) (*filesOutput, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if listings == nil {
 			return nil, problem.Internal("list home folder", errors.New("no home folder lister configured"))
 		}
@@ -176,15 +179,18 @@ type warmInput struct {
 
 // registerWarm adds POST /api/files/warm: pages that may open the file
 // picker call it on load, so the home folder is listed before it is needed.
-func registerWarm(api huma.API, listings *Listings, nss *namespaces.Finder) {
+func registerWarm(api huma.API, listings *Listings, nss *namespaces.Finder, st *API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "warmFiles", Method: http.MethodPost, Path: "/api/files/warm",
 		Summary: "Get the user's home folder ready to list", Tags: []string{"files"},
 		Description: "Starts what lists the home folder and lists it, so the file picker opens at once. " +
 			"Answers right away; calls closer together than a few seconds do nothing.",
 		DefaultStatus: http.StatusNoContent,
-		Errors:        []int{http.StatusUnauthorized, http.StatusUnprocessableEntity},
+		Errors:        []int{http.StatusForbidden, http.StatusUnauthorized, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *warmInput) (*struct{}, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if listings == nil {
 			return nil, problem.Internal("warm home folder", errors.New("no home folder lister configured"))
 		}
@@ -250,19 +256,33 @@ var rawTypes = map[string]string{
 
 // rawSandbox lets a run's HTML script itself but gives it an opaque origin
 // (no allow-same-origin): it cannot read the session or call the API as the
-// user, nor reach another user's files.
-const rawSandbox = "sandbox allow-scripts allow-popups"
+// user, nor reach another user's files. It may not open windows or navigate
+// the top window (no allow-popups, no allow-top-navigation), either of
+// which could carry what the viewer types to another site.
+const rawSandbox = "sandbox allow-scripts"
 
 // rawDocumentPolicy is the policy for files a browser runs as a page (HTML,
-// SVG). The page sits on the platform's own address, so it could pass for a
-// sign-in prompt; it gets no network at all: no fetch or websocket, no form
-// post, no external script, style, font, image or frame that could carry what
-// the viewer types elsewhere, and no other site may frame it. Inline script
-// and data: or blob: resources still work, which is what self-contained
-// reports use.
+// SVG). The page could pass for a sign-in prompt, so nothing it loads or
+// sends reaches the network: no fetch or websocket, no form post, no
+// external script, style, font, image or frame, no <base>, and only the web
+// UI may frame it. Inline script and data: or blob: resources still work,
+// which is what self-contained reports use. No CSP directive stops a page
+// navigating itself (location = "https://elsewhere/?typed"), so such a page
+// is served inline only into a frame (activeDocument), where the web UI's
+// own frame-src keeps the frame on raw files.
 const rawDocumentPolicy = rawSandbox + "; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data: blob:; " +
 	"style-src 'unsafe-inline' data:; img-src data: blob:; font-src data:; media-src data: blob:; " +
 	"connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+
+// activeDocument is true for a type that runs script when a browser shows
+// it as a page.
+func activeDocument(typ string) bool { return typ == rawTypes[".html"] || typ == rawTypes[".svg"] }
+
+// showsInline says whether an active document loaded as dest (the request's
+// Sec-Fetch-Dest) may be shown: in a frame, or as an image (an SVG in an img
+// runs no script). Opened as a page of its own, or by a client that does
+// not say, it is a download instead.
+func showsInline(dest string) bool { return dest == "iframe" || dest == "frame" || dest == "image" }
 
 type rawInput struct {
 	Team string `query:"team" maxLength:"63" doc:"Team whose home the file is in; needed only when namespaces are per team and the user is in several"`
@@ -277,9 +297,12 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 	huma.Register(api, huma.Operation{
 		OperationID: "getRawFile", Method: http.MethodGet, Path: "/api/files/raw",
 		Summary: "Download or show one file of the user's home", Tags: []string{"files"},
-		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
+		Errors: []int{http.StatusForbidden, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound,
 			http.StatusConflict, http.StatusRequestEntityTooLarge, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *rawInput) (*huma.StreamResponse, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if lister == nil {
 			return nil, problem.Internal("open home file", errors.New("no home folder lister configured"))
 		}
@@ -307,6 +330,9 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 		typ, inline := rawTypes[strings.ToLower(path.Ext(info.Name))]
 		return &huma.StreamResponse{Body: func(hc huma.Context) {
 			defer body.Close()
+			if inline && activeDocument(typ) && !showsInline(hc.Header("Sec-Fetch-Dest")) {
+				inline = false
+			}
 			if inline {
 				hc.SetHeader("Content-Type", typ)
 			} else {
@@ -314,7 +340,7 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 				hc.SetHeader("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": info.Name}))
 			}
 			csp := rawSandbox
-			if typ == rawTypes[".html"] || typ == rawTypes[".svg"] {
+			if activeDocument(typ) {
 				csp = rawDocumentPolicy
 			}
 			hc.SetHeader("Content-Security-Policy", csp)
@@ -373,10 +399,13 @@ func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *AP
 			"name is taken). Only UTF-8 text of at most 2 MiB; never through a symlink.",
 		DefaultStatus: http.StatusOK,
 		MaxBodyBytes:  files.MaxEditBytes,
-		Errors: []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict,
+		Errors: []int{http.StatusForbidden, http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusConflict,
 			http.StatusRequestEntityTooLarge, http.StatusPreconditionRequired, http.StatusUnprocessableEntity,
 			http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *saveInput) (*saveOutput, error) {
+		if err := st.member(ctx); err != nil {
+			return nil, err
+		}
 		if lister == nil {
 			return nil, problem.Internal("save home file", errors.New("no home folder lister configured"))
 		}
