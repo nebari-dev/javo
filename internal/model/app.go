@@ -336,6 +336,24 @@ func (a *App) Validate() error {
 	return v.err()
 }
 
+// PrintableText is s with only what a person can see: letters, marks,
+// numbers, punctuation, symbols, line breaks and tabs. Format characters
+// (zero-width, bidirectional and tag characters), private-use, unassigned
+// and control characters are taken out; other spaces become plain ones.
+// Text that goes to a model (an agent's first prompt, a suggestion) passes
+// through it, so it cannot carry instructions the person never saw.
+func PrintableText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n', r == '\t', unicode.IsPrint(r):
+			return r
+		case r != '\r' && unicode.IsSpace(r):
+			return ' '
+		}
+		return -1
+	}, s)
+}
+
 // ValidateAgentPrompt checks AgentPrompt: text of at most MaxAgentPrompt
 // characters, with line breaks and tabs but no other control characters.
 func (a *App) ValidateAgentPrompt() error {

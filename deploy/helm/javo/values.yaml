@@ -636,7 +636,8 @@ config:
     baseURL: ""
     timeout: 60s
     features: {explain: true, draft: true, palette: true, admin: true}
-    # Model tokens each person may use per UTC day.
+    # Model tokens each person may use per UTC day. A call (and its one
+    # retry) is sent only when the most it can cost fits in what is left.
     dailyTokensPerUser: 200000
     # The most evidence sent in one call; the oldest log lines go first.
     maxInputRunes: 24000

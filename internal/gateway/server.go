@@ -12,6 +12,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/config"
+	ctrljobs "github.com/nebari-dev/javo/internal/controller/jobs"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
@@ -251,7 +252,7 @@ func NewServer(cfg Config) *Server {
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
 		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
-		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store), Agents: apps.AgentTokens(cfg.Store),
+		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store), Agents: apps.AgentTokens(cfg.Store, ctrljobs.PeopleAccess{People: cfg.People, Roles: cfg.Roles}),
 	}
 	mux := http.NewServeMux()
 	a.Register(api, mux)

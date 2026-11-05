@@ -114,11 +114,18 @@ func AppTokenWanted(db *store.Store) token.AppCheck {
 	}
 }
 
+// TemplateAccess decides whether owner may still use template t (the jobs
+// controller's PeopleAccess, by the rule the API applies at create).
+type TemplateAccess interface {
+	MayUse(ctx context.Context, owner string, t *model.Template) (bool, error)
+}
+
 // AgentTokens is authn.Authenticator.Agents: what an app token's app may do
 // as a coding agent, its template's agentDeploy and agentModel, while the
-// app is private. It is read on every request, so turning either off takes
-// effect at once.
-func AgentTokens(db *store.Store) func(context.Context, token.App) (authn.AgentCaps, error) {
+// app is private and its owner may still use the template. It is read on
+// every request, so turning either off, or taking the template away from
+// the owner, takes effect at once.
+func AgentTokens(db *store.Store, access TemplateAccess) func(context.Context, token.App) (authn.AgentCaps, error) {
 	return func(ctx context.Context, a token.App) (authn.AgentCaps, error) {
 		app, err := db.Apps().GetByObjectName(ctx, a.Name)
 		switch {
@@ -137,6 +144,12 @@ func AgentTokens(db *store.Store) func(context.Context, token.App) (authn.AgentC
 			return authn.AgentCaps{}, err
 		}
 		private := model.MaxSharing(&t) == model.AccessPrivate
-		return authn.AgentCaps{Deploy: t.Spec.AgentDeploy && private, Model: t.Spec.AgentModel && private}, nil
+		if !private || (!t.Spec.AgentDeploy && !t.Spec.AgentModel) {
+			return authn.AgentCaps{}, nil
+		}
+		if ok, err := access.MayUse(ctx, app.Owner, &t); err != nil || !ok {
+			return authn.AgentCaps{}, err
+		}
+		return authn.AgentCaps{Deploy: t.Spec.AgentDeploy, Model: t.Spec.AgentModel}, nil
 	}
 }

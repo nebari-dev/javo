@@ -256,9 +256,10 @@ func AgentTarget(ctx context.Context, db *store.Store, target authz.Object) erro
 
 // AgentCreate refuses a coding agent's token an app or job that would hold
 // credentials: an app whose API access (its own or tpl's default) is not
-// None or that gets the owner's Nebi token, a job whose template gives its
-// runs an API token, or either with secrets, a repository token or webhook,
-// or pull request previews (extras). Every other caller passes.
+// None, or that gets the owner's Nebi token or a model key, a job whose
+// template gives its runs an API token, or either with secrets, a
+// repository token or webhook, or pull request previews (extras). Every
+// other caller passes.
 func AgentCreate(ctx context.Context, app *model.App, job *model.Job, tpl *model.Template, extras bool) error {
 	if !authn.ViaAgentToken(ctx) {
 		return nil
@@ -266,7 +267,7 @@ func AgentCreate(ctx context.Context, app *model.App, job *model.Job, tpl *model
 	switch {
 	case extras, tpl == nil:
 		return errAgentNeedsPerson()
-	case app != nil && (model.APIAccessOf(app, tpl) != model.APIAccessNone || model.NebiTokenFor(app, tpl)):
+	case app != nil && appGetsToken(app, tpl):
 		return errAgentNeedsPerson()
 	case job != nil && model.DefaultAPIAccess(tpl) != model.APIAccessNone:
 		return errAgentNeedsPerson()
@@ -274,10 +275,18 @@ func AgentCreate(ctx context.Context, app *model.App, job *model.Job, tpl *model
 	return nil
 }
 
+// appGetsToken is whether app, on tpl, runs with a credential the platform
+// gives it: API access, its owner's Nebi token, or a model key (on an
+// agentModel template the app's token for the gateway's model, or its
+// owner's own provider key, also once the owner adds one later).
+func appGetsToken(app *model.App, tpl *model.Template) bool {
+	return model.APIAccessOf(app, tpl) != model.APIAccessNone || model.NebiTokenFor(app, tpl) || tpl.Spec.AgentModel
+}
+
 // holdsCredentials is whether target's app or job is bound to any of its
 // owner's secrets, or runs with a token that acts as its owner: an app with
-// API access or its owner's Nebi token, a job whose template gives an API
-// token.
+// API access, its owner's Nebi token or a model key, a job whose template
+// gives an API token.
 func holdsCredentials(ctx context.Context, db *store.Store, target authz.Object) (bool, error) {
 	switch {
 	case target.Job != nil:
@@ -291,7 +300,7 @@ func holdsCredentials(ctx context.Context, db *store.Store, target authz.Object)
 		b, err := db.Secrets().JobBindings(ctx, target.Job.ID)
 		return len(b) > 0, err
 	case target.App != nil:
-		if target.Template != nil && (model.APIAccessOf(target.App, target.Template) != model.APIAccessNone || model.NebiTokenFor(target.App, target.Template)) {
+		if target.Template != nil && appGetsToken(target.App, target.Template) {
 			return true, nil
 		}
 		b, err := db.Secrets().Bindings(ctx, target.App.ID)

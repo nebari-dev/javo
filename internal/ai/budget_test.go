@@ -2,10 +2,14 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/ai/provider"
+	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
 
@@ -38,8 +42,8 @@ func TestBudgetIsPerPersonPerUTCDay(t *testing.T) {
 	}
 }
 
-// A call that uses more than it reserved (a retried answer, a longer reply
-// than estimated) is charged in full: the overage counts against the day.
+// A call that uses more than it reserved (a provider that counts more than
+// expected) is charged in full: the overage counts against the day.
 func TestBudgetChargesWhatACallUsedAboveItsReservation(t *testing.T) {
 	db := storetest.New(t)
 	b := &DBBudget{Usage: db.AIUsage(), Daily: 1000}
@@ -56,5 +60,54 @@ func TestBudgetChargesWhatACallUsedAboveItsReservation(t *testing.T) {
 	}
 	if _, err := b.Reserve(ctx, "alice-a", 100); err != nil {
 		t.Fatalf("900 of 1000 used, a 100 reservation: %v", err)
+	}
+}
+
+// costly answers every request with the most it can cost: a token per byte
+// of what it is sent (code and CJK text run near that) and the whole output
+// allowance. Its first answer does not match the schema, so the call
+// retries.
+type costly struct{ calls int }
+
+func (*costly) ID() string { return "costly" }
+
+func (c *costly) Generate(_ context.Context, req provider.Request) (provider.Response, error) {
+	c.calls++
+	u := provider.Usage{InputTokens: len(req.System) + len(req.Untrusted) + len(req.Task) + len(req.Schema), OutputTokens: req.MaxOutputTokens}
+	if c.calls == 1 {
+		return provider.Response{JSON: json.RawMessage(`{"wrong":true}`), Usage: u}, nil
+	}
+	return provider.Response{JSON: json.RawMessage(injected), Usage: u}, nil
+}
+
+// A call never takes the day past the allowance: each attempt, the retry
+// included, is reserved at the most it can cost before it is sent, and one
+// that does not fit is not sent.
+func TestAnAICallNeverOvershootsTheAllowance(t *testing.T) {
+	ctx := context.Background()
+	// What one attempt reserves: a call that answers well the first time.
+	b := &allowAll{}
+	probe := service(&costly{calls: 1})
+	probe.Budget = b
+	if r, _ := probe.Explain(ctx, "bob-b", crash(), salesScope, Known{}, false); r.Explanation == nil {
+		t.Fatal(r.Message)
+	}
+	attempt := b.reserved
+	db := storetest.New(t)
+	s := service(&costly{})
+	p := s.Provider.(*costly)
+	// Room for one attempt, not two.
+	daily := int64(attempt + attempt/2)
+	s.Budget = &DBBudget{Usage: db.AIUsage(), Daily: daily}
+	r, _ := s.Explain(ctx, "alice-a", crash(), salesScope, Known{}, false)
+	used, err := db.AIUsage().Used(ctx, "alice-a", time.Now().UTC().Format(time.DateOnly))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used > daily {
+		t.Fatalf("used %d of a %d allowance (%d calls)", used, daily, p.calls)
+	}
+	if p.calls != 1 || !strings.HasPrefix(r.Message, strings.SplitN(reasons.Msg(reasons.MsgAIBudgetUsed, "x"), "x", 2)[0]) {
+		t.Fatalf("%d calls, message %q: the retry should be refused for the allowance", p.calls, r.Message)
 	}
 }

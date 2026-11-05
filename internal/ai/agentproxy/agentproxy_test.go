@@ -179,3 +179,88 @@ func TestListsTheAdminsModels(t *testing.T) {
 		t.Fatal("the provider was asked")
 	}
 }
+
+// The output a request asks for is capped whatever JSON form it takes, and
+// a request that asks for none gets the cap.
+func TestCapsTheOutputInEveryForm(t *testing.T) {
+	cap := float64(agentproxy.DefaultMaxOutput)
+	for _, c := range []struct {
+		fields string
+		want   map[string]float64
+	}{
+		{`"max_tokens":500`, map[string]float64{"max_tokens": 500}},
+		{`"max_tokens":1e9`, map[string]float64{"max_tokens": cap}},
+		{`"max_tokens":64000.0`, map[string]float64{"max_tokens": cap}},
+		{`"max_tokens":"999999"`, map[string]float64{"max_tokens": cap}},
+		{`"max_tokens":"700"`, map[string]float64{"max_tokens": 700}},
+		{`"max_tokens":700.9`, map[string]float64{"max_tokens": 700}},
+		{`"max_tokens":-1`, map[string]float64{"max_tokens": cap}},
+		{`"max_tokens":"NaN"`, map[string]float64{"max_tokens": cap}},
+		{`"max_tokens":null`, map[string]float64{"max_tokens": cap}},
+		{`"max_tokens":{"a":1}`, map[string]float64{"max_tokens": cap}},
+		{`"max_completion_tokens":5000000.0`, map[string]float64{"max_completion_tokens": cap}},
+		{`"max_completion_tokens":800`, map[string]float64{"max_completion_tokens": 800}},
+		{`"max_tokens":100,"max_completion_tokens":1e12`, map[string]float64{"max_tokens": 100, "max_completion_tokens": 100}},
+		{`"temperature":0`, map[string]float64{"max_tokens": cap}},
+	} {
+		u := newUpstream(t)
+		if w := post(proxyFor(u, true), `{"model":"admin/model","messages":[],`+c.fields+`}`); w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", c.fields, w.Code, w.Body)
+		}
+		for _, f := range []string{"max_tokens", "max_completion_tokens"} {
+			want, ok := c.want[f]
+			got, has := u.body[f]
+			if ok != has || (ok && got != want) {
+				t.Errorf("%s: upstream %s = %v (sent %v), want %v (sent %v)", c.fields, f, got, has, want, ok)
+			}
+		}
+	}
+}
+
+// Only chat completions fields reach the provider: routing, plugin and
+// fan-out fields (n, models, plugins, provider, transforms) are dropped.
+func TestForwardsOnlyChatCompletionsFields(t *testing.T) {
+	u := newUpstream(t)
+	allowed := map[string]string{
+		"messages": `[{"role":"user","content":"hi"}]`, "model": `"admin/model"`, "stream": `false`,
+		"temperature": `0.2`, "top_p": `0.9`, "max_tokens": `100`, "max_completion_tokens": `100`,
+		"stop": `["x"]`, "tools": `[]`, "tool_choice": `"auto"`, "response_format": `{"type":"text"}`,
+		"presence_penalty": `0`, "frequency_penalty": `0`, "seed": `1`, "user": `"u-1"`, "parallel_tool_calls": `true`,
+	}
+	dropped := map[string]string{
+		"n": `64`, "models": `["expensive/x"]`, "plugins": `[{"id":"web"}]`, "provider": `{"order":["x"]}`,
+		"transforms": `["middle-out"]`, "route": `"fallback"`, "logit_bias": `{"1":100}`, "prediction": `{}`,
+	}
+	var parts []string
+	for _, m := range []map[string]string{allowed, dropped} {
+		for k, v := range m {
+			parts = append(parts, `"`+k+`":`+v)
+		}
+	}
+	if w := post(proxyFor(u, true), "{"+strings.Join(parts, ",")+"}"); w.Code != http.StatusOK {
+		t.Fatalf("answer: %d %s", w.Code, w.Body)
+	}
+	for k := range allowed {
+		if _, ok := u.body[k]; !ok {
+			t.Errorf("%s was not forwarded", k)
+		}
+	}
+	for k := range u.body {
+		if _, ok := allowed[k]; !ok {
+			t.Errorf("%s reached the provider: %v", k, u.body[k])
+		}
+	}
+}
+
+// A body that is JSON but not an object is refused, not a crash.
+func TestRefusesABodyThatIsNotAnObject(t *testing.T) {
+	u := newUpstream(t)
+	for _, body := range []string{`null`, `[]`, `"x"`, `1`, `true`} {
+		if w := post(proxyFor(u, true), body); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	if u.calls != 0 {
+		t.Fatalf("calls %d", u.calls)
+	}
+}

@@ -1005,14 +1005,18 @@ func TestTemplateDefaultResourcesFollowTheCustomMinimum(t *testing.T) {
 // ---- coding agents
 
 // A template's agent capabilities ride on its apps' own API token, and deploy
-// rights only on a template whose apps can never be shared: anyone an app is
-// shared with can make its token act.
+// rights and a model key only on a template whose apps can never be shared:
+// anyone an app is shared with can make its token act, or read the key.
 func TestAgentCapabilitiesNeedAPITokenAndPrivateApps(t *testing.T) {
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) { s.AgentDeploy = true }).Validate(), "spec.agentDeploy", "apiToken")
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) { s.AgentModel = true }).Validate(), "spec.agentModel", "apiToken")
 	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) {
 		s.APIToken, s.AgentDeploy, s.MaxSharing = true, true, model.AccessRestricted
 	}).Validate(), "spec.agentDeploy", "Private")
+	// The owner's own model key reaches anyone the app is shared with.
+	wantInvalid(t, newTemplate(func(s *model.TemplateSpec) {
+		s.APIToken, s.AgentModel, s.MaxSharing = true, true, model.AccessSignedIn
+	}).Validate(), "spec.agentModel", "Private")
 	valid(t, newTemplate(func(s *model.TemplateSpec) {
 		s.APIToken, s.AgentDeploy, s.AgentModel, s.MaxSharing = true, true, true, model.AccessPrivate
 	}).Validate())
@@ -1025,4 +1029,24 @@ func TestAgentPromptIsBoundedText(t *testing.T) {
 	valid(t, newApp(func(a *model.App) { a.AgentPrompt = strings.Repeat("é", model.MaxAgentPrompt) }).Validate())
 	wantInvalid(t, newApp(func(a *model.App) { a.AgentPrompt = strings.Repeat("a", model.MaxAgentPrompt+1) }).Validate(), "spec.agentPrompt")
 	wantInvalid(t, newApp(func(a *model.App) { a.AgentPrompt = "run \x1b[31m" }).Validate(), "spec.agentPrompt")
+}
+
+// Text a person sent keeps what they can see: letters, marks, symbols,
+// line breaks and tabs. Format, bidirectional, tag, private-use and control
+// characters are taken out, and other spaces become plain ones.
+func TestPrintableText(t *testing.T) {
+	for in, want := range map[string]string{
+		"build a dashboard\nof sales\tby month": "build a dashboard\nof sales\tby month",
+		"café 日本 👍🏽":                           "café 日本 👍🏽",
+		"a\u200bb\u200dc\ufeffd":                 "abcd",
+		"x\u202ey\u2066z\u2069":                  "xyz",
+		"tag\U000E0041\U000E0042s":               "tags",
+		"pua\ue000\U000F0000":                    "pua",
+		"line\r\nnext\x1b[31m\x00":              "line\nnext[31m",
+		"no\u00a0break\u3000space":               "no break space",
+	} {
+		if got := model.PrintableText(in); got != want {
+			t.Errorf("PrintableText(%+q) = %+q, want %+q", in, got, want)
+		}
+	}
 }

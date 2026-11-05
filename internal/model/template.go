@@ -249,7 +249,8 @@ type TemplateSpec struct {
 	// admin's agent model is on; otherwise the owner's own agent key, if
 	// they stored one. The app gets JAVO_AGENT_MODE (platform, own or
 	// none), JAVO_AGENT_MODEL and JAVO_AGENT_BASE_URL, and with own,
-	// JAVO_AGENT_KEY. Needs apiToken.
+	// JAVO_AGENT_KEY. Needs apiToken and apps that are never shared
+	// (maxSharing Private).
 	AgentModel bool `json:"agentModel,omitempty"`
 
 	// JobOnly marks a template that only runs jobs. It is not offered as an
@@ -519,6 +520,9 @@ func (s *TemplateSpec) Validate() error {
 	}
 	if s.AgentDeploy && s.MaxSharing != "" && s.MaxSharing != AccessPrivate {
 		v.add("spec.agentDeploy", "agentDeploy needs maxSharing Private")
+	}
+	if s.AgentModel && s.MaxSharing != "" && s.MaxSharing != AccessPrivate {
+		v.add("spec.agentModel", "agentModel needs maxSharing Private")
 	}
 	v.maxItems("spec.apiGuidePaths", len(s.APIGuidePaths), 8)
 	for i, p := range s.APIGuidePaths {

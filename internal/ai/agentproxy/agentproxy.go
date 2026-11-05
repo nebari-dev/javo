@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -95,11 +97,11 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil || body == nil {
 		fail(w, http.StatusBadRequest, "invalid_request_error", "The request is not a JSON object.")
 		return
 	}
-	model, stream := p.rewrite(body)
+	body, model, stream := p.rewrite(body)
 	out, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, p.base()+"/chat/completions", bytes.NewReader(out))
@@ -141,28 +143,77 @@ func (p *Proxy) chat(w http.ResponseWriter, r *http.Request) {
 	audit(person, model, in, outTok, result)
 }
 
-// rewrite puts the admin's model in body unless it names one Allows, caps
-// the output it asks for, and asks a streamed answer to report its usage
-// (for the audit line).
-func (p *Proxy) rewrite(body map[string]json.RawMessage) (model string, stream bool) {
-	_ = json.Unmarshal(body["model"], &model)
-	if !p.Allows(model) {
-		model = p.Model
-		body["model"], _ = json.Marshal(model)
-	}
-	for _, f := range []string{"max_tokens", "max_completion_tokens"} {
-		var n int
-		if json.Unmarshal(body[f], &n) == nil && n > DefaultMaxOutput {
-			body[f], _ = json.Marshal(DefaultMaxOutput)
+// forwarded are the OpenAI chat completions fields that go to the provider;
+// any other field (n, a provider's routing or plugin fields) is dropped, so
+// a request cannot ask for several answers or another model. n is left out,
+// which is one answer.
+var forwarded = []string{
+	"messages", "model", "stream", "stream_options", "temperature", "top_p",
+	"max_tokens", "max_completion_tokens", "stop", "tools", "tool_choice",
+	"response_format", "presence_penalty", "frequency_penalty", "seed", "user",
+	"parallel_tool_calls",
+}
+
+// tokenFields are the fields an output limit is asked for in.
+var tokenFields = []string{"max_tokens", "max_completion_tokens"}
+
+// rewrite builds the provider's request from in: only the forwarded
+// fields, the admin's model unless in names one Allows, an output limit of
+// at most DefaultMaxOutput (DefaultMaxOutput when in asks for none), and a
+// streamed answer asked to report its usage (for the audit line).
+func (p *Proxy) rewrite(in map[string]json.RawMessage) (out map[string]json.RawMessage, model string, stream bool) {
+	out = map[string]json.RawMessage{}
+	for _, f := range forwarded {
+		if v, ok := in[f]; ok {
+			out[f] = v
 		}
 	}
-	if json.Unmarshal(body["stream"], &stream) == nil && stream {
-		opts := map[string]json.RawMessage{}
-		_ = json.Unmarshal(body["stream_options"], &opts)
-		opts["include_usage"] = json.RawMessage("true")
-		body["stream_options"], _ = json.Marshal(opts)
+	_ = json.Unmarshal(out["model"], &model)
+	if !p.Allows(model) {
+		model = p.Model
+		out["model"], _ = json.Marshal(model)
 	}
-	return model, stream
+	limit := DefaultMaxOutput
+	named := []string{}
+	for _, f := range tokenFields {
+		if _, ok := out[f]; !ok {
+			continue
+		}
+		named = append(named, f)
+		if n, ok := tokenLimit(out[f]); ok && n < limit {
+			limit = n
+		}
+	}
+	if len(named) == 0 {
+		named = tokenFields[:1]
+	}
+	for _, f := range named {
+		out[f], _ = json.Marshal(limit)
+	}
+	delete(out, "stream_options")
+	if json.Unmarshal(out["stream"], &stream) == nil && stream {
+		out["stream_options"] = json.RawMessage(`{"include_usage":true}`)
+	}
+	return out, model, stream
+}
+
+// tokenLimit reads an output limit written as a JSON number in any form
+// (500, 5e2, 500.0) or as a string holding one, rounded down; ok is false
+// for anything else, or for a limit below one.
+func tokenLimit(raw json.RawMessage) (n int, ok bool) {
+	text := strings.TrimSpace(string(raw))
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		text = strings.TrimSpace(s)
+	}
+	f, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(f) || f < 1 {
+		return 0, false
+	}
+	if f >= DefaultMaxOutput {
+		return DefaultMaxOutput, true
+	}
+	return int(f), true
 }
 
 func (p *Proxy) base() string {

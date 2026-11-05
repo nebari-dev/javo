@@ -10,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/nebari-dev/javo/internal/diagnose"
+	javomodel "github.com/nebari-dev/javo/internal/model"
 )
 
 // Suggest's bounds: the text it asks about, the one suggestion it keeps
@@ -63,7 +64,7 @@ func (s *Service) Suggest(ctx context.Context, person, model, text string, tpls 
 	}
 	s.audit(c, "ok", o.usage, Dropped{})
 	for _, v := range m.Suggestions {
-		v = strings.Join(strings.Fields(v), " ")
+		v = strings.Join(strings.Fields(javomodel.PrintableText(v)), " ")
 		if v == text || !strings.HasPrefix(v, text) || utf8.RuneCountInString(v) > suggestMaxRunes {
 			continue
 		}

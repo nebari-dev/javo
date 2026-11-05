@@ -81,7 +81,7 @@ func WithAgent(pod *corev1.Pod, app *model.App, t *model.Template, m agentModel,
 			LocalObjectReference: corev1.LocalObjectReference{Name: tokenSecret}, Key: APITokenKey,
 		}}})
 	}
-	if app.AgentPrompt != "" {
-		c.Env = append(c.Env, corev1.EnvVar{Name: envAgentPrompt, Value: app.AgentPrompt})
+	if prompt := model.PrintableText(app.AgentPrompt); prompt != "" {
+		c.Env = append(c.Env, corev1.EnvVar{Name: envAgentPrompt, Value: prompt})
 	}
 }
