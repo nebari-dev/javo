@@ -74,12 +74,15 @@ type Plan struct {
 }
 
 // Requester is the credential a plan was proposed with: an API token
-// (Token, its name), an app's own token (App, the app's short name) or a
-// job's (Job). All empty is the person's own browser session.
+// (Token, its name), an app's own token (App, the app's short name, with
+// its display name and its template's kind) or a job's (Job). All empty is
+// the person's own browser session.
 type Requester struct {
-	Token string `json:"token,omitempty" doc:"Name of the API token that proposed the plan"`
-	App   string `json:"app,omitempty" doc:"Short name of the app whose own token proposed the plan"`
-	Job   bool   `json:"job,omitempty" doc:"A job's own token proposed the plan"`
+	Token   string `json:"token,omitempty" doc:"Name of the API token that proposed the plan"`
+	App     string `json:"app,omitempty" doc:"Short name of the app whose own token proposed the plan"`
+	AppName string `json:"appName,omitempty" doc:"Display name of the app whose own token proposed the plan"`
+	AppKind string `json:"appKind,omitempty" doc:"Kind of that app's template, such as pi or claude-code"`
+	Job     bool   `json:"job,omitempty" doc:"A job's own token proposed the plan"`
 }
 
 // body is a plan's stored body: the planned change and who asked. A body

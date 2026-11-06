@@ -14,12 +14,12 @@ import (
 type PlanJSON struct {
 	ID, Source, State, Error string
 	Planned                  struct {
-		Action, Target, Summary string
-		Changes                 []struct{ Field, From, To string }
+		Action, Target, TargetName, Summary string
+		Changes                             []struct{ Field, From, To string }
 	}
 	RequestedBy struct {
-		Token, App string
-		Job        bool
+		Token, App, AppName, AppKind string
+		Job                          bool
 	}
 	ExpiresAt time.Time
 }

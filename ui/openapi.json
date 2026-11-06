@@ -3146,6 +3146,10 @@
           },
           "target": {
             "type": "string"
+          },
+          "targetName": {
+            "description": "Display name of the app the change acts on",
+            "type": "string"
           }
         },
         "required": [
@@ -3592,6 +3596,14 @@
         "properties": {
           "app": {
             "description": "Short name of the app whose own token proposed the plan",
+            "type": "string"
+          },
+          "appKind": {
+            "description": "Kind of that app's template, such as pi or claude-code",
+            "type": "string"
+          },
+          "appName": {
+            "description": "Display name of the app whose own token proposed the plan",
             "type": "string"
           },
           "job": {

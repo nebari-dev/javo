@@ -83,6 +83,7 @@ func (a appAction) Plan(ctx context.Context, p actions.Proposal) (actions.Planne
 	}
 	pl.Proposal = p
 	pl.Owner = app.Owner
+	pl.TargetName = app.DisplayName
 	return pl, nil
 }
 

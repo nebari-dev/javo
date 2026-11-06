@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -225,5 +227,36 @@ func TestAPlanSaysWhichTokenAskedForIt(t *testing.T) {
 	mine := apitest.Decode[apitest.PlanJSON](t, f.Do("POST", "/api/plans", `{"source":"rules","proposal":{"action":"stop","target":"sales"}}`, c))
 	if mine.RequestedBy.Token != "" || mine.RequestedBy.App != "" {
 		t.Fatalf("session plan %+v", mine)
+	}
+}
+
+// An app's own token proposing a plan names that app as people see it and
+// its template's kind, so the approval shows which agent asked (its logo);
+// the plan also names the app it acts on as people see it.
+func TestAPlanFromAnAppSaysWhichAppAndKindAskedForIt(t *testing.T) {
+	t.Parallel()
+	agent := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Sales agent")
+	agent.Template = "agent"
+	f := apitest.New(t, apitest.Options{}, gatewaytest.Template("streamlit", "streamlit"), apitest.AgentTemplate(), agent,
+		apitest.RunningSalesOf(apitest.LocalAlice()))
+	c := f.LoginAlice()
+	tok, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{
+		Name: "agent", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+		App: &token.App{Namespace: agent.Namespace, Name: agent.ObjectName(), Short: "agent"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := f.Bearer("POST", "/api/plans", `{"source":"mcp:claude-code","proposal":{"action":"stop","target":"sales"}}`, tok, nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	id := apitest.Decode[apitest.PlanJSON](t, w).ID
+	got := apitest.Decode[apitest.PlanJSON](t, f.Do("GET", "/api/plans/"+id, "", c))
+	if got.RequestedBy.App != "agent" || got.RequestedBy.AppName != "Sales agent" || got.RequestedBy.AppKind != "claude-code" {
+		t.Fatalf("requestedBy %+v", got.RequestedBy)
+	}
+	if got.Planned.TargetName != "Sales" {
+		t.Fatalf("planned %+v", got.Planned)
 	}
 }

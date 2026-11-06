@@ -140,6 +140,7 @@ func (a *plansAPI) propose(ctx context.Context, source string, p actions.Proposa
 		switch {
 		case tok.App != nil:
 			by.App = tok.App.Short
+			by.AppName, by.AppKind = a.appOf(ctx, tok.App.Name)
 		case tok.Job != "":
 			by.Job = true
 		default:
@@ -151,6 +152,19 @@ func (a *plansAPI) propose(ctx context.Context, source string, p actions.Proposa
 		return plans.Plan{}, problem.Internal("store plan", err)
 	}
 	return out, nil
+}
+
+// appOf is the display name of the app with object name obj and its
+// template's kind; empty when either is gone.
+func (a *plansAPI) appOf(ctx context.Context, obj string) (name, kind string) {
+	app, err := a.ws.db.Apps().GetByObjectName(ctx, obj)
+	if err != nil {
+		return "", ""
+	}
+	if t, err := a.ws.db.Templates().Get(ctx, app.Template); err == nil {
+		kind = t.Spec.Kind
+	}
+	return app.DisplayName, kind
 }
 
 // approveURL is the page where the owner decides plan id: absolute when the

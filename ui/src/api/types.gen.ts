@@ -1139,6 +1139,10 @@ export type Planned = {
     };
     summary: string;
     target: string;
+    /**
+     * Display name of the app the change acts on
+     */
+    targetName?: string;
 };
 
 export type PodRun = {
@@ -1307,6 +1311,14 @@ export type Requester = {
      * Short name of the app whose own token proposed the plan
      */
     app?: string;
+    /**
+     * Kind of that app's template, such as pi or claude-code
+     */
+    appKind?: string;
+    /**
+     * Display name of the app whose own token proposed the plan
+     */
+    appName?: string;
     /**
      * A job's own token proposed the plan
      */

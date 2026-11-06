@@ -16,8 +16,10 @@ type Change struct {
 // Planned is a checked proposal: what it does in words and field by field.
 type Planned struct {
 	Proposal
-	Summary string   `json:"summary"`
-	Changes []Change `json:"changes"`
+	// TargetName is the display name of the app the change acts on.
+	TargetName string   `json:"targetName,omitempty" doc:"Display name of the app the change acts on"`
+	Summary    string   `json:"summary"`
+	Changes    []Change `json:"changes"`
 	// Destructive is true for a change that cannot be undone (deleting an app).
 	Destructive bool `json:"destructive"`
 }
