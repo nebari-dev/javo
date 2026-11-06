@@ -55,3 +55,21 @@ describe('log colours', () => {
     })
   }
 })
+
+// The grounds ordinary text sits on: the page, cards, and the raised rows and panels inside them.
+const GROUNDS = ['--bg', '--surface', '--surface-2']
+
+describe('text colours', () => {
+  for (const [theme, t] of Object.entries(themes)) {
+    it(`every text colour reads at WCAG AA (4.5:1) on each ground in the ${theme} theme`, () => {
+      const low: string[] = []
+      for (const g of GROUNDS) {
+        for (const c of ['--text', '--text-2', '--text-3']) {
+          const r = contrast(t[c], t[g])
+          if (r < 4.5) low.push(`${c} ${t[c]} on ${g} ${t[g]}: ${r.toFixed(2)}`)
+        }
+      }
+      expect(low).toEqual([])
+    })
+  }
+})

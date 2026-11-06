@@ -6,7 +6,7 @@
   --btn-h:40px; --btn-px:20px; --btn-min-w:88px; --btn-h-sm:34px; --btn-px-sm:14px; --btn-min-w-sm:72px;
   --font-mono:'Fira Code',ui-monospace,Menlo,monospace;
   --bg:#eef0f4; --surface:#ffffff; --surface-2:#f6f7f9; --border:#e2e5eb; --border-strong:#cfd4dd;
-  --text:#1d2133; --text-2:#5b6175; --text-3:#8a90a3;
+  --text:#1d2133; --text-2:#5b6175; --text-3:#666c80;
   --ink:#1d2133; --on-ink:#ffffff; --key-edge:#d3d8e1; --key-hi:rgba(255,255,255,.9);
   --accent:#3d63dd; --accent-soft:#eaeefb; --accent-text:#2f50bd;
   /* Hover tint laid over a control's own background: --hover on light grounds, --hover-ink on ink-filled controls. */
@@ -28,7 +28,7 @@
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0e1015; --surface:#161920; --surface-2:#1c2028; --border:#262b35; --border-strong:#353b48;
-  --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#737a8c;
+  --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#818799;
   --ink:#e9ebf1; --on-ink:#12141a; --key-edge:#08090c; --key-hi:rgba(255,255,255,.05);
   --accent:#7c9bff; --accent-soft:#1b2342; --accent-text:#9db4ff;
   --hover:rgba(255,255,255,.065); --hover-ink:rgba(18,20,26,.12);
@@ -41,7 +41,7 @@
 }}
 :root[data-theme="dark"]{
   --bg:#0e1015; --surface:#161920; --surface-2:#1c2028; --border:#262b35; --border-strong:#353b48;
-  --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#737a8c;
+  --text:#e9ebf1; --text-2:#a2a8b8; --text-3:#818799;
   --ink:#e9ebf1; --on-ink:#12141a; --key-edge:#08090c; --key-hi:rgba(255,255,255,.05);
   --accent:#7c9bff; --accent-soft:#1b2342; --accent-text:#9db4ff;
   --hover:rgba(255,255,255,.065); --hover-ink:rgba(18,20,26,.12);
