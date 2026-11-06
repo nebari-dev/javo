@@ -530,3 +530,21 @@ func TestAIAgentDefaultsToTheAIModel(t *testing.T) {
 		}
 	}
 }
+
+// Owners may let their coding agents act without asking unless
+// agents.allowTrusted is false.
+func TestAgentsAllowTrustedDefaultsToOn(t *testing.T) {
+	p, err := load(t, "auth:\n  local:\n    enabled: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Agents.TrustedAllowed() {
+		t.Fatal("agents.allowTrusted unset refuses trusted agents")
+	}
+	if p, err = load(t, "auth:\n  local:\n    enabled: true\nagents:\n  allowTrusted: false\n"); err != nil {
+		t.Fatal(err)
+	}
+	if p.Agents.TrustedAllowed() {
+		t.Fatal("agents.allowTrusted false allows trusted agents")
+	}
+}

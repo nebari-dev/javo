@@ -131,6 +131,8 @@ type Options struct {
 	PreviewsMax int32
 	// CodeHosts is Config.CodeHosts.
 	CodeHosts *registry.Registry[codehost.Host]
+	// NoTrustedAgents is agents.allowTrusted false.
+	NoTrustedAgents bool
 	// Ready is Config.Ready: nil leaves the gateway always ready.
 	Ready func(context.Context) error
 	// Idle is the "Stop when idle" policy; the zero value is the chart's
@@ -287,6 +289,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		AI:       o.Ai, AgentModel: o.AgentModel, AISettings: live, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
 		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage,
+		TrustedAgents: !o.NoTrustedAgents,
 	})
 	return &Fixture{AI: live, T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, Revalidator: rv, secure: o.Urls.SecureCookies(o.Secure)}
 }

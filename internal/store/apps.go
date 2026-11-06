@@ -569,7 +569,7 @@ func appOf(r sqlcgen.App, shares []sqlcgen.AppShare) (model.App, error) {
 		ID: r.ID, Namespace: r.Namespace, Name: r.Name, Owner: r.Owner, DisplayName: spec.DisplayName,
 		Template: r.Template, File: spec.File, Sample: spec.Sample, Size: r.Size, Resources: resourcesOf(r.CpuMillis, r.MemoryBytes), Command: spec.Command,
 		Image: spec.Image, Port: spec.Port, APIAccess: spec.APIAccess, AgentPrompt: spec.AgentPrompt, Env: spec.Env, Source: spec.Source, Environment: spec.Environment, ParentID: r.ParentID.String, PullNumber: int32(r.PullNumber), Paused: r.Paused, Sharing: model.Sharing{Access: r.Access},
-		RestartRequestedAt: timeOf(r.RestartRequestedAt), TokenRevoked: r.TokenRevoked, Version: r.Version, CreatedAt: r.CreatedAt.Time(),
+		RestartRequestedAt: timeOf(r.RestartRequestedAt), TokenRevoked: r.TokenRevoked, TrustedUntil: timeOf(r.TrustedUntil), Version: r.Version, CreatedAt: r.CreatedAt.Time(),
 		DeletedAt: timeOf(r.DeletedAt), IdleStopMinutes: r.IdleStopMinutes, StoppedIdleAfter: spec.StoppedIdleAfter, StoppedByAdmin: spec.StoppedByAdmin,
 		LastActiveAt: timeOf(r.LastActiveAt), RestoreHold: r.RestoreHold, ReleaseAt: timeOf(r.RestoreReleaseAt),
 	}

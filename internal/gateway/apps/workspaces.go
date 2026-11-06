@@ -132,6 +132,9 @@ type Workspace struct {
 	// AgentPrompt is the request a coding-agent app was built on, shown
 	// like a description to whoever may see the app; absent for other apps.
 	AgentPrompt string `json:"agentPrompt,omitempty"`
+	// Trust is whether a coding agent acts without asking; absent for any
+	// app that cannot (not a coding agent with read-write API access).
+	Trust *TrustView `json:"trust,omitempty"`
 }
 
 // Workspaces is the app API: /api/workspaces and every route about one app.
@@ -838,6 +841,7 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 		Environment:  environments.ViewOf(app.Environment),
 		Run:          run,
 		AgentPrompt:  app.AgentPrompt,
+		Trust:        s.trustView(ctx, app, tpls[app.Template]),
 	}
 }
 
@@ -919,6 +923,8 @@ type Config struct {
 	ThumbnailDecodes int
 	// Run fills in what each app runs; its Exposure is the one above.
 	Run workspace.Platform
+	// Trust says whether owners may let their coding agents act without asking.
+	Trust TrustPolicy
 }
 
 // New builds the app API from c; c.Now and c.Plans must be set.
@@ -941,6 +947,7 @@ func (s *Workspaces) Register(api huma.API) {
 	c := s.cfg
 	s.registerWorkspaces(api)
 	s.registerAgent(api)
+	s.registerTrust(api)
 	s.registerDiagnosis(api)
 	pa := &plansAPI{ws: s, plans: c.Plans}
 	pa.register(api)

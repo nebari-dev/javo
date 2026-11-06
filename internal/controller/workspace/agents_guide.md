@@ -27,6 +27,12 @@ wrong and `errors` names the field.
   Ask the person to do it in the browser. For a start, stop, restart, delete
   or resize you may not do, propose it for them to approve:
   `javo-api POST /api/plans '{"source":"mcp:agent","proposal":{"action":"restart","target":"NAME"}}'`.
+- When the owner lets this agent act without asking (a switch on this app's
+  page, for at most 24 hours), the limits above are lifted: make the change
+  directly, such as giving an app a secret or restarting one that holds
+  one, instead of proposing a plan. Approving plans, making tokens and
+  changing that switch stay refused. When a direct call answers 403, it is
+  off: propose a plan as above.
 - Files: the owner's home folder is your home folder (`/home/user`), so write
   files there directly. Every app and job sees the same home.
 - SSH: `git clone git@github.com:...` and `ssh` work through an ssh-agent

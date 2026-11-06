@@ -43,12 +43,12 @@ var AgentDeployWrites = []string{
 
 // WorkloadTokensReadOnly is API middleware that refuses a workload token on
 // every operation that is not a read and not in WorkloadTokenWrites. It runs
-// before the operation's input is read.
+// before the operation's input is read. A Trusted agent's token passes.
 func WorkloadTokensReadOnly(api huma.API) func(huma.Context, func(huma.Context)) {
 	return func(hctx huma.Context, next func(huma.Context)) {
 		switch m := hctx.Method(); {
 		case m == http.MethodGet, m == http.MethodHead, m == http.MethodOptions,
-			!viaAppToken(hctx.Context()), slices.Contains(WorkloadTokenWrites, hctx.Operation().OperationID),
+			!restricted(hctx.Context()), slices.Contains(WorkloadTokenWrites, hctx.Operation().OperationID),
 			ViaAgentToken(hctx.Context()) && slices.Contains(AgentDeployWrites, hctx.Operation().OperationID):
 			next(hctx)
 			return

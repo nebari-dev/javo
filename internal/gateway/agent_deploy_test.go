@@ -30,7 +30,7 @@ func newAgentFixture(t *testing.T, deploy bool) agentFixture {
 func newAgentFixtureWith(t *testing.T, deploy bool, o apitest.Options) agentFixture {
 	t.Helper()
 	pi := apitest.AgentTemplate()
-	pi.Name, pi.Spec.AgentDeploy, pi.Spec.AgentModel = "pi", deploy, true
+	pi.Name, pi.Spec.AgentDeploy, pi.Spec.AgentModel, pi.Spec.Category = "pi", deploy, true, model.CategoryAgents
 	piApp := gatewaytest.Workspace("pi", apitest.LocalAlice(), "pi")
 	piApp.Template = "pi"
 	streamlit := gatewaytest.Template("streamlit", "streamlit")

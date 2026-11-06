@@ -278,6 +278,24 @@
         ],
         "type": "object"
       },
+      "AgentSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "allowTrusted": {
+            "description": "Owners may let their coding agents act without asking; false refuses it and ends it where it is on",
+            "type": "boolean"
+          },
+          "configAllows": {
+            "description": "agents.allowTrusted in the platform config; false: it is off whatever is set here",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allowTrusted",
+          "configAllows"
+        ],
+        "type": "object"
+      },
       "AgentSettingsInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -300,6 +318,18 @@
         "required": [
           "baseURL",
           "model"
+        ],
+        "type": "object"
+      },
+      "AgentSettingsInputBody1": {
+        "additionalProperties": false,
+        "properties": {
+          "allowTrusted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allowTrusted"
         ],
         "type": "object"
       },
@@ -5177,6 +5207,42 @@
         ],
         "type": "object"
       },
+      "TrustInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "hours": {
+            "description": "How long, 1 to 24 hours; default 8. Ignored when trusted is false.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "trusted": {
+            "description": "true: the agent acts with your read-write access without asking until hours from now; false: it asks again",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "trusted"
+        ],
+        "type": "object"
+      },
+      "TrustView": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed": {
+            "description": "The platform lets owners turn it on now",
+            "type": "boolean"
+          },
+          "until": {
+            "description": "The agent acts without asking until then; absent: it asks",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed"
+        ],
+        "type": "object"
+      },
       "UsageOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -5385,6 +5451,9 @@
           "thumbnail": {
             "$ref": "#/components/schemas/Thumbnail"
           },
+          "trust": {
+            "$ref": "#/components/schemas/TrustView"
+          },
           "url": {
             "type": "string"
           }
@@ -5450,6 +5519,127 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/agents": {
+      "get": {
+        "operationId": "adminGetAgentSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Whether owners may let their coding agents act without asking (platform admins)",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Off, no owner can turn it on, and every agent acting without asking goes back to asking at once. Each change is on the audit log.",
+        "operationId": "adminSetAgentSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSettingsInputBody1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Allow or refuse letting coding agents act without asking (platform admins)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/admin/ai": {
       "delete": {
         "operationId": "adminResetAISettings",
@@ -14652,6 +14842,125 @@
           }
         },
         "summary": "Set the picture shown on the app's card (owner or platform admin)",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/workspaces/{name}/trust": {
+      "put": {
+        "description": "While on, the agent's own API token may do everything you may do through the API with a read-write token, without proposing plans: start, stop and delete apps, attach your secrets, share apps. It never acts as an admin and still cannot approve or reject plans, make tokens or change this. Only the owner, in the browser, turns it on; it ends by itself after the hours chosen. The app does not restart.",
+        "operationId": "setWorkspaceTrust",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Identity name of the app's owner; default the caller",
+            "explode": false,
+            "in": "query",
+            "name": "owner",
+            "schema": {
+              "description": "Identity name of the app's owner; default the caller",
+              "maxLength": 253,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrustInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Let a coding agent act without asking, or make it ask again (browser session only)",
         "tags": [
           "workspaces"
         ]

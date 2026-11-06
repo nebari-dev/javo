@@ -77,6 +77,18 @@ config:
 - Without an agent model, each person may store their own OpenAI-compatible address, model and key in **Settings > Secrets > AI agent**. The key is sealed like a secret (`JAVO_AGENT_KEY`), shown again only by its last four characters, and given only to that person's coding-agent apps, which are never shared (a template with `agentModel` needs `maxSharing: Private`). In a coding-agent app (a template of category `agents`) neither this key nor the app's API token is in the agent's container: a helper sidecar of the app (`javo agent-helper`) holds them, and the agent's model calls (to `http://127.0.0.1:7690/model`) and `javo-api` calls (on the socket `/run/javo-agent/api.sock`) go through it, which adds the key or the token and reaches only the model's address and the Javo API. On every start the pi template rewrites the `javo` provider in pi's `models.json` and drops any other provider's or stored credential's reference to `JAVO_AGENT_KEY`, so a planted file cannot send the key to another server; other providers the person added are kept. With neither, pi asks the person to sign in (`/login`). A change applies when the agent app restarts.
 - A coding agent's app token (templates with `agentDeploy`) may create, change, restart and delete its owner's apps and jobs that hold no secret, API token, Nebi token or model key. Secrets, API access, sharing and anything on an app or job that holds a secret are refused; the agent asks the person or proposes a plan.
 
+## Agents that act without asking
+
+```yaml
+config:
+  agents:
+    allowTrusted: true   # the default; false refuses it everywhere
+```
+
+On a coding agent's app page (an agent with read-write API access), its owner can turn on **Let it act without asking** for 1 to 24 hours (8 by default). Until then the agent's own token may do whatever the owner may do with a read-write token, directly: start, stop and delete apps, attach the owner's secrets, share apps. It never acts as an admin, even for an admin, and like every token it still cannot approve or reject plans, make API tokens or change this switch. Only the owner can turn it on, signed in in the browser; no API token can. It ends by itself and the agent asks again at once; the app does not restart.
+
+The risk is the agent's: a web page, file or package that tricks it can then act as its owner. Set `allowTrusted: false` to refuse it, or switch it off in **Settings > Agents** (platform admins): no one can turn it on and every agent acting without asking goes back to asking at once. Turning it on or off, its end, and every change the agent makes while it is on are on the audit log; those changes name the agent's app (`app:<app>`, via `trusted`) as the actor.
+
 ## MCP for coding agents
 
 ```yaml

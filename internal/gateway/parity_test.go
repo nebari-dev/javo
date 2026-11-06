@@ -29,8 +29,8 @@ import (
 // the admin's session, a read-write token as it answers the session of the
 // same person as a member, a read token the same for GET and 403 for the
 // rest, and a propose token like a read token except that it may store a
-// plan. Only the token operations themselves and plan approval need a
-// session. A route added for the UI that refuses tokens fails here.
+// plan. Only the token operations themselves, plan approval and letting an
+// agent act without asking need a session. A route added for the UI that refuses tokens fails here.
 func TestEveryUIOperationAcceptsToken(t *testing.T) {
 	t.Parallel()
 	for _, op := range apiOperations(t) {
@@ -62,6 +62,9 @@ func TestEveryUIOperationAcceptsToken(t *testing.T) {
 				case op.sessionOnly() && authn.IsPlanDecision(op.path):
 					// Approving a proposed change is for a person in the browser.
 					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgPlanSessionOnly)
+				case op.sessionOnly() && authn.IsTrustChange(op.path):
+					// Letting an agent act without asking is for its owner in the browser.
+					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgTrustSessionOnly)
 				case op.sessionOnly():
 					if op.path != "/api/tokens" && op.path != "/api/tokens/{id}" {
 						t.Fatalf("%s needs a browser session; only the token and plan decision operations may", op)

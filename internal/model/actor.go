@@ -20,4 +20,7 @@ type Actor struct {
 	Token string
 	// System names a component (SystemController); empty for a person.
 	System string
+	// App is the object name of the coding agent whose token acted while
+	// its owner trusted it (it acted without asking); empty otherwise.
+	App string
 }

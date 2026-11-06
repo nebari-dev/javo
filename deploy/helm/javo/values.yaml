@@ -666,6 +666,17 @@ config:
       template: pi
       # The largest request an agent may send (its whole conversation).
       maxRequestBytes: 8388608
+  # Coding-agent apps (pi, Claude Code). allowTrusted lets an owner, in the
+  # browser, let their agent act without asking for up to 24 hours (8 by
+  # default): its own token then does everything the owner may do with a
+  # read-write token (attach their secrets, share, delete apps) instead of
+  # proposing plans. It never acts as an admin and cannot approve plans or
+  # make tokens. A web page, file or package that tricks the agent could
+  # then act as the owner, so set false to refuse it everywhere; a platform
+  # admin can also switch it off in Settings > Agents, which ends it where
+  # it is on.
+  agents:
+    allowTrusted: true
   # Agents (Claude Code, Cursor) reach the platform at /mcp with a personal
   # API token. They can read and propose changes; a person approves every
   # change in the browser. Needs no model.

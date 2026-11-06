@@ -10,6 +10,12 @@ import (
 	"github.com/nebari-dev/javo/internal/store/dbtime"
 )
 
+type AgentPolicy struct {
+	ID         int32
+	TrustedOff bool
+	UpdatedAt  dbtime.Time
+}
+
 type AgentSetting struct {
 	Owner     string
 	BaseUrl   string
@@ -77,6 +83,7 @@ type App struct {
 	PullNumber         int64
 	RestoreHold        string
 	RestoreReleaseAt   dbtime.NullTime
+	TrustedUntil       dbtime.NullTime
 }
 
 type AppEnvironment struct {

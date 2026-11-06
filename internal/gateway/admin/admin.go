@@ -1,6 +1,6 @@
 // Package admin serves the platform admin's console: every person's apps,
 // usage, held restores, database backups, the backup bucket, the audit
-// log and the AI settings.
+// log, the AI settings and the switch for trusted agents.
 package admin
 
 import (
@@ -32,6 +32,8 @@ type API struct {
 	Logs   podlogs.Source
 	// AI is the AI settings in force; nil while AI is off.
 	AI *aisettings.Live
+	// Trust is whether owners may let their coding agents act without asking.
+	Trust apps.TrustPolicy
 }
 
 // Register adds the admin console's routes.
@@ -43,4 +45,5 @@ func (a *API) Register(api huma.API) {
 	a.registerBucket(api)
 	a.registerAudit(api)
 	a.registerAI(api)
+	a.registerAgents(api)
 }

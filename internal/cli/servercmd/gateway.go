@@ -235,6 +235,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	}
 	proposals := &plans.Service{DB: db, TTL: platform.Plans.TTL.Duration}
 	go proposals.RunJanitor(ctx, time.Minute)
+	go apps.TrustJanitor{DB: db, Policy: apps.TrustPolicy{Config: platform.Agents.TrustedAllowed(), DB: db}, Now: time.Now}.Run(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
 	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()})
 	people := db.People(uidRange(platform.Identity))
@@ -293,6 +294,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		AIFeatures:      platform.AI.Features,
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
 		MCP:             platform.MCP,
+		TrustedAgents:   platform.Agents.TrustedAllowed(),
 		Environments:    wiring.EnvironmentSource(platform),
 		NebiTokens:      nebi,
 	})

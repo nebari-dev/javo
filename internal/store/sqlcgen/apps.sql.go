@@ -21,8 +21,27 @@ func (q *Queries) DeleteAppShares(ctx context.Context, appID string) error {
 	return err
 }
 
+const endAppTrust = `-- name: EndAppTrust :execrows
+UPDATE apps SET trusted_until = NULL WHERE id = $1 AND trusted_until = $2
+`
+
+type EndAppTrustParams struct {
+	ID           string
+	TrustedUntil dbtime.NullTime
+}
+
+// Ends an app's trust only if it is still the one read, so two gateway
+// replicas sweeping at once record one end.
+func (q *Queries) EndAppTrust(ctx context.Context, arg EndAppTrustParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endAppTrust, arg.ID, arg.TrustedUntil)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getApp = `-- name: GetApp :one
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE id = $1
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE id = $1
 `
 
 func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
@@ -55,12 +74,13 @@ func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
 		&i.PullNumber,
 		&i.RestoreHold,
 		&i.RestoreReleaseAt,
+		&i.TrustedUntil,
 	)
 	return i, err
 }
 
 const getAppByObjectName = `-- name: GetAppByObjectName :one
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE object_name = $1
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE object_name = $1
 `
 
 func (q *Queries) GetAppByObjectName(ctx context.Context, objectName string) (App, error) {
@@ -93,12 +113,13 @@ func (q *Queries) GetAppByObjectName(ctx context.Context, objectName string) (Ap
 		&i.PullNumber,
 		&i.RestoreHold,
 		&i.RestoreReleaseAt,
+		&i.TrustedUntil,
 	)
 	return i, err
 }
 
 const getAppByOwnerName = `-- name: GetAppByOwnerName :one
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE owner = $1 AND name = $2
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE owner = $1 AND name = $2
 `
 
 type GetAppByOwnerNameParams struct {
@@ -136,6 +157,7 @@ func (q *Queries) GetAppByOwnerName(ctx context.Context, arg GetAppByOwnerNamePa
 		&i.PullNumber,
 		&i.RestoreHold,
 		&i.RestoreReleaseAt,
+		&i.TrustedUntil,
 	)
 	return i, err
 }
@@ -262,7 +284,7 @@ func (q *Queries) ListAllAppShares(ctx context.Context) ([]AppShare, error) {
 }
 
 const listAllApps = `-- name: ListAllApps :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps ORDER BY created_at DESC, id DESC
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps ORDER BY created_at DESC, id DESC
 `
 
 // Every app including deleted ones: the controller's resync.
@@ -302,6 +324,7 @@ func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +395,7 @@ func (q *Queries) ListAppSharesByOwner(ctx context.Context, owner string) ([]App
 }
 
 const listAppsByOwner = `-- name: ListAppsByOwner :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE owner = $1 AND deleted_at IS NULL AND (parent_id IS NULL OR CAST($2 AS BOOLEAN))
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE owner = $1 AND deleted_at IS NULL AND (parent_id IS NULL OR CAST($2 AS BOOLEAN))
 ORDER BY created_at DESC, id DESC
 `
 
@@ -418,6 +441,7 @@ func (q *Queries) ListAppsByOwner(ctx context.Context, arg ListAppsByOwnerParams
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -433,7 +457,7 @@ func (q *Queries) ListAppsByOwner(ctx context.Context, arg ListAppsByOwnerParams
 }
 
 const listAppsOpenToAll = `-- name: ListAppsOpenToAll :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps
 WHERE access IN ('SignedIn', 'Public') AND owner <> $1 AND deleted_at IS NULL
   AND (parent_id IS NULL OR CAST($2 AS BOOLEAN))
 ORDER BY created_at DESC, id DESC
@@ -483,6 +507,7 @@ func (q *Queries) ListAppsOpenToAll(ctx context.Context, arg ListAppsOpenToAllPa
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -498,7 +523,7 @@ func (q *Queries) ListAppsOpenToAll(ctx context.Context, arg ListAppsOpenToAllPa
 }
 
 const listAppsSharedWith = `-- name: ListAppsSharedWith :many
-SELECT a.id, a.namespace, a.name, a.object_name, a.owner, a.template, a.size, a.paused, a.access, a.spec, a.version, a.created_at, a.restart_requested_at, a.token_revoked, a.deleted_at, a.status, a.observed_version, a.status_at, a.cpu_millis, a.memory_bytes, a.idle_stop_minutes, a.last_active_at, a.parent_id, a.pull_number, a.restore_hold, a.restore_release_at FROM apps a
+SELECT a.id, a.namespace, a.name, a.object_name, a.owner, a.template, a.size, a.paused, a.access, a.spec, a.version, a.created_at, a.restart_requested_at, a.token_revoked, a.deleted_at, a.status, a.observed_version, a.status_at, a.cpu_millis, a.memory_bytes, a.idle_stop_minutes, a.last_active_at, a.parent_id, a.pull_number, a.restore_hold, a.restore_release_at, a.trusted_until FROM apps a
 JOIN app_shares s ON s.app_id = a.id
 WHERE s.kind = $1 AND s.value = $2 AND a.owner <> $3 AND a.deleted_at IS NULL
   AND (a.parent_id IS NULL OR CAST($4 AS BOOLEAN))
@@ -555,6 +580,7 @@ func (q *Queries) ListAppsSharedWith(ctx context.Context, arg ListAppsSharedWith
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -570,7 +596,7 @@ func (q *Queries) ListAppsSharedWith(ctx context.Context, arg ListAppsSharedWith
 }
 
 const listHeldApps = `-- name: ListHeldApps :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps
 WHERE restore_hold <> '' AND deleted_at IS NULL AND (restore_release_at IS NULL OR restore_release_at > $1)
 ORDER BY restore_hold, name, id
 `
@@ -612,6 +638,7 @@ func (q *Queries) ListHeldApps(ctx context.Context, restoreReleaseAt dbtime.Null
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -627,7 +654,7 @@ func (q *Queries) ListHeldApps(ctx context.Context, restoreReleaseAt dbtime.Null
 }
 
 const listIdleStopCandidates = `-- name: ListIdleStopCandidates :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps
 WHERE idle_stop_minutes > 0 AND paused = FALSE AND deleted_at IS NULL
 ORDER BY id
 `
@@ -669,6 +696,7 @@ func (q *Queries) ListIdleStopCandidates(ctx context.Context) ([]App, error) {
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -710,8 +738,64 @@ func (q *Queries) ListLiveAppIDs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listTrustedApps = `-- name: ListTrustedApps :many
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE trusted_until IS NOT NULL AND deleted_at IS NULL ORDER BY id
+`
+
+// Apps whose agent acts without asking, or did until a time now past.
+func (q *Queries) ListTrustedApps(ctx context.Context) ([]App, error) {
+	rows, err := q.db.QueryContext(ctx, listTrustedApps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []App
+	for rows.Next() {
+		var i App
+		if err := rows.Scan(
+			&i.ID,
+			&i.Namespace,
+			&i.Name,
+			&i.ObjectName,
+			&i.Owner,
+			&i.Template,
+			&i.Size,
+			&i.Paused,
+			&i.Access,
+			&i.Spec,
+			&i.Version,
+			&i.CreatedAt,
+			&i.RestartRequestedAt,
+			&i.TokenRevoked,
+			&i.DeletedAt,
+			&i.Status,
+			&i.ObservedVersion,
+			&i.StatusAt,
+			&i.CpuMillis,
+			&i.MemoryBytes,
+			&i.IdleStopMinutes,
+			&i.LastActiveAt,
+			&i.ParentID,
+			&i.PullNumber,
+			&i.RestoreHold,
+			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnreleasedApps = `-- name: ListUnreleasedApps :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps
 WHERE restore_hold = $1 AND restore_release_at IS NULL AND deleted_at IS NULL
 ORDER BY name, id
 `
@@ -752,6 +836,7 @@ func (q *Queries) ListUnreleasedApps(ctx context.Context, restoreHold string) ([
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -888,6 +973,25 @@ type SetAppTokenRevokedParams struct {
 // Neither the spec nor the version changes: this is not an edit.
 func (q *Queries) SetAppTokenRevoked(ctx context.Context, arg SetAppTokenRevokedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setAppTokenRevoked, arg.TokenRevoked, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setAppTrust = `-- name: SetAppTrust :execrows
+UPDATE apps SET trusted_until = $1 WHERE id = $2 AND deleted_at IS NULL
+`
+
+type SetAppTrustParams struct {
+	TrustedUntil dbtime.NullTime
+	ID           string
+}
+
+// Not a spec edit: neither the spec nor the version changes, so the app keeps
+// running. NULL clears it.
+func (q *Queries) SetAppTrust(ctx context.Context, arg SetAppTrustParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAppTrust, arg.TrustedUntil, arg.ID)
 	if err != nil {
 		return 0, err
 	}

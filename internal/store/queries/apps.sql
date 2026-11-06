@@ -124,3 +124,17 @@ ORDER BY name, id;
 -- name: ReleaseApp :execrows
 UPDATE apps SET restore_release_at = $1, paused = $2, version = version + 1
 WHERE id = $3 AND deleted_at IS NULL;
+
+-- Not a spec edit: neither the spec nor the version changes, so the app keeps
+-- running. NULL clears it.
+-- name: SetAppTrust :execrows
+UPDATE apps SET trusted_until = $1 WHERE id = $2 AND deleted_at IS NULL;
+
+-- Apps whose agent acts without asking, or did until a time now past.
+-- name: ListTrustedApps :many
+SELECT * FROM apps WHERE trusted_until IS NOT NULL AND deleted_at IS NULL ORDER BY id;
+
+-- Ends an app's trust only if it is still the one read, so two gateway
+-- replicas sweeping at once record one end.
+-- name: EndAppTrust :execrows
+UPDATE apps SET trusted_until = NULL WHERE id = $1 AND trusted_until = $2;

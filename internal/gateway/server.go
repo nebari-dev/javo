@@ -188,6 +188,9 @@ type Config struct {
 	AIIncludeOwners bool
 	// MCP serves agents at /mcp when enabled.
 	MCP config.MCPCfg
+	// TrustedAgents is agents.allowTrusted: owners may let their coding
+	// agents act without asking, unless a platform admin switched it off.
+	TrustedAgents bool
 	// Storage is the platform config's storage section, defaults applied,
 	// for GET /api/storage and the admin storage report.
 	Storage model.ClusterStorageSpec
@@ -256,11 +259,16 @@ func NewServer(cfg Config) *Server {
 	if cfg.Revalidator == nil {
 		cfg.Revalidator = authn.NewRevalidator(cfg.Providers, cfg.Sessions, cfg.People, cfg.OutageGrace, cfg.Now)
 	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	trust := apps.TrustPolicy{Config: cfg.TrustedAgents, DB: cfg.Store}
 	a := &authn.Authenticator{
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
 		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
-		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store), Agents: apps.AgentTokens(cfg.Store, ctrljobs.PeopleAccess{People: cfg.People, Roles: cfg.Roles}),
+		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store), Agents: apps.AgentTokens(cfg.Store, ctrljobs.PeopleAccess{People: cfg.People, Roles: cfg.Roles}, trust, now),
 	}
 	mux := http.NewServeMux()
 	a.Register(api, mux)
@@ -269,10 +277,6 @@ func NewServer(cfg Config) *Server {
 	}
 	cfg.Branding.Register(api, mux)
 	nss := namespaces.New(cfg.Placement, cfg.Client)
-	now := cfg.Now
-	if now == nil {
-		now = time.Now
-	}
 	var listings *storage.Listings
 	if cfg.Homes != nil {
 		listings = storage.NewListings(cfg.Homes, now)
@@ -296,14 +300,14 @@ func NewServer(cfg Config) *Server {
 		IdleStop: cfg.IdleStop, Diagnose: cfg.Diagnose, Environments: envs,
 		NebiTokens: cfg.NebiTokens, IDToken: a.IDToken,
 		PreviewsEnabled: cfg.PreviewsEnabled, Thumbnails: cfg.Thumbnails, PreviewsMaxPerApp: cfg.PreviewsMaxPerApp,
-		Now: now, URLs: cfg.URLs, CodeHosts: cfg.CodeHosts,
+		Now: now, URLs: cfg.URLs, CodeHosts: cfg.CodeHosts, Trust: trust,
 		Plans: cfg.Plans, AI: cfg.AI, AIFeatures: cfg.AIFeatures, AIIncludeOwners: cfg.AIIncludeOwners,
 		People: cfg.People, Sharing: cfg.Sharing, StaleAfter: cfg.StaleAfter,
 		Streams: logStreams, ThumbnailDecodes: limits.ThumbnailDecodes, Agent: cfg.Agent,
 	})
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
-	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs, AI: cfg.AISettings}).Register(api)
+	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs, AI: cfg.AISettings, Trust: trust}).Register(api)
 	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,

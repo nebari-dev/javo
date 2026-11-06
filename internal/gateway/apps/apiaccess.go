@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -121,11 +122,12 @@ type TemplateAccess interface {
 }
 
 // AgentTokens is authn.Authenticator.Agents: what an app token's app may do
-// as a coding agent, its template's agentDeploy and agentModel, while the
-// app is private and its owner may still use the template. It is read on
-// every request, so turning either off, or taking the template away from
-// the owner, takes effect at once.
-func AgentTokens(db *store.Store, access TemplateAccess) func(context.Context, token.App) (authn.AgentCaps, error) {
+// as a coding agent, its template's agentDeploy and agentModel, and whether
+// its owner trusts it now (trust, at now), while the app is private and its
+// owner may still use the template. It is read on every request, so turning
+// any of them off, the end of trust, or taking the template away from the
+// owner, takes effect at once.
+func AgentTokens(db *store.Store, access TemplateAccess, trust TrustPolicy, now func() time.Time) func(context.Context, token.App) (authn.AgentCaps, error) {
 	return func(ctx context.Context, a token.App) (authn.AgentCaps, error) {
 		app, err := db.Apps().GetByObjectName(ctx, a.Name)
 		switch {
@@ -144,12 +146,18 @@ func AgentTokens(db *store.Store, access TemplateAccess) func(context.Context, t
 			return authn.AgentCaps{}, err
 		}
 		private := model.MaxSharing(&t) == model.AccessPrivate
-		if !private || (!t.Spec.AgentDeploy && !t.Spec.AgentModel) {
+		trusted := trustedNow(&app, &t, now())
+		if !private || (!t.Spec.AgentDeploy && !t.Spec.AgentModel && !trusted) {
 			return authn.AgentCaps{}, nil
 		}
 		if ok, err := access.MayUse(ctx, app.Owner, &t); err != nil || !ok {
 			return authn.AgentCaps{}, err
 		}
-		return authn.AgentCaps{Deploy: t.Spec.AgentDeploy, Model: t.Spec.AgentModel}, nil
+		if trusted {
+			if trusted, err = trust.Allowed(ctx); err != nil {
+				return authn.AgentCaps{}, err
+			}
+		}
+		return authn.AgentCaps{Deploy: t.Spec.AgentDeploy, Model: t.Spec.AgentModel, Trusted: trusted}, nil
 	}
 }

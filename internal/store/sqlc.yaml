@@ -40,6 +40,8 @@ sql:
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
           - column: "apps.restore_release_at"
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "apps.trusted_until"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
           - column: "jobs.deleted_at"
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
           - column: "jobs.status_at"

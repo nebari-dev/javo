@@ -55,6 +55,8 @@ type Platform struct {
 	AI AICfg `json:"ai"`
 	// MCP configures the agent endpoint at /mcp.
 	MCP MCPCfg `json:"mcp"`
+	// Agents configures what coding-agent apps may be allowed to do.
+	Agents AgentsCfg `json:"agents"`
 	// Plans configures proposed changes waiting for approval.
 	Plans PlansCfg `json:"plans"`
 	// Thumbnails lets owners give their apps' cards a picture; off by default.
@@ -292,6 +294,18 @@ type MCPCfg struct {
 	// when uiHost is set.
 	PublicURL string `json:"publicURL"`
 }
+
+// AgentsCfg configures coding-agent apps (templates of category agents).
+type AgentsCfg struct {
+	// AllowTrusted lets an owner, in the browser, let their coding agent act
+	// with their own read-write access without asking, for up to a day at a
+	// time. Default true; false refuses it everywhere and ends it where it is
+	// on. A platform admin may also switch it off in Settings.
+	AllowTrusted *bool `json:"allowTrusted,omitempty"`
+}
+
+// TrustedAllowed is AllowTrusted with its default.
+func (c AgentsCfg) TrustedAllowed() bool { return c.AllowTrusted == nil || *c.AllowTrusted }
 
 // PlansCfg configures proposed changes.
 type PlansCfg struct {

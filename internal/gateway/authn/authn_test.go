@@ -295,3 +295,16 @@ func TestIsPlanDecisionCleansThePath(t *testing.T) {
 		}
 	}
 }
+
+func TestIsTrustChangeCleansThePath(t *testing.T) {
+	for _, p := range []string{"/api/workspaces/pi/trust", "/api/workspaces//pi/trust", "/api/workspaces/x/../pi/trust", "api/workspaces/pi/trust/"} {
+		if !authn.IsTrustChange(p) {
+			t.Errorf("%q is not a trust change", p)
+		}
+	}
+	for _, p := range []string{"/api/workspaces/trust", "/api/workspaces/pi/trusted", "/api/workspaces/pi/trust/x", "/api/jobs/pi/trust"} {
+		if authn.IsTrustChange(p) {
+			t.Errorf("%q is a trust change", p)
+		}
+	}
+}

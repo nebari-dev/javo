@@ -131,8 +131,16 @@ type Authenticator struct {
 
 // AgentCaps is what a coding agent's app token may do besides what every
 // workload token may: Deploy, the AgentDeployWrites; Model, call the
-// gateway's model endpoint.
-type AgentCaps struct{ Deploy, Model bool }
+// gateway's model endpoint; Trusted, act as its owner's read-write token
+// would, without asking (model.App.TrustedUntil), while it has that scope.
+type AgentCaps struct{ Deploy, Model, Trusted bool }
+
+// capsOf is the caps of tok's app as tok holds them: trust never raises a
+// token's scope, so only a read-write token is Trusted.
+func capsOf(caps AgentCaps, tok token.Token) AgentCaps {
+	caps.Trusted = caps.Trusted && tok.Scope == token.ScopeReadWrite
+	return caps
+}
 
 func (a *Authenticator) now() time.Time {
 	if a.Clock != nil {
@@ -177,7 +185,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 					problem.Write(w, http.StatusInternalServerError, reasons.Msg(reasons.MsgServerError))
 					return
 				}
-				ctx = context.WithValue(ctx, agentKey{}, caps)
+				ctx = context.WithValue(ctx, agentKey{}, capsOf(caps, tok))
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userKey{}, p)))
 			return
@@ -250,6 +258,10 @@ func (a *Authenticator) tokenPrincipal(ctx context.Context, w http.ResponseWrite
 	}
 	if IsPlanDecision(r.URL.Path) {
 		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgPlanSessionOnly))
+		return authz.Principal{}, token.Token{}, false
+	}
+	if IsTrustChange(r.URL.Path) {
+		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgTrustSessionOnly))
 		return authz.Principal{}, token.Token{}, false
 	}
 	if !tok.Scope.Allows(r.Method, r.URL.Path) {
@@ -378,11 +390,25 @@ func viaAppToken(ctx context.Context) bool {
 	return app
 }
 
+// Trusted reports whether the request came with the token of a coding agent
+// its owner lets act without asking (AgentCaps.Trusted): it may do what its
+// owner's read-write token may. Token routes, plan decisions and NoTokens
+// routes refuse it like any token.
+func Trusted(ctx context.Context) bool {
+	caps, _ := ctx.Value(agentKey{}).(AgentCaps)
+	return caps.Trusted && viaAppToken(ctx)
+}
+
+// restricted reports whether the request came with an app's or a job's own
+// token that is not Trusted: the workload rules apply to it.
+func restricted(ctx context.Context) bool { return viaAppToken(ctx) && !Trusted(ctx) }
+
 // ViaAgentToken reports whether the request came with the token of a coding
-// agent with deploy rights (Authenticator.Agents).
+// agent with deploy rights (Authenticator.Agents) that is not Trusted, so
+// the agent's own limits apply.
 func ViaAgentToken(ctx context.Context) bool {
 	caps, _ := ctx.Value(agentKey{}).(AgentCaps)
-	return caps.Deploy && viaAppToken(ctx)
+	return caps.Deploy && restricted(ctx)
 }
 
 // ViaAgentModelToken reports whether the request came with the token of a
@@ -664,10 +690,14 @@ type People interface {
 }
 
 // Actor is who a change is made by, for the audit row: the person, and the
-// API token when the request came with one.
+// API token when the request came with one; for a Trusted agent, its app too.
 func Actor(ctx context.Context) model.Actor {
 	id, _ := ctx.Value(apiTokenKey{}).(string)
-	return model.Actor{Person: User(ctx).ID, Token: id}
+	a := model.Actor{Person: User(ctx).ID, Token: id}
+	if tok, ok := APIToken(ctx); ok && tok.App != nil && Trusted(ctx) {
+		a.App = tok.App.Name
+	}
+	return a
 }
 
 const PlansRoute = "/api/plans"
@@ -686,6 +716,20 @@ func IsPlanDecision(p string) bool {
 	return ok && (verb == "approve" || verb == "reject")
 }
 
+// IsTrustChange is true for the route that lets a coding agent act without
+// asking (or makes it ask again), which only a signed-in person in the
+// browser may use: no token, so no agent, can give itself or another agent
+// that. The path is cleaned first, as IsPlanDecision does. OpenAPI path
+// templates ({name}) match too.
+func IsTrustChange(p string) bool {
+	rest, ok := strings.CutPrefix(path.Clean("/"+p), "/api/workspaces/")
+	if !ok {
+		return false
+	}
+	name, verb, ok := strings.Cut(rest, "/")
+	return ok && name != "" && verb == "trust"
+}
+
 // NoTokens refuses a request made with any API token: for the routes only a
 // person in the browser may use, checked again in the handler.
 func NoTokens(ctx context.Context) error {
@@ -699,8 +743,9 @@ func NoTokens(ctx context.Context) error {
 // That token lives in the app, where anyone the app is shared with can make
 // it act, or in the job's runs, whose code sits in the owner's home, so it
 // must not reach its owner's secrets (it could give them to its own app).
+// A Trusted agent's token passes: its owner chose to let it.
 func NoAppTokens(ctx context.Context) error {
-	if viaAppToken(ctx) {
+	if restricted(ctx) {
 		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgSecretsNotForAppTokens))
 	}
 	return nil

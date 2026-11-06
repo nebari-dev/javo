@@ -35,7 +35,7 @@ func (q *Queries) CountPreviewHooks(ctx context.Context, appID string) (int64, e
 }
 
 const getAppChild = `-- name: GetAppChild :one
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE parent_id = $1 AND pull_number = $2
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE parent_id = $1 AND pull_number = $2
 `
 
 type GetAppChildParams struct {
@@ -74,6 +74,7 @@ func (q *Queries) GetAppChild(ctx context.Context, arg GetAppChildParams) (App, 
 		&i.PullNumber,
 		&i.RestoreHold,
 		&i.RestoreReleaseAt,
+		&i.TrustedUntil,
 	)
 	return i, err
 }
@@ -122,7 +123,7 @@ func (q *Queries) GetPreviewSync(ctx context.Context, appID string) (GetPreviewS
 }
 
 const listAppChildren = `-- name: ListAppChildren :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE parent_id = $1 ORDER BY pull_number, id
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE parent_id = $1 ORDER BY pull_number, id
 `
 
 // Rows of the previews of one app, deleted ones included.
@@ -162,6 +163,7 @@ func (q *Queries) ListAppChildren(ctx context.Context, parentID sql.NullString) 
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -177,7 +179,7 @@ func (q *Queries) ListAppChildren(ctx context.Context, parentID sql.NullString) 
 }
 
 const listLiveAppChildren = `-- name: ListLiveAppChildren :many
-SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at FROM apps WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY pull_number, id
+SELECT id, namespace, name, object_name, owner, template, size, paused, access, spec, version, created_at, restart_requested_at, token_revoked, deleted_at, status, observed_version, status_at, cpu_millis, memory_bytes, idle_stop_minutes, last_active_at, parent_id, pull_number, restore_hold, restore_release_at, trusted_until FROM apps WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY pull_number, id
 `
 
 // Previews not yet marked deleted, for the parent's own delete.
@@ -217,6 +219,7 @@ func (q *Queries) ListLiveAppChildren(ctx context.Context, parentID sql.NullStri
 			&i.PullNumber,
 			&i.RestoreHold,
 			&i.RestoreReleaseAt,
+			&i.TrustedUntil,
 		); err != nil {
 			return nil, err
 		}

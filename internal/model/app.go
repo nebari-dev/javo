@@ -273,6 +273,11 @@ type App struct {
 	// TokenRevoked is the id of the app's API token its owner revoked last. The
 	// controller makes the app a new token when the one it holds has this id.
 	TokenRevoked string
+	// TrustedUntil is when the owner's trust in a coding agent ends: until then
+	// its own API token acts with the owner's read-write access, without asking.
+	// Zero: it asks. It is a column of its own, not the spec: setting it
+	// neither raises the version nor restarts the app.
+	TrustedUntil time.Time
 	// ParentID and PullNumber are set on a preview: the app it previews and
 	// the pull request it follows. Empty and 0 on every ordinary app. They are
 	// columns and never change.

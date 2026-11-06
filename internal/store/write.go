@@ -62,6 +62,8 @@ func ActorStrings(a model.Actor) (actor, via string) {
 	switch {
 	case a.System != "":
 		return a.System, "system"
+	case a.App != "":
+		return "app:" + a.App, "trusted"
 	case a.Token != "":
 		return a.Person, "token:" + a.Token
 	}

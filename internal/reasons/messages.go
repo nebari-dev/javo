@@ -288,11 +288,17 @@ const (
 	MsgAISettingsModel        MessageCode = "AISettingsModel"
 	MsgAISettingsKey          MessageCode = "AISettingsKey"
 	MsgAISettingsKeyOrRemove  MessageCode = "AISettingsKeyOrRemove"
-	MsgAISettingsOff          MessageCode = "AISettingsOff"
-	MsgRewriteOwnerOnly       MessageCode = "RewriteOwnerOnly"
-	MsgEnvValueInvalid        MessageCode = "EnvValueInvalid"
-	MsgEnvValueOrSecret       MessageCode = "EnvValueOrSecret"
-	MsgWebhookUnknown         MessageCode = "WebhookUnknown"
+	// Letting a coding agent act without asking (model.App.TrustedUntil).
+	MsgTrustSessionOnly MessageCode = "TrustSessionOnly"
+	MsgTrustOwnerOnly   MessageCode = "TrustOwnerOnly"
+	MsgTrustNotAgent    MessageCode = "TrustNotAgent"
+	MsgTrustHours       MessageCode = "TrustHours"
+	MsgTrustTurnedOff   MessageCode = "TrustTurnedOff"
+	MsgAISettingsOff    MessageCode = "AISettingsOff"
+	MsgRewriteOwnerOnly MessageCode = "RewriteOwnerOnly"
+	MsgEnvValueInvalid  MessageCode = "EnvValueInvalid"
+	MsgEnvValueOrSecret MessageCode = "EnvValueOrSecret"
+	MsgWebhookUnknown   MessageCode = "WebhookUnknown"
 
 	// Environments picked from an environment manager (internal/ext/envsource).
 	MsgEnvironmentsOff        MessageCode = "EnvironmentsOff"
@@ -580,6 +586,11 @@ var messages = map[MessageCode]string{
 	MsgAISettingsModel:        "Name the model in up to 200 characters, such as claude-opus-5-5.",
 	MsgAISettingsKey:          "Paste the key as it is, at most 4096 characters, with no spaces or line breaks.",
 	MsgAISettingsKeyOrRemove:  "Paste a new key or remove the stored one, not both.",
+	MsgTrustSessionOnly:       "Only the owner, signed in in the browser, can let an agent act without asking. No API token can, not even the agent's own.",
+	MsgTrustOwnerOnly:         "Only the app's owner can let its agent act without asking: the agent would act as them.",
+	MsgTrustNotAgent:          "Only a coding agent that can read and change your apps through the API can act without asking.",
+	MsgTrustHours:             "Choose between 1 and 24 hours.",
+	MsgTrustTurnedOff:         "Letting agents act without asking is turned off on this platform. Ask your admin.",
 	MsgAISettingsOff:          "AI is off in the platform config (ai.enabled), so there is nothing to set here.",
 	MsgAgentPromptNotTaken:    "This kind of app takes no first prompt.",
 	MsgAgentNeedsPerson:       "A coding agent cannot do this itself: the app or job holds a secret, an API token or a Nebi token, belongs to someone else, or the change would give it one. Ask the person to do it in the browser, or propose it as a plan (POST /api/plans) for them to approve.",

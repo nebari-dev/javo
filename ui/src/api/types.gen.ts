@@ -114,6 +114,17 @@ export type AgentBuildInputBody = {
     request: string;
 };
 
+export type AgentSettings = {
+    /**
+     * Owners may let their coding agents act without asking; false refuses it and ends it where it is on
+     */
+    allowTrusted: boolean;
+    /**
+     * agents.allowTrusted in the platform config; false: it is off whatever is set here
+     */
+    configAllows: boolean;
+};
+
 export type AgentSettingsInputBody = {
     /**
      * Write-only; leave out to keep the stored key
@@ -127,6 +138,10 @@ export type AgentSettingsInputBody = {
      * The model, such as anthropic/claude-sonnet-5.5
      */
     model: string;
+};
+
+export type AgentSettingsInputBody1 = {
+    allowTrusted: boolean;
 };
 
 export type AgentStatus = {
@@ -1889,6 +1904,28 @@ export type Trim = {
     used: number;
 };
 
+export type TrustInputBody = {
+    /**
+     * How long, 1 to 24 hours; default 8. Ignored when trusted is false.
+     */
+    hours?: number;
+    /**
+     * true: the agent acts with your read-write access without asking until hours from now; false: it asks again
+     */
+    trusted: boolean;
+};
+
+export type TrustView = {
+    /**
+     * The platform lets owners turn it on now
+     */
+    allowed: boolean;
+    /**
+     * The agent acts without asking until then; absent: it asks
+     */
+    until?: string;
+};
+
 export type UsageOutputBody = {
     items: Array<UsageRow> | null;
     since: string;
@@ -1957,6 +1994,7 @@ export type Workspace = {
     stoppedIdleAfter: number;
     template: string;
     thumbnail?: Thumbnail;
+    trust?: TrustView;
     url: string;
 };
 
@@ -2168,12 +2206,83 @@ export type WorkspaceWritable = {
     stoppedIdleAfter: number;
     template: string;
     thumbnail?: Thumbnail;
+    trust?: TrustView;
     url: string;
 };
 
 export type WorkspaceListOutputBodyWritable = {
     items: Array<WorkspaceWritable> | null;
 };
+
+export type AdminGetAgentSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/agents';
+};
+
+export type AdminGetAgentSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type AdminGetAgentSettingsError = AdminGetAgentSettingsErrors[keyof AdminGetAgentSettingsErrors];
+
+export type AdminGetAgentSettingsResponses = {
+    /**
+     * OK
+     */
+    200: AgentSettings;
+};
+
+export type AdminGetAgentSettingsResponse = AdminGetAgentSettingsResponses[keyof AdminGetAgentSettingsResponses];
+
+export type AdminSetAgentSettingsData = {
+    body: AgentSettingsInputBody1;
+    path?: never;
+    query?: never;
+    url: '/api/admin/agents';
+};
+
+export type AdminSetAgentSettingsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type AdminSetAgentSettingsError = AdminSetAgentSettingsErrors[keyof AdminSetAgentSettingsErrors];
+
+export type AdminSetAgentSettingsResponses = {
+    /**
+     * OK
+     */
+    200: AgentSettings;
+};
+
+export type AdminSetAgentSettingsResponse = AdminSetAgentSettingsResponses[keyof AdminSetAgentSettingsResponses];
 
 export type AdminResetAiSettingsData = {
     body?: never;
@@ -6950,3 +7059,55 @@ export type SetWorkspaceThumbnailResponses = {
 };
 
 export type SetWorkspaceThumbnailResponse = SetWorkspaceThumbnailResponses[keyof SetWorkspaceThumbnailResponses];
+
+export type SetWorkspaceTrustData = {
+    body: TrustInputBody;
+    path: {
+        name: string;
+    };
+    query?: {
+        /**
+         * Identity name of the app's owner; default the caller
+         */
+        owner?: string;
+    };
+    url: '/api/workspaces/{name}/trust';
+};
+
+export type SetWorkspaceTrustErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type SetWorkspaceTrustError = SetWorkspaceTrustErrors[keyof SetWorkspaceTrustErrors];
+
+export type SetWorkspaceTrustResponses = {
+    /**
+     * OK
+     */
+    200: Workspace;
+};
+
+export type SetWorkspaceTrustResponse = SetWorkspaceTrustResponses[keyof SetWorkspaceTrustResponses];
