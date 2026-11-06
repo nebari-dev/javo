@@ -38,6 +38,11 @@ async function openSharing() {
   await userEvent.click(await screen.findByRole('tab', { name: 'Sharing' }))
 }
 
+/** Answers the question asked before access opens wider. */
+async function confirmShare() {
+  await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Share' }))
+}
+
 describe('Sharing tab', () => {
   it('is hidden when the viewer cannot share the app', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/workspaces/sales-app': { body: { ...app, canShare: false } } })
@@ -100,6 +105,7 @@ describe('Sharing tab', () => {
       open(view(), { 'PUT /api/workspaces/sales-app/sharing': { body: view({ access: 'SignedIn' }) } })
       await openSharing()
       await userEvent.click(await screen.findByRole('radio', { name: 'Anyone signed in' }))
+      await confirmShare()
       const status = await screen.findByText('Access set to Anyone signed in')
       expect(status.closest('[role="status"]')?.getAttribute('aria-live')).toBe('polite')
     })
@@ -148,6 +154,7 @@ describe('Sharing tab', () => {
     })
     await openSharing()
     await userEvent.click(await screen.findByRole('radio', { name: 'Anyone signed in' }))
+    await confirmShare()
     const group = screen.getByRole('group', { name: 'General access' })
     expect((await within(group).findByRole('alert')).textContent).toBe(MESSAGES.ShareTooOpenSignedIn)
     expect(screen.queryByText(MESSAGES.InvalidRequest)).toBeNull()
@@ -168,6 +175,7 @@ describe('Sharing tab', () => {
     })
     await openSharing()
     await userEvent.click(await screen.findByRole('radio', { name: 'Anyone signed in' }))
+    await confirmShare()
     expect((await screen.findByRole('alert')).textContent).toBe(MESSAGES.ShareTargetUnknown(bob.id))
     expect(screen.queryByText(MESSAGES.InvalidRequest)).toBeNull()
   })
@@ -181,7 +189,39 @@ describe('Sharing tab', () => {
     expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'Anyone with the link' }))
     expect(api.calls.some((c) => c.method === 'PUT')).toBe(false)
     await userEvent.keyboard(' ')
+    await confirmShare()
     await waitFor(() => expect(api.calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ access: 'Public' }))
+  })
+
+  describe('opening access wider', () => {
+    it('asks before letting anyone with the link open the app, and saves nothing until confirmed', async () => {
+      const api = open(view({ access: 'Restricted' }), { 'PUT /api/workspaces/sales-app/sharing': { body: view({ access: 'Public' }) } })
+      await openSharing()
+      await userEvent.click(await screen.findByRole('radio', { name: 'Anyone with the link' }))
+      const ask = await screen.findByRole('alertdialog', { name: 'Let anyone with the link open Sales app?' })
+      expect(within(ask).getByText(/without signing in/)).toBeTruthy()
+      expect(api.calls.some((c) => c.method === 'PUT')).toBe(false)
+      await userEvent.click(within(ask).getByRole('button', { name: 'Share' }))
+      await waitFor(() => expect(api.calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ access: 'Public' }))
+    })
+
+    it('keeps the current level when the question is cancelled', async () => {
+      const api = open(view({ access: 'Restricted' }))
+      await openSharing()
+      await userEvent.click(await screen.findByRole('radio', { name: 'Anyone signed in' }))
+      await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(api.calls.some((c) => c.method === 'PUT')).toBe(false)
+      expect(screen.getByRole('radio', { name: 'Only people added' }).getAttribute('aria-checked')).toBe('true')
+    })
+
+    it('narrows access at once, without asking', async () => {
+      const api = open(view({ access: 'Public' }), { 'PUT /api/workspaces/sales-app/sharing': { body: view({ access: 'SignedIn' }) } })
+      await openSharing()
+      await userEvent.click(await screen.findByRole('radio', { name: 'Anyone signed in' }))
+      await waitFor(() => expect(api.calls.find((c) => c.method === 'PUT')?.body).toMatchObject({ access: 'SignedIn' }))
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
   })
 
   it('says plainly that a private-only app cannot be shared, with no controls', async () => {

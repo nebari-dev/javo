@@ -1,4 +1,4 @@
-import { Check, Users, X } from 'lucide-react'
+import { Check, Globe, Users, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { SharingInputBody, SharingView, Workspace } from '../../api'
 
@@ -8,6 +8,7 @@ import { useSetSharing, useSharing } from '../../lib/queries'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { Confirm } from '../../components/Confirm'
 import { CopyLink } from '../../components/CopyLink'
 import { PeoplePicker, type Picked } from './PeoplePicker'
 import { PartIcon } from '../../components/Section'
@@ -19,12 +20,18 @@ const rank = (a: Access) => RANK.indexOf(a)
 /** The three choices of General access. Private is "chosen people" with nobody chosen. */
 type General = 'Restricted' | 'SignedIn' | 'Public'
 
+/** What opening access up to each wider level means, asked before it is saved. */
+const WIDER: Partial<Record<General, string>> = {
+  SignedIn: 'Everyone who can sign in here can open it, not only the people added.',
+  Public: 'Anyone the link reaches can open it without signing in, inside or outside your organisation.',
+}
+
 /** Chosen people with nobody chosen is Private; the API treats that as the same level. */
 function restricted(users: string[], groups: string[]): Access {
   return users.length + groups.length > 0 ? 'Restricted' : 'Private'
 }
 
-function SharingForm({ name, view }: { name: string; view: SharingView }) {
+function SharingForm({ name, displayName, view }: { name: string; displayName: string; view: SharingView }) {
   const save = useSetSharing(name)
   const users = view.users ?? []
   const groups = view.groups ?? []
@@ -65,10 +72,14 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
     const next = groupValues.filter((g) => g !== value)
     send({ users: userIds, groups: next, access: view.access === 'Restricted' ? restricted(userIds, next) : view.access })
   }
-  const setGeneral = (g: General) =>
+  const levelLabel = (g: General) => view.levels?.find((l) => l.value === g)?.label ?? g
+  // Opening access wider is asked first; narrowing it saves at once.
+  const [asking, setAsking] = useState<General | null>(null)
+  const setGeneral = (g: General) => (WIDER[g] && rank(g) > rank(view.access) ? setAsking(g) : applyGeneral(g))
+  const applyGeneral = (g: General) =>
     send(
       { users: userIds, groups: groupValues, access: g === 'Restricted' ? restricted(userIds, groupValues) : g },
-      { message: `Access set to ${view.levels?.find((l) => l.value === g)?.label ?? g}` },
+      { message: `Access set to ${levelLabel(g)}` },
     )
   const tick = (key: string) =>
     justAdded === key && <Check className="just-added" size={16} role="img" aria-label="Just added" />
@@ -156,6 +167,20 @@ function SharingForm({ name, view }: { name: string; view: SharingView }) {
           {accessErr && <Banner tone="err" title={accessErr} />}
         </div>
         <CopyLink link={view.link} />
+        {asking && (
+          <Confirm
+            title={`Let ${levelLabel(asking).toLowerCase()} open ${displayName}?`}
+            body={WIDER[asking] ?? ''}
+            confirm="Share"
+            icon={asking === 'Public' ? Globe : Users}
+            busy={busy}
+            onConfirm={() => {
+              setAsking(null)
+              applyGeneral(asking)
+            }}
+            onCancel={() => setAsking(null)}
+          />
+        )}
       </Card>
     </div>
   )
@@ -177,10 +202,10 @@ function PrivateOnly() {
   )
 }
 
-export function SharingPanel({ ws }: { ws: Pick<Workspace, 'name'> }) {
+export function SharingPanel({ ws }: { ws: Pick<Workspace, 'name' | 'displayName'> }) {
   const q = useSharing(ws.name)
   if (q.isError) return <Banner tone="err" title={problemText(q.error)} />
   if (!q.data) return <div className="muted">Loading</div>
   if (q.data.maxAccess === 'Private') return <PrivateOnly />
-  return <SharingForm name={ws.name} view={q.data} />
+  return <SharingForm name={ws.name} displayName={ws.displayName} view={q.data} />
 }
