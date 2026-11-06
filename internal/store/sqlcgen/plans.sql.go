@@ -104,6 +104,51 @@ func (q *Queries) InsertPlan(ctx context.Context, arg InsertPlanParams) error {
 	return err
 }
 
+const listPendingPlans = `-- name: ListPendingPlans :many
+SELECT id, owner, source, state, body, error, created_at, expires_at, decided_at FROM plans WHERE owner = $1 AND state = $2 AND expires_at > $3
+ORDER BY created_at, id
+`
+
+type ListPendingPlansParams struct {
+	Owner     string
+	State     string
+	ExpiresAt dbtime.Time
+}
+
+// A person's plans still waiting for a decision, oldest first.
+func (q *Queries) ListPendingPlans(ctx context.Context, arg ListPendingPlansParams) ([]Plan, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingPlans, arg.Owner, arg.State, arg.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Plan
+	for rows.Next() {
+		var i Plan
+		if err := rows.Scan(
+			&i.ID,
+			&i.Owner,
+			&i.Source,
+			&i.State,
+			&i.Body,
+			&i.Error,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const releaseAIUsage = `-- name: ReleaseAIUsage :exec
 UPDATE ai_usage SET tokens = CASE WHEN tokens > $1 THEN tokens - $1 ELSE 0 END
 WHERE person = $2 AND day = $3

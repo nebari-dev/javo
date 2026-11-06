@@ -137,3 +137,28 @@ func TestAIUsageHoldsTheLimitAcrossCallers(t *testing.T) {
 		t.Fatalf("one call over the limit: %v", err)
 	}
 }
+
+func TestPendingListsOnlyTheOwnersUndecidedLivePlans(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	for _, p := range []store.Plan{
+		plan("live", "alice-a", t0.Add(time.Hour)),
+		plan("decided", "alice-a", t0.Add(time.Hour)),
+		plan("expired", "alice-a", t0.Add(time.Minute)),
+		plan("bobs", "bob-b", t0.Add(time.Hour)),
+	} {
+		if err := s.Plans().Create(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Plans().Transition(ctx, alice, "decided", store.PlanPending, store.PlanRejected, "", store.PlanAudit{}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Plans().Pending(ctx, "alice-a", t0.Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "live" || string(got[0].Body) == "" {
+		t.Fatalf("pending %+v", got)
+	}
+}

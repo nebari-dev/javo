@@ -69,10 +69,28 @@ func (p *Plans) Get(ctx context.Context, id string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	return planOf(r), nil
+}
+
+func planOf(r sqlcgen.Plan) Plan {
 	return Plan{
 		ID: r.ID, Owner: r.Owner, Source: r.Source, State: r.State, Body: json.RawMessage(r.Body), Error: r.Error,
 		CreatedAt: r.CreatedAt.Time(), ExpiresAt: r.ExpiresAt.Time(), DecidedAt: timeOf(r.DecidedAt),
-	}, nil
+	}
+}
+
+// Pending returns owner's plans still waiting for a decision and not
+// expired at now, oldest first.
+func (p *Plans) Pending(ctx context.Context, owner string, now time.Time) ([]Plan, error) {
+	rows, err := p.s.q.ListPendingPlans(ctx, sqlcgen.ListPendingPlansParams{Owner: owner, State: PlanPending, ExpiresAt: dbtime.From(now)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Plan, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, planOf(r))
+	}
+	return out, nil
 }
 
 // Transition moves plan id from state from to state to, once: when another

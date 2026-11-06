@@ -932,7 +932,7 @@ func New(c Config) *Workspaces {
 		previews: c.PreviewsEnabled, thumbnails: c.Thumbnails, decodes: ratelimit.NewConcurrent(c.ThumbnailDecodes), previewsCap: min(cmp.Or(c.PreviewsMaxPerApp, model.MaxPreviewMax), model.MaxPreviewMax), now: c.Now, urls: c.URLs, hosts: c.CodeHosts,
 		cfg: c,
 	}
-	ws.actions = actions.NewCatalog(ws.appActions()...)
+	ws.actions = actions.NewCatalog(append(ws.appActions(), ws.secretActions()...)...)
 	return ws
 }
 

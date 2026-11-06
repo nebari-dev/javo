@@ -32,3 +32,8 @@ ON CONFLICT (person, day) DO UPDATE SET tokens = ai_usage.tokens + excluded.toke
 
 -- name: GetAIUsage :one
 SELECT tokens FROM ai_usage WHERE person = $1 AND day = $2;
+
+-- A person's plans still waiting for a decision, oldest first.
+-- name: ListPendingPlans :many
+SELECT * FROM plans WHERE owner = $1 AND state = $2 AND expires_at > $3
+ORDER BY created_at, id;

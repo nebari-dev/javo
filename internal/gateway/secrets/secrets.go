@@ -29,6 +29,16 @@ import (
 // carries it. The gateway holds no key that opens a value.
 const secretsRoute = "/api/secrets"
 
+// secretNamesRoute lists the names and notes alone, for a coding agent's
+// token as well.
+const secretNamesRoute = "/api/secret-names"
+
+// SecretName is a secret as a coding agent sees it: what to ask for.
+type SecretName struct {
+	Name string `json:"name"`
+	Note string `json:"note"`
+}
+
 // secretBodyBytes bounds a secrets request: the largest value, escaped.
 const secretBodyBytes = 8*model.MaxSecretValue + 4096
 
@@ -232,6 +242,28 @@ func (a *API) Register(api huma.API) {
 		for _, info := range list {
 			if authz.Decide(u, a.rolesOf(u), authz.ActManageSecret, authz.Object{Secret: &info.Secret}).Allowed {
 				out.Body = append(out.Body, secretViewOf(info))
+			}
+		}
+		return out, nil
+	})
+
+	huma.Register(api, tagged(huma.Operation{
+		OperationID: "listSecretNames", Method: http.MethodGet, Path: secretNamesRoute,
+		Summary: "Your secrets' names and notes only, so a coding agent can propose giving one to an app (attach-secret); never the values",
+	}), func(ctx context.Context, _ *struct{}) (*struct{ Body []SecretName }, error) {
+		if err := authn.NoAppTokensExceptAgents(ctx); err != nil {
+			return nil, err
+		}
+		u := authn.User(ctx)
+		list, err := a.DB.Secrets().List(ctx, u.ID)
+		if err != nil {
+			return nil, problem.Internal("list secrets", err)
+		}
+		out := &struct{ Body []SecretName }{Body: make([]SecretName, 0, len(list))}
+		for _, info := range list {
+			// The agent key is never a variable anyone binds (envvars.UsableSecret).
+			if info.Name != model.AgentKeySecret && authz.Decide(u, a.rolesOf(u), authz.ActManageSecret, authz.Object{Secret: &info.Secret}).Allowed {
+				out.Body = append(out.Body, SecretName{Name: info.Name, Note: info.Note})
 			}
 		}
 		return out, nil

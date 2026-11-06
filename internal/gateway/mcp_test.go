@@ -148,7 +148,7 @@ func TestMutatingToolNeverApplies(t *testing.T) {
 	var plan struct {
 		PlanID, State, ApproveURL string
 	}
-	if err := json.Unmarshal([]byte(text), &plan); err != nil || res.IsError || plan.State != "awaiting_approval" || !strings.HasSuffix(plan.ApproveURL, "/plans/"+plan.PlanID) {
+	if err := json.Unmarshal([]byte(text), &plan); err != nil || res.IsError || plan.State != "awaiting_approval" || !strings.HasSuffix(plan.ApproveURL, "/approvals/"+plan.PlanID) {
 		t.Fatalf("stop_workspace: %s", text)
 	}
 	if f.GetWorkspace(apitest.LocalAlice(), "sales").Paused {

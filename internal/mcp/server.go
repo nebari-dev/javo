@@ -321,7 +321,7 @@ func proposeTool(cfg Config, a actions.Info) tool {
 		_ = json.Unmarshal([]byte(res.Content[0].(*sdk.TextContent).Text), &plan)
 		out := map[string]any{
 			"planId": plan.ID, "state": "awaiting_approval", "summary": plan.Planned.Summary, "changes": plan.Planned.Changes,
-			"approveUrl": strings.TrimRight(cfg.PublicURL, "/") + "/plans/" + url.PathEscape(plan.ID),
+			"approveUrl": strings.TrimRight(cfg.PublicURL, "/") + "/approvals/" + url.PathEscape(plan.ID),
 		}
 		b, _ := json.Marshal(out)
 		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: string(b)}}, StructuredContent: out}, nil

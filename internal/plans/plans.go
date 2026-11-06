@@ -66,6 +66,11 @@ type Plan struct {
 	Message   string    `json:"message,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	// ApproveURL is the page the owner approves the plan at, given when it
+	// is proposed so an agent can print it.
+	ApproveURL string `json:"approveURL,omitempty" doc:"The page where the owner approves or turns down this change"`
+	// row is the stored id (the hash of the handle).
+	row string
 }
 
 // Requester is the credential a plan was proposed with: an API token
@@ -127,8 +132,10 @@ func (s *Service) Create(ctx context.Context, owner, source string, by Requester
 
 // Get returns owner's plan id. Another person's plan is ErrNotFound, the
 // same as a missing one. A pending plan past its expiry reads as Expired.
+// id is the handle given at Create or the one Pending lists (the stored
+// hash); either works only for the plan's owner.
 func (s *Service) Get(ctx context.Context, owner, id string) (Plan, error) {
-	r, err := s.DB.Plans().Get(ctx, key(id))
+	r, err := s.row(ctx, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return Plan{}, ErrNotFound
@@ -137,15 +144,56 @@ func (s *Service) Get(ctx context.Context, owner, id string) (Plan, error) {
 	case r.Owner != owner:
 		return Plan{}, ErrNotFound
 	}
-	out := Plan{ID: id, Owner: r.Owner, Source: r.Source, State: r.State, Error: r.Error, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt}
+	out, err := planOf(id, r)
+	if err != nil {
+		return Plan{}, err
+	}
+	if out.State == Pending && !s.now().Before(out.ExpiresAt) {
+		out.State = Expired
+	}
+	return out, nil
+}
+
+// row is the stored plan that id names: by the hash of the handle given at
+// Create, else by the stored id itself (a handle Pending listed).
+func (s *Service) row(ctx context.Context, id string) (store.Plan, error) {
+	r, err := s.DB.Plans().Get(ctx, key(id))
+	if errors.Is(err, store.ErrNotFound) && isKey(id) {
+		return s.DB.Plans().Get(ctx, id)
+	}
+	return r, err
+}
+
+func isKey(id string) bool {
+	b, err := hex.DecodeString(id)
+	return err == nil && len(b) == sha256.Size
+}
+
+// Pending lists owner's plans waiting for a decision, oldest first. Each
+// one's ID is its stored id, a handle that works for its owner only.
+func (s *Service) Pending(ctx context.Context, owner string) ([]Plan, error) {
+	rows, err := s.DB.Plans().Pending(ctx, owner, s.now())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Plan, 0, len(rows))
+	for _, r := range rows {
+		p, err := planOf(r.ID, r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func planOf(id string, r store.Plan) (Plan, error) {
+	out := Plan{ID: id, Owner: r.Owner, Source: r.Source, State: r.State, Error: r.Error, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, row: r.ID}
 	var b body
 	if err := json.Unmarshal(r.Body, &b); err != nil {
 		return Plan{}, err
 	}
 	out.Planned, out.RequestedBy = b.Planned, b.RequestedBy
-	if out.State == Pending && !s.now().Before(out.ExpiresAt) {
-		out.State = Expired
-	}
 	return out, nil
 }
 
@@ -168,7 +216,7 @@ func (s *Service) Approve(ctx context.Context, actor model.Actor, owner, id stri
 	default:
 		return p, ErrDone
 	}
-	if _, err := s.DB.Plans().Transition(ctx, actor, key(id), Pending, Applying, "", Audit{}); errors.Is(err, store.ErrConflict) {
+	if _, err := s.DB.Plans().Transition(ctx, actor, p.row, Pending, Applying, "", Audit{}); errors.Is(err, store.ErrConflict) {
 		p, _ = s.Get(ctx, owner, id)
 		return p, ErrDone
 	} else if err != nil {
@@ -176,12 +224,12 @@ func (s *Service) Approve(ctx context.Context, actor model.Actor, owner, id stri
 	}
 	a.Detail = withSummary(a.Detail, p.Planned.Summary)
 	if applyErr := apply(ctx, p.Planned.Proposal); applyErr != nil {
-		if _, err := s.DB.Plans().Transition(ctx, actor, key(id), Applying, Failed, applyErr.Error(), a); err != nil {
+		if _, err := s.DB.Plans().Transition(ctx, actor, p.row, Applying, Failed, applyErr.Error(), a); err != nil {
 			slog.Error("record failed plan", "err", err)
 		}
 		return s.after(ctx, owner, id), applyErr
 	}
-	if _, err := s.DB.Plans().Transition(ctx, actor, key(id), Applying, Applied, "", a); err != nil {
+	if _, err := s.DB.Plans().Transition(ctx, actor, p.row, Applying, Applied, "", a); err != nil {
 		return Plan{}, err
 	}
 	return s.after(ctx, owner, id), nil
@@ -197,7 +245,7 @@ func (s *Service) Reject(ctx context.Context, actor model.Actor, owner, id strin
 		return p, ErrDone
 	}
 	a.Detail = withSummary(a.Detail, p.Planned.Summary)
-	if _, err := s.DB.Plans().Transition(ctx, actor, key(id), Pending, Rejected, "", a); errors.Is(err, store.ErrConflict) {
+	if _, err := s.DB.Plans().Transition(ctx, actor, p.row, Pending, Rejected, "", a); errors.Is(err, store.ErrConflict) {
 		p, _ = s.Get(ctx, owner, id)
 		return p, ErrDone
 	} else if err != nil {

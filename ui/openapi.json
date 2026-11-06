@@ -3041,6 +3041,10 @@
       "Plan": {
         "additionalProperties": false,
         "properties": {
+          "approveURL": {
+            "description": "The page where the owner approves or turns down this change",
+            "type": "string"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -3942,6 +3946,22 @@
         "required": [
           "name",
           "displayName"
+        ],
+        "type": "object"
+      },
+      "SecretName": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "note"
         ],
         "type": "object"
       },
@@ -9757,6 +9777,61 @@
       }
     },
     "/api/plans": {
+      "get": {
+        "operationId": "listPlans",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Plan"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Your proposed changes waiting for your decision, oldest first; not for an app's or job's own token",
+        "tags": [
+          "plans"
+        ]
+      },
       "post": {
         "operationId": "createPlan",
         "requestBody": {
@@ -10429,6 +10504,63 @@
         "summary": "Upcoming run times of a schedule, as the cluster will run them",
         "tags": [
           "jobs"
+        ]
+      }
+    },
+    "/api/secret-names": {
+      "get": {
+        "operationId": "listSecretNames",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SecretName"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Your secrets' names and notes only, so a coding agent can propose giving one to an app (attach-secret); never the values",
+        "tags": [
+          "secrets"
         ]
       }
     },

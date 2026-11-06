@@ -1103,6 +1103,10 @@ export type PlacementView = {
 };
 
 export type Plan = {
+    /**
+     * The page where the owner approves or turns down this change
+     */
+    approveURL?: string;
     createdAt: string;
     error?: string;
     expiresAt: string;
@@ -1453,6 +1457,11 @@ export type SecretCreateInputBody = {
 export type SecretJobView = {
     displayName: string;
     name: string;
+};
+
+export type SecretName = {
+    name: string;
+    note: string;
 };
 
 export type SecretUpdateInputBody = {
@@ -4460,6 +4469,39 @@ export type MeResponses = {
 
 export type MeResponse = MeResponses[keyof MeResponses];
 
+export type ListPlansData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/plans';
+};
+
+export type ListPlansErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type ListPlansError = ListPlansErrors[keyof ListPlansErrors];
+
+export type ListPlansResponses = {
+    /**
+     * OK
+     */
+    200: Array<Plan> | null;
+};
+
+export type ListPlansResponse = ListPlansResponses[keyof ListPlansResponses];
+
 export type CreatePlanData = {
     body: PlanCreateInputBody;
     path?: never;
@@ -4814,6 +4856,39 @@ export type PreviewScheduleResponses = {
 };
 
 export type PreviewScheduleResponse = PreviewScheduleResponses[keyof PreviewScheduleResponses];
+
+export type ListSecretNamesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/secret-names';
+};
+
+export type ListSecretNamesErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type ListSecretNamesError = ListSecretNamesErrors[keyof ListSecretNamesErrors];
+
+export type ListSecretNamesResponses = {
+    /**
+     * OK
+     */
+    200: Array<SecretName> | null;
+};
+
+export type ListSecretNamesResponse = ListSecretNamesResponses[keyof ListSecretNamesResponses];
 
 export type ListSecretsData = {
     body?: never;

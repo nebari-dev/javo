@@ -11,6 +11,11 @@ const (
 	Delete  = "delete"
 	// Resize runs the app at another named size (param "size").
 	Resize = "resize"
+	// AttachSecret gives the app one of its owner's secrets as a variable
+	// (params "secret" and "env", env defaulting to the secret's name).
+	AttachSecret = "attach-secret"
+	// DetachSecret takes the secret the app gets as variable "env" off it.
+	DetachSecret = "detach-secret"
 )
 
 // Proposal names one catalog action, the object it targets (an app's short

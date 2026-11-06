@@ -184,6 +184,14 @@ const (
 	MsgPlanStateReject  MessageCode = "PlanStateRejected"
 	MsgPlanStateFailed  MessageCode = "PlanStateFailed"
 	MsgPlanSessionOnly  MessageCode = "PlanSessionOnly"
+	// Giving an app a secret, or taking it off, by plan.
+	MsgActionAttachSecret     MessageCode = "ActionAttachSecret"     // args: app display name, secret name, variable name
+	MsgActionAttachSecretInfo MessageCode = "ActionAttachSecretInfo" // what the action does, for an agent
+	MsgActionDetachSecret     MessageCode = "ActionDetachSecret"     // args: secret name, variable name, app display name
+	MsgActionDetachSecretInfo MessageCode = "ActionDetachSecretInfo" // what the action does, for an agent
+	MsgAgentOwnAppSecret      MessageCode = "AgentOwnAppSecret"
+	MsgEnvNoSecret            MessageCode = "EnvNoSecret" // args: app display name, variable name
+	MsgPlansListPersonOnly    MessageCode = "PlansListPersonOnly"
 
 	// AI features: their states, shown in place of an answer.
 	MsgAIOff            MessageCode = "AIOff"
@@ -475,6 +483,14 @@ var messages = map[MessageCode]string{
 	MsgPlanStateReject:  "turned down",
 	MsgPlanStateFailed:  "tried and failed",
 	MsgPlanSessionOnly:  "Changes can only be approved in the browser, signed in. API tokens and agents cannot approve them.",
+
+	MsgActionAttachSecret:     "Give %s your secret %s as %s (it restarts)",
+	MsgActionAttachSecretInfo: "Give one of your apps one of your secrets as an environment variable, by the secret's name; nobody sees the value",
+	MsgActionDetachSecret:     "Stop giving your secret %s as %s to %s (it restarts)",
+	MsgActionDetachSecretInfo: "Take one of your secrets off one of your apps, by the variable name the app gets it as",
+	MsgAgentOwnAppSecret:      "A coding agent cannot ask for a secret for its own app: it would see the value. Ask for it for the app it deploys.",
+	MsgEnvNoSecret:            "%s gets no secret as %s.",
+	MsgPlansListPersonOnly:    "An app's or job's own token cannot list the changes waiting for approval. Print the approve link the proposal returned.",
 
 	MsgAIOff:               "AI features are off on this installation.",
 	MsgAISelfTestFailed:    "The model did not pass its check. A platform admin can see why.",

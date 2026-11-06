@@ -49,19 +49,47 @@ func (s *Workspaces) registerEnv(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
-		u := authn.User(ctx)
-		roles := s.rolesOf(u)
-		if err := envvars.MayChange(ctx, u, roles, authz.Object{App: app}, app.Owner); err != nil {
-			return nil, err
-		}
-		plain, bindings, err := envvars.Check(ctx, s.db, u, roles, authz.Object{App: app}, in.Body.Env)
+		saved, err := s.setEnv(ctx, app, in.Body.Env)
 		if err != nil {
 			return nil, err
 		}
-		saved, err := s.db.Apps().SetEnv(ctx, authn.Actor(ctx), app.ID, app.Version, plain, bindings)
-		if err != nil {
-			return nil, envvars.SaveError(err, errNotFound, func() error { return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgAppChanged)) })
-		}
-		return s.output(ctx, &saved)
+		return s.output(ctx, saved)
 	})
+}
+
+// setEnv replaces app's variables with env, as its owner: the one way an
+// app's variables and secrets change, for the route and for an approved
+// plan (attach-secret, detach-secret).
+func (s *Workspaces) setEnv(ctx context.Context, app *model.App, env []envvars.EnvVar) (*model.App, error) {
+	u := authn.User(ctx)
+	roles := s.rolesOf(u)
+	if err := envvars.MayChange(ctx, u, roles, authz.Object{App: app}, app.Owner); err != nil {
+		return nil, err
+	}
+	plain, bindings, err := envvars.Check(ctx, s.db, u, roles, authz.Object{App: app}, env)
+	if err != nil {
+		return nil, err
+	}
+	saved, err := s.db.Apps().SetEnv(ctx, authn.Actor(ctx), app.ID, app.Version, plain, bindings)
+	if err != nil {
+		return nil, envvars.SaveError(err, errNotFound, func() error { return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgAppChanged)) })
+	}
+	return &saved, nil
+}
+
+// storedEnv is app's variables as stored, plain values and secrets by name,
+// in the form setEnv takes.
+func (s *Workspaces) storedEnv(ctx context.Context, app *model.App) ([]envvars.EnvVar, error) {
+	bound, err := s.db.Secrets().Bindings(ctx, app.ID)
+	if err != nil {
+		return nil, problem.Internal("read secret bindings", err)
+	}
+	out := make([]envvars.EnvVar, 0, len(app.Env)+len(bound))
+	for _, e := range app.Env {
+		out = append(out, envvars.EnvVar{Name: e.Name, Value: e.Value})
+	}
+	for _, b := range bound {
+		out = append(out, envvars.EnvVar{Name: b.Env, Secret: b.Secret})
+	}
+	return out, nil
 }

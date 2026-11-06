@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -44,7 +45,24 @@ func (a *plansAPI) register(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
+		p.ApproveURL = a.approveURL(p.ID)
 		return &planOutput{Body: p}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "listPlans", Method: http.MethodGet, Path: authn.PlansRoute,
+		Summary: "Your proposed changes waiting for your decision, oldest first; not for an app's or job's own token", Tags: tag,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden},
+	}, func(ctx context.Context, _ *struct{}) (*struct{ Body []plans.Plan }, error) {
+		// An agent proposes and prints its own link; the list is the person's.
+		if authn.NoAppTokens(ctx) != nil {
+			return nil, problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgPlansListPersonOnly))
+		}
+		list, err := a.plans.Pending(ctx, authn.User(ctx).ID)
+		if err != nil {
+			return nil, problem.Internal("list plans", err)
+		}
+		return &struct{ Body []plans.Plan }{Body: list}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -133,6 +151,16 @@ func (a *plansAPI) propose(ctx context.Context, source string, p actions.Proposa
 		return plans.Plan{}, problem.Internal("store plan", err)
 	}
 	return out, nil
+}
+
+// approveURL is the page where the owner decides plan id: absolute when the
+// platform knows its UI host, else the path alone.
+func (a *plansAPI) approveURL(id string) string {
+	u := url.URL{Path: "/approvals/" + id}
+	if h := a.ws.urls.UIHost; h != "" {
+		u.Scheme, u.Host = a.ws.urls.URLScheme(), h
+	}
+	return u.String()
 }
 
 // audit names the app a plan acts on, when it still exists.
