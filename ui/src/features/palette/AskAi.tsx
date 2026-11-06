@@ -174,11 +174,12 @@ const ask = (id: string, label: string, icon: ReactNode, panel: ReactNode): Pale
 
 /**
  * The palette's AI rows for a query: "Ask AI" for changes to the person's
- * apps, and for platform admins "Ask about this cluster". Undefined when AI
- * (or that feature) is off. The last query is kept so an opened row keeps
- * its text after the field clears.
+ * apps, and for platform admins "Ask about this cluster". The section is
+ * undefined when AI (or that feature) is off, and on says whether any row
+ * can come. The last query is kept so an opened row keeps its text after the
+ * field clears.
  */
-export function useAskSection(): (query: string) => PaletteSection | undefined {
+export function useAskSection(): { section: (query: string) => PaletteSection | undefined; on: boolean } {
   const palette = useAiFeature('palette')
   const adminOn = useAiFeature('admin')
   const roles = useMe().data?.roles ?? []
@@ -186,10 +187,11 @@ export function useAskSection(): (query: string) => PaletteSection | undefined {
   const agent = useAgentStatus().data
   const builds = !!agent?.available && agent.mode !== 'login'
   const last = useRef('')
-  return (query: string) => {
+  const on = palette || admin || builds
+  const section = (query: string) => {
     if (query) last.current = query
     const text = query || last.current
-    if (!text || (!palette && !admin && !builds)) return undefined
+    if (!text || !on) return undefined
     const items: PaletteItem[] = []
     if (builds) {
       const name = agent.template
@@ -199,4 +201,5 @@ export function useAskSection(): (query: string) => PaletteSection | undefined {
     if (admin) items.push(ask('ai:admin', `Ask about this cluster: ${text}`, <Server size={16} />, <AdminPanel text={text} />))
     return { heading: 'Ask AI', items }
   }
+  return { section, on }
 }

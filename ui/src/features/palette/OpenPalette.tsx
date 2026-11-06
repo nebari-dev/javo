@@ -44,5 +44,5 @@ export default function OpenPalette({ onClose, fallbackFocus }: { onClose: () =>
     setRecent(next)
     if (user) writeStored(recentKey(user), JSON.stringify(next))
   }
-  return <Palette onClose={onClose} fallbackFocus={fallbackFocus} sections={sections} idle={idle} onUse={use} asking={asking} />
+  return <Palette onClose={onClose} fallbackFocus={fallbackFocus} sections={sections} idle={idle} onUse={use} asking={asking.section} describes={asking.on} />
 }

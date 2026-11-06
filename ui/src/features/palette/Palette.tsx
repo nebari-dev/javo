@@ -172,6 +172,8 @@ export function Palette(props: {
    * query, so an open item of it keeps its text.
    */
   asking?: (query: string) => PaletteSection | undefined
+  /** The search box also takes a request in plain words (asking can answer one). */
+  describes?: boolean
 }) {
   const [search, setSearch] = useState('')
   const [value, setValue] = useState('')
@@ -250,7 +252,7 @@ export function Palette(props: {
                   ref={input}
                   value={search}
                   onValueChange={setSearch}
-                  placeholder={page ? 'Filter actions' : 'Search apps, jobs, actions'}
+                  placeholder={page ? 'Filter actions' : props.describes ? 'Search, or describe what you want' : 'Search apps, jobs, actions'}
                   onKeyDown={(e) => {
                     const atEnd = e.currentTarget.selectionStart === e.currentTarget.value.length
                     if (!page && current?.actions && (e.key === 'Tab' || (e.key === 'ArrowRight' && atEnd))) {

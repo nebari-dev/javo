@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
@@ -87,6 +87,15 @@ describe('Ask AI in the palette', () => {
     const options = await within(dialog).findAllByRole('option')
     expect(options[0].textContent).toContain('Sales app')
     expect(within(dialog).queryByText(/Ask AI/)).toBeNull()
+    expect(within(dialog).getByRole('combobox').getAttribute('placeholder')).toBe('Search apps, jobs, actions')
+  })
+
+  it('invites a plain-words request in the search box when AI is on', async () => {
+    api()
+    renderApp('/apps')
+    await userEvent.keyboard('{Meta>}k{/Meta}')
+    const dialog = await screen.findByRole('dialog', { name: 'Search and commands' })
+    await waitFor(() => expect(within(dialog).getByRole('combobox').getAttribute('placeholder')).toBe('Search, or describe what you want'))
   })
 
   it('offers Ask about this cluster to admins only, with the report and the answer', async () => {
