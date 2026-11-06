@@ -56,11 +56,79 @@ describe('Ask AI in the palette', () => {
     expect(calls.count('POST', '/api/plans/p1/approve')).toBe(1)
   })
 
-  it('answers a request for a new app with a draft that opens New app filled in, creating nothing', async () => {
+  it('answers a request for a new app with the app it will create, and Create app creates it and opens its page', async () => {
     const draft = {
       draft: { displayName: 'Sales dashboard', template: 'streamlit', file: 'sales/app.py' },
       setBy: ['displayName', 'template', 'file'],
       errors: [],
+    }
+    const created = ws('sales-dashboard', 'Sales dashboard', 'Pending', allReady())
+    const calls = api({
+      'GET /api/sizes': { body: { items: sizes } },
+      'POST /api/ai/command': { body: { reply: 'Here is a Streamlit app to review.', plans: [], draft, dropped: { refs: 0, actions: 0 } } },
+      'POST /api/workspaces': { status: 201, body: created },
+      'GET /api/workspaces/sales-dashboard': { body: created },
+    })
+    renderApp('/apps')
+    const dialog = await search('create a streamlit dashboard')
+    await within(dialog).findAllByRole('option')
+    await userEvent.keyboard('{Enter}')
+    const card = await within(dialog).findByRole('group', { name: 'Sales dashboard' })
+    expect(card.textContent).toContain('Streamlit · runs sales/app.py · Small')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create app' }))
+    await waitFor(() => expect(calls.calls.find((c) => c.method === 'POST' && c.path === '/api/workspaces')?.body).toEqual({ displayName: 'Sales dashboard', template: 'streamlit', file: 'sales/app.py' }))
+    await waitFor(() => expect(location()).toBe('/apps/sales-dashboard'))
+    expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
+  })
+
+  it('shows a drafted app under the title Ask AI, with the request and without a second summary', async () => {
+    const draft = {
+      draft: { displayName: 'Sales dashboard', template: 'streamlit', file: 'sales/app.py' },
+      setBy: ['displayName', 'template', 'file'],
+      errors: [],
+    }
+    api({
+      'GET /api/sizes': { body: { items: sizes } },
+      'POST /api/ai/command': { body: { reply: 'Here is a Streamlit app to review.', plans: [], draft, dropped: { refs: 0, actions: 0 } } },
+    })
+    renderApp('/apps')
+    const dialog = await search('create a streamlit dashboard')
+    await within(dialog).findAllByRole('option')
+    await userEvent.keyboard('{Enter}')
+    await within(dialog).findByRole('group', { name: 'Sales dashboard' })
+    expect(within(dialog).getByRole('heading', { name: 'Ask AI' })).toBeTruthy()
+    expect(within(dialog).queryByRole('combobox')).toBeNull()
+    expect(within(dialog).getByText('create a streamlit dashboard')).toBeTruthy()
+    expect(within(dialog).queryByText('Here is a Streamlit app to review.')).toBeNull()
+    expect(within(dialog).queryByText(/approve/)).toBeNull()
+  })
+
+  it('when the app cannot be created, says why and offers to finish in New app', async () => {
+    const draft = {
+      draft: { displayName: 'Sales dashboard', template: 'streamlit', file: 'sales/app.py' },
+      setBy: ['displayName', 'template', 'file'],
+      errors: [],
+    }
+    api({
+      'GET /api/sizes': { body: { items: sizes } },
+      'POST /api/ai/command': { body: { reply: 'Here is a Streamlit app to review.', plans: [], draft, dropped: { refs: 0, actions: 0 } } },
+      'POST /api/workspaces': { status: 409, body: { title: 'You already have an app named Sales dashboard.', status: 409 } },
+    })
+    renderApp('/apps')
+    const dialog = await search('create a streamlit dashboard')
+    await within(dialog).findAllByRole('option')
+    await userEvent.keyboard('{Enter}')
+    await userEvent.click(await within(dialog).findByRole('button', { name: 'Create app' }))
+    expect(await within(dialog).findByText('You already have an app named Sales dashboard.')).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: 'Create app' })).toBeNull()
+    expect(within(dialog).getByRole('button', { name: 'Finish setting up' })).toBeTruthy()
+  })
+
+  it('with something the draft could not settle, says what is left and opens New app filled in, creating nothing', async () => {
+    const draft = {
+      draft: { displayName: 'Sales dashboard', template: 'streamlit', file: '' },
+      setBy: ['displayName', 'template'],
+      errors: [{ location: 'body.file', message: 'Pick the file to run.' }],
     }
     const calls = api({
       'GET /api/sizes': { body: { items: sizes } },
@@ -70,12 +138,12 @@ describe('Ask AI in the palette', () => {
     const dialog = await search('create a streamlit dashboard')
     await within(dialog).findAllByRole('option')
     await userEvent.keyboard('{Enter}')
-    expect(await within(dialog).findByText("New Streamlit app 'Sales dashboard' from sales/app.py, Small")).toBeTruthy()
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Review in New app' }))
+    expect(await within(dialog).findByText('Pick the file to run.')).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: 'Create app' })).toBeNull()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Finish setting up' }))
     const name = (await screen.findByLabelText(/^Name/)) as HTMLInputElement
     expect(name.value).toBe('Sales dashboard')
     expect(screen.getByRole('button', { name: 'Streamlit, change' })).toBeTruthy()
-    expect(screen.getByText('sales/app.py')).toBeTruthy()
     expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
     expect(calls.count('POST', '/api/workspaces')).toBe(0)
   })

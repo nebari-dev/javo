@@ -456,6 +456,20 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .pal-ask{display:flex;flex-direction:column;gap:12px;padding:16px}
 .pal-ask p{margin:0}
 .pal-ask .label{margin:0}
+/* An AI answer's title in place of the filter box. */
+.pal-title{flex:1;min-width:0;margin:0;font-size:var(--fs-md);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The request as typed: wraps anywhere a long path or link needs to, and is cut past three lines until opened. */
+.ai-prompt{display:flex;gap:10px;align-items:flex-start;font-size:var(--fs-sm);line-height:1.55}
+.ai-prompt-ico{flex:none;margin-top:3px;color:var(--accent-text)}
+.ai-prompt-body{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
+.ai-prompt-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.ai-prompt-text.clamped{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
+.ai-prompt-more{font-size:var(--fs-2xs)}
+/* A drafted app, shown as the app it will be. */
+.ai-draft{display:flex;align-items:center;gap:14px;padding:14px;border-radius:var(--radius-sm);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--border)}
+/* Its note and button: the button keeps to the right edge, also when the row wraps. */
+.ai-draft-foot{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px}
+.ai-draft-foot .btn{margin-left:auto}
 .evidence-list li.cited .ev-text{color:var(--text);font-weight:600}
 
 /* Describe it on New app, and the note on fields it filled. */

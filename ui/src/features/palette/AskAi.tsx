@@ -1,5 +1,5 @@
-import { Bot, CheckCheck, Plus, Server, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Bot, CheckCheck, Server, Sparkles, type LucideIcon } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { KindLogo } from '../../components/KindLogo'
 import { agentLabel, useAdminReport, useAgentStatus, useAiFeature, useAiCommand, useAskAdmin, useBuildWithAgent, useDecidePlan } from '../ai/ai'
@@ -8,7 +8,7 @@ import { Button } from '../../components/Button'
 import { PalettePanel, usePalette, type PaletteItem, type PaletteSection } from './Palette'
 import { PlanReview } from '../ai/Plan'
 import { problemText } from '../../lib/http'
-import { useMe, useSizes, useTemplates } from '../../lib/queries'
+import { useCreateWorkspace, useMe, useSizes, useTemplates } from '../../lib/queries'
 
 /** Runs fn once, on mount, with the text the panel was opened for. */
 function useOnce(fn: () => void) {
@@ -22,37 +22,111 @@ function useOnce(fn: () => void) {
 }
 
 /**
- * A new app the model drafted from the request, in one line, with a button
- * that opens New app filled in with it. Nothing is created until the person
- * presses Create there.
+ * The request as the person typed it, at the top of an AI answer. Past three
+ * lines it is cut, with a toggle to read it all, so a paragraph never pushes
+ * the answer out of the panel.
+ */
+function AiPrompt({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
+  const box = useRef<HTMLSpanElement>(null)
+  const [open, setOpen] = useState(false)
+  const [cut, setCut] = useState(false)
+  // Measured again whenever its box changes size: the panel is still hidden on the first look, and the window can narrow.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el || open) return
+    const measure = () => setCut(el.scrollHeight > el.clientHeight + 1)
+    measure()
+    const watch = new ResizeObserver(measure)
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [text, open])
+  return (
+    <div className="ai-prompt">
+      <Icon size={16} aria-hidden="true" className="ai-prompt-ico" />
+      <div className="ai-prompt-body">
+        <span ref={box} className={open ? 'ai-prompt-text' : 'ai-prompt-text clamped'}>
+          {text}
+        </span>
+        {cut && (
+          <button type="button" className="more-toggle ai-prompt-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Show less' : 'Show full prompt'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A new app the model drafted from the request, shown as the app it will be,
+ * with one button that creates it and opens its page. When the draft left
+ * something unsettled, the button opens New app filled in instead, to finish
+ * there; nothing is created until Create is pressed.
  */
 function DraftProposal({ draft }: { draft: DraftView }) {
   const navigate = useNavigate()
   const close = usePalette()
+  const create = useCreateWorkspace()
   const tpl = useTemplates().data?.find((t) => t.name === draft.draft.template)
   const size = useSizes().data?.find((s) => s.default)
   if (draft.message) return <p role="status">{draft.message}</p>
   const d = draft.draft
-  const line = [
-    `New ${tpl?.displayName ?? d.template} app${d.displayName ? ` '${d.displayName}'` : ''}${d.file ? ` from ${d.file}` : ''}`,
-    size?.displayName,
-  ]
-    .filter(Boolean)
-    .join(', ')
+  const facts = [tpl?.displayName ?? d.template, d.file && `runs ${d.file}`, size?.displayName].filter(Boolean).join(' · ')
+  // What stands in the way of creating it here: the draft's own problems, or the API's refusal.
+  const left = create.isError ? [problemText(create.error)] : (draft.errors ?? []).map((e) => e.message)
   return (
-    <div className="row">
-      <span>{line}</span>
-      <Button
-        variant="primary"
-        icon={Plus}
-        onClick={() => {
-          close()
-          void navigate('/apps/new', { state: { draft } })
-        }}
-      >
-        Review in New app
-      </Button>
-    </div>
+    <>
+      <div className="ai-draft" role="group" aria-label={d.displayName}>
+        <KindLogo kind={d.template} />
+        <span className="grow">
+          <b className="block">{d.displayName}</b>
+          <span className="muted small block">{facts}</span>
+        </span>
+      </div>
+      <div className="ai-draft-foot">
+        {left.length ? (
+          <span className="ai-note" role="alert">
+            {left.map((m) => (
+              <span key={m}>{m} </span>
+            ))}
+            Nothing is created until you press Create.
+          </span>
+        ) : (
+          <span className="ai-note">It starts right away. You can stop or delete it at any time.</span>
+        )}
+        {left.length ? (
+          <Button
+            variant="primary"
+            icon={Sparkles}
+            onClick={() => {
+              close()
+              void navigate('/apps/new', { state: { draft } })
+            }}
+          >
+            Finish setting up
+          </Button>
+        ) : (
+        <Button
+          variant="primary"
+          icon={Sparkles}
+          disabled={create.isPending}
+          onClick={() =>
+            create.mutate(
+              { displayName: d.displayName, template: d.template, ...(d.file ? { file: d.file } : {}) },
+              {
+                onSuccess: (ws) => {
+                  close()
+                  void navigate(`/apps/${encodeURIComponent(ws.name)}`)
+                },
+              },
+            )
+          }
+        >
+          Create app
+        </Button>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -75,16 +149,13 @@ function AskPanel({ text }: { text: string }) {
     }
   }
   return (
-    <PalettePanel>
+    <PalettePanel title="Ask AI">
       <div className="pal-ask" aria-live="polite">
-        <div className="label">
-          <Sparkles size={15} aria-hidden="true" />
-          {text}
-        </div>
+        <AiPrompt icon={Sparkles} text={text} />
         {ask.isPending && <p className="muted">Thinking about it</p>}
         {ask.isError && <p role="alert">{problemText(ask.error)}</p>}
         {ask.data?.message && <p role="status">{ask.data.message}</p>}
-        {ask.data?.reply && <p>{ask.data.reply}</p>}
+        {ask.data?.reply && !ask.data.draft && <p>{ask.data.reply}</p>}
         {ask.data?.draft && <DraftProposal draft={ask.data.draft} />}
         {plans.map((p) => (
           <PlanReview key={`${p.id}:${p.state}`} plan={p} applyLabel="Approve" onDone={(d) => setPlans((ps) => ps.map((x) => (x.id === d.id ? d : x)))} />
@@ -96,7 +167,7 @@ function AskPanel({ text }: { text: string }) {
             </Button>
           </div>
         )}
-        {ask.data && <p className="ai-note">Nothing changes until you approve it.</p>}
+        {plans.length > 0 && <p className="ai-note">Nothing changes until you approve it.</p>}
       </div>
     </PalettePanel>
   )
@@ -110,12 +181,9 @@ function AdminPanel({ text }: { text: string }) {
   useOnce(() => mutate(text))
   const cited = new Set(ask.data?.refs ?? [])
   return (
-    <PalettePanel>
+    <PalettePanel title="Ask about this cluster">
       <div className="pal-ask" aria-live="polite">
-        <div className="label">
-          <Server size={15} aria-hidden="true" />
-          {text}
-        </div>
+        <AiPrompt icon={Server} text={text} />
         {ask.isPending && <p className="muted">Reading the report</p>}
         {ask.isError && <p role="alert">{problemText(ask.error)}</p>}
         {ask.data?.message && <p role="status">{ask.data.message}</p>}
@@ -138,7 +206,7 @@ function AdminPanel({ text }: { text: string }) {
 }
 
 /** Starts a coding-agent app on the request, then opens its page, where Open goes to the agent already at work. */
-function BuildPanel({ text, agent }: { text: string; agent: string }) {
+function BuildPanel({ text, agent, label }: { text: string; agent: string; label: string }) {
   const build = useBuildWithAgent()
   const navigate = useNavigate()
   const close = usePalette()
@@ -152,12 +220,9 @@ function BuildPanel({ text, agent }: { text: string; agent: string }) {
     }),
   )
   return (
-    <PalettePanel>
+    <PalettePanel title={`Build with ${label}`}>
       <div className="pal-ask" aria-live="polite">
-        <div className="label">
-          <Bot size={15} aria-hidden="true" />
-          {text}
-        </div>
+        <AiPrompt icon={Bot} text={text} />
         {build.isPending && <p className="muted">Starting {agent}</p>}
         {build.isError && <p role="alert">{problemText(build.error)}</p>}
       </div>
@@ -195,7 +260,7 @@ export function useAskSection(): { section: (query: string) => PaletteSection | 
     const items: PaletteItem[] = []
     if (builds) {
       const name = agent.template
-      items.push(ask('ai:build', `Build with ${agentLabel(name)}: ${text}`, <KindLogo kind={agent.template} />, <BuildPanel text={text} agent={agent.templateName || name} />))
+      items.push(ask('ai:build', `Build with ${agentLabel(name)}: ${text}`, <KindLogo kind={agent.template} />, <BuildPanel text={text} agent={agent.templateName || name} label={agentLabel(name)} />))
     }
     if (palette) items.push(ask('ai:ask', `Ask AI: ${text}`, <Sparkles size={16} />, <AskPanel text={text} />))
     if (admin) items.push(ask('ai:admin', `Ask about this cluster: ${text}`, <Server size={16} />, <AdminPanel text={text} />))

@@ -34,9 +34,9 @@ export interface PaletteSection {
 interface PaletteControls {
   /** Close the palette (after an action ran). */
   close: () => void
-  /** Where a panel renders, and whether one is showing (the list hides meanwhile). */
+  /** Where a panel renders, and whether one is showing (the list hides meanwhile), with its title if it has one. */
   slot: HTMLElement | null
-  showing: (on: boolean) => void
+  showing: (on: boolean, title?: string) => void
 }
 
 const Controls = createContext<PaletteControls>({ close: () => {}, slot: null, showing: () => {} })
@@ -49,12 +49,12 @@ export const usePalette = () => useContext(Controls).close
  * confirmation. It stays part of the actions list that renders it, so it
  * keeps that component's state and hooks.
  */
-export function PalettePanel({ children }: { children: ReactNode }) {
+export function PalettePanel({ title, children }: { title?: string; children: ReactNode }) {
   const { slot, showing } = useContext(Controls)
   useLayoutEffect(() => {
-    showing(true)
+    showing(true, title)
     return () => showing(false)
-  }, [showing])
+  }, [showing, title])
   return slot ? createPortal(children, slot) : null
 }
 
@@ -180,6 +180,8 @@ export function Palette(props: {
   // The item whose actions are listed, by id, so it follows fresh data.
   const [pageId, setPageId] = useState<string | null>(null)
   const [panel, setPanel] = useState(false)
+  // A titled panel (an AI answer) names itself in place of the filter box, which has nothing to filter there.
+  const [panelTitle, setPanelTitle] = useState<string>()
   const [slot, setSlot] = useState<HTMLElement | null>(null)
   const before = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement)
   const input = useRef<HTMLInputElement>(null)
@@ -212,8 +214,9 @@ export function Palette(props: {
     props.onClose()
     item.run()
   }
-  const showing = useRef((on: boolean) => {
+  const showing = useRef((on: boolean, title?: string) => {
     setPanel(on)
+    setPanelTitle(on ? title : undefined)
     if (!on) input.current?.focus()
   }).current
 
@@ -248,6 +251,9 @@ export function Palette(props: {
                 ) : (
                   <Search size={16} aria-hidden="true" className="pal-search-icon" />
                 )}
+                {panel && panelTitle ? (
+                  <h2 className="pal-title">{panelTitle}</h2>
+                ) : (
                 <Command.Input
                   ref={input}
                   value={search}
@@ -264,6 +270,7 @@ export function Palette(props: {
                     }
                   }}
                 />
+                )}
               </div>
               <div className="pal-panel" ref={setSlot} hidden={!panel} />
               <Command.List className="pal-list" hidden={panel} label="Results">
