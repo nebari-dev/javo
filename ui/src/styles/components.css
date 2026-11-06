@@ -157,6 +157,9 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .banner.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 30%,transparent)}
 .banner.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
 .b-ico{flex:none;margin-top:1px}
+/* A banner of one title line centres it on its buttons; one with text keeps the title at the top. */
+.banner:not(:has(.b-text)){align-items:center}
+.banner:not(:has(.b-text)) .b-ico{margin-top:0}
 .banner.warn .b-ico{color:var(--warn)}.banner.err .b-ico{color:var(--err)}.banner.info .b-ico{color:var(--info)}.banner.ok .b-ico{color:var(--ok)}
 .banner .b-body{flex:1;min-width:0}
 .banner .b-title{font-weight:600}
