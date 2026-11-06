@@ -7,7 +7,7 @@ import { Button } from '../../components/Button'
 import { Confirm } from '../../components/Confirm'
 
 /** What a change does, field by field: the old value struck out, the new one added. */
-function Diff({ changes }: { changes: Change[] | null }) {
+export function Diff({ changes }: { changes: Change[] | null }) {
   return (
     <dl className="diff" aria-label="Changes">
       {(changes ?? []).map((c) => (

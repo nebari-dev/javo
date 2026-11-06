@@ -631,15 +631,23 @@ const importRows = [
 ]
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+// Pi, inside an app of its own, asks for a secret; Claude Code, with an API
+// token, asks to restart one app and delete another.
 const pendingPlans = [
   plan({
-    id: 'a1', source: 'mcp:pi', requestedBy: { app: 'pi-agent' }, expiresAt: inMinutes(8),
-    planned: { action: 'attach-secret', target: 'plots', params: { secret: 'STRIPE_KEY', env: 'STRIPE_API_KEY' }, destructive: false,
+    id: 'a1', source: 'mcp:pi', requestedBy: { app: 'pi-agent', appName: 'Sales agent', appKind: 'pi' }, createdAt: minutesAgo(2), expiresAt: inMinutes(8),
+    planned: { action: 'attach-secret', target: 'plots', targetName: 'Plot explorer', params: { secret: 'STRIPE_KEY', env: 'STRIPE_API_KEY' }, destructive: false,
       summary: 'Give Plot explorer your secret STRIPE_KEY as STRIPE_API_KEY (it restarts)', changes: [{ field: 'STRIPE_API_KEY', from: '', to: 'secret STRIPE_KEY' }] },
   }),
   plan({
-    id: 'a2', source: 'mcp:claude-code', requestedBy: { token: 'laptop-cli' }, expiresAt: inMinutes(3),
-    planned: { action: 'delete', target: 'research-lab', destructive: true,
+    id: 'a3', source: 'mcp:claude-code', requestedBy: { token: 'laptop-cli' }, createdAt: minutesAgo(5), expiresAt: inMinutes(12),
+    planned: { action: 'restart', target: 'report', targetName: 'Weekly report', destructive: false,
+      summary: 'Restart Weekly report', changes: [{ field: 'state', from: 'Running', to: 'Restarted' }] },
+  }),
+  plan({
+    id: 'a2', source: 'mcp:claude-code', requestedBy: { token: 'laptop-cli' }, createdAt: minutesAgo(9), expiresAt: inMinutes(3),
+    planned: { action: 'delete', target: 'research-lab', targetName: 'Research lab', destructive: true,
       summary: 'Delete Research lab. Its home folder is kept.', changes: [{ field: 'app', from: 'Research lab', to: 'deleted' }] },
   }),
 ]
@@ -688,7 +696,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     })
   }
   if (key === 'POST /api/plans') return reply(201, plan())
-  // Two changes wait for approval (?approvals=none: nothing waits); a decided one leaves the list.
+  // Three changes wait for approval (?approvals=none: nothing waits); a decided one leaves the list.
   if (key === 'GET /api/plans') return reply(200, aiParams.get('approvals') === 'none' ? [] : pendingPlans.filter((p) => !decidedPlans.has(p.id)))
   const pendingOne = pendingPlans.find((p) => url.pathname === `/api/plans/${p.id}`)
   if (pendingOne && req.method === 'GET') return reply(200, pendingOne)

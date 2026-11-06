@@ -647,9 +647,10 @@ export function AppDetail() {
   const stopped = migrating ? undefined : ws.phase === 'Stopped' ? ws.steps?.[0] : heldStep(ws)
   const readyLink = justStarted.started && ws.phase === 'Running' ? appLink(ws.url) : undefined
   const overview = (
+    <>
+      <AppApprovals name={ws.name} />
       <div className="two">
         <div className="stack">
-          <AppApprovals name={ws.name} />
           {readyLink && <ReadyCard ws={ws} link={readyLink} building={building} onDismiss={justStarted.dismiss} />}
           {ws.previewOf && <PreviewOfBanner of={ws.previewOf} />}
           {stopped && (
@@ -730,6 +731,7 @@ export function AppDetail() {
           {!managed && <ThumbnailCard ws={ws} />}
         </div>
       </div>
+    </>
   )
   return (
     <>

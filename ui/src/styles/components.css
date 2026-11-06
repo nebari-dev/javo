@@ -531,9 +531,95 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .nav a.active .nav-count{background:var(--on-ink);color:var(--ink)}
 .app.collapsed .nav a{position:relative}
 .app.collapsed .nav-count{position:absolute;top:2px;right:6px;min-width:16px;height:16px;padding:0 4px}
-.approval{display:flex;flex-direction:column;gap:4px}
-.approval-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.approval-head .label{margin:0}
-.approval-expiry{display:inline-flex;align-items:center;gap:4px}
-.app-approvals{display:flex;flex-direction:column;gap:10px}
-.app-approvals>.label{margin:0}
+/* Approvals: one card per request, a question with its consequences as chips. */
+.rq-stack{display:grid;gap:16px;max-width:1016px}
+.rq{display:grid;grid-template-columns:184px minmax(0,1fr);overflow:hidden}
+.who{padding:22px;border-right:1px solid var(--border);background:var(--surface-2);display:grid;align-content:start;gap:10px}
+.who b{font-weight:600;display:block;font-size:var(--fs-sm)}
+.who>span:not(.agent){font-size:var(--fs-xs);color:var(--text-2);display:block}
+.agent{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;flex:none;background:var(--surface);border:1px solid var(--border);color:var(--text-2)}
+.agent .logo{width:100%;height:100%;border:0;background:none;border-radius:inherit}
+.what{padding:22px 24px;display:grid;gap:14px;align-content:start;min-width:0}
+.what-top{display:flex;gap:16px;align-items:flex-start;justify-content:space-between}
+.rq h2,.bnr h2{text-wrap:balance;overflow-wrap:anywhere}
+.rq h2 code,.bnr h2 code,.sheet h1 code{font-size:.8em;padding:0 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);vertical-align:.08em}
+.timer{flex:none;display:inline-flex;gap:6px;align-items:center;font-size:var(--fs-xs);color:var(--text-2);padding:4px 10px;border-radius:999px;border:1px solid var(--border);white-space:nowrap;font-variant-numeric:tabular-nums}
+.timer.soon{color:var(--warn);border-color:currentColor}
+.say{margin:0;max-width:62ch}
+.chips{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 10px;border-radius:999px;font-size:var(--fs-xs);font-weight:500;line-height:1.35}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.err{background:var(--err-soft);color:var(--err)}
+.rq .bar,.bnr .bar,.sheet .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:4px}
+.rq .bar .grow{flex:1}
+/* The main button of a change that cannot be undone is filled red, as is its confirmation. */
+.rq .btn.danger,.bnr .btn.danger,.sheet .btn.danger,.confirm .btn.danger{background:var(--err);border-color:var(--err);color:var(--on-ink);box-shadow:0 1px 0 var(--key-edge)}
+.rq .btn.danger svg,.bnr .btn.danger svg,.sheet .btn.danger svg,.confirm .btn.danger svg{color:var(--on-ink)}
+.det-btn{display:inline-flex;gap:6px;align-items:center;font:inherit;font-size:var(--fs-xs);font-weight:500;color:var(--text-2);background:none;border:0;padding:8px 4px;cursor:pointer;border-radius:6px}
+.det-btn:hover{color:var(--text)}
+.det-btn svg{transition:transform .2s cubic-bezier(.16,1,.3,1)}
+.det-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
+.det{display:grid;gap:10px}
+.det dl{margin:0;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;font-size:var(--fs-xs);background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.det dl>div{display:contents}
+.det dt{color:var(--text-2)}
+.det dd{margin:0;overflow-wrap:anywhere}
+.det code{white-space:normal;overflow-wrap:anywhere}
+.rq-done{margin:0;display:flex;align-items:center;gap:10px;font-size:var(--fs-sm);color:var(--text-2)}
+.rq-done svg{flex:none;color:var(--ok)}
+.rq-done.bad svg{color:var(--err)}
+.rq.decided h2,.bnr.decided h2{font-size:var(--fs-md);color:var(--text-2)}
+.rq.decided .what{gap:10px}
+.rq-empty{padding:28px 24px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px 18px;align-items:start;max-width:1016px}
+.rq-empty .agent{width:44px;height:44px;background:var(--surface-2);grid-row:span 3}
+.rq-empty h2{font-size:var(--fs-md)}
+.rq-empty p{margin:0;color:var(--text-2);max-width:56ch}
+.legend{margin-top:14px;display:grid;gap:10px;justify-items:start}
+.legend>p{font-size:var(--fs-xs)}
+/* One request, opened from its link. */
+.sheet{max-width:560px;margin:8px auto 0;padding:32px;display:grid;gap:18px}
+.sheet .asker{display:flex;gap:12px;align-items:center;font-size:var(--fs-sm);color:var(--text-2)}
+.sheet .asker b{color:var(--text);font-weight:600}
+.sheet h1{margin:0;text-wrap:balance;overflow-wrap:anywhere}
+.cons{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.cons li{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:center;font-size:var(--fs-sm)}
+.cons li i{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-style:normal}
+.cons li.ok i{background:var(--ok-soft);color:var(--ok)}
+.cons li.warn i{background:var(--warn-soft);color:var(--warn)}
+.cons li.err i{background:var(--err-soft);color:var(--err)}
+.cons li b{font-weight:600;display:block}
+.cons li span{color:var(--text-2)}
+.sheet .bar{flex-direction:column;align-items:stretch}
+.sheet .bar .btn{height:46px}
+.sheet .bar .btn.wide+.btn.wide{margin-top:0}
+.sheet .foot{margin:0;font-size:var(--fs-xs);color:var(--text-2);text-align:center}
+.sheet .rq-done{justify-content:center}
+.allreq{text-align:center;margin-top:16px;font-size:var(--fs-sm)}
+/* A request on its app's page, with the actions inline. */
+.bnr-stack{display:grid;gap:12px;margin-bottom:22px}
+.bnr{padding:16px 18px;display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:14px;align-items:center;background:var(--accent-soft);border-color:transparent;box-shadow:none}
+.bnr h2{font-size:var(--fs-md)}
+.bnr .agent{background:var(--surface);border-color:transparent}
+.bnr-text{display:grid;gap:8px;min-width:0}
+.bnr .bar{padding:0;flex-wrap:nowrap}
+/* The toast repeats what a decision did. */
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);opacity:0;pointer-events:none;background:var(--ink);color:var(--on-ink);padding:12px 18px;border-radius:12px;box-shadow:var(--shadow-lg);display:flex;gap:10px;align-items:center;font-size:var(--fs-sm);max-width:min(560px,calc(100vw - 32px));transition:opacity .2s cubic-bezier(.16,1,.3,1),transform .3s cubic-bezier(.16,1,.3,1);z-index:80}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast svg{flex:none}
+@media (prefers-reduced-motion:reduce){.toast,.det-btn svg{transition:none}}
+@media (max-width:760px){
+  .rq{grid-template-columns:minmax(0,1fr)}
+  .who{border-right:0;border-bottom:1px solid var(--border);grid-template-columns:36px minmax(0,1fr);align-items:center;padding:14px 16px;gap:2px 12px}
+  .who .agent{grid-row:span 2;width:36px;height:36px}
+  .what{padding:18px 16px}
+  .what-top{flex-direction:column;gap:8px}
+  .rq .bar .btn,.bnr .bar .btn{flex:1 1 auto}
+  .rq .bar .grow{display:none}
+  .det-btn{width:100%;justify-content:center}
+  .sheet{padding:22px 18px}
+  .sheet h1{font-size:var(--fs-lg)}
+  .bnr{grid-template-columns:36px minmax(0,1fr);align-items:start}
+  .bnr .agent{width:36px;height:36px}
+  .bnr .bar{grid-column:1/-1}
+}

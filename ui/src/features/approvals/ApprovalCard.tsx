@@ -1,31 +1,65 @@
-import { ClipboardCheck, Clock3 } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
+import { useId, useState } from 'react'
 import type { Plan } from '../../api'
 import { Card } from '../../components/Card'
-import { PlanReview } from '../ai/Plan'
-import { requestedBy } from '../ai/PlanPage'
+import { Diff } from '../ai/Plan'
+import { agentOf, askedLine } from './copy'
+import { Actions, AgentMark, Chips, Result, Timer, useDecision } from './parts'
 
-/** When a pending plan stops being decidable, in words. */
-export function expiresIn(expiresAt: string, now = Date.now()): string {
-  const ms = new Date(expiresAt).getTime() - now
-  if (ms <= 0) return 'Expired'
-  return `Expires in ${Math.ceil(ms / 60_000)} min`
-}
-
-/** One plan waiting for the person: who asked, what changes, Approve or Deny. */
-export function ApprovalCard({ plan, onFailed }: { plan: Plan; onFailed?: (p: Plan) => void }) {
+/**
+ * One request in the inbox, as a question: who asked on the left; the
+ * question, one line on what happens, its consequences as chips, and the
+ * buttons on the right. The technical details fold under Details.
+ */
+export function ApprovalCard({ plan, onDecided, toast }: { plan: Plan; onDecided?: (p: Plan) => void; toast?: (t: string) => void }) {
+  const d = useDecision(plan, { onDecided, toast })
+  const [open, setOpen] = useState(false)
+  const detailsId = useId()
+  const titleId = useId()
+  const agent = agentOf(plan)
   return (
-    <Card className="pad approval" role="article" aria-label={plan.planned.summary}>
-      <div className="approval-head">
-        <div className="label">
-          <ClipboardCheck size={15} aria-hidden="true" />
-          {requestedBy(plan.source, plan.requestedBy)}
-        </div>
-        <span className="approval-expiry muted small">
-          <Clock3 size={13} aria-hidden="true" />
-          {expiresIn(plan.expiresAt)}
-        </span>
+    <Card className={d.decided ? 'rq decided' : 'rq'} role="article" aria-labelledby={titleId}>
+      <div className="who">
+        <AgentMark plan={plan} />
+        <b>{agent.name}</b>
+        <span>{askedLine(plan)}</span>
       </div>
-      <PlanReview plan={plan} applyLabel="Approve" cancelLabel="Deny" confirmDestructive onFailed={onFailed} />
+      <div className="what">
+        <div className="what-top">
+          <h2 id={titleId}>{d.r.question}</h2>
+          {!d.decided && <Timer plan={plan} />}
+        </div>
+        {d.decided ? (
+          <Result d={d} />
+        ) : (
+          <>
+            {d.r.say && <p className="say">{d.r.say}</p>}
+            <Chips items={d.r.chips} />
+            <div className="bar">
+              <Actions d={d} />
+              <span className="grow" />
+              <button type="button" className="det-btn" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(!open)}>
+                Details
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </div>
+            {open && (
+              <div className="det" id={detailsId} role="group" aria-label="Details">
+                <dl>
+                  {d.r.details.map((row) => (
+                    <div key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <Diff changes={plan.planned.changes} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      {d.confirm}
     </Card>
   )
 }

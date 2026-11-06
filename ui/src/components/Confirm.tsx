@@ -9,6 +9,8 @@ export function Confirm(props: {
   title: ReactNode
   body: string
   confirm: string
+  /** The cancel button's label; default Cancel. */
+  cancel?: string
   icon: LucideIcon
   danger?: boolean
   busy: boolean
@@ -54,7 +56,7 @@ export function Confirm(props: {
         </p>
         <div className="row">
           <Button ref={cancel} size="sm" onClick={props.onCancel}>
-            Cancel
+            {props.cancel ?? 'Cancel'}
           </Button>
           <Button size="sm" variant={props.danger ? 'danger' : 'primary'} icon={props.icon} disabled={props.busy} onClick={props.onConfirm}>
             {props.confirm}
