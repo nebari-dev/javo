@@ -496,8 +496,10 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
    laid over the control's own background as an image, so it shows on any
    surface and keeps the control's colour. Disabled controls get none; keyboard
    focus keeps its outline. Lists driven by a highlight (menus of Select,
-   Downshift and cmdk) already follow the pointer and are not listed. */
-:is(button,a.btn,[role="button"],.nav a,a.side-foot,.subnav a,.attn-item,.choice,.acard:has(.acard-link),.pk-item,.sample-card>a):hover:not(:disabled,[aria-disabled="true"],.choice.off,.pk-row.dim,.pk-row.sk,.pk-item>.pk-row,.textlink),
+   Downshift and cmdk) already follow the pointer and are not listed. A card
+   drops its tint while a button on it is hovered, or the button would match
+   the tinted card and show no change. */
+:is(button,a.btn,[role="button"],.nav a,a.side-foot,.subnav a,.attn-item,.choice,.acard:has(.acard-link),.pk-item,.sample-card>a):hover:not(:disabled,[aria-disabled="true"],.choice.off,.pk-row.dim,.pk-row.sk,.pk-item>.pk-row,.textlink,.acard:has(.acard-actions :hover)),
 .menu-item:focus-visible{background-image:linear-gradient(var(--hover-tint,var(--hover)),var(--hover-tint,var(--hover)))}
 .btn.primary,.nav a.active,.seg button.on{--hover-tint:var(--hover-ink)}
 /* The tint follows the shape: full-width buttons in a card take its corners, tabs round their top. */
