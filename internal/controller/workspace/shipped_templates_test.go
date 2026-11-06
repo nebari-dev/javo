@@ -223,7 +223,7 @@ func TestAgentTemplatesStartTheSessionBeforeTtyd(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ name, agent string }{
-		{"claude-code", "claude; exec bash"},
+		{"claude-code", "claude --continue || claude; exec bash"},
 		{"pi", "/opt/javo/agents/pi-start.sh"},
 	} {
 		tpl := shippedTemplate(t, tc.name)
@@ -285,6 +285,64 @@ func TestAgentTemplatesStartTheSessionBeforeTtyd(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Claude Code reopens the folder's most recent conversation (claude
+// --continue), so a restarted app shows it, and starts a new one when the
+// folder has none: --continue then exits 1 with "No conversation found to
+// continue" (Claude Code 2.1.302, the version package-lock.json pins).
+func TestClaudeCodeContinuesItsLastConversation(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "claude-code")
+	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name}
+	pod, err := BuildPod(ws, tpl, "/u/a/agent/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := slices.Concat(pod.Spec.Containers[0].Command, pod.Spec.Containers[0].Args)
+	if len(argv) < 4 || argv[1] != "/opt/javo/agents/agent-serve.sh" {
+		t.Fatalf("argv = %q, want agent-serve.sh FOLDER COMMAND", argv)
+	}
+	for _, c := range []struct {
+		label        string
+		conversation bool
+		want         []string
+	}{
+		{"with a conversation", true, []string{"claude [--continue]", "bash"}},
+		{"without one", false, []string{"claude [--continue]", "claude", "bash"}},
+	} {
+		t.Run(c.label, func(t *testing.T) {
+			t.Parallel()
+			bin := t.TempDir()
+			log := filepath.Join(bin, "calls")
+			found := "1"
+			if c.conversation {
+				found = "0"
+			}
+			stubs := map[string]string{
+				"claude": "[ \"$1\" = --continue ] && exit " + found + "\nexit 0",
+				"bash":   "exit 0",
+			}
+			for name, body := range stubs {
+				stub := "#!/bin/sh\n{ printf '%s' " + name + "; for a; do printf ' [%s]' \"$a\"; done; echo; } >>" + log + "\n" + body + "\n"
+				if err := os.WriteFile(filepath.Join(bin, name), []byte(stub), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command("/bin/sh", "-c", argv[3])
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%q: %v\n%s", argv[3], err, out)
+			}
+			data, err := os.ReadFile(log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Split(strings.TrimSpace(string(data)), "\n"); !slices.Equal(got, c.want) {
+				t.Fatalf("calls %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 

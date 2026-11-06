@@ -34,8 +34,11 @@ spec:
     # when a tab closes.
     - "/opt/javo/agents/agent-serve.sh"
     - "{{if .File}}{{.File}}{{else}}{{.Home}}{{end}}"
-    # Quitting the agent leaves a shell in the folder.
-    - "claude; exec bash"
+    # Every start, a pod restart included, reopens the folder's most recent
+    # conversation (claude --continue). With none, --continue exits 1 with
+    # "No conversation found to continue" and a new one starts. Quitting the
+    # agent leaves a shell in the folder.
+    - "claude --continue || claude; exec bash"
     - "ttyd"
     - "--port={{.Port}}"
     # ttyd is read-only unless told otherwise.
