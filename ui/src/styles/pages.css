@@ -117,6 +117,24 @@ a.btn{text-decoration:none}
 .acard .why{padding:4px 10px;font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .why.err{background:var(--err-soft);color:var(--text)}
 .why.warn{background:var(--warn-soft);color:var(--text)}
+/* A coding agent that acts without asking: a red line on its card and row, with Turn off above the card's link. */
+.trust-badge{position:relative;z-index:1;display:flex;align-items:center;gap:8px;padding:4px 4px 4px 10px;border-radius:10px;background:var(--err-soft);color:var(--text);font-size:var(--fs-xs);font-weight:500}
+.trust-badge>svg{flex:none;color:var(--err)}
+.trust-badge .grow{min-width:0;line-height:1.35}
+.atable-name .trust-badge{margin-top:4px;align-self:flex-start}
+/* The warning before it: each term over its plain words. */
+.confirm-details{display:flex;flex-direction:column;gap:12px}
+.confirm-details .seg{display:flex;width:100%}
+.confirm-details .seg>button{flex:1 1 0;min-width:0;padding-inline:6px}
+/* A long confirm label moves under Cancel on a narrow screen rather than past the edge. */
+.confirm:has(.confirm-details) .row{flex-wrap:wrap}
+.confirm:has(.confirm-details) .row .btn{white-space:normal;text-align:left}
+.trust-terms{margin:0;display:grid;gap:2px 0;font-size:var(--fs-sm)}
+.trust-terms dt{font-weight:600;color:var(--text)}
+.trust-terms dd{margin:0 0 8px;color:var(--text-2)}
+.trust-terms dd:last-child{margin-bottom:0}
+.trust-banner{margin-top:16px}
+.trust-banner .logo{flex:none}
 
 /* Needs your attention */
 .attn{padding:6px}

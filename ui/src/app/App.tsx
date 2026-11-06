@@ -11,6 +11,7 @@ import { SessionGuard } from './SessionGuard'
 import { Secrets } from '../features/settings/Secrets'
 import { ApiTokens, Settings } from '../features/settings/Settings'
 import { AdminAI } from '../features/settings/admin/AdminAI'
+import { AdminAgents } from '../features/settings/admin/AdminAgents'
 import { AdminApps } from '../features/settings/admin/AdminApps'
 import { Backups } from '../features/settings/admin/Backups'
 import { Storage } from '../features/settings/admin/Storage'
@@ -44,6 +45,7 @@ export function AppRoutes() {
             { path: 'backups', element: <Backups /> },
             { path: 'storage', element: <Storage /> },
             { path: 'ai', element: <AdminAI /> },
+            { path: 'agents', element: <AdminAgents /> },
           ],
         },
         { path: 'plans/:id', element: <PlanPage /> },

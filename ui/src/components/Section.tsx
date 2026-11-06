@@ -35,6 +35,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   Terminal,
@@ -99,6 +100,7 @@ export const PART_ICONS = {
   timeLimit: Timer,
   notify: Bell,
   ai: Sparkles,
+  trust: ShieldAlert,
   review: ClipboardCheck,
   // What went wrong, on a failure card and in an AI diagnosis.
   cause: CircleAlert,

@@ -57,6 +57,8 @@ import type { SizeChoice } from '../../lib/sizes'
 import { startupSeconds, stepTimes } from './startup'
 import { appLink, heldStep, migratingStep, pillStatus, problemStep, stopNote } from './status'
 import { PromptBlock } from './AgentPrompt'
+import { AGENTS } from './agents'
+import { TrustBanner, TrustCard } from './Trust'
 
 // What each startup step does, in the order the API sends them.
 const STEP_NAMES: Record<string, string> = {
@@ -217,10 +219,6 @@ function useJustStarted(phase: string): { started: boolean; hold: boolean; dismi
   }, [hold])
   return { started, hold, dismiss: () => setStarted(false) }
 }
-
-// Coding agents by kind, with the name people know them by. Their ready card
-// says the agent is running, not that the app it builds is.
-const AGENTS: Record<string, string> = { pi: 'Pi', 'claude-code': 'Claude Code', herdr: 'herdr' }
 
 // The Open button of an agent whose logo reads on the dark button carries
 // that logo (herdr's mark is drawn in the text colour, so it keeps the icon).
@@ -726,6 +724,7 @@ export function AppDetail() {
             </dl>
             <ScratchFolders />
           </Card>
+          {!managed && <TrustCard ws={ws} />}
           {ws.run && <WhatRuns run={ws.run} />}
           {ws.source?.previewsAvailable && !managed && <PreviewsCard ws={ws} />}
           {!managed && <ThumbnailCard ws={ws} />}
@@ -750,6 +749,7 @@ export function AppDetail() {
         <Actions ws={ws} managed={managed} />
       </div>
       <PromptBlock prompt={ws.agentPrompt} />
+      <TrustBanner ws={ws} />
 
       <div className="section">
         {ws.canShare && !managed ? (

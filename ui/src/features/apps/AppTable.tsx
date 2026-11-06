@@ -13,6 +13,7 @@ import { Pill } from '../../components/Pill'
 import { HomePath } from '../../components/HomePath'
 import { Uptime } from './Uptime'
 import { PromptLine } from './AgentPrompt'
+import { TrustBadge } from './Trust'
 
 function AppRow({ ws }: { ws: Workspace }) {
   const template = useTemplateName(ws.template)
@@ -28,6 +29,7 @@ function AppRow({ ws }: { ws: Workspace }) {
             <PromptLine prompt={ws.agentPrompt} className="atable-why atable-prompt" />
             {problem && <span className={`atable-why ${problem.tone}`}>{problem.title}</span>}
             {stopped && <span className="atable-why warn">{stopped}</span>}
+            <TrustBadge ws={ws} />
           </div>
         </div>
       </th>

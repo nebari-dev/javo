@@ -38,6 +38,7 @@ import {
   setWorkspaceSourceToken,
   setWorkspaceApiAccess,
   setWorkspaceIdleStop,
+  setWorkspaceTrust,
   setWorkspaceThumbnail,
   removeWorkspaceThumbnail,
   previewPlacement,
@@ -369,6 +370,19 @@ export function useSetIdleStop(name: string) {
   return useMutation({
     mutationFn: async (idleStopMinutes: number) =>
       (await setWorkspaceIdleStop({ path: { name }, body: { idleStopMinutes }, throwOnError: true })).data,
+    onSuccess: (ws) => {
+      qc.setQueryData(keys.workspace(name), ws)
+      void qc.invalidateQueries({ queryKey: keys.workspaces, exact: true })
+    },
+  })
+}
+
+/** Let a coding agent act without asking for hours, or (hours null) make it ask again; the agent's token changes at once. */
+export function useSetTrust(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (hours: number | null) =>
+      (await setWorkspaceTrust({ path: { name }, body: hours === null ? { trusted: false } : { trusted: true, hours }, throwOnError: true })).data,
     onSuccess: (ws) => {
       qc.setQueryData(keys.workspace(name), ws)
       void qc.invalidateQueries({ queryKey: keys.workspaces, exact: true })

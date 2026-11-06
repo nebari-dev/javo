@@ -176,6 +176,7 @@ const aiSettingsFromConfig: Record<string, unknown> & { keyStored: boolean; keyL
   config: { provider: 'anthropic', baseURL: '', model: 'claude-opus-5-5', key: true },
 }
 let aiSettings = { ...aiSettingsFromConfig }
+let agentSettings = { allowTrusted: true, configAllows: true }
 
 const adminStorage = quiet
   ? { summary: "Files are stored on this machine's disk. Nothing needs attention.", rows: facts }
@@ -195,10 +196,12 @@ const apps = [
   // Coding-agent apps built from a prompt: a short one and one long enough to fold.
   ws('stock-explorer', 'Nvidia stock explorer', 'Running', allReady(), {
     kind: 'claude-code', template: 'claude-code', file: '', apiAccess: 'ReadWrite',
+    // Acts without asking for the next few hours.
+    trust: { allowed: true, until: new Date(Date.now() + 3 * 3600_000).toISOString() },
     agentPrompt: 'Create a Streamlit app that lets me look at Nvidia stock prices over time, with a date range picker and a moving average.',
   }),
   ws('churn-notebook', 'Churn analysis notebook', 'Stopped', allStopped(), {
-    kind: 'pi', template: 'pi', file: '', apiAccess: 'ReadWrite',
+    kind: 'pi', template: 'pi', file: '', apiAccess: 'ReadWrite', trust: { allowed: true },
     agentPrompt: [
       'Build a Jupyter notebook in ~/projects/churn that analyses customer churn from data/customers.csv.',
       'Start with a short data quality check: missing values, duplicate customer ids and odd dates.',
@@ -828,6 +831,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const placement = notice(fits ? 'PlacementFits' : 'PlacementWaits', fits ? 'info' : 'warn', 'Will run next to your other apps', text, fits ? 'Nothing to do.' : 'Stop an app to make room, or ask an admin to enable shared storage.')
     return reply(200, { coLocated: noshared, fits, freeCPU: 5, freeMemory: 8 * 2 ** 30, node: 'cpu-standard-3', runningApps: ['Sales app', 'Research lab'], ...(noshared ? { notice: placement } : {}) })
   }
+  if (url.pathname === '/api/admin/agents' && me.roles.includes('platform-admin')) {
+    if (req.method === 'PUT') agentSettings = { ...agentSettings, allowTrusted: (await req.json()).allowTrusted }
+    return reply(200, agentSettings)
+  }
   if (url.pathname === '/api/admin/ai' && me.roles.includes('platform-admin')) {
     if (req.method === 'PUT') {
       const b = await req.json()
@@ -871,6 +878,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const w = apps.find((a) => a.name === access[1])
     if (!w) return reply(404, { title: 'No app with that name.' })
     w.apiAccess = (await req.json()).apiAccess
+    return reply(200, w)
+  }
+  const trust = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/trust$/)
+  if (req.method === 'PUT' && trust) {
+    const w = apps.find((a) => a.name === trust[1])
+    if (!w?.trust) return reply(404, { title: 'No app with that name.' })
+    const b = await req.json()
+    w.trust = b.trusted ? { allowed: true, until: new Date(Date.now() + (b.hours ?? 8) * 3600_000).toISOString() } : { allowed: true }
     return reply(200, w)
   }
   const idle = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/idle-stop$/)

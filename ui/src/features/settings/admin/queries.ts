@@ -3,6 +3,8 @@ import {
   startWorkspace,
   adminBackUpEverythingNow,
   adminGetAiSettings,
+  adminGetAgentSettings,
+  adminSetAgentSettings,
   adminResetAiSettings,
   adminSetAiSettings,
   adminBackUpNow,
@@ -29,6 +31,7 @@ const keys = {
   backups: ['admin', 'backups'] as const,
   restores: ['admin', 'restores'] as const,
   ai: ['admin', 'ai'] as const,
+  agents: ['admin', 'agents'] as const,
 }
 
 /** Whether the signed-in person is a platform admin (GET /api/me roles). */
@@ -198,6 +201,23 @@ export function useRelease() {
 }
 
 /** The AI settings in force; asked only for a platform admin. */
+/** Whether owners may let their coding agents act without asking. */
+export function useAgentSettings(enabled: boolean) {
+  return useQuery({ queryKey: keys.agents, enabled, queryFn: async () => (await adminGetAgentSettings({ throwOnError: true })).data })
+}
+
+/** Allow or refuse it; refusing ends it on every agent at once, so the apps are asked again. */
+export function useSetAgentSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (allowTrusted: boolean) => (await adminSetAgentSettings({ body: { allowTrusted }, throwOnError: true })).data,
+    onSuccess: (s) => {
+      qc.setQueryData(keys.agents, s)
+      void qc.invalidateQueries({ queryKey: ['workspaces'] })
+    },
+  })
+}
+
 export function useAISettings(enabled: boolean) {
   return useQuery({ queryKey: keys.ai, enabled, queryFn: async () => (await adminGetAiSettings({ throwOnError: true })).data })
 }

@@ -8,6 +8,8 @@ import { Button } from './Button'
 export function Confirm(props: {
   title: ReactNode
   body: string
+  /** More of what the choice means, under the body (read with it by a screen reader). */
+  details?: ReactNode
   confirm: string
   /** The cancel button's label; default Cancel. */
   cancel?: string
@@ -18,7 +20,7 @@ export function Confirm(props: {
   onConfirm: () => void
   onCancel: () => void
 }) {
-  const ids = { title: useId(), body: useId() }
+  const ids = { title: useId(), body: useId(), details: useId() }
   const cancel = useRef<HTMLButtonElement>(null)
   // Escape cancels wherever focus is, and stops there so a panel underneath
   // (the command palette) does not close too.
@@ -48,12 +50,17 @@ export function Confirm(props: {
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={ids.title}
-        aria-describedby={ids.body}
+        aria-describedby={props.details ? `${ids.body} ${ids.details}` : ids.body}
       >
         <b id={ids.title}>{props.title}</b>
         <p id={ids.body} className="tight muted small">
           {props.body}
         </p>
+        {props.details && (
+          <div id={ids.details} className="confirm-details">
+            {props.details}
+          </div>
+        )}
         <div className="row">
           <Button ref={cancel} size="sm" onClick={props.onCancel}>
             {props.cancel ?? 'Cancel'}

@@ -14,6 +14,7 @@ import { StopButton } from './StopButton'
 import { DeleteAppButton } from './DeleteApp'
 import { Uptime } from './Uptime'
 import { PromptLine } from './AgentPrompt'
+import { TrustBadge } from './Trust'
 
 /** Open, Start or Stop for one app, shared by its card and its table row. */
 export function RunActions({ ws }: { ws: Workspace }) {
@@ -62,6 +63,7 @@ export function AppCard({ ws }: { ws: Workspace }) {
         </div>
         <StatusIcon status={pillStatus(ws.phase)} />
       </div>
+      <TrustBadge ws={ws} />
       {problem ? (
         <div className={`why ${problem.tone}`}>
           <b>{problem.title}</b>
