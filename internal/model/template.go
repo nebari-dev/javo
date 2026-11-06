@@ -29,6 +29,11 @@ const (
 // CategoryOther is the category of a template that names none.
 const CategoryOther = "other"
 
+// CategoryAgents is the category of the coding agent templates: their apps
+// are never shared, and their pods reach the owner's SSH keys only through
+// an ssh-agent sidecar.
+const CategoryAgents = "agents"
+
 // TemplateCategory is a group of templates on New app and the Templates page.
 type TemplateCategory struct {
 	ID    string
@@ -41,7 +46,7 @@ var TemplateCategories = []TemplateCategory{
 	{"notebooks", "Notebooks and IDEs"},
 	{"dashboards", "Dashboards and visualization"},
 	{"web", "Web apps and APIs"},
-	{"agents", "Coding agents"},
+	{CategoryAgents, "Coding agents"},
 	{"jobs", "Jobs"},
 	{CategoryOther, "Other"},
 }
@@ -615,7 +620,7 @@ func RunsAnyCode(t *Template) bool { return slices.Contains(codeEditorKinds, t.S
 // Sharing API and the template list all ask it.
 func MaxSharing(t *Template) string {
 	switch {
-	case t == nil || slices.Contains(privateOnlyKinds, t.Spec.Kind) || t.Spec.Category == "agents" || AccessRank(t.Spec.MaxSharing) < 0:
+	case t == nil || slices.Contains(privateOnlyKinds, t.Spec.Kind) || t.Spec.Category == CategoryAgents || AccessRank(t.Spec.MaxSharing) < 0:
 		return AccessPrivate
 	case RunsAnyCode(t) && AccessRank(t.Spec.MaxSharing) > AccessRank(AccessRestricted):
 		return AccessRestricted

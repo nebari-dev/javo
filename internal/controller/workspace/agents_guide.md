@@ -27,6 +27,11 @@ wrong and `errors` names the field.
   `javo-api POST /api/plans '{"source":"mcp:agent","proposal":{"action":"restart","target":"NAME"}}'`.
 - Files: the owner's home folder is your home folder (`/home/user`), so write
   files there directly. Every app and job sees the same home.
+- SSH: `git clone git@github.com:...` and `ssh` work through an ssh-agent
+  (`$SSH_AUTH_SOCK`) that holds the owner's keys. The private keys are not
+  readable here: `~/.ssh` is a folder of this app with only `known_hosts`,
+  `config` and the public keys, and what you write to it is lost at restart.
+  Keys with a passphrase are not loaded; `ssh-add -L` lists the ones that are.
 
 ## Look around first
 
