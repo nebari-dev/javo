@@ -215,6 +215,27 @@ in the home) with an engine such as `papermill`. Change a job with
 and its plain environment with `PUT /api/jobs/NAME/env`. Javo can notify
 about failed runs where the admin set that up; it does not send email.
 
+## Secrets an app needs
+
+An app you deploy can get one of the owner's secrets (an API key, a database
+password) as an environment variable, with the owner's approval. You never
+see the value, and you must never ask the person to paste a secret value into
+the chat, a file or a command.
+
+```sh
+javo-api /api/secret-names           # the owner's secrets: name and note only, never values
+javo-api POST /api/plans '{"source":"mcp:agent","proposal":{"action":"attach-secret","target":"NAME","params":{"secret":"STRIPE_KEY","env":"STRIPE_API_KEY"}}}'
+```
+
+The answer's `approveURL` is where the owner approves it: print it and ask
+them to open it. Nothing changes until they approve; then the app restarts
+with the variable set. `env` defaults to the secret's name. If the secret
+they need is not listed, ask them to add it in Settings > Secrets in the
+browser, then propose it. To take a secret off an app, propose
+`{"action":"detach-secret","target":"NAME","params":{"env":"STRIPE_API_KEY"}}`.
+Once an app holds a secret, you can no longer change or restart it yourself;
+propose plans for that too. A secret cannot be asked for for this app itself.
+
 ## MCP
 
 Agents outside Javo reach the same API at `$JAVO_URL/mcp` with a personal
