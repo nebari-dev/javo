@@ -40,5 +40,6 @@ func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 	root.AddCommand(podcmd.NewPodFiles())
 	root.AddCommand(podcmd.NewClearExecstack())
 	root.AddCommand(podcmd.NewEnvKernels())
+	root.AddCommand(podcmd.NewAgentHelper())
 	return root
 }

@@ -414,6 +414,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 					return ctrl.Result{}, err
 				}
 				WithSSHAgent(want, tpl)
+				WithAgentHelper(want, tpl, r.RunnerImage)
 				if problem != "" {
 					obs.EnvironmentProblem = problem
 				} else if pod, err = r.createPod(ctx, want); err != nil {

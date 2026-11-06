@@ -97,3 +97,52 @@ test('JAVO_API_URL, the gateway inside the cluster, is called instead of the pub
   assert.equal(code, 0)
   assert.equal(s.seen[0].url, '/api/me')
 })
+
+// In a coding-agent app the token is not in the agent's environment: the
+// helper sidecar on JAVO_API_SOCKET adds it, so javo-api sends none.
+async function socketServer(reply) {
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const seen = []
+  const s = createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, host: req.headers.host, body })
+      const [status, text] = reply(req)
+      res.writeHead(status, { 'content-type': 'application/json' }).end(text)
+    })
+  })
+  const path = join(mkdtempSync(join(tmpdir(), 'ja-')), 'api.sock')
+  await new Promise((r) => s.listen(path, r))
+  return { path, seen, close: () => s.close() }
+}
+
+test('with JAVO_API_SOCKET it calls the helper on the socket, without a token', async () => {
+  const s = await socketServer(() => [200, '{"id":"alice-1"}'])
+  const o = capture()
+  try {
+    const code = await run(['POST', '/api/workspaces', '{"a":1}'], { JAVO_API_SOCKET: s.path, JAVO_URL: 'http://127.0.0.1:9' }, o.write)
+    assert.equal(code, 0)
+    assert.deepEqual([s.seen[0].method, s.seen[0].url, s.seen[0].auth, s.seen[0].body], ['POST', '/api/workspaces', undefined, '{"a":1}'])
+    assert.match(o.out.join(''), /"id": "alice-1"/)
+  } finally {
+    s.close()
+  }
+})
+
+test('with JAVO_API_SOCKET an error answer still fails and odd paths are refused', async () => {
+  const s = await socketServer(() => [404, '{"title":"nope"}'])
+  const o = capture()
+  try {
+    assert.equal(await run(['/api/nothing'], { JAVO_API_SOCKET: s.path }, o.write), 1)
+    assert.match(o.out.join(''), /HTTP 404/)
+    for (const path of ['//127.0.0.1:9/x', '/healthz', '/api/../u/x', '/api/\\x']) {
+      assert.equal(await run([path], { JAVO_API_SOCKET: s.path }, () => {}), 2, path)
+    }
+    assert.equal(s.seen.length, 1)
+  } finally {
+    s.close()
+  }
+})

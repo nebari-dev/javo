@@ -6,6 +6,8 @@ person through the Javo API.
 
 - `$JAVO_URL` is the Javo web address, for example https://javo.example.com.
 - `$JAVO_TOKEN` is the token. Never print it, write it to a file or commit it.
+  A coding-agent app has no `$JAVO_TOKEN`: its token stays in a helper beside
+  the app (`$JAVO_API_SOCKET`), which adds it to each call `javo-api` makes.
 
 Call the API with `javo-api [METHOD] PATH [JSON]` (GET by default). It sends
 the token, prints the answer as JSON, and exits non-zero on an error answer.

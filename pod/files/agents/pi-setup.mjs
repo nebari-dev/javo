@@ -15,9 +15,10 @@
 // provider in models.json or auth.json may name $JAVO_AGENT_KEY. Everything
 // else in those files is the person's and is kept. settings.json is written
 // only when it is missing or still what pi-setup wrote last (its sha256 is
-// kept in .javo-managed.json), and not once pi is signed in (auth.json). The
-// key is never written: models.json names $JAVO_AGENT_KEY and pi reads the
-// variable when it sends a request.
+// kept in .javo-managed.json), and not once pi is signed in (auth.json). No
+// key is written, nor in pi's environment: JAVO_AGENT_BASE_URL is the local
+// address of the app's credential helper (internal/agenthelper), which adds
+// the key, and models.json holds a placeholder key that names no variable.
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -45,14 +46,11 @@ function wanted(env) {
     name: 'Javo',
     baseUrl: env.JAVO_AGENT_BASE_URL,
     api: 'openai-completions',
-    apiKey: '$JAVO_AGENT_KEY',
+    apiKey: HELPER_KEY,
     models: [{ id: env.JAVO_AGENT_MODEL, name: env.JAVO_AGENT_MODEL, maxTokens: 16384 }],
-  }
-  // Behind the gateway pi cannot tell the provider from the address, so it
-  // sends only what every OpenAI-compatible server takes. With the person's
-  // own key it sees the real address and works it out itself.
-  if (mode === 'platform') {
-    provider.compat = { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: 'max_tokens' }
+    // Behind the helper pi cannot tell the provider from the address, so it
+    // sends only what every OpenAI-compatible server takes.
+    compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: 'max_tokens' },
   }
   return {
     provider,
@@ -61,6 +59,8 @@ function wanted(env) {
 }
 
 const KEY = 'JAVO_AGENT_KEY'
+// HELPER_KEY is what pi sends as its key; the helper replaces it.
+const HELPER_KEY = 'javo-agent-helper'
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 
 // dropKeyRefs removes, in place, every string in v that names the key ($NAME,

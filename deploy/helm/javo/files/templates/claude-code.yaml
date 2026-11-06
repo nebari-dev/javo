@@ -62,7 +62,8 @@ spec:
   sample:
     path: /opt/javo/samples/claude-code
     title: Starter project
-  # The app gets an API token of its owner (JAVO_URL, JAVO_TOKEN) and a
+  # The app gets an API token of its owner, held by a helper sidecar that
+  # javo-api calls through (the agent never has JAVO_TOKEN), and a
   # guide to the API, which Claude Code reads as its managed instructions
   # file.
   apiToken: true

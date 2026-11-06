@@ -65,7 +65,8 @@ spec:
   sample:
     path: /opt/javo/samples/pi
     title: Starter project
-  # The app gets an API token of its owner (JAVO_URL, JAVO_TOKEN) and a
+  # The app gets an API token of its owner, held by a helper sidecar that
+  # javo-api calls through (the agent never has JAVO_TOKEN), and a
   # guide to the API. pi reads AGENTS.md from the folders above the one it
   # runs in, and the home folder is /home/user.
   apiToken: true
