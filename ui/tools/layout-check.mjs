@@ -56,6 +56,8 @@ const PAGES = [
   { path: '/' },
   { path: '/apps' },
   { path: '/apps/plots' },
+  { path: '/approvals' },
+  { path: '/approvals/a1', name: 'one approval from its link' },
   { path: '/apps/orders-api' },
   { path: '/apps/churn' },
   { path: '/apps/big-model', name: 'app too big, sizes open', act: [click('.failure button', 'Change size')] },
