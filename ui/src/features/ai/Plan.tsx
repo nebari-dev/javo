@@ -4,6 +4,7 @@ import { useDecidePlan } from './ai'
 import type { Change, Plan } from '../../api'
 import { problemText } from '../../lib/http'
 import { Button } from '../../components/Button'
+import { Confirm } from '../../components/Confirm'
 
 /** What a change does, field by field: the old value struck out, the new one added. */
 function Diff({ changes }: { changes: Change[] | null }) {
@@ -30,20 +31,27 @@ const DONE: Record<string, string> = {
 /**
  * A plan to review: its summary, the diff and Apply or Cancel. Apply makes
  * the change; Cancel turns it down. The server says whether it applied.
+ * With confirmDestructive, a change that cannot be undone asks first.
  */
 export function PlanReview({
   plan,
   applyLabel = 'Apply',
   cancelLabel = 'Cancel',
+  confirmDestructive = false,
   onDone,
+  onFailed,
 }: {
   plan: Plan
   applyLabel?: string
   cancelLabel?: string
+  confirmDestructive?: boolean
   onDone?: (p: Plan) => void
+  /** The server refused or could not make the change. */
+  onFailed?: (p: Plan) => void
 }) {
   const decide = useDecidePlan()
   const [current, setCurrent] = useState(plan)
+  const [asking, setAsking] = useState(false)
   const pending = current.state === 'pending'
   const run = (approve: boolean) =>
     decide.mutate(
@@ -53,8 +61,11 @@ export function PlanReview({
           setCurrent(p)
           onDone?.(p)
         },
+        onError: () => onFailed?.(current),
+        onSettled: () => setAsking(false),
       },
     )
+  const approve = () => (confirmDestructive && current.planned.destructive ? setAsking(true) : run(true))
   return (
     <div className="plan" aria-label={current.planned.summary}>
       <div className="plan-summary">{current.planned.summary}</div>
@@ -78,7 +89,7 @@ export function PlanReview({
             variant={current.planned.destructive ? 'danger' : 'primary'}
             icon={Check}
             disabled={decide.isPending}
-            onClick={() => run(true)}
+            onClick={approve}
           >
             {applyLabel}
           </Button>
@@ -86,6 +97,18 @@ export function PlanReview({
             {cancelLabel}
           </Button>
         </div>
+      )}
+      {asking && (
+        <Confirm
+          title={current.planned.summary}
+          body="This cannot be undone."
+          confirm={applyLabel}
+          icon={Check}
+          danger
+          busy={decide.isPending}
+          onConfirm={() => run(true)}
+          onCancel={() => setAsking(false)}
+        />
       )}
     </div>
   )

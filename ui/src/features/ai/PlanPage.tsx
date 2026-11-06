@@ -21,7 +21,7 @@ function credential(by: Plan['requestedBy'] | undefined): string {
  * Who proposed a plan, in words. An agent names itself, so its name is
  * given as what it calls itself, after the credential it used.
  */
-function requestedBy(source: string, by: Plan['requestedBy'] | undefined): string {
+export function requestedBy(source: string, by: Plan['requestedBy'] | undefined): string {
   if (source.startsWith('mcp:')) {
     const agent = `an agent that calls itself ${source.slice(4)}`
     const cred = credential(by)
@@ -55,7 +55,7 @@ export function PlanPage() {
             <ClipboardCheck size={15} aria-hidden="true" />
             {requestedBy(p.source, p.requestedBy)}
           </div>
-          <PlanReview plan={p} applyLabel="Approve" cancelLabel="Reject" />
+          <PlanReview plan={p} applyLabel="Approve" cancelLabel="Reject" confirmDestructive />
         </Card>
       </div>
     </>

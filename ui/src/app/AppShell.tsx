@@ -9,7 +9,7 @@ import { PART_ICONS } from '../components/Section'
 import { useIdpOutage } from '../lib/idp'
 import { ThemeSwitch } from '../components/ThemeSwitch'
 import { UserMenu } from './UserMenu'
-import { features } from '../features'
+import { features, type NavEntry } from '../features'
 import { useLogout, useMe, useServerInfo, useWarmHome } from '../lib/queries'
 import { buildLink } from '../lib/github'
 import { SlidingNav } from './NavHover'
@@ -17,6 +17,25 @@ import { BrandLogo, BrandName } from '../components/BrandLogo'
 import { readStored, writeStored } from '../lib/storage'
 
 const SIDEBAR_KEY = 'javo.sidebar'
+
+const noCount = () => 0
+
+/** A feature's sidebar item, with the count of what waits there when it has one. */
+function FeatureNavLink({ entry: { to, label, icon: Icon, useCount = noCount } }: { entry: NavEntry }) {
+  const count = useCount()
+  const name = count > 0 ? `${label}, ${count} waiting` : label
+  return (
+    <NavLink to={to} aria-label={name} title={name}>
+      <Icon size={17} aria-hidden="true" />
+      <span className="lbl">{label}</span>
+      {count > 0 && (
+        <span className="nav-count" aria-hidden="true">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </NavLink>
+  )
+}
 
 export function AppShell() {
   const navigate = useNavigate()
@@ -81,11 +100,8 @@ export function AppShell() {
             <PART_ICONS.templates size={17} aria-hidden="true" />
             <span className="lbl">Templates</span>
           </NavLink>
-          {features.flatMap((f) => (f.nav ? [f.nav] : [])).map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} aria-label={label} title={label}>
-              <Icon size={17} aria-hidden="true" />
-              <span className="lbl">{label}</span>
-            </NavLink>
+          {features.flatMap((f) => (f.nav ? [f.nav] : [])).map((entry) => (
+            <FeatureNavLink key={entry.to} entry={entry} />
           ))}
         </SlidingNav>
         {build && (

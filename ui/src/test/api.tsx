@@ -25,6 +25,7 @@ export interface Call {
 type Handler = Reply | ((call: Call) => Reply)
 
 const WARM = 'POST /api/files/warm'
+const PENDING = 'GET /api/plans'
 
 /**
  * Replaces fetch with a table keyed by "METHOD /path" (query string ignored
@@ -50,6 +51,9 @@ export function mockApi(routes: Record<string, Handler | Handler[]>) {
     // Pages warm the home folder on load; a test that does not mock it
     // neither sees the call nor has to answer it.
     if (key === WARM && !(key in routes)) return json({ status: 204 })
+    // The sidebar counts pending plans on every page; a test that does not
+    // mock the list sees none.
+    if (key === PENDING && !(key in routes)) return json({ body: [] })
     calls.push(call)
     const entry = routes[key]
     if (!entry) return json({ status: 500, body: { title: `unmocked ${key}` } })

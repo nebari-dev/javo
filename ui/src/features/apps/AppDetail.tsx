@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import type { Event as KubeEvent, PodRun, Step, Workspace } from '../../api'
 import { ApiAccessChoices, apiAccessLabel, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
+import { AppApprovals } from '../approvals/AppApprovals'
 import { Button } from '../../components/Button'
 import { EnvironmentRow } from '../environments/EnvironmentCard'
 import { CodeBlock } from '../../components/CodeBlock'
@@ -648,6 +649,7 @@ export function AppDetail() {
   const overview = (
       <div className="two">
         <div className="stack">
+          <AppApprovals name={ws.name} />
           {readyLink && <ReadyCard ws={ws} link={readyLink} building={building} onDismiss={justStarted.dismiss} />}
           {ws.previewOf && <PreviewOfBanner of={ws.previewOf} />}
           {stopped && (

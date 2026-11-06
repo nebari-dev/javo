@@ -1,14 +1,17 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { RouteObject } from 'react-router'
+import { approvalsFeature } from './approvals'
 import { filesFeature } from './files'
 import { jobsFeature } from './jobs'
 import { terminalFeature } from './terminal'
 
-interface NavEntry {
+export interface NavEntry {
   to: string
   label: string
   icon: LucideIcon
+  /** A hook: how many things wait there, shown as a count beside the label. */
+  useCount?: () => number
 }
 
 /** One line of Home's "Needs your attention", whichever feature it comes from. */
@@ -32,7 +35,7 @@ export interface FeatureModule {
 }
 
 /** Static: a feature exists in the UI when it is listed here. */
-export const features: FeatureModule[] = [jobsFeature, filesFeature, terminalFeature]
+export const features: FeatureModule[] = [jobsFeature, filesFeature, terminalFeature, approvalsFeature]
 
 export function useFeatureAttention(): AttentionEntry[] {
   return features.flatMap((f) => f.useAttention?.() ?? [])

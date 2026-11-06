@@ -22,6 +22,7 @@ import {
   type Plan,
   type Proposal,
 } from '../../api'
+import { PENDING_PLANS } from '../approvals/queries'
 
 const keys = {
   status: ['ai', 'status'] as const,
@@ -87,6 +88,8 @@ export function useDecidePlan() {
       qc.setQueryData(keys.plan(p.id), p)
       void qc.invalidateQueries({ queryKey: ['workspaces'] })
     },
+    // Decided or failed, it is no longer waiting: the inbox and its count read again.
+    onSettled: () => qc.invalidateQueries({ queryKey: PENDING_PLANS }),
   })
 }
 

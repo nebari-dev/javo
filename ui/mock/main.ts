@@ -630,6 +630,21 @@ const importRows = [
   { name: 'forecast', displayName: 'Sales forecast', template: 'panel', outcome: 'Create', message: 'Will be added, stopped.', wasRunning: true },
 ]
 
+const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
+const pendingPlans = [
+  plan({
+    id: 'a1', source: 'mcp:pi', requestedBy: { app: 'pi-agent' }, expiresAt: inMinutes(8),
+    planned: { action: 'attach-secret', target: 'plots', params: { secret: 'STRIPE_KEY', env: 'STRIPE_API_KEY' }, destructive: false,
+      summary: 'Give Plot explorer your secret STRIPE_KEY as STRIPE_API_KEY (it restarts)', changes: [{ field: 'STRIPE_API_KEY', from: '', to: 'secret STRIPE_KEY' }] },
+  }),
+  plan({
+    id: 'a2', source: 'mcp:claude-code', requestedBy: { token: 'laptop-cli' }, expiresAt: inMinutes(3),
+    planned: { action: 'delete', target: 'research-lab', destructive: true,
+      summary: 'Delete Research lab. Its home folder is kept.', changes: [{ field: 'app', from: 'Research lab', to: 'deleted' }] },
+  }),
+]
+const decidedPlans = new Set<string>()
+
 function reply(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
     status,
@@ -673,9 +688,16 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     })
   }
   if (key === 'POST /api/plans') return reply(201, plan())
+  // Two changes wait for approval (?approvals=none: nothing waits); a decided one leaves the list.
+  if (key === 'GET /api/plans') return reply(200, aiParams.get('approvals') === 'none' ? [] : pendingPlans.filter((p) => !decidedPlans.has(p.id)))
+  const pendingOne = pendingPlans.find((p) => url.pathname === `/api/plans/${p.id}`)
+  if (pendingOne && req.method === 'GET') return reply(200, pendingOne)
   if (key === 'GET /api/plans/p1') return reply(200, plan({ source: 'mcp:claude-code', planned: { action: 'stop', target: 'plots', summary: 'Stop Plot explorer', destructive: false, changes: [{ field: 'state', from: 'Running', to: 'Stopped' }] } }))
   const decided = url.pathname.match(/^\/api\/plans\/([^/]+)\/(approve|reject)$/)
-  if (decided) return reply(200, plan({ id: decided[1], state: decided[2] === 'approve' ? 'applied' : 'rejected' }))
+  if (decided) {
+    decidedPlans.add(decided[1])
+    return reply(200, plan({ id: decided[1], state: decided[2] === 'approve' ? 'applied' : 'rejected' }))
+  }
   if (key === 'POST /api/ai/feedback') return reply(204, null)
   if (key === 'POST /api/ai/command' && /\b(create|new)\b/i.test((await req.clone().json()).text))
     return reply(200, {

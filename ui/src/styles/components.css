@@ -513,3 +513,13 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .more-toggle{padding-inline:var(--more-pad);margin-inline:calc(-1 * var(--more-pad));border-radius:8px}
 /* The avatar is covered by its picture, so its hover is a ring. */
 .avatar-btn:hover{box-shadow:0 0 0 1px var(--border-strong),0 1px 0 1px var(--key-edge),0 0 0 5px var(--hover)}
+.nav-count{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent-text);font-size:var(--fs-2xs);font-weight:700;font-variant-numeric:tabular-nums}
+.nav a.active .nav-count{background:var(--on-ink);color:var(--ink)}
+.app.collapsed .nav a{position:relative}
+.app.collapsed .nav-count{position:absolute;top:2px;right:6px;min-width:16px;height:16px;padding:0 4px}
+.approval{display:flex;flex-direction:column;gap:4px}
+.approval-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.approval-head .label{margin:0}
+.approval-expiry{display:inline-flex;align-items:center;gap:4px}
+.app-approvals{display:flex;flex-direction:column;gap:10px}
+.app-approvals>.label{margin:0}
