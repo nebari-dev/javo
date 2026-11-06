@@ -741,7 +741,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   if (req.method === 'POST' && verb) {
     const w = apps.find((a) => a.name === verb[1])
     if (!w) return reply(404, { title: 'No app with that name.' })
-    return reply(200, { ...w, phase: verb[2] === 'stop' ? 'Stopping' : 'Starting' })
+    const answer = { ...w, phase: verb[2] === 'stop' ? 'Stopping' : 'Starting' }
+    // A started app is up by the next look, so its page shows the ready card.
+    if (verb[2] === 'start') Object.assign(w, { phase: 'Running', steps: allReady() })
+    return reply(200, answer)
   }
   if (key === 'GET /api/templates') return reply(200, { items: allTemplates, categories: templateCategories })
   if (key === 'GET /api/workspaces') {
