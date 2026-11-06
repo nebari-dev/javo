@@ -500,6 +500,19 @@ const listed = new URLSearchParams(window.location.search).get('empty') === '1' 
 // alice's API tokens; ?tokens=none shows the empty list, ?docs=0 hides the API docs link.
 const tokenParams = new URLSearchParams(window.location.search)
 const aiParams = tokenParams
+let sharingView = {
+  access: 'Restricted',
+  maxAccess: 'Public',
+  apiAccess: 'None',
+  users: [{ id: 'bob-5e6f7a8b', displayName: 'Bob', email: 'bob@example.com' }],
+  groups: [],
+  link: 'https://apps.example.com/u/alice/churn/',
+  levels: [
+    { value: 'Restricted', label: 'Only people added' },
+    { value: 'SignedIn', label: 'Anyone signed in' },
+    { value: 'Public', label: 'Anyone with the link' },
+  ],
+}
 const tokens: { id: string; name: string; scope: 'read' | 'read-write'; prefix: string; createdAt: string; lastUsedAt?: string; expiresAt?: string; app?: string }[] =
   tokenParams.get('tokens') === 'none'
     ? []
@@ -635,6 +648,15 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   if (key === 'POST /api/auth/logout') return reply(204, null)
   // AI is on in the mock unless ?ai=off.
   if (key === 'GET /api/ai/status') return reply(200, aiParams.get('ai') === 'off' ? aiOff : aiOn)
+  // The coding agent has no model yet (Describe it says how to add one); ?agent=off has no agent at all.
+  if (key === 'GET /api/ai/agent')
+    return reply(200, { available: aiParams.get('agent') !== 'off', mode: 'login', template: 'pi', templateName: 'pi coding agent' })
+  // Every app is shared with the people added, and a change is kept while the page is open.
+  const sharing = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/sharing$/)
+  if (sharing) {
+    if (req.method === 'PUT') sharingView = { ...sharingView, access: (await req.json()).access }
+    return reply(200, sharingView)
+  }
   const diag = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/diagnosis(\/explain)?$/)
   if (diag && req.method === 'GET') {
     if (diag[1] === 'churn') return reply(200, diagnosis({ proposals: [{ action: 'restart', target: 'churn', summary: 'Restart Churn dashboard' }] }))
