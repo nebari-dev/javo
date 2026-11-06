@@ -105,6 +105,13 @@ describe('Environment variables of jobs', () => {
     expect(screen.queryByRole('button', { name: 'Add a variable' })).toBeNull()
   })
 
+  it('says a value only its owner may see is hidden, without showing it', async () => {
+    base({ 'GET /api/jobs/weekly-report': { body: { ...weeklyDetail, env: [{ name: 'SLACK_TOKEN', hidden: true }] } } })
+    renderApp('/jobs/weekly-report')
+    const row = (await screen.findByTitle('SLACK_TOKEN')).closest('li') as HTMLElement
+    expect(within(row).getByTitle('Hidden: only its owner sees it').textContent).toBe('Hidden')
+  })
+
   it('changes the variables of a job from its page, from the next run on', async () => {
     const detail = {
       ...weeklyDetail,
@@ -119,7 +126,20 @@ describe('Environment variables of jobs', () => {
     })
     renderApp('/jobs/weekly-report')
     const term = await screen.findByText('Environment variables', { selector: 'dt' })
-    expect(term.nextElementSibling?.textContent).toBe('PGPASSWORD from WAREHOUSE_PASSWORDREGION=emea')
+    // Each variable is a row of its name and where its value comes from, each in full on hover.
+    const rows = within(term.nextElementSibling as HTMLElement)
+      .getAllByRole('listitem')
+      .map((li) => [...li.children].map((c) => [c.textContent, c.getAttribute('title')]))
+    expect(rows).toEqual([
+      [
+        ['PGPASSWORD', 'PGPASSWORD'],
+        ['Secret WAREHOUSE_PASSWORD', 'From the secret WAREHOUSE_PASSWORD'],
+      ],
+      [
+        ['REGION', 'REGION'],
+        ['emea', 'emea'],
+      ],
+    ])
     await userEvent.click(screen.getByRole('button', { name: 'Change variables' }))
     expect(screen.getByText('The next run gets the change; a run already going keeps what it started with.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Save variables' }) as HTMLButtonElement).disabled).toBe(true)
@@ -129,7 +149,7 @@ describe('Environment variables of jobs', () => {
     await userEvent.type(value, 'apac')
     await userEvent.click(screen.getByRole('button', { name: 'Save variables' }))
     await waitFor(() => expect(api.calls.find((c) => c.method === 'PUT')?.body).toEqual({ env: [{ name: 'REGION', value: 'apac' }] }))
-    expect(await screen.findByText('REGION=apac')).toBeTruthy()
+    expect((await screen.findByTitle('apac')).textContent).toBe('apac')
     expect(screen.queryByRole('button', { name: 'Save variables' })).toBeNull()
   })
 })

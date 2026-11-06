@@ -428,7 +428,17 @@ a.btn{text-decoration:none}
 .env-remove{margin-bottom:6px}
 .env-err{grid-column:1/-1}
 .env-none{display:block;padding:11px 13px}
-.env-shown+.env-shown{margin-top:2px}
+.env-rows{list-style:none;margin:0;padding:0}
+.env-rows li{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:8px 0;border-top:1px solid var(--border)}
+.env-rows li:first-child{border-top:0;padding-top:2px}
+/* The name is whole up to 60% of the row; the value has the rest, right-aligned. Either is cut with … past that, whole on hover. */
+.env-name{flex:none;max-width:60%;font-size:var(--fs-xs);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.env-value,.env-tag{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--text-2)}
+.env-value{flex:1 1 0;text-align:right}
+.env-tag{flex:0 1 auto}
+.env-tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--border);font-size:var(--fs-2xs)}
+.env-tag svg{flex:none}
+.env-tag .mono{min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* In a narrow place (a phone, a side card) each variable takes two lines,
    the name on the first and where its value comes from on the second. */
 @container (max-width:520px){

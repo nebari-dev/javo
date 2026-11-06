@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
-import { EnvEditor, envBody, envChanged, envLabel, rowsOf, type EnvRow } from './EnvEditor'
+import { EnvEditor, envBody, envChanged, rowsOf, type EnvRow } from './EnvEditor'
 import { choose } from '../../test/select'
 
 function Harness({
@@ -59,12 +59,6 @@ describe('envBody', () => {
     expect(envBody(rowsOf(now))).toEqual(now)
     expect(envChanged(rowsOf(now).reverse(), now)).toBe(false)
     expect(envChanged([...rowsOf(now), row({ name: 'X', nameTyped: true })], now)).toBe(true)
-  })
-
-  it('labels a value with its value and a secret with its name only', () => {
-    expect(envLabel({ name: 'LOG_LEVEL', value: 'debug' })).toBe('LOG_LEVEL=debug')
-    expect(envLabel({ name: 'KEY', secret: 'OPENAI_KEY' })).toBe('KEY from OPENAI_KEY')
-    expect(envLabel({ name: 'DB_PASSWORD', hidden: true })).toBe('DB_PASSWORD (value hidden: only its owner sees it)')
   })
 })
 

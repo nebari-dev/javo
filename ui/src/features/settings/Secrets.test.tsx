@@ -153,8 +153,8 @@ describe('Environment variables of apps', () => {
       'PUT /api/workspaces/dash/env': { body: { ...dash, env: [] } },
     })
     renderApp('/apps/dash')
-    expect(await screen.findByText('LOG_LEVEL=debug')).toBeTruthy()
-    expect(screen.getByText('OPENAI_API_KEY from OPENAI_KEY')).toBeTruthy()
+    expect((await screen.findByTitle('debug')).textContent).toBe('debug')
+    expect(screen.getByTitle('From the secret OPENAI_KEY').textContent).toBe('Secret OPENAI_KEY')
     await userEvent.click(screen.getByRole('button', { name: 'Change variables' }))
     expect(screen.getByText('Saving restarts the app with the change.')).toBeTruthy()
     expect((screen.getAllByLabelText('Value')[0] as HTMLInputElement).value).toBe('debug')
