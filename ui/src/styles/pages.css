@@ -129,6 +129,8 @@ a.btn{text-decoration:none}
 /* A long confirm label moves under Cancel on a narrow screen rather than past the edge. */
 .confirm:has(.confirm-details) .row{flex-wrap:wrap}
 .confirm:has(.confirm-details) .row .btn{white-space:normal;text-align:left}
+/* Wrapped, both buttons fill their line, so neither floats alone. */
+.confirm:has(.confirm-details) .row>.btn{flex:1 1 auto;justify-content:center}
 .trust-terms{margin:0;display:grid;gap:2px 0;font-size:var(--fs-sm)}
 .trust-terms dt{font-weight:600;color:var(--text)}
 .trust-terms dd{margin:0 0 8px;color:var(--text-2)}
