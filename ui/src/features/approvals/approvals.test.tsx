@@ -64,7 +64,7 @@ const del = plan({
   },
 })
 
-const ATTACH_Q = 'Let Sales dashboard use your secret STRIPE_KEY?'
+const ATTACH_Q = 'Let the Sales dashboard app use your secret STRIPE_KEY?'
 
 const chips = (card: HTMLElement) => within(within(card).getByRole('list', { name: 'What happens' })).getAllByRole('listitem').map((li) => li.textContent)
 
@@ -76,7 +76,10 @@ describe('Approvals inbox', () => {
     expect(within(card).getByRole('heading', { name: ATTACH_Q })).toBeTruthy()
     expect(within(card).getByText('Pi')).toBeTruthy()
     expect(within(card).getByText('in Sales agent, 2 minutes ago')).toBeTruthy()
-    expect(within(card).getByText('Sales dashboard will be able to use the secret. Pi will not see it.')).toBeTruthy()
+    expect(card.querySelector('.say')?.textContent).toBe('The Sales dashboard app will be redeployed with this secret. Pi will not see it.')
+    // The app is named as a link to its page, in the question and the line under it.
+    const named = within(card).getAllByRole('link', { name: 'Sales dashboard' })
+    expect(named.map((a) => a.getAttribute('href'))).toEqual(['/apps/sales-dashboard', '/apps/sales-dashboard'])
     expect(chips(card)).toEqual(['Sales dashboard restarts', 'Hidden from Pi', 'You can remove it later'])
     expect(within(card).getByText('8 min left')).toBeTruthy()
     expect(within(card).getByRole('button', { name: 'Give access' })).toBeTruthy()
@@ -100,12 +103,14 @@ describe('Approvals inbox', () => {
   it('names each action in its question, chips and main button', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/plans': { body: [restart, del] } })
     renderApp('/approvals')
-    const r = await screen.findByRole('article', { name: 'Restart Report builder?' })
+    const r = await screen.findByRole('article', { name: 'Restart the Report builder app?' })
     expect(within(r).getByText('Claude Code')).toBeTruthy()
     expect(within(r).getByText('with your API token laptop, 5 minutes ago')).toBeTruthy()
     expect(chips(r)).toEqual(['Offline for a moment', 'Files and settings kept'])
     expect(within(r).getByRole('button', { name: 'Restart' })).toBeTruthy()
-    const d = screen.getByRole('article', { name: 'Delete Research lab?' })
+    expect(r.querySelector('.say')?.textContent).toBe('The Report builder app will stop and start again. Anyone using it will need to reload the page.')
+    expect(within(r).getAllByRole('link', { name: 'Report builder' }).map((l) => l.getAttribute('href'))).toEqual(['/apps/report-builder', '/apps/report-builder'])
+    const d = screen.getByRole('article', { name: 'Delete the Research lab app?' })
     expect(chips(d)).toEqual(['App and link removed', 'Home folder kept', "Can't be undone"])
     expect(within(d).getByRole('button', { name: 'Delete Research lab' })).toBeTruthy()
   })
@@ -116,9 +121,9 @@ describe('Approvals inbox', () => {
     renderApp('/approvals')
     const pi = await screen.findByRole('article', { name: ATTACH_Q })
     expect(pi.querySelector('.agent img')?.getAttribute('src')).toMatch(/pi/)
-    const cc = screen.getByRole('article', { name: 'Restart Report builder?' })
+    const cc = screen.getByRole('article', { name: 'Restart the Report builder app?' })
     expect((cc.querySelector('.agent .mark') as HTMLElement | null)?.style.maskImage).toMatch(/claudecode/)
-    const unknown = screen.getByRole('article', { name: 'Restart Other?' })
+    const unknown = screen.getByRole('article', { name: 'Restart the Other app?' })
     expect(within(unknown).getByText('helper')).toBeTruthy()
     expect(unknown.querySelector('.agent .mark, .agent img')).toBeNull()
     expect(unknown.querySelector('.agent svg')).toBeTruthy()
@@ -133,8 +138,10 @@ describe('Approvals inbox', () => {
     renderApp('/approvals')
     const card = await screen.findByRole('article', { name: ATTACH_Q })
     await userEvent.click(within(card).getByRole('button', { name: 'Give access' }))
-    expect(await within(card).findByText('Access given. Sales dashboard is restarting with the secret.')).toBeTruthy()
-    expect(screen.getAllByRole('status').some((s) => s.textContent === 'Access given. Sales dashboard is restarting with the secret.')).toBe(true)
+    const done = 'Access given. The Sales dashboard app is restarting with the secret.'
+    await waitFor(() => expect(card.querySelector('.rq-done')?.textContent).toBe(done))
+    expect(within(card.querySelector('.rq-done') as HTMLElement).getByRole('link', { name: 'Sales dashboard' }).getAttribute('href')).toBe('/apps/sales-dashboard')
+    expect(screen.getAllByRole('status').some((s) => s.textContent === done && !s.closest('article'))).toBe(true)
     expect(within(card).queryByRole('button', { name: 'Give access' })).toBeNull()
     expect(calls.count('POST', '/api/plans/p1/approve')).toBe(1)
     expect(await screen.findByText('All decided. Nothing else needs you.')).toBeTruthy()
@@ -147,7 +154,7 @@ describe('Approvals inbox', () => {
       'POST /api/plans/p3/reject': { body: { ...restart, state: 'rejected' } },
     })
     renderApp('/approvals')
-    const card = await screen.findByRole('article', { name: 'Restart Report builder?' })
+    const card = await screen.findByRole('article', { name: 'Restart the Report builder app?' })
     await userEvent.click(within(card).getByRole('button', { name: 'Decline' }))
     expect(await within(card).findByText('Declined. Nothing changed.')).toBeTruthy()
     expect(calls.count('POST', '/api/plans/p3/reject')).toBe(1)
@@ -174,7 +181,7 @@ describe('Approvals inbox', () => {
       'POST /api/plans/p2/approve': { body: { ...del, state: 'applied' } },
     })
     renderApp('/approvals')
-    const card = await screen.findByRole('article', { name: 'Delete Research lab?' })
+    const card = await screen.findByRole('article', { name: 'Delete the Research lab app?' })
     await userEvent.click(within(card).getByRole('button', { name: 'Delete Research lab' }))
     expect(calls.count('POST', '/api/plans/p2/approve')).toBe(0)
     const dialog = await screen.findByRole('alertdialog', { name: 'Delete Research lab for good?' })
@@ -244,7 +251,7 @@ describe('App page', () => {
     expect(chips(banner)).toEqual(['Sales dashboard restarts', 'Hidden from Pi', 'You can remove it later'])
     expect(screen.queryByRole('article', { name: /Research lab/ })).toBeNull()
     await userEvent.click(within(banner).getByRole('button', { name: 'Give access' }))
-    expect(await within(banner).findByText('Access given. Sales dashboard is restarting with the secret.')).toBeTruthy()
+    await waitFor(() => expect(banner.querySelector('.rq-done')?.textContent).toBe('Access given. The Sales dashboard app is restarting with the secret.'))
     expect(calls.count('POST', '/api/plans/p1/approve')).toBe(1)
   })
 })

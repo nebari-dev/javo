@@ -1,5 +1,6 @@
 import { CircleAlert, CircleCheck, EyeOff, FolderOpen, Power, RotateCw, Trash2, Undo2, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import type { Plan } from '../../api'
 import { ago } from '../../lib/ago'
 
@@ -24,15 +25,15 @@ export interface Request {
   banner: ReactNode
   bannerText: string
   /** One line on what happens. */
-  say: string
+  say: ReactNode
   chips: Consequence[]
   /** The main button names the action; danger for one that cannot be undone. */
   primary: string
   danger: boolean
   /** Asked before a change that cannot be undone. */
   confirm?: { title: string; body: string; yes: string; no: string }
-  /** What happened, in the card and the toast. */
-  applied: string
+  /** What happened: in the card, with the app linked; and in the toast, as plain words. */
+  applied: ReactNode
   toast: string
   /** "give access", for "Couldn't give access: ...". */
   verb: string
@@ -96,10 +97,20 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const restarts = (app: string): Consequence => ({ tone: 'warn', icon: RotateCw, text: `${app} restarts`, detail: 'It is offline for a moment while the change is made.' })
 const kept: Consequence = { tone: 'ok', icon: CircleCheck, text: 'Files and settings kept', detail: 'Nothing in its home folder or settings changes.' }
 
+/** The app a request acts on, by name, linked to its page so it reads as an app and is one click away. */
+function AppRef({ name, to }: { name: string; to: string }) {
+  return (
+    <Link className="app-ref" to={`/apps/${encodeURIComponent(to)}`}>
+      {name}
+    </Link>
+  )
+}
+
 /** plan as a question the person answers, with what each answer does. */
 export function describe(plan: Plan): Request {
   const p = plan.planned
   const app = p.targetName || p.target
+  const ref = <AppRef name={app} to={p.target} />
   const agent = agentOf(plan).name
   const secret = p.params?.secret ?? ''
   const env = p.params?.env || secret
@@ -116,19 +127,19 @@ export function describe(plan: Plan): Request {
       case 'attach-secret':
         return {
           ...base,
-          question: <>Let {app} use your secret <code>{secret}</code>?</>,
-          questionText: `Let ${app} use your secret ${secret}?`,
+          question: <>Let the {ref} app use your secret <code>{secret}</code>?</>,
+          questionText: `Let the ${app} app use your secret ${secret}?`,
           banner: <>{agent} asks: let this app use your secret <code>{secret}</code>?</>,
           bannerText: `${agent} asks: let this app use your secret ${secret}?`,
-          say: `${app} will be able to use the secret. ${agent} will not see it.`,
+          say: <>The {ref} app will be redeployed with this secret. {agent} will not see it.</>,
           chips: [
             { ...restarts(app), detail: 'It is offline for a moment while the secret is added.' },
             { tone: 'ok', icon: EyeOff, text: `Hidden from ${agent}`, detail: `Only ${app} can read the secret. ${agent} never sees it.` },
             { tone: 'ok', icon: Undo2, text: 'You can remove it later', detail: `From ${app}'s settings, at any time.` },
           ],
           primary: 'Give access',
-          applied: `Access given. ${app} is restarting with the secret.`,
-          toast: `Access given. ${app} is restarting with the secret.`,
+          applied: <>Access given. The {ref} app is restarting with the secret.</>,
+          toast: `Access given. The ${app} app is restarting with the secret.`,
           verb: 'give access',
           past: 'You gave access.',
           details: [{ label: 'Secret', value: <code>{secret}</code> }, { label: 'Name inside the app', value: <code>{env}</code> }, appRow],
@@ -137,18 +148,18 @@ export function describe(plan: Plan): Request {
         const from = p.changes?.[0]?.from.replace(/^secret /, '') || env
         return {
           ...base,
-          question: <>Take your secret <code>{from}</code> away from {app}?</>,
-          questionText: `Take your secret ${from} away from ${app}?`,
+          question: <>Take your secret <code>{from}</code> away from the {ref} app?</>,
+          questionText: `Take your secret ${from} away from the ${app} app?`,
           banner: <>{agent} asks: take your secret <code>{from}</code> away from this app?</>,
           bannerText: `${agent} asks: take your secret ${from} away from this app?`,
-          say: `${app} will no longer be able to use the secret. The secret itself is kept.`,
+          say: <>The {ref} app will be redeployed without this secret. The secret itself is kept.</>,
           chips: [
             { ...restarts(app), detail: 'It is offline for a moment while the secret is removed.' },
             { tone: 'ok', icon: CircleCheck, text: 'Your secret is kept', detail: 'Only this app loses it. Your other apps keep theirs.' },
           ],
           primary: 'Remove access',
-          applied: `Access removed. ${app} is restarting without the secret.`,
-          toast: `Access removed. ${app} is restarting without the secret.`,
+          applied: <>Access removed. The {ref} app is restarting without the secret.</>,
+          toast: `Access removed. The ${app} app is restarting without the secret.`,
           verb: 'remove access',
           past: 'You removed access.',
           details: [{ label: 'Secret', value: <code>{from}</code> }, { label: 'Name inside the app', value: <code>{env}</code> }, appRow],
@@ -157,14 +168,14 @@ export function describe(plan: Plan): Request {
       case 'restart':
         return {
           ...base,
-          question: `Restart ${app}?`,
-          questionText: `Restart ${app}?`,
+          question: <>Restart the {ref} app?</>,
+          questionText: `Restart the ${app} app?`,
           banner: `${agent} asks: restart this app?`,
           bannerText: `${agent} asks: restart this app?`,
-          say: `${app} will stop and start again. Anyone using it will need to reload the page.`,
+          say: <>The {ref} app will stop and start again. Anyone using it will need to reload the page.</>,
           chips: [{ tone: 'warn', icon: Power, text: 'Offline for a moment', detail: 'Anyone using it will need to reload the page.' }, kept],
           primary: 'Restart',
-          applied: `Restarted. ${app} is starting again.`,
+          applied: <>Restarted. The {ref} app is starting again.</>,
           toast: `${app} is restarting.`,
           verb: `restart ${app}`,
           past: `You restarted ${app}.`,
@@ -173,18 +184,18 @@ export function describe(plan: Plan): Request {
       case 'stop':
         return {
           ...base,
-          question: `Stop ${app}?`,
-          questionText: `Stop ${app}?`,
+          question: <>Stop the {ref} app?</>,
+          questionText: `Stop the ${app} app?`,
           banner: `${agent} asks: stop this app?`,
           bannerText: `${agent} asks: stop this app?`,
-          say: `${app} will stop. Its link does not work until it is started again.`,
+          say: <>The {ref} app will stop. Its link does not work until it is started again.</>,
           chips: [
             { tone: 'warn', icon: Power, text: `${app} goes offline`, detail: 'Its link does not work while it is stopped.' },
             kept,
             { tone: 'ok', icon: Undo2, text: 'You can start it again', detail: `From ${app}'s page, at any time.` },
           ],
           primary: 'Stop',
-          applied: `Stopped. ${app} is shutting down.`,
+          applied: <>Stopped. The {ref} app is shutting down.</>,
           toast: `${app} is stopping.`,
           verb: `stop ${app}`,
           past: `You stopped ${app}.`,
@@ -193,14 +204,14 @@ export function describe(plan: Plan): Request {
       case 'start':
         return {
           ...base,
-          question: `Start ${app}?`,
-          questionText: `Start ${app}?`,
+          question: <>Start the {ref} app?</>,
+          questionText: `Start the ${app} app?`,
           banner: `${agent} asks: start this app?`,
           bannerText: `${agent} asks: start this app?`,
-          say: `${app} will start. Its link works again once it is running.`,
+          say: <>The {ref} app will start. Its link works again once it is running.</>,
           chips: [kept, { tone: 'ok', icon: Undo2, text: 'You can stop it again', detail: `From ${app}'s page, at any time.` }],
           primary: 'Start',
-          applied: `Started. ${app} is starting.`,
+          applied: <>Started. The {ref} app is starting.</>,
           toast: `${app} is starting.`,
           verb: `start ${app}`,
           past: `You started ${app}.`,
@@ -210,14 +221,14 @@ export function describe(plan: Plan): Request {
         const size = p.changes?.[0]?.to ?? ''
         return {
           ...base,
-          question: `Make ${app} ${cap(size)}?`,
-          questionText: `Make ${app} ${cap(size)}?`,
+          question: <>Make the {ref} app {cap(size)}?</>,
+          questionText: `Make the ${app} app ${cap(size)}?`,
           banner: `${agent} asks: make this app ${cap(size)}?`,
           bannerText: `${agent} asks: make this app ${cap(size)}?`,
-          say: `${app} will restart at the new size. Anyone using it will need to reload the page.`,
+          say: <>The {ref} app will restart at the new size. Anyone using it will need to reload the page.</>,
           chips: [restarts(app), kept, { tone: 'ok', icon: Undo2, text: 'You can change it back', detail: `From ${app}'s page, at any time.` }],
           primary: 'Resize',
-          applied: `Resized. ${app} is restarting at the new size.`,
+          applied: <>Resized. The {ref} app is restarting at the new size.</>,
           toast: `${app} is restarting at the new size.`,
           verb: `resize ${app}`,
           past: `You resized ${app}.`,
@@ -228,11 +239,11 @@ export function describe(plan: Plan): Request {
         return {
           ...base,
           danger: true,
-          question: `Delete ${app}?`,
-          questionText: `Delete ${app}?`,
+          question: <>Delete the {ref} app?</>,
+          questionText: `Delete the ${app} app?`,
           banner: `${agent} asks: delete this app?`,
           bannerText: `${agent} asks: delete this app?`,
-          say: `${app} and its link will be removed. Files in its home folder stay.`,
+          say: <>The {ref} app and its link will be removed. Files in its home folder stay.</>,
           chips: [
             { tone: 'err', icon: Trash2, text: 'App and link removed', detail: 'Anyone with the link loses it.' },
             { tone: 'ok', icon: FolderOpen, text: 'Home folder kept', detail: 'Files in its home folder stay where they are.' },
@@ -274,13 +285,18 @@ export function describe(plan: Plan): Request {
   return { ...r, details: [...r.details, ...tail] }
 }
 
-/** What became of a decided plan, in words: the result of deciding it now, or of an earlier decision. */
-export function outcome(plan: Plan, r: Request, earlier = false): string {
+/** What became of a decided plan, as the card shows it: the app linked when the change was just made. */
+export function outcome(plan: Plan, r: Request, earlier = false): ReactNode {
+  return !earlier && (plan.state === 'applied' || plan.state === 'applying') ? r.applied : outcomeText(plan, r, earlier)
+}
+
+/** What became of a decided plan, in plain words, for a toast or an error: the result of deciding it now, or of an earlier decision. */
+export function outcomeText(plan: Plan, r: Request, earlier = false): string {
   const agent = agentOf(plan).name
   switch (plan.state) {
     case 'applied':
     case 'applying':
-      return earlier ? `Already decided. ${r.past}` : r.applied
+      return earlier ? `Already decided. ${r.past}` : r.toast
     case 'rejected':
       return earlier ? 'Already decided. You declined it. Nothing changed.' : 'Declined. Nothing changed.'
     case 'expired':

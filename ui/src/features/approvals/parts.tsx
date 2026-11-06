@@ -6,7 +6,7 @@ import { Confirm } from '../../components/Confirm'
 import { KindLogo } from '../../components/KindLogo'
 import { problemText } from '../../lib/http'
 import { useDecidePlan } from '../ai/ai'
-import { agentOf, describe, failed, minutesLeft, outcome, type Consequence } from './copy'
+import { agentOf, describe, failed, minutesLeft, outcome, outcomeText, type Consequence } from './copy'
 
 /** The asking agent's own logo, or a plain agent icon when Javo does not know it. */
 export function AgentMark({ plan }: { plan: Plan }) {
@@ -76,7 +76,7 @@ export function useDecision(plan: Plan, { onDecided, toast }: { onDecided?: (p: 
       {
         onSuccess: (p) => {
           setCurrent(p)
-          const text = outcome(p, r)
+          const text = outcomeText(p, r)
           if (p.state === 'failed') setError(text)
           else toast?.(approve ? r.toast : text)
           onDecided?.(p)

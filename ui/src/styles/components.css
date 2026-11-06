@@ -506,6 +506,9 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .codeblock.cmdline code{color:var(--code-foreground,var(--text));overflow-wrap:anywhere}
 .codeblock a{text-decoration:underline dotted;text-underline-offset:2px}
 
+/* An app named in a sentence, such as an approval's question: set apart and linked to its page. */
+.app-ref{color:var(--accent-text);font-weight:600;text-decoration:none}
+.app-ref:hover{text-decoration:underline;text-underline-offset:3px}
 /* Whose app an admin acts on, set apart in a confirmation's title. */
 .confirm-owner{color:var(--accent-text)}
 
