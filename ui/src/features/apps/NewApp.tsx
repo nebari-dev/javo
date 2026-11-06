@@ -1,8 +1,8 @@
 import { File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentLabel, useAgentStatus, useAgentSuggestions, useBuildWithAgent } from '../ai/ai'
-import type { DraftView, Template } from '../../api'
+import type { AgentStatus, DraftView, Template } from '../../api'
 import { ApiAccessChoices, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
@@ -90,6 +90,35 @@ function AiMark({ show }: { show: boolean }) {
       Filled by AI
     </span>
   ) : null
+}
+
+/**
+ * Describe it while the agent cannot build: kept in view, so people who would
+ * rather describe an app than pick a framework know the way exists, with what
+ * turns it on.
+ */
+function DescribeOff({ status }: { status: AgentStatus }) {
+  const id = useId()
+  return (
+    <Card className="pad describe" aria-label="Describe it">
+      <PartTitle part="ai" className="card-h">
+        Describe it
+      </PartTitle>
+      <div className="field">
+        <label htmlFor={id}>Describe the app</label>
+        <textarea id={id} className="input" rows={2} disabled placeholder="A Streamlit dashboard of sales/data.csv" aria-describedby={`${id}-why`} />
+      </div>
+      <p id={`${id}-why`} className="muted small">
+        {status.available ? (
+          <>
+            The coding agent has no model yet. <Link to="/settings/secrets">Add your own key</Link>, or ask your admin to set one up.
+          </>
+        ) : (
+          'Ask your admin to turn on the coding agent.'
+        )}
+      </p>
+    </Card>
+  )
 }
 
 /** Describe it: plain words go to the coding agent, which builds and deploys the app; its page opens. */
@@ -547,6 +576,7 @@ export function NewApp() {
             ) : (
               <DescribeIt agent={agent} />
             ))}
+          {!agent && agentStatus && !wanted && <DescribeOff status={agentStatus} />}
           <Section part="app" title="App">
           {tpl && !listOpen ? (
             <div className="stack tight-gap">

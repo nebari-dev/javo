@@ -247,6 +247,8 @@ a.btn{text-decoration:none}
 .input:focus{outline:2px solid color-mix(in srgb,var(--accent) 30%,transparent);border-color:var(--accent)}
 .input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .input.err{border-color:var(--err)}
+/* A field that cannot be used now reads as set back from the form. */
+.input:disabled{background:var(--surface-2);cursor:not-allowed;resize:none}
 .input.mono{font-family:var(--font-mono)}
 .review{position:sticky;top:90px}
 .review h3{margin-bottom:12px}

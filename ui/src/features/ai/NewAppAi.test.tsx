@@ -38,11 +38,21 @@ describe('Describe it', () => {
     expect(calls.count('POST', '/api/ai/draft')).toBe(0)
   })
 
-  it('is not there without a model for the agent', async () => {
+  it('without a model for the agent, stays in view and points to adding your own key', async () => {
     api({ 'GET /api/ai/agent': { body: { ...agent, mode: 'login' } } })
     renderApp('/apps/new')
-    await screen.findByRole('radio', { name: /Streamlit/ })
-    expect(screen.queryByLabelText('Describe it')).toBeNull()
+    const card = await screen.findByLabelText('Describe it')
+    expect(within(card).getByRole('textbox', { name: 'Describe the app' }).hasAttribute('disabled')).toBe(true)
+    expect(within(card).queryByRole('button', { name: /Build with/ })).toBeNull()
+    expect(within(card).getByRole('link', { name: 'Add your own key' }).getAttribute('href')).toBe('/settings/secrets')
+  })
+
+  it('without a coding agent on the platform, stays in view and says to ask an admin', async () => {
+    api({ 'GET /api/ai/agent': { body: { ...agent, available: false, templateName: '' } } })
+    renderApp('/apps/new')
+    const card = await screen.findByLabelText('Describe it')
+    expect(within(card).getByRole('textbox', { name: 'Describe the app' }).hasAttribute('disabled')).toBe(true)
+    expect(within(card).getByText('Ask your admin to turn on the coding agent.')).toBeTruthy()
   })
 })
 
