@@ -696,8 +696,12 @@ config:
   # change in the browser. Needs no model.
   mcp:
     enabled: true
-    # Where agents reach the gateway, for approve links. Empty: https://<urls.uiHost>
-    # (with urls.scheme), or relative links when uiHost is not set either.
+    # Where agents and the person's browser reach the gateway: for approve
+    # links, the addresses in /llms.txt and the device login link. /llms.txt
+    # and the device login use it even when MCP is off. Empty:
+    # https://<urls.uiHost> (with urls.scheme); when uiHost is not set either,
+    # approve links are relative and /llms.txt and the device login use the
+    # address the request came to.
     publicURL: ""
   # Proposed changes wait this long for approval.
   plans:

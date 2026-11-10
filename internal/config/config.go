@@ -289,9 +289,12 @@ type AIFeatures struct {
 // MCPCfg configures the Model Context Protocol endpoint for agents.
 type MCPCfg struct {
 	Enabled bool `json:"enabled"`
-	// PublicURL is the address agents reach the gateway at, for approve links
-	// and the protected resource metadata. Default: urls.scheme://urls.uiHost
-	// when uiHost is set.
+	// PublicURL is the address agents and the person's browser reach the
+	// gateway at, for approve links, the protected resource metadata, the
+	// addresses in /llms.txt and the device login link. /llms.txt and the
+	// device login use it even when MCP is off; when it is empty they use the
+	// address the request came to. Default: urls.scheme://urls.uiHost when
+	// uiHost is set.
 	PublicURL string `json:"publicURL"`
 }
 
