@@ -299,6 +299,7 @@ const AUDIT = `(() => {
   const block = (e) => /^(UL|OL|DL|TABLE)$/.test(e.tagName) || /grid|flex/.test(getComputedStyle(e).display) && e.childElementCount > 1 || boxes.includes(e)
   for (const t of [...scope.querySelectorAll('.more-toggle')].filter(visible)) {
     const more = t.closest('.more')
+    // A toggle outside .more (the palette's AskAi) has no list to measure against.
     if (!more) continue
     const rt = t.getBoundingClientRect()
     let prev = more.previousElementSibling

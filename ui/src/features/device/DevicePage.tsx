@@ -20,7 +20,9 @@ function hours(h: number): string {
   return h === 1 ? '1 hour' : `${h} hours`
 }
 
-function lookupProblem(err: unknown): string {
+/** The words for a failed lookup, approve or deny, by what the server said. */
+function requestProblem(err: unknown): string {
+  if (err instanceof ApiError && err.status === 409) return 'This request was already answered.'
   if (err instanceof ApiError && err.status === 410) return 'This request has expired. Ask your agent to start again.'
   if (err instanceof ApiError && err.status === 404) return 'No request has this code. Check it and try again.'
   return problemText(err)
@@ -32,8 +34,8 @@ function CodeForm() {
   const [code, setCode] = useState('')
   const go = (e: FormEvent) => {
     e.preventDefault()
-    const c = code.trim().toUpperCase()
-    if (c) navigate(`/device?code=${encodeURIComponent(c)}`)
+    const c = code.replace(/[^a-z0-9]/gi, '').toUpperCase()
+    if (c) navigate(`/device?code=${encodeURIComponent(c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c)}`)
   }
   return (
     <Card className="sheet device">
@@ -66,7 +68,7 @@ function Request({ code }: { code: string }) {
     },
   })
   const result = decide.isSuccess ? (decide.data ? 'Approved. You can go back to your agent.' : 'Denied. The agent gets no access.') : ''
-  const problem = q.isError ? lookupProblem(q.error) : decide.isError ? problemText(decide.error) : ''
+  const problem = q.isError ? requestProblem(q.error) : decide.isError ? requestProblem(decide.error) : ''
   const earlier = q.data && q.data.state !== 'pending' ? 'This request was already answered.' : ''
   return (
     <Card className="sheet device">
@@ -81,16 +83,15 @@ function Request({ code }: { code: string }) {
           <p>An agent asked to act as you through the API for {hours(q.data.tokenHours)}. Approve only if you started this yourself just now.</p>
           <ul className="cons" aria-label="What the agent can do">
             {GRANTS.map((g) => (
-              <li key={g} className="ok">
+              <li key={g} className="warn">
                 <i>
-                  <Check size={16} aria-hidden="true" />
+                  <CircleAlert size={16} aria-hidden="true" />
                 </i>
-                <div>
-                  <b>{g}</b>
-                </div>
+                <div>{g}</div>
               </li>
             ))}
           </ul>
+          <p className="devwarn">This gives the agent the same power you have.</p>
           {result ? (
             <p className="rq-done">
               <CircleCheck size={17} aria-hidden="true" />

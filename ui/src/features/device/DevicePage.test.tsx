@@ -85,6 +85,41 @@ describe('Device login page', () => {
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeTruthy()
   })
 
+  it.each(['WDJBMJHT', 'wdjb mjht', ' wdjb-mjht '])('opens the request for the code typed as %j', async (typed) => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() } })
+    renderApp('/device')
+    await userEvent.type(await screen.findByLabelText('Code shown by your agent'), typed)
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(location()).toBe('/device?code=WDJB-MJHT')
+  })
+
+  it('says what was handed over: the same power the person has, as a warning', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() } })
+    renderApp('/device?code=WDJB-MJHT')
+    expect(await screen.findByText('This gives the agent the same power you have.')).toBeTruthy()
+    const items = screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('Write files in your home folder'))
+    expect(items[0].className).toContain('warn')
+    expect(items[0].querySelector('b')).toBeNull()
+  })
+
+  it('says a request that was already decided was already answered', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view({ state: 'approved' }) } })
+    renderApp('/device?code=WDJB-MJHT')
+    expect(await screen.findByText('This request was already answered.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+  })
+
+  it.each([
+    [404, 'No request has this code. Check it and try again.'],
+    [410, 'This request has expired. Ask your agent to start again.'],
+    [409, 'This request was already answered.'],
+  ])('shows the same words when Approve answers %i', async (status, text) => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() }, 'POST /api/auth/device/WDJB-MJHT/approve': { status, body: { title: 'x' } } })
+    renderApp('/device?code=WDJB-MJHT')
+    await userEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(text)
+  })
+
   it('returns to the same address after signing in', async () => {
     mockApi({ 'GET /api/me': { status: 401, body: { title: 'Unauthorized' } }, [ROUTE]: { status: 401, body: { title: 'Unauthorized' } } })
     renderApp('/device?code=WDJB-MJHT')

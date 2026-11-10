@@ -601,6 +601,7 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .sheet.device .devcode{margin:0;text-align:center}
 .sheet.device .devcode code{font-size:var(--fs-xl);letter-spacing:.12em;padding:10px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}
 .sheet.device p{margin:0}
+.sheet.device .devwarn{font-weight:600}
 .allreq{text-align:center;margin-top:16px;font-size:var(--fs-sm)}
 /* A request on its app's page, with the actions inline. */
 .bnr-stack{display:grid;gap:12px;margin-bottom:22px}
