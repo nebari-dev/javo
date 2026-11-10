@@ -44,9 +44,9 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .app.collapsed .brand-home{justify-content:center}
 .app.collapsed .collapse-btn{margin:0}
 .app.collapsed .nav a{justify-content:center;padding:10px 0}
-.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:14px 32px;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--border)}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:14px max(32px,calc((100% - 1440px) / 2 + 32px));background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--border)}
 .top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
-.main{padding:32px 32px 64px;max-width:1440px;width:100%}
+.main{padding:32px 32px 64px;max-width:1440px;width:100%;margin-inline:auto}
 .top .icon-btn{width:var(--btn-h);height:var(--btn-h)}
 .top .icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .top .icon-btn.menu-btn{display:none}
@@ -359,7 +359,7 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 @media (max-width:760px){.empty-state{grid-template-columns:minmax(0,1fr);justify-items:center;text-align:center}}
 
 /* Search field and command palette. Spacing is on the 8px grid (4px only between keys of one shortcut). */
-.search-trigger{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:240px;max-width:560px;height:var(--btn-h);padding:0 8px 0 16px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-3);font-size:var(--fs-sm);box-shadow:0 1px 0 var(--key-edge);transition:border-color .12s ease}
+.search-trigger{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:240px;max-width:400px;height:var(--btn-h);padding:0 8px 0 16px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-3);font-size:var(--fs-sm);box-shadow:0 1px 0 var(--key-edge);transition:border-color .12s ease}
 .search-trigger:hover{border-color:var(--border-strong);color:var(--text-2)}
 .search-trigger svg{flex:none}
 .search-trigger-text{flex:1;text-align:left}
