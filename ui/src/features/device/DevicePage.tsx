@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { approveDeviceLogin, denyDeviceLogin, getDeviceLogin } from '../../api'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { ago } from '../../lib/ago'
 import { ApiError, problemText } from '../../lib/http'
 
 const GRANTS = [
@@ -80,6 +81,7 @@ function Request({ code }: { code: string }) {
           <p className="devcode">
             <code>{q.data.userCode}</code>
           </p>
+          <p className="muted">{`Requested ${ago(q.data.createdAt)}`}</p>
           <p>An agent asked to act as you through the API for {hours(q.data.tokenHours)}. Approve only if you started this yourself just now.</p>
           <ul className="cons" aria-label="What the agent can do">
             {GRANTS.map((g) => (
@@ -91,7 +93,7 @@ function Request({ code }: { code: string }) {
               </li>
             ))}
           </ul>
-          <p className="devwarn">This gives the agent the same power you have.</p>
+          <p className="devwarn">This gives the agent the same power you have as a member.</p>
           {result ? (
             <p className="rq-done">
               <CircleCheck size={17} aria-hidden="true" />

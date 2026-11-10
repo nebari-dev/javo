@@ -34,6 +34,18 @@ describe('Device login page', () => {
       expect(screen.getByText(t)).toBeTruthy()
   })
 
+  it('says when the request was made', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view({ createdAt: new Date(Date.now() - 125_000).toISOString() }) } })
+    renderApp('/device?code=WDJB-MJHT')
+    expect(await screen.findByText('Requested 2 minutes ago')).toBeTruthy()
+  })
+
+  it('says a request made under a minute ago was made just now', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() } })
+    renderApp('/device?code=WDJB-MJHT')
+    expect(await screen.findByText('Requested just now')).toBeTruthy()
+  })
+
   it('says "1 hour" for a one hour token', async () => {
     mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view({ tokenHours: 1 }) } })
     renderApp('/device?code=WDJB-MJHT')
@@ -93,10 +105,10 @@ describe('Device login page', () => {
     expect(location()).toBe('/device?code=WDJB-MJHT')
   })
 
-  it('says what was handed over: the same power the person has, as a warning', async () => {
+  it('says what was handed over: the same power the person has as a member, as a warning', async () => {
     mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() } })
     renderApp('/device?code=WDJB-MJHT')
-    expect(await screen.findByText('This gives the agent the same power you have.')).toBeTruthy()
+    expect(await screen.findByText('This gives the agent the same power you have as a member.')).toBeTruthy()
     const items = screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('Write files in your home folder'))
     expect(items[0].className).toContain('warn')
     expect(items[0].querySelector('b')).toBeNull()
