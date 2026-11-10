@@ -295,20 +295,8 @@ func (a *Authenticator) tokenPrincipal(ctx context.Context, w http.ResponseWrite
 	case err != nil:
 		return fail("token lookup", err)
 	}
-	if isTokenRoute(r.URL.Path) {
-		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgTokenCannotManageTokens))
-		return authz.Principal{}, token.Token{}, false
-	}
-	if IsPlanDecision(r.URL.Path) {
-		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgPlanSessionOnly))
-		return authz.Principal{}, token.Token{}, false
-	}
-	if IsTrustChange(r.URL.Path) {
-		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgTrustSessionOnly))
-		return authz.Principal{}, token.Token{}, false
-	}
-	if IsDeviceDecision(r.URL.Path) {
-		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgDeviceSessionOnly))
+	if code, ok := SessionOnlyRefusal(r.URL.Path); ok {
+		problem.Write(w, http.StatusForbidden, reasons.Msg(code))
 		return authz.Principal{}, token.Token{}, false
 	}
 	if !tok.Scope.Allows(r.Method, r.URL.Path) {
@@ -421,6 +409,29 @@ func (a *Authenticator) elevated(tok token.Token, jobTemplate, p string) bool {
 		}
 	}
 	return false
+}
+
+// sessionOnlyRoutes are the routes only a signed-in person in the browser
+// may use, each with the refusal an API token gets there.
+var sessionOnlyRoutes = []struct {
+	match   func(path string) bool
+	refusal reasons.MessageCode
+}{
+	{isTokenRoute, reasons.MsgTokenCannotManageTokens},
+	{IsPlanDecision, reasons.MsgPlanSessionOnly},
+	{IsTrustChange, reasons.MsgTrustSessionOnly},
+	{IsDeviceDecision, reasons.MsgDeviceSessionOnly},
+}
+
+// SessionOnlyRefusal is the refusal an API token gets at path p, and true,
+// when p is a route only a browser session may use.
+func SessionOnlyRefusal(p string) (reasons.MessageCode, bool) {
+	for _, r := range sessionOnlyRoutes {
+		if r.match(p) {
+			return r.refusal, true
+		}
+	}
+	return "", false
 }
 
 // isTokenRoute is true for the routes that create, list and revoke tokens,

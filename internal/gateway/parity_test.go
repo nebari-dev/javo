@@ -59,20 +59,15 @@ func TestEveryUIOperationAcceptsToken(t *testing.T) {
 				var wantCode int
 				var wantTitle string
 				switch {
-				case op.sessionOnly() && authn.IsPlanDecision(op.path):
-					// Approving a proposed change is for a person in the browser.
-					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgPlanSessionOnly)
-				case op.sessionOnly() && authn.IsTrustChange(op.path):
-					// Letting an agent act without asking is for its owner in the browser.
-					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgTrustSessionOnly)
-				case op.sessionOnly() && authn.IsDeviceDecision(op.path):
-					// Approving an agent's sign-in is for a person in the browser.
-					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgDeviceSessionOnly)
 				case op.sessionOnly():
-					if op.path != "/api/tokens" && op.path != "/api/tokens/{id}" {
-						t.Fatalf("%s needs a browser session; only the token and plan decision operations may", op)
+					// The token routes, approving a proposed change or an
+					// agent's sign-in, and letting an agent act without
+					// asking are for a person in the browser.
+					code, ok := authn.SessionOnlyRefusal(op.path)
+					if !ok {
+						t.Fatalf("%s needs a browser session; only the operations authn.SessionOnlyRefusal names may", op)
 					}
-					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgTokenCannotManageTokens)
+					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(code)
 				case readOnly && op.method != http.MethodGet:
 					wantCode, wantTitle = http.StatusForbidden, reasons.Msg(reasons.MsgTokenReadOnly)
 				default:
