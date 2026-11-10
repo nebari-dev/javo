@@ -157,6 +157,17 @@ type ClusterFact struct {
 	ObservedAt dbtime.Time
 }
 
+type DeviceLogin struct {
+	ID         string
+	UserCode   string
+	CodeHash   []byte
+	CreatedAt  dbtime.Time
+	ExpiresAt  dbtime.Time
+	LastPollAt dbtime.Time
+	State      string
+	Owner      string
+}
+
 type Group struct {
 	Name string
 	Gid  int64

@@ -317,6 +317,10 @@ func NewServer(cfg Config) *Server {
 	storage.RegisterFiles(api, listings, nss, st)
 
 	(&authn.TokensAPI{Store: cfg.Tokens, Roles: cfg.Roles, Apps: cfg.Store.Apps(), MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, Now: now, Docs: cfg.API.Docs.Enabled}).Register(api)
+	(&authn.DeviceAPI{
+		DB: cfg.Store, Tokens: cfg.Tokens, MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, PublicURL: cfg.MCP.PublicURL,
+		Limiter: ratelimit.NewBuckets(), Now: now,
+	}).Register(api)
 	(&jobs.API{DB: cfg.Store, Client: cfg.Client, Namespaces: nss, Rules: sz, Logs: cfg.Logs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs, Streams: logStreams}).Register(api)
 
 	if cfg.CodeHosts != nil {

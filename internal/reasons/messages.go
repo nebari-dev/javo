@@ -294,11 +294,20 @@ const (
 	MsgTrustNotAgent    MessageCode = "TrustNotAgent"
 	MsgTrustHours       MessageCode = "TrustHours"
 	MsgTrustTurnedOff   MessageCode = "TrustTurnedOff"
-	MsgAISettingsOff    MessageCode = "AISettingsOff"
-	MsgRewriteOwnerOnly MessageCode = "RewriteOwnerOnly"
-	MsgEnvValueInvalid  MessageCode = "EnvValueInvalid"
-	MsgEnvValueOrSecret MessageCode = "EnvValueOrSecret"
-	MsgWebhookUnknown   MessageCode = "WebhookUnknown"
+	// A coding agent's device login (RFC 8628 shape), approved in the browser.
+	MsgDeviceTooManyStarts MessageCode = "DeviceTooManyStarts"
+	MsgDevicePending       MessageCode = "DevicePending"
+	MsgDeviceSlowDown      MessageCode = "DeviceSlowDown"
+	MsgDeviceDenied        MessageCode = "DeviceDenied"
+	MsgDeviceExpired       MessageCode = "DeviceExpired"
+	MsgDeviceUnknown       MessageCode = "DeviceUnknown"
+	MsgDeviceDecided       MessageCode = "DeviceDecided"
+	MsgDeviceSessionOnly   MessageCode = "DeviceSessionOnly"
+	MsgAISettingsOff       MessageCode = "AISettingsOff"
+	MsgRewriteOwnerOnly    MessageCode = "RewriteOwnerOnly"
+	MsgEnvValueInvalid     MessageCode = "EnvValueInvalid"
+	MsgEnvValueOrSecret    MessageCode = "EnvValueOrSecret"
+	MsgWebhookUnknown      MessageCode = "WebhookUnknown"
 
 	// Environments picked from an environment manager (internal/ext/envsource).
 	MsgEnvironmentsOff        MessageCode = "EnvironmentsOff"
@@ -591,6 +600,14 @@ var messages = map[MessageCode]string{
 	MsgTrustNotAgent:          "Only a coding agent that can read and change your apps through the API can act without asking.",
 	MsgTrustHours:             "Choose between 1 and 24 hours.",
 	MsgTrustTurnedOff:         "Letting agents act without asking is turned off on this platform. Ask your admin.",
+	MsgDeviceTooManyStarts:    "Too many sign-ins started from this address. Wait a minute and try again.",
+	MsgDevicePending:          "Waiting for the person to approve this sign-in in the browser.",
+	MsgDeviceSlowDown:         "Polling too fast. Wait the interval between polls.",
+	MsgDeviceDenied:           "The person denied this sign-in.",
+	MsgDeviceExpired:          "This sign-in code has expired or was already used. Start a new sign-in.",
+	MsgDeviceUnknown:          "No sign-in has this code. Check the code your agent showed.",
+	MsgDeviceDecided:          "This sign-in was already approved or denied.",
+	MsgDeviceSessionOnly:      "Only a person signed in in the browser can approve or deny an agent's sign-in. No API token can.",
 	MsgAISettingsOff:          "AI is off in the platform config (ai.enabled), so there is nothing to set here.",
 	MsgAgentPromptNotTaken:    "This kind of app takes no first prompt.",
 	MsgAgentNeedsPerson:       "A coding agent cannot do this itself: the app or job holds a secret, an API token or a Nebi token, belongs to someone else, or the change would give it one. Ask the person to do it in the browser, or propose it as a plan (POST /api/plans) for them to approve.",

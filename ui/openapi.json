@@ -1397,6 +1397,102 @@
         ],
         "type": "object"
       },
+      "DeviceStart": {
+        "additionalProperties": false,
+        "properties": {
+          "deviceCode": {
+            "description": "The secret the agent polls with; never show it to anyone",
+            "type": "string"
+          },
+          "expiresIn": {
+            "description": "Seconds until the request expires",
+            "format": "int64",
+            "type": "integer"
+          },
+          "interval": {
+            "description": "Seconds to wait between polls",
+            "format": "int64",
+            "type": "integer"
+          },
+          "userCode": {
+            "description": "The code the person checks on the approval page, such as WDJB-MJHT",
+            "type": "string"
+          },
+          "verificationURL": {
+            "description": "The approval page",
+            "type": "string"
+          },
+          "verificationURLComplete": {
+            "description": "The approval page with the code filled in",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deviceCode",
+          "userCode",
+          "verificationURL",
+          "verificationURLComplete",
+          "expiresIn",
+          "interval"
+        ],
+        "type": "object"
+      },
+      "DeviceToken": {
+        "additionalProperties": false,
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "token": {
+            "description": "The token. Send it as Authorization: Bearer \u003ctoken\u003e. It is not stored and cannot be shown again.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "DeviceView": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "spent"
+            ],
+            "type": "string"
+          },
+          "tokenHours": {
+            "description": "How many hours the token an approval gives lasts",
+            "format": "int64",
+            "type": "integer"
+          },
+          "userCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userCode",
+          "createdAt",
+          "expiresAt",
+          "tokenHours",
+          "state"
+        ],
+        "type": "object"
+      },
       "Diagnosis": {
         "additionalProperties": false,
         "properties": {
@@ -3221,6 +3317,19 @@
           "image",
           "command",
           "line"
+        ],
+        "type": "object"
+      },
+      "PollDeviceLoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deviceCode": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "deviceCode"
         ],
         "type": "object"
       },
@@ -7793,6 +7902,412 @@
         "summary": "Which AI features are on",
         "tags": [
           "ai"
+        ]
+      }
+    },
+    "/api/auth/device": {
+      "post": {
+        "description": "For a coding agent without a browser. Show the person userCode and verificationURL, then poll POST /api/auth/device/token with deviceCode every interval seconds until the person approves or the request expires.",
+        "operationId": "startDeviceLogin",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceStart"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [],
+        "summary": "Start a sign-in for an agent that a person approves",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/device/token": {
+      "post": {
+        "description": "Until there is a token the answer is 400 with error authorization_pending (keep polling), slow_down (polled sooner than interval), access_denied or expired_token (stop). Once approved, the next poll gets the token, read-write, named Agent login, for 8 hours or api.tokens.maxLifetime when shorter; later polls get expired_token.",
+        "operationId": "pollDeviceLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollDeviceLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceToken"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [],
+        "summary": "Ask for the token of an agent sign-in",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/device/{userCode}": {
+      "get": {
+        "description": "Needs a browser session: no API token can read, approve or deny an agent's sign-in.",
+        "operationId": "getDeviceLogin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userCode",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "An agent sign-in waiting for approval",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/device/{userCode}/approve": {
+      "post": {
+        "description": "A request is approved or denied once. Needs a browser session.",
+        "operationId": "approveDeviceLogin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userCode",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Approve an agent sign-in: the agent gets a token that acts as you",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/device/{userCode}/deny": {
+      "post": {
+        "description": "A request is approved or denied once. Needs a browser session.",
+        "operationId": "denyDeviceLogin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userCode",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Deny an agent sign-in",
+        "tags": [
+          "auth"
         ]
       }
     },

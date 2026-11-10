@@ -537,6 +537,52 @@ export type DatabaseBackups = {
     status: BackupStatus;
 };
 
+export type DeviceStart = {
+    /**
+     * The secret the agent polls with; never show it to anyone
+     */
+    deviceCode: string;
+    /**
+     * Seconds until the request expires
+     */
+    expiresIn: number;
+    /**
+     * Seconds to wait between polls
+     */
+    interval: number;
+    /**
+     * The code the person checks on the approval page, such as WDJB-MJHT
+     */
+    userCode: string;
+    /**
+     * The approval page
+     */
+    verificationURL: string;
+    /**
+     * The approval page with the code filled in
+     */
+    verificationURLComplete: string;
+};
+
+export type DeviceToken = {
+    expiresAt: string;
+    /**
+     * The token. Send it as Authorization: Bearer <token>. It is not stored and cannot be shown again.
+     */
+    token: string;
+};
+
+export type DeviceView = {
+    createdAt: string;
+    expiresAt: string;
+    state: 'pending' | 'approved' | 'denied' | 'spent';
+    /**
+     * How many hours the token an approval gives lasts
+     */
+    tokenHours: number;
+    userCode: string;
+};
+
 export type Diagnosis = {
     blame: string;
     bundle: Array<Evidence> | null;
@@ -1177,6 +1223,10 @@ export type PodRun = {
      * Command as one shell-quoted line; empty when the image's own command runs
      */
     line: string;
+};
+
+export type PollDeviceLoginRequest = {
+    deviceCode: string;
 };
 
 export type PreviewInputBody = {
@@ -3446,6 +3496,217 @@ export type GetAiStatusResponses = {
 };
 
 export type GetAiStatusResponse = GetAiStatusResponses[keyof GetAiStatusResponses];
+
+export type StartDeviceLoginData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/auth/device';
+};
+
+export type StartDeviceLoginErrors = {
+    /**
+     * Too Many Requests
+     */
+    429: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type StartDeviceLoginError = StartDeviceLoginErrors[keyof StartDeviceLoginErrors];
+
+export type StartDeviceLoginResponses = {
+    /**
+     * OK
+     */
+    200: DeviceStart;
+};
+
+export type StartDeviceLoginResponse = StartDeviceLoginResponses[keyof StartDeviceLoginResponses];
+
+export type PollDeviceLoginData = {
+    body: PollDeviceLoginRequest;
+    path?: never;
+    query?: never;
+    url: '/api/auth/device/token';
+};
+
+export type PollDeviceLoginErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type PollDeviceLoginError = PollDeviceLoginErrors[keyof PollDeviceLoginErrors];
+
+export type PollDeviceLoginResponses = {
+    /**
+     * OK
+     */
+    200: DeviceToken;
+};
+
+export type PollDeviceLoginResponse = PollDeviceLoginResponses[keyof PollDeviceLoginResponses];
+
+export type GetDeviceLoginData = {
+    body?: never;
+    path: {
+        userCode: string;
+    };
+    query?: never;
+    url: '/api/auth/device/{userCode}';
+};
+
+export type GetDeviceLoginErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Gone
+     */
+    410: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type GetDeviceLoginError = GetDeviceLoginErrors[keyof GetDeviceLoginErrors];
+
+export type GetDeviceLoginResponses = {
+    /**
+     * OK
+     */
+    200: DeviceView;
+};
+
+export type GetDeviceLoginResponse = GetDeviceLoginResponses[keyof GetDeviceLoginResponses];
+
+export type ApproveDeviceLoginData = {
+    body?: never;
+    path: {
+        userCode: string;
+    };
+    query?: never;
+    url: '/api/auth/device/{userCode}/approve';
+};
+
+export type ApproveDeviceLoginErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Gone
+     */
+    410: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type ApproveDeviceLoginError = ApproveDeviceLoginErrors[keyof ApproveDeviceLoginErrors];
+
+export type ApproveDeviceLoginResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type ApproveDeviceLoginResponse = ApproveDeviceLoginResponses[keyof ApproveDeviceLoginResponses];
+
+export type DenyDeviceLoginData = {
+    body?: never;
+    path: {
+        userCode: string;
+    };
+    query?: never;
+    url: '/api/auth/device/{userCode}/deny';
+};
+
+export type DenyDeviceLoginErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Gone
+     */
+    410: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type DenyDeviceLoginError = DenyDeviceLoginErrors[keyof DenyDeviceLoginErrors];
+
+export type DenyDeviceLoginResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type DenyDeviceLoginResponse = DenyDeviceLoginResponses[keyof DenyDeviceLoginResponses];
 
 export type LocalLoginData = {
     body: LoginInputBody;

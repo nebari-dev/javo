@@ -52,13 +52,15 @@ var (
 // publicRoutes are the only /api routes that work without a session.
 // Everything else under /api/, including routes added later, needs one.
 var publicRoutes = map[string]bool{
-	"POST /api/auth/local/login": true,
-	"POST /api/auth/logout":      true,
-	"GET /api/auth/options":      true,
-	"GET /api/reasons":           true,
-	"GET /api/branding":          true,
-	"GET /api/openapi.json":      true,
-	"GET /api/openapi.yaml":      true,
+	"POST /api/auth/local/login":  true,
+	"POST /api/auth/logout":       true,
+	"GET /api/auth/options":       true,
+	"POST /api/auth/device":       true,
+	"POST /api/auth/device/token": true,
+	"GET /api/reasons":            true,
+	"GET /api/branding":           true,
+	"GET /api/openapi.json":       true,
+	"GET /api/openapi.yaml":       true,
 }
 
 // IdpUnreachableHeader tells the UI the identity provider cannot be asked and
@@ -262,6 +264,10 @@ func (a *Authenticator) tokenPrincipal(ctx context.Context, w http.ResponseWrite
 	}
 	if IsTrustChange(r.URL.Path) {
 		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgTrustSessionOnly))
+		return authz.Principal{}, token.Token{}, false
+	}
+	if IsDeviceDecision(r.URL.Path) {
+		problem.Write(w, http.StatusForbidden, reasons.Msg(reasons.MsgDeviceSessionOnly))
 		return authz.Principal{}, token.Token{}, false
 	}
 	if !tok.Scope.Allows(r.Method, r.URL.Path) {

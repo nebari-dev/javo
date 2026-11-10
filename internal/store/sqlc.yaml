@@ -80,6 +80,10 @@ sql:
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
           - column: "app_nebi_tokens.expires_at"
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "device_logins.expires_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
+          - column: "device_logins.last_poll_at"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: Time}
   - engine: postgresql
     schema: dialect/schema.sql
     queries: dialect/queries.sql

@@ -33,7 +33,8 @@ type auditRow struct {
 // and ticket create and delete, session update, redeem and sweep
 // (per-request plumbing and expiry), app and job status, preview webhook pokes
 // and sync results, repository token hand-offs, Nebi token renewals, RecordRun,
-// MarkRunNotified, API token last-use times and the expiry sweep, usage intervals and cluster facts (the controller's own
+// MarkRunNotified, API token last-use times and the expiry sweep, device login starts, polls,
+// spends and sweep, usage intervals and cluster facts (the controller's own
 // bookkeeping at high volume). Sign-in and sign-out (ui session create and
 // delete), sign-out everywhere (Sessions.DeleteFor), gid allocation
 // (Groups.Ensure), token creation and revocation and run history deletion (Jobs.PruneRuns) are audited.

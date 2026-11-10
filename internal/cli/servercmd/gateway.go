@@ -220,6 +220,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go pods.Run(ctx)
 	go sessions.RunJanitor(ctx, platform.Sessions.SweepEvery.Duration)
 	go tokens.RunJanitor(ctx, platform.Sessions.SweepEvery.Duration, apps.AppTokenWanted(db))
+	go authn.RunDeviceJanitor(ctx, db, platform.Sessions.SweepEvery.Duration)
 	var outageGrace time.Duration
 	if oidc := platform.Auth.OIDC; oidc != nil {
 		outageGrace = oidc.OutageGrace.Duration
