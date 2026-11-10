@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
@@ -513,4 +514,68 @@ func TestUnpackTooManyEntries(t *testing.T) {
 	if _, err := l.Unpack(context.Background(), owner, "deploys/site", bytes.NewReader(three), limits, false); err != nil {
 		t.Fatalf("3 entries in a limit of 3: %v", err)
 	}
+}
+
+// paxHeaders is a gzipped tar of n pax extended headers of about size
+// bytes each, one after another: metadata archive/tar reads inside Next
+// without ever returning an entry.
+func paxHeaders(t *testing.T, n, size int) []byte {
+	t.Helper()
+	value := strings.Repeat("a", size)
+	record := ""
+	for l := len(value); ; l++ {
+		record = fmt.Sprintf("%d comment=%s\n", l, value)
+		if len(record) == l {
+			break
+		}
+	}
+	var raw bytes.Buffer
+	for range n {
+		var one bytes.Buffer
+		tw := tar.NewWriter(&one)
+		if err := tw.WriteHeader(&tar.Header{Name: "PaxHeader", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(record))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(record)); err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		block := one.Bytes()
+		// Make the file's header a pax extended header, with its checksum.
+		block[156] = tar.TypeXHeader
+		copy(block[148:156], "        ")
+		sum := 0
+		for _, b := range block[:512] {
+			sum += int(b)
+		}
+		copy(block[148:156], fmt.Sprintf("%06o\x00 ", sum))
+		raw.Write(block)
+	}
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write(raw.Bytes())
+	_ = zw.Close()
+	return buf.Bytes()
+}
+
+// A small upload that inflates to a long run of metadata stops at
+// limits.Bytes plus 64 KiB per allowed entry, as too large.
+func TestUnpackCapsTheInflatedStream(t *testing.T) {
+	archive := paxHeaders(t, 200, 60<<10) // about 12 MiB of headers
+	if len(archive) > 1<<20 {
+		t.Fatalf("test archive is %d bytes; want a small one", len(archive))
+	}
+	m := newMemRemote(nil)
+	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, m)
+	start := time.Now()
+	_, err := l.Unpack(context.Background(), owner, "deploys/site", bytes.NewReader(archive), files.UploadLimits{Bytes: 1 << 20, Entries: 10}, false)
+	if !errors.Is(err, files.ErrTooLarge) {
+		t.Fatalf("err = %v, want ErrTooLarge", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %s", d)
+	}
+	assertNothingWritten(t, m, map[string][]byte{})
 }

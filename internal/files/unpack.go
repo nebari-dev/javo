@@ -135,12 +135,29 @@ func (l *Lister) swapIn(ctx context.Context, addr, staging, rel string, replace 
 // at most limits.Bytes of them together (ErrTooLarge) out of at most
 // limits.Entries headers (ErrTooManyEntries).
 func (l *Lister) writeArchive(ctx context.Context, addr, dir string, archive io.Reader, limits UploadLimits) (Unpacked, error) {
-	var out Unpacked
 	zr, err := gzip.NewReader(archive)
 	if err != nil {
-		return out, badArchive(err)
+		return Unpacked{}, badArchive(err)
 	}
-	tr := tar.NewReader(zr)
+	// archive/tar reads some headers (pax, GNU long names) inside Next
+	// without returning them, so the entry count cannot bound them: the
+	// stream itself is bounded, at the files' bytes plus room for each
+	// allowed entry's headers.
+	stream := &io.LimitedReader{R: zr, N: limits.Bytes + int64(limits.Entries)*entryOverhead + 1}
+	out, err := l.writeEntries(ctx, addr, dir, tar.NewReader(stream), limits)
+	if stream.N <= 0 {
+		return out, ErrTooLarge
+	}
+	return out, err
+}
+
+// entryOverhead is how many bytes of tar headers and padding each allowed
+// entry may add to an archive's unpacked stream.
+const entryOverhead = 64 << 10
+
+// writeEntries writes the files of tr into the folder dir of the home.
+func (l *Lister) writeEntries(ctx context.Context, addr, dir string, tr *tar.Reader, limits UploadLimits) (Unpacked, error) {
+	var out Unpacked
 	for entries := 1; ; entries++ {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
