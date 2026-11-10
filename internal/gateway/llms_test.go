@@ -49,11 +49,12 @@ func TestLLMsTxtServedWithPublicURL(t *testing.T) {
 }
 
 // TestLLMsTxtNamesRealCalls checks every route llms.txt names exists, and
-// every call it runs is one a person's read-write token may make: not the
-// token routes, plan or device decisions, or the trust switch.
+// every call it runs or names with a method is one a person's read-write
+// token may make: not the token routes, plan or device decisions, or the
+// trust switch.
 func TestLLMsTxtNamesRealCalls(t *testing.T) {
 	t.Parallel()
-	checkGuideCalls(t, llmsTxt(t), func(_ string, o parityOp) bool {
+	checkGuideCalls(t, llmsTxt(t), true, func(_ string, o parityOp) bool {
 		return !o.sessionOnly() && !authn.IsTrustChange(o.path)
 	})
 }
@@ -84,24 +85,43 @@ func TestLLMsTxtNamesNoFramework(t *testing.T) {
 	}
 }
 
-// tokenUse is how the guide may touch the saved token: send it, check it
-// is there, or write it. Anything else could show it.
-var tokenUse = regexp.MustCompile(`Bearer \$\(cat "\$D/token"\)|\[ -s "\$D/token" \]|> "\$D/token"`)
+// secretFileUse is how a command may touch the files holding the token
+// (as an Authorization header) and the device code (as a poll body): pass
+// a file to curl, check it, write it or delete it. The secret never
+// expands into a command's arguments, which other users may read.
+var secretFileUse = regexp.MustCompile(`-H @"\$D/auth"|-d @"\$D/device"|> "\$D/(auth|device)"|\[ -s "\$D/(auth|device)" \]|rm -f "\$D/device"`)
 
-// TestLLMsTxtNeverPrintsTheToken checks no command (an indented line) in
-// the guide prints the token: the token file is only sent, checked or
-// written, no echo or printf names a token, and the poll prints its answer
-// only when it holds no token.
+// commandLines is the guide's commands: its indented lines.
+func commandLines(text string) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "    ") {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// TestLLMsTxtPassesNoSecretInline checks no command puts the token or the
+// device code in its arguments: curl reads them from their files.
+func TestLLMsTxtPassesNoSecretInline(t *testing.T) {
+	t.Parallel()
+	for _, line := range commandLines(llmsTxt(t)) {
+		rest := secretFileUse.ReplaceAllString(line, "")
+		for _, bad := range []string{"$D/auth", "$D/device", "$D/token", "TOKEN", "Bearer $", "$(cat "} {
+			if strings.Contains(rest, bad) {
+				t.Errorf("the guide passes a secret inline (%s): %s", bad, line)
+			}
+		}
+	}
+}
+
+// TestLLMsTxtNeverPrintsTheToken checks no command prints the token: no
+// echo or printf names a token, and the poll prints its answer only when it
+// holds no token.
 func TestLLMsTxtNeverPrintsTheToken(t *testing.T) {
 	t.Parallel()
-	for _, line := range strings.Split(llmsTxt(t), "\n") {
-		if !strings.HasPrefix(line, "    ") {
-			continue // prose, not a command
-		}
-		rest := tokenUse.ReplaceAllString(line, "")
-		if strings.Contains(rest, "$D/token") || strings.Contains(rest, "TOKEN") {
-			t.Errorf("the guide shows the token: %s", line)
-		}
+	for _, line := range commandLines(llmsTxt(t)) {
 		for _, cmd := range strings.Split(line, ";") {
 			cmd = strings.TrimSpace(cmd)
 			prints := strings.Contains(cmd, "echo ") || strings.Contains(cmd, "printf ")
@@ -111,6 +131,27 @@ func TestLLMsTxtNeverPrintsTheToken(t *testing.T) {
 			if strings.Contains(strings.ToLower(cmd), "token") || (strings.Contains(line, `'"token"'`) && strings.Contains(cmd, "$ANSWER")) {
 				t.Errorf("the guide prints the token: %s", line)
 			}
+		}
+	}
+}
+
+// TestLLMsTxtStartsAStoppedApp checks the guide starts a stopped app
+// rather than restarting it, which leaves it stopped.
+func TestLLMsTxtStartsAStoppedApp(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(llmsTxt(t), `-X POST -H "X-Javo-Request: 1" -H @"$D/auth" "https://javo.example.com/api/workspaces/NAME/start"`) {
+		t.Error("the guide never starts a stopped app")
+	}
+}
+
+// TestLLMsTxtRunsEachCallOnce checks every call prints its answer and
+// status instead of stopping on an error (curl -f), so the agent never runs
+// a call twice to read why it failed.
+func TestLLMsTxtRunsEachCallOnce(t *testing.T) {
+	t.Parallel()
+	for _, line := range commandLines(llmsTxt(t)) {
+		if strings.Contains(line, "curl -f") || strings.Contains(line, "--fail") {
+			t.Errorf("a call stops on an error answer: %s", line)
 		}
 	}
 }

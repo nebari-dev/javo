@@ -1,27 +1,28 @@
 # Deploy an app to Javo from this computer
 
 Javo runs web apps, notebooks and published container images for a
-person, at {{.URL}}.
-You deploy the app in the person's folder for them with only curl and
-tar, through the Javo API, acting as that person.
+person, at {{.URL}}. You deploy the app in the person's folder for them with only curl
+and tar, through the Javo API, acting as that person.
 
 Rules for every step:
 
 - Your login lives in the folder `$D`, outside the project:
   `D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"`. Each shell
   command below starts by setting `D`, because a new shell forgets it.
-  `$D/token` holds the token and `$D/device` a login waiting for approval.
-  Only you, on this computer, can read them.
-- Never print the token, copy it into a command or the chat, put it in the
-  project folder, or commit it. Send it only as
-  `-H "Authorization: Bearer $(cat "$D/token")"`.
+  `$D/auth` holds the token, as the `Authorization` header curl sends with
+  `-H @"$D/auth"`. `$D/device` holds a login waiting for approval. Only you,
+  on this computer, can read them.
+- Never print the token or the device code, copy them into a command or
+  the chat, put them in the project folder, or commit them. curl reads
+  them from their files (curl 7.55 or later).
 - Never ask the person for a password, API key or other secret value in the
   chat, a file or a command.
 - Send `X-Javo-Request: 1` with every call that is not a GET.
-- Calls use `curl -fsS`, which stops on an error answer and prints only
-  its status. To read the error, run the same call with
-  `-sS --fail-with-body` in place of `-fsS`. Errors are JSON problems:
-  `title` and `detail` say what went wrong, and `errors` names the field.
+- Each call prints the answer, then the HTTP status on its own line. A
+  status from 200 to 299 is success. Any other status comes with a JSON
+  problem: `title` and `detail` say what went wrong, and `errors` names the
+  field. Read it and act on it. 403 means the token may not do that: ask
+  the person to do it in the browser.
 - The whole API, with every field, is the OpenAPI document at
   {{.URL}}/api/openapi.json.
 
@@ -30,7 +31,7 @@ Rules for every step:
 First check for a saved login:
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    if [ -s "$D/token" ]; then curl -sS -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/me"; else echo "no login"; fi
+    if [ -s "$D/auth" ]; then curl -sS -o /dev/null -w '%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/me"; else echo "no login"; fi
 
 - `200`: you are logged in. Go to step 2.
 - `401` or `no login`: log in as below.
@@ -41,31 +42,34 @@ poll below. Otherwise start a login. It needs no token:
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
     umask 077; mkdir -p "$D"
-    ANSWER=$(curl -fsS -X POST -H "X-Javo-Request: 1" "{{.URL}}/api/auth/device") && printf '%s' "$ANSWER" | sed -n 's/.*"deviceCode":"\([^"]*\)".*/\1/p' > "$D/device" && printf '%s\n' "$ANSWER" | sed 's/"deviceCode":"[^"]*",//'
+    ANSWER=$(curl -sS -w '\n%{http_code}' -X POST -H "X-Javo-Request: 1" "{{.URL}}/api/auth/device")
+    printf '%s' "$ANSWER" | sed -n 's/.*"deviceCode":"\([^"]*\)".*/{"deviceCode":"\1"}/p' > "$D/device"
+    printf '%s\n' "$ANSWER" | sed 's/"deviceCode":"[^"]*",//'
 
-This saves `deviceCode` in `$D/device` and prints the rest: `userCode`,
-`verificationURL`, `verificationURLComplete`, `expiresIn` (seconds, 600)
-and `interval` (seconds between polls, 5).
+On status 200 this saves the device code in `$D/device` and prints the
+rest: `userCode`, `verificationURL`, `verificationURLComplete`, `expiresIn`
+(seconds, 600) and `interval` (seconds between polls, 5). On 429 too many
+logins were started from here: wait a minute and start again.
 
 Show the person the link `verificationURLComplete` and the code `userCode`.
 Ask them to open the link, check that the page shows the same code, and
 approve. They have `expiresIn` seconds.
 
 Then poll for the token. One run polls every `interval` seconds for at
-most 2 minutes. Put `interval` in the `INTERVAL` line:
+most 90 seconds. Put `interval` in the `INTERVAL` line:
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    umask 077; INTERVAL=5; END=$(( $(date +%s) + 120 )); STATE=waiting
+    umask 077; INTERVAL=5; END=$(( $(date +%s) + 90 )); STATE=waiting
     [ -s "$D/device" ] || STATE="no login waiting"
     while [ -s "$D/device" ] && [ "$(date +%s)" -lt "$END" ]; do
       sleep "$INTERVAL"
-      ANSWER=$(curl -sS -X POST -H "X-Javo-Request: 1" -H "Content-Type: application/json" \
-        -d "{\"deviceCode\":\"$(cat "$D/device")\"}" "{{.URL}}/api/auth/device/token")
+      ANSWER=$(curl -sS -X POST -H "X-Javo-Request: 1" -H "Content-Type: application/json" -d @"$D/device" "{{.URL}}/api/auth/device/token")
       case "$ANSWER" in
-        *'"token"'*) printf '%s' "$ANSWER" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' > "$D/token"; rm -f "$D/device"; STATE="logged in"; break ;;
+        *'"token"'*) printf '%s' "$ANSWER" | sed -n 's/.*"token":"\([^"]*\)".*/Authorization: Bearer \1/p' > "$D/auth"; rm -f "$D/device"; STATE="logged in"; break ;;
         *authorization_pending*) ;;
         *slow_down*) INTERVAL=$((INTERVAL + 5)) ;;
         *access_denied*|*expired_token*) rm -f "$D/device"; STATE="$ANSWER"; break ;;
+        "") STATE="error: no answer"; break ;;
         *) STATE="$ANSWER"; break ;;
       esac
     done
@@ -73,7 +77,7 @@ most 2 minutes. Put `interval` in the `INTERVAL` line:
 
 It prints one of:
 
-- `logged in`: the token is in `$D/token`. Go to step 2.
+- `logged in`: the token is in `$D/auth`. Go to step 2.
 - `waiting`: the person has not approved yet. Run the poll again, as many
   times as needed, until `expiresIn` seconds have passed since the start.
 - An answer with `access_denied`: the person said no. Stop, and log in
@@ -81,6 +85,8 @@ It prints one of:
 - An answer with `expired_token`: the login expired. Start a new login,
   show the person the new link and code, and poll again.
 - `no login waiting`: start a new login.
+- `error: no answer`: Javo is not reachable. Run the poll again; if it
+  keeps failing, tell the person.
 - Anything else is an error: tell the person.
 
 The token acts as the person, with read and write access, for 8 hours or
@@ -89,10 +95,10 @@ less. When a call answers 401 later, the token expired: log in again.
 ## 2. Look around
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/me"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/templates"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/sizes"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/me"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/templates"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/sizes"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/workspaces"
 
 - `/api/me` is the person you act as.
 - `/api/templates`: `.items[]` with `name`, `description`, `kind`,
@@ -138,11 +144,11 @@ output or large data the app does not need to run (for example `dist`,
 `build`, `__pycache__`, `.next`):
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -fsS -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/files/archive?path=deploys/<short-name>"
+    COPYFILE_DISABLE=1 tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -sS -w '\n%{http_code}\n' -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H @"$D/auth" "{{.URL}}/api/files/archive?path=deploys/<short-name>"
 
 The answer is `path`, `files` and `bytes`.
 
-- 201: uploaded.
+- 201: uploaded. 200: an existing folder was replaced (`replace=true`).
 - 409: `deploys/<short-name>` already exists. Ask the person whether to
   replace it. Only if they say yes, upload again with `&replace=true` at
   the end of the address. Otherwise pick another short name.
@@ -150,17 +156,20 @@ The answer is `path`, `files` and `bytes`.
   out what the app does not need to run.
 - 422: the archive holds something refused, named in the problem: only
   plain files and folders are allowed, with no links, no absolute paths
-  and no `..`. Leave it out, or copy the file in place of the link.
+  and no `..`. Leave it out, or copy the file in place of the link. 422
+  also means the body is not a gzipped tar or holds no files.
+- `COPYFILE_DISABLE=1` stops macOS tar from adding `._` files; other
+  systems ignore it.
 
 ## 5. Create the app
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $(cat "$D/token")" -H "Content-Type: application/json" -d '{"displayName":"<Title>","template":"<template>","file":"deploys/<short-name>/<file>"}' "{{.URL}}/api/workspaces"
+    curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" -H "Content-Type: application/json" -d '{"displayName":"<Title>","template":"<template>","file":"deploys/<short-name>/<file>"}' "{{.URL}}/api/workspaces"
 
 `file` is the file the template opens, or the folder. For `custom`:
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $(cat "$D/token")" -H "Content-Type: application/json" -d '{"displayName":"<Title>","template":"custom","file":"deploys/<short-name>","command":"python server.py --port {{"{{.Port}}"}}"}' "{{.URL}}/api/workspaces"
+    curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" -H "Content-Type: application/json" -d '{"displayName":"<Title>","template":"custom","file":"deploys/<short-name>","command":"python server.py --port {{"{{.Port}}"}}"}' "{{.URL}}/api/workspaces"
 
 The command runs in the folder of `file`, without a shell. `name` in the
 answer is the app's short name: NAME below. Optional fields: `size` (a name
@@ -168,13 +177,23 @@ from `/api/sizes`, leave it out for the default), `idleStopMinutes`, `env`
 (plain values only: `[{"name":"LOG_LEVEL","value":"info"}]`) and
 `environment`.
 
+When create does not answer 201:
+
+- 403: this is not allowed with a token or for this person. Tell the
+  person what `detail` says and ask them to do it in the browser.
+- 409: something clashes, as `detail` says. Change that and create again,
+  or tell the person.
+- 422: a field is wrong: `errors` names it. Fix it and create again.
+- 503: Javo is not ready yet. Wait a few seconds and try again; if it
+  keeps answering 503, tell the person.
+
 ## 6. Wait, read the logs, fix and retry
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces/NAME"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces/NAME/logs?tail=200"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces/NAME/diagnosis"
-    curl -fsS -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces/NAME/events"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/workspaces/NAME"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/logs?tail=200"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/diagnosis"
+    curl -sS -w '\n%{http_code}\n' -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/events"
 
 Get the app every few seconds until `phase` is `Running`. The phases are
 `Pending`, `Starting`, `Running`, `Stopped` and `Failed`. A first start can
@@ -197,18 +216,25 @@ Javo found and what may fix it.
 Fix the files, upload again (step 7), restart, and check again:
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces/NAME/restart"
+    curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/restart"
+
+A restart leaves a stopped app stopped. When `phase` is `Stopped`, start
+it instead:
+
+    D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
+    curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/start"
 
 When it is `Running`, give the person the app's `url`.
 
 ## 7. Redeploy
 
 Upload the folder again to the same `deploys/<short-name>` with
-`&replace=true` at the end of the address, then restart the app:
+`&replace=true` at the end of the address, then restart the app (start
+it instead when `phase` is `Stopped`, as in step 6):
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -fsS -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/files/archive?path=deploys/<short-name>&replace=true"
-    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $(cat "$D/token")" "{{.URL}}/api/workspaces/NAME/restart"
+    COPYFILE_DISABLE=1 tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -sS -w '\n%{http_code}\n' -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H @"$D/auth" "{{.URL}}/api/files/archive?path=deploys/<short-name>&replace=true"
+    curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/restart"
 
 Replace only a folder you uploaded for this app in this session, or one the
 person told you to replace. Then wait for `Running` as in step 6.

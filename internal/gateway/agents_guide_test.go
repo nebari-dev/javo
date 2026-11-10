@@ -30,15 +30,16 @@ func TestAgentsGuideNamesRealCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentWrites := slices.Concat(authn.WorkloadTokenWrites, authn.AgentDeployWrites)
-	checkGuideCalls(t, string(guide), func(method string, o parityOp) bool {
+	checkGuideCalls(t, string(guide), false, func(method string, o parityOp) bool {
 		return method == "GET" || slices.Contains(agentWrites, o.id)
 	})
 }
 
 // checkGuideCalls checks every API route guide names: it is a route of the
 // API document with that method, and each call the guide runs (a javo-api
-// or curl line) is one allowed lets the agent's token make.
-func checkGuideCalls(t *testing.T, guide string, allowed func(method string, o parityOp) bool) {
+// or curl line, and with prose also any METHOD /api/... it names) is one
+// allowed lets the agent's token make.
+func checkGuideCalls(t *testing.T, guide string, prose bool, allowed func(method string, o parityOp) bool) {
 	t.Helper()
 	ops := apiOperations(t)
 	found := 0
@@ -51,7 +52,7 @@ func checkGuideCalls(t *testing.T, guide string, allowed func(method string, o p
 				continue // the document itself
 			}
 			found++
-			runs := viaHelper || curl != ""
+			runs := viaHelper || curl != "" || (prose && method != "")
 			switch {
 			case curl != "":
 				method = curl
