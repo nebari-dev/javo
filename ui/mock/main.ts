@@ -698,6 +698,13 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       proposals: preview ? [] : [{ action: 'restart', target: diag[1], summary: 'Restart Churn dashboard' }],
     })
   }
+  const dev = url.pathname.match(/^\/api\/auth\/device\/([^/]+)(\/approve|\/deny)?$/)
+  if (dev) {
+    if (dev[1] === 'XXXX-EXPD') return reply(410, { title: 'Gone', detail: 'expired' })
+    if (dev[1] !== 'WDJB-MJHT') return reply(404, { title: 'Not Found' })
+    if (req.method === 'POST' && dev[2]) return reply(204, null)
+    return reply(200, { userCode: 'WDJB-MJHT', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 600_000).toISOString(), tokenHours: 8, state: 'pending' })
+  }
   if (key === 'POST /api/plans') return reply(201, plan())
   // Three changes wait for approval (?approvals=none: nothing waits); a decided one leaves the list.
   if (key === 'GET /api/plans') return reply(200, aiParams.get('approvals') === 'none' ? [] : pendingPlans.filter((p) => !decidedPlans.has(p.id)))

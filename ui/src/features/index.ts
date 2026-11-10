@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { RouteObject } from 'react-router'
 import { approvalsFeature } from './approvals'
+import { deviceFeature } from './device'
 import { filesFeature } from './files'
 import { jobsFeature } from './jobs'
 import { terminalFeature } from './terminal'
@@ -35,7 +36,7 @@ export interface FeatureModule {
 }
 
 /** Static: a feature exists in the UI when it is listed here. */
-export const features: FeatureModule[] = [jobsFeature, filesFeature, terminalFeature, approvalsFeature]
+export const features: FeatureModule[] = [jobsFeature, filesFeature, terminalFeature, approvalsFeature, deviceFeature]
 
 export function useFeatureAttention(): AttentionEntry[] {
   return features.flatMap((f) => f.useAttention?.() ?? [])

@@ -58,6 +58,9 @@ const PAGES = [
   { path: '/apps/plots' },
   { path: '/approvals' },
   { path: '/approvals/a1', name: 'one approval from its link' },
+  { path: '/device?code=WDJB-MJHT', name: 'approve an agent login' },
+  { path: '/device?code=XXXX-EXPD', name: 'expired agent login' },
+  { path: '/device' },
   { path: '/apps/orders-api' },
   { path: '/apps/churn' },
   { path: '/apps/big-model', name: 'app too big, sizes open', act: [click('.failure button', 'Change size')] },
@@ -296,6 +299,7 @@ const AUDIT = `(() => {
   const block = (e) => /^(UL|OL|DL|TABLE)$/.test(e.tagName) || /grid|flex/.test(getComputedStyle(e).display) && e.childElementCount > 1 || boxes.includes(e)
   for (const t of [...scope.querySelectorAll('.more-toggle')].filter(visible)) {
     const more = t.closest('.more')
+    if (!more) continue
     const rt = t.getBoundingClientRect()
     let prev = more.previousElementSibling
     while (prev && !visible(prev)) prev = prev.previousElementSibling
