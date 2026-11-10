@@ -138,13 +138,17 @@ tell the person.
 
 Pick a short name for the app: lower case letters, digits and dashes. Run
 this in the app's folder. It sends the folder, without `.git`,
-`node_modules`, `.venv` and other build output, to `deploys/<short-name>`
-in the person's home folder on Javo. Add `--exclude` for any other build
-output or large data the app does not need to run (for example `dist`,
-`build`, `__pycache__`, `.next`):
+`node_modules`, `.venv`, `.pixi`, `.env*` files and other build output, to
+`deploys/<short-name>` in the person's home folder on Javo. Add `--exclude`
+for any other build output or large data the app does not need to run (for
+example `dist`, `build`, `__pycache__`, `.next`), and for any other file
+holding secrets (keys, `*.pem`, credentials): ask the person to add those
+values in Settings > Secrets in the browser instead (step 8). If the folder
+is the person's home folder, `$HOME`, refuse to upload it: your login lives
+under it, in `~/.config/javo`. Ask them which folder holds the app.
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    COPYFILE_DISABLE=1 tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -sS -w '\n%{http_code}\n' -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H @"$D/auth" "{{.URL}}/api/files/archive?path=deploys/<short-name>"
+    COPYFILE_DISABLE=1 tar czf - --exclude .git --exclude node_modules --exclude .venv --exclude '.env*' --exclude .pixi . | curl -sS -w '\n%{http_code}\n' -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H @"$D/auth" "{{.URL}}/api/files/archive?path=deploys/<short-name>"
 
 The answer is `path`, `files` and `bytes`.
 
@@ -238,7 +242,7 @@ Upload the folder again to the same `deploys/<short-name>` with
 it instead when `phase` is `Stopped`, as in step 6):
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
-    COPYFILE_DISABLE=1 tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -sS -w '\n%{http_code}\n' -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H @"$D/auth" "{{.URL}}/api/files/archive?path=deploys/<short-name>&replace=true"
+    COPYFILE_DISABLE=1 tar czf - --exclude .git --exclude node_modules --exclude .venv --exclude '.env*' --exclude .pixi . | curl -sS -w '\n%{http_code}\n' -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H @"$D/auth" "{{.URL}}/api/files/archive?path=deploys/<short-name>&replace=true"
     curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/restart"
 
 Replace only a folder you uploaded for this app in this session, or one the

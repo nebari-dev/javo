@@ -171,3 +171,38 @@ func TestLLMsTxtRetriesAnUploadWhileTheHomeOpens(t *testing.T) {
 		t.Errorf("the upload step does not say what to do on 503:\n%s", text[start:end])
 	}
 }
+
+// TestLLMsTxtUploadsLeaveOutSecrets checks every upload leaves out .env
+// files and the pixi environment, and the upload step says to leave out
+// other files holding secrets for the person to add in Settings > Secrets,
+// and to refuse to upload the home folder, where the login lives.
+func TestLLMsTxtUploadsLeaveOutSecrets(t *testing.T) {
+	t.Parallel()
+	text := llmsTxt(t)
+	uploads := 0
+	for _, line := range commandLines(text) {
+		if !strings.Contains(line, "tar czf") {
+			continue
+		}
+		uploads++
+		for _, ex := range []string{"--exclude .git ", "--exclude node_modules ", "--exclude .venv ", "--exclude '.env*' ", "--exclude .pixi "} {
+			if !strings.Contains(line, ex) {
+				t.Errorf("an upload does not leave out %q: %s", strings.TrimSpace(ex), line)
+			}
+		}
+	}
+	if uploads != 2 {
+		t.Errorf("%d uploads, want 2 (upload and redeploy)", uploads)
+	}
+	start := strings.Index(text, "## 4. Upload the folder")
+	end := strings.Index(text, "## 5. Create the app")
+	if start < 0 || end < start {
+		t.Fatal("no upload step")
+	}
+	step := strings.Join(strings.Fields(text[start:end]), " ")
+	for _, want := range []string{"*.pem", "Settings > Secrets", "`$HOME`", "refuse to upload"} {
+		if !strings.Contains(step, want) {
+			t.Errorf("the upload step does not mention %q:\n%s", want, text[start:end])
+		}
+	}
+}
