@@ -155,3 +155,19 @@ func TestLLMsTxtRunsEachCallOnce(t *testing.T) {
 		}
 	}
 }
+
+// TestLLMsTxtRetriesAnUploadWhileTheHomeOpens checks the upload step says
+// what to do on 503: a person's first upload, before any app opened their
+// home folder, answers 503 while the home starts.
+func TestLLMsTxtRetriesAnUploadWhileTheHomeOpens(t *testing.T) {
+	t.Parallel()
+	text := llmsTxt(t)
+	start := strings.Index(text, "## 4. Upload the folder")
+	end := strings.Index(text, "## 5. Create the app")
+	if start < 0 || end < start {
+		t.Fatal("no upload step")
+	}
+	if !strings.Contains(text[start:end], "- 503:") {
+		t.Errorf("the upload step does not say what to do on 503:\n%s", text[start:end])
+	}
+}

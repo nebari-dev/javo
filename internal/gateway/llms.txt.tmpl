@@ -158,6 +158,9 @@ The answer is `path`, `files` and `bytes`.
   plain files and folders are allowed, with no links, no absolute paths
   and no `..`. Leave it out, or copy the file in place of the link. 422
   also means the body is not a gzipped tar or holds no files.
+- 503: the person's home folder is still opening, which takes a few
+  seconds the first time. Wait five seconds and upload again, the same
+  way. If it still answers 503 after two minutes, tell the person.
 - `COPYFILE_DISABLE=1` stops macOS tar from adding `._` files; other
   systems ignore it.
 
@@ -224,7 +227,9 @@ it instead:
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
     curl -sS -w '\n%{http_code}\n' -X POST -H "X-Javo-Request: 1" -H @"$D/auth" "{{.URL}}/api/workspaces/NAME/start"
 
-When it is `Running`, give the person the app's `url`.
+When it is `Running`, give the person the app's `url`. It opens in their
+browser, where they are signed in. curl with the token gets a redirect to
+sign in there instead of the page; that is expected, not an error.
 
 ## 7. Redeploy
 
