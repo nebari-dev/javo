@@ -658,7 +658,7 @@ export const listFiles = <ThrowOnError extends boolean = false>(options?: Option
 /**
  * Upload a folder to the user's home as a tar.gz
  *
- * Unpacks the body, a gzipped tar (Content-Type: application/gzip), into the folder path. 201 for a new folder, 200 when replace=true replaced one, 409 if the folder exists without replace=true. Only plain files and folders: absolute paths, .., links and devices fail the whole upload (422), as does a body or unpacked total over the server's limit (413). A failed upload leaves the folder as it was.
+ * Unpacks the body, a gzipped tar (Content-Type: application/gzip), into the folder path. 201 for a new folder, 200 when replace=true replaced one, 409 if the folder exists without replace=true. Only plain files and folders: absolute paths, .., links and devices fail the whole upload (422), as does a body or unpacked total over the server's limit, or more files and folders than it allows (413). The body may take the server's upload read timeout to arrive. A failed upload leaves the folder as it was.
  */
 export const uploadArchive = <ThrowOnError extends boolean = false>(options: Options<UploadArchiveData, ThrowOnError>): RequestResult<UploadArchiveResponses, UploadArchiveErrors, ThrowOnError> => (options.client ?? client).put<UploadArchiveResponses, UploadArchiveErrors, ThrowOnError>({
     bodySerializer: null,

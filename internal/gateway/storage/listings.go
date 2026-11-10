@@ -237,8 +237,8 @@ func (h *Listings) Release(ctx context.Context, user string) error {
 
 // Unpack writes the folder, then forgets user's listings: its parent's
 // would not show it.
-func (h *Listings) Unpack(ctx context.Context, user, rel string, archive io.Reader, limit int64, replace bool) (files.Unpacked, error) {
-	out, err := h.Homes.Unpack(ctx, user, rel, archive, limit, replace)
+func (h *Listings) Unpack(ctx context.Context, user, rel string, archive io.Reader, limits files.UploadLimits, replace bool) (files.Unpacked, error) {
+	out, err := h.Homes.Unpack(ctx, user, rel, archive, limits, replace)
 	if err == nil {
 		h.forget(user)
 	}

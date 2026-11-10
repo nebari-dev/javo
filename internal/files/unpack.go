@@ -24,6 +24,17 @@ var ErrBadArchive = errors.New("files: not a gzipped tar of plain files and fold
 // ErrEmptyArchive means the archive holds no file.
 var ErrEmptyArchive = errors.New("files: archive holds no file")
 
+// ErrTooManyEntries means the archive holds more entries than its limit.
+var ErrTooManyEntries = errors.New("files: archive holds too many entries")
+
+// UploadLimits bound what one Unpack writes: Bytes of files together, and
+// Entries tar headers (files, folders and the rest), each of which costs a
+// call to the file pod or at least a read.
+type UploadLimits struct {
+	Bytes   int64
+	Entries int
+}
+
 // BadEntryError is ErrBadArchive about one entry: its path leaves the
 // folder, or it is a link, a device or a pipe.
 type BadEntryError struct{ Name string }
@@ -49,7 +60,7 @@ type Unpacked struct {
 // The files go to a hidden folder next to rel first, which is moved to rel
 // only once every entry is written; on any failure it is deleted. Entries
 // must be plain files or folders whose paths stay inside rel.
-func (l *Lister) Unpack(ctx context.Context, userID, rel string, archive io.Reader, limit int64, replace bool) (Unpacked, error) {
+func (l *Lister) Unpack(ctx context.Context, userID, rel string, archive io.Reader, limits UploadLimits, replace bool) (Unpacked, error) {
 	addr, err := l.pods.Ensure(ctx, userID)
 	if err != nil {
 		return Unpacked{}, err
@@ -76,7 +87,7 @@ func (l *Lister) Unpack(ctx context.Context, userID, rel string, archive io.Read
 	}
 	staging := path.Join(parent, "."+name+".upload-"+randomSuffix())
 	body := &readRecorder{r: archive}
-	out, err := l.writeArchive(ctx, addr, staging, body, limit)
+	out, err := l.writeArchive(ctx, addr, staging, body, limits)
 	if err == nil && out.Files == 0 {
 		err = ErrEmptyArchive
 	}
@@ -121,21 +132,30 @@ func (l *Lister) swapIn(ctx context.Context, addr, staging, rel string, replace 
 }
 
 // writeArchive writes the files of archive into the folder dir of the home,
-// at most limit bytes of them together (ErrTooLarge).
-func (l *Lister) writeArchive(ctx context.Context, addr, dir string, archive io.Reader, limit int64) (Unpacked, error) {
+// at most limits.Bytes of them together (ErrTooLarge) out of at most
+// limits.Entries headers (ErrTooManyEntries).
+func (l *Lister) writeArchive(ctx context.Context, addr, dir string, archive io.Reader, limits UploadLimits) (Unpacked, error) {
 	var out Unpacked
 	zr, err := gzip.NewReader(archive)
 	if err != nil {
 		return out, badArchive(err)
 	}
 	tr := tar.NewReader(zr)
-	for {
+	for entries := 1; ; entries++ {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			return out, nil
 		}
 		if err != nil {
 			return out, badArchive(err)
+		}
+		if entries > limits.Entries {
+			return out, ErrTooManyEntries
+		}
+		if h.Typeflag == tar.TypeXGlobalHeader {
+			// Metadata for the whole archive (git archive writes the
+			// commit there), not a file.
+			continue
 		}
 		p, err := entryPath(h)
 		if err != nil {
@@ -145,7 +165,7 @@ func (l *Lister) writeArchive(ctx context.Context, addr, dir string, archive io.
 			// Folders are made by the files in them.
 			continue
 		}
-		if h.Size > limit-out.Bytes {
+		if h.Size > limits.Bytes-out.Bytes {
 			return out, ErrTooLarge
 		}
 		at, file := path.Split(path.Join(dir, p))

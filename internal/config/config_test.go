@@ -167,25 +167,29 @@ func TestLoadReadsAPITokensAndDocs(t *testing.T) {
 }
 
 func TestLoadReadsAPILimitsWithSafeDefaults(t *testing.T) {
-	p, err := load(t, "auth:\n  local:\n    enabled: true\napi:\n  limits:\n    streamsPerPerson: 3\n    thumbnailDecodes: 2\n    bodyReadTimeout: 15s\n    uploadBytes: 1048576\n")
+	p, err := load(t, "auth:\n  local:\n    enabled: true\napi:\n  limits:\n    streamsPerPerson: 3\n    thumbnailDecodes: 2\n    bodyReadTimeout: 15s\n    uploadBytes: 1048576\n    uploadFiles: 50\n    uploadReadTimeout: 30m\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l := p.API.Limits; l.StreamsPerPerson != 3 || l.ThumbnailDecodes != 2 || l.BodyReadTimeout.Duration != 15*time.Second || l.UploadBytes != 1<<20 {
+	if l := p.API.Limits; l.StreamsPerPerson != 3 || l.ThumbnailDecodes != 2 || l.BodyReadTimeout.Duration != 15*time.Second || l.UploadBytes != 1<<20 ||
+		l.UploadFiles != 50 || l.UploadReadTimeout.Duration != 30*time.Minute {
 		t.Fatalf("limits = %+v", l)
 	}
 	p, err = load(t, "auth:\n  local:\n    enabled: true\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l := p.API.Limits; l.StreamsPerPerson != 8 || l.ThumbnailDecodes != 4 || l.BodyReadTimeout.Duration != time.Minute || l.UploadBytes != 100<<20 {
+	if l := p.API.Limits; l.StreamsPerPerson != 8 || l.ThumbnailDecodes != 4 || l.BodyReadTimeout.Duration != time.Minute || l.UploadBytes != 100<<20 ||
+		l.UploadFiles != 10000 || l.UploadReadTimeout.Duration != 10*time.Minute {
 		t.Fatalf("limit defaults = %+v", l)
 	}
 	for key, yaml := range map[string]string{
-		"api.limits.streamsPerPerson": "streamsPerPerson: -1",
-		"api.limits.thumbnailDecodes": "thumbnailDecodes: -1",
-		"api.limits.bodyReadTimeout":  "bodyReadTimeout: -1s",
-		"api.limits.uploadBytes":      "uploadBytes: -1",
+		"api.limits.streamsPerPerson":  "streamsPerPerson: -1",
+		"api.limits.thumbnailDecodes":  "thumbnailDecodes: -1",
+		"api.limits.bodyReadTimeout":   "bodyReadTimeout: -1s",
+		"api.limits.uploadBytes":       "uploadBytes: -1",
+		"api.limits.uploadFiles":       "uploadFiles: -1",
+		"api.limits.uploadReadTimeout": "uploadReadTimeout: -1s",
 	} {
 		if _, err := load(t, "auth:\n  local:\n    enabled: true\napi:\n  limits:\n    "+yaml+"\n"); err == nil || !strings.Contains(err.Error(), key) {
 			t.Errorf("%s: err = %v", yaml, err)

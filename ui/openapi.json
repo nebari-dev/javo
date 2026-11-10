@@ -8815,7 +8815,7 @@
     },
     "/api/files/archive": {
       "put": {
-        "description": "Unpacks the body, a gzipped tar (Content-Type: application/gzip), into the folder path. 201 for a new folder, 200 when replace=true replaced one, 409 if the folder exists without replace=true. Only plain files and folders: absolute paths, .., links and devices fail the whole upload (422), as does a body or unpacked total over the server's limit (413). A failed upload leaves the folder as it was.",
+        "description": "Unpacks the body, a gzipped tar (Content-Type: application/gzip), into the folder path. 201 for a new folder, 200 when replace=true replaced one, 409 if the folder exists without replace=true. Only plain files and folders: absolute paths, .., links and devices fail the whole upload (422), as does a body or unpacked total over the server's limit, or more files and folders than it allows (413). The body may take the server's upload read timeout to arrive. A failed upload leaves the folder as it was.",
         "operationId": "uploadArchive",
         "parameters": [
           {

@@ -564,6 +564,12 @@ type APILimitsCfg struct {
 	// UploadBytes is the most a folder upload (PUT /api/files/archive) may
 	// unpack to, and the most its compressed body may be. Default 100 MiB.
 	UploadBytes int64 `json:"uploadBytes"`
+	// UploadFiles is the most entries (files, folders and any other tar
+	// header) a folder upload may hold. Default 10000.
+	UploadFiles int `json:"uploadFiles"`
+	// UploadReadTimeout is how long a folder upload may take to send its
+	// body, in place of BodyReadTimeout. Default 10m.
+	UploadReadTimeout metav1.Duration `json:"uploadReadTimeout"`
 }
 
 // WithDefaults is l with every zero value set to its default.
@@ -578,6 +584,10 @@ func (l APILimitsCfg) WithDefaults() APILimitsCfg {
 	if l.UploadBytes == 0 {
 		l.UploadBytes = 100 << 20
 	}
+	if l.UploadFiles == 0 {
+		l.UploadFiles = 10000
+	}
+	setDur(&l.UploadReadTimeout, 10*time.Minute)
 	return l
 }
 
@@ -830,6 +840,10 @@ func (p Platform) Validate() error {
 	if l := p.API.Limits; l.UploadBytes < 1 {
 		bad("api.limits.uploadBytes", "%d must be at least 1", l.UploadBytes)
 	}
+	if l := p.API.Limits; l.UploadFiles < 1 {
+		bad("api.limits.uploadFiles", "%d must be at least 1", l.UploadFiles)
+	}
+	positive("api.limits.uploadReadTimeout", p.API.Limits.UploadReadTimeout)
 	if p.API.Tokens.MaxLifetime.Duration < 0 {
 		bad("api.tokens.maxLifetime", "%s must not be negative (zero allows tokens that never expire)", p.API.Tokens.MaxLifetime.Duration)
 	}

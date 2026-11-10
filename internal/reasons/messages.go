@@ -77,7 +77,8 @@ const (
 	MsgArchiveInvalid      MessageCode = "ArchiveInvalid"
 	MsgArchiveEntryRefused MessageCode = "ArchiveEntryRefused" // arg: the entry's path in the archive
 	MsgArchiveEmpty        MessageCode = "ArchiveEmpty"
-	MsgNoSample            MessageCode = "NoSample" // arg: template display name
+	MsgUploadTooManyFiles  MessageCode = "UploadTooManyFiles" // arg: the limit
+	MsgNoSample            MessageCode = "NoSample"           // arg: template display name
 	MsgSampleNameTaken     MessageCode = "SampleNameTaken"
 	MsgInvalidRequest      MessageCode = "InvalidRequest"
 	MsgNoSuchAddress       MessageCode = "NoSuchAddress"
@@ -398,6 +399,7 @@ var messages = map[MessageCode]string{
 	MsgArchiveInvalid:        "This is not a gzipped tar file. Send the folder as tar czf makes it.",
 	MsgArchiveEntryRefused:   "The archive holds %q, which is refused: only plain files and folders inside the folder, with no absolute paths, no .., no links and no devices.",
 	MsgArchiveEmpty:          "The archive holds no files.",
+	MsgUploadTooManyFiles:    "This upload holds more than %d files and folders, the most allowed here. Leave out what the app does not need to run.",
 	MsgNoSample:              "%s has no sample to start.",
 	MsgSampleNameTaken:       "You already have many samples of this kind. Delete one, then try again.",
 	MsgInvalidRequest:        "Something in this form is not valid. Check it and try again.",

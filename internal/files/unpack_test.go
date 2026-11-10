@@ -162,6 +162,10 @@ func tgz(t *testing.T, entries ...entry) []byte {
 	tw := tar.NewWriter(zw)
 	for _, e := range entries {
 		h := &tar.Header{Name: e.name, Typeflag: e.typ, Mode: 0o644, Size: int64(len(e.body)), Linkname: e.link}
+		if e.typ == tar.TypeXGlobalHeader {
+			// As git archive writes it: the commit the archive was made from.
+			h = &tar.Header{Typeflag: e.typ, PAXRecords: map[string]string{"comment": "0123456789abcdef0123456789abcdef01234567"}}
+		}
 		if e.typ != tar.TypeReg {
 			h.Size = 0
 		}
@@ -181,8 +185,9 @@ func tgz(t *testing.T, entries ...entry) []byte {
 	return buf.Bytes()
 }
 
-func unpack(l *files.Lister, rel string, archive []byte, limit int64, replace bool) (files.Unpacked, error) {
-	return l.Unpack(context.Background(), owner, rel, bytes.NewReader(archive), limit, replace)
+// unpack unpacks archive into rel with a limit of bytes and 10000 entries.
+func unpack(l *files.Lister, rel string, archive []byte, bytesLimit int64, replace bool) (files.Unpacked, error) {
+	return l.Unpack(context.Background(), owner, rel, bytes.NewReader(archive), files.UploadLimits{Bytes: bytesLimit, Entries: 10000}, replace)
 }
 
 func TestUnpackWritesFiles(t *testing.T) {
@@ -427,7 +432,7 @@ func TestUnpackPassesOnTheBodysError(t *testing.T) {
 		m := newMemRemote(nil)
 		l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, m)
 		body := &failingReader{data: good[:cut], err: files.ErrTooLarge}
-		_, err := l.Unpack(context.Background(), owner, "deploys/site", body, 1<<20, false)
+		_, err := l.Unpack(context.Background(), owner, "deploys/site", body, files.UploadLimits{Bytes: 1 << 20, Entries: 10000}, false)
 		if !errors.Is(err, files.ErrTooLarge) || errors.Is(err, files.ErrBadArchive) {
 			t.Fatalf("cut at %d: err = %v, want ErrTooLarge only", cut, err)
 		}
@@ -467,5 +472,45 @@ func TestUnpackOfTheSameFolderAtOnceWritesOnlyOne(t *testing.T) {
 	}
 	if tree := m.tree(); len(tree) != 1 {
 		t.Fatalf("home = %q", tree)
+	}
+}
+
+// git archive starts with a pax global header: metadata, not a file.
+func TestUnpackSkipsAGlobalHeader(t *testing.T) {
+	m := newMemRemote(nil)
+	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, m)
+	got, err := unpack(l, "deploys/site", tgz(t, entry{name: "pax_global_header", typ: tar.TypeXGlobalHeader}, file("app.py", "x")), 1<<20, false)
+	if err != nil || got.Files != 1 {
+		t.Fatalf("Unpacked = %+v, %v", got, err)
+	}
+	if tree := m.tree(); !maps.EqualFunc(tree, map[string][]byte{"deploys/site/app.py": []byte("x")}, bytes.Equal) {
+		t.Fatalf("home = %q", tree)
+	}
+}
+
+// Every header counts, folders and global headers too: empty files cost no
+// bytes, but each is a write to the home.
+func TestUnpackTooManyEntries(t *testing.T) {
+	limits := files.UploadLimits{Bytes: 1 << 20, Entries: 3}
+	for name, archive := range map[string][]byte{
+		"empty files": tgz(t, file("a", ""), file("b", ""), file("c", ""), file("d", "")),
+		"with a folder and a global header": tgz(t, entry{name: "pax_global_header", typ: tar.TypeXGlobalHeader},
+			entry{name: "./", typ: tar.TypeDir}, file("a", ""), file("b", "")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newMemRemote(nil)
+			l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, m)
+			_, err := l.Unpack(context.Background(), owner, "deploys/site", bytes.NewReader(archive), limits, false)
+			if !errors.Is(err, files.ErrTooManyEntries) {
+				t.Fatalf("err = %v, want ErrTooManyEntries", err)
+			}
+			assertNothingWritten(t, m, map[string][]byte{})
+		})
+	}
+	m := newMemRemote(nil)
+	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, m)
+	three := tgz(t, entry{name: "./", typ: tar.TypeDir}, file("a", ""), file("b", ""))
+	if _, err := l.Unpack(context.Background(), owner, "deploys/site", bytes.NewReader(three), limits, false); err != nil {
+		t.Fatalf("3 entries in a limit of 3: %v", err)
 	}
 }

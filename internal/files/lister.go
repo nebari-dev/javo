@@ -269,7 +269,9 @@ func (r Rclone) UploadStream(ctx context.Context, addr, dir, name string, body i
 	}
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
+	copied := make(chan struct{})
 	go func() {
+		defer close(copied)
 		part, err := mw.CreateFormFile("file", name)
 		if err == nil {
 			_, err = io.Copy(part, body)
@@ -279,8 +281,13 @@ func (r Rclone) UploadStream(ctx context.Context, addr, dir, name string, body i
 		}
 		pw.CloseWithError(err)
 	}()
-	// Whatever happens to the request, the writer above must not block.
-	defer pr.Close()
+	// However the request ends, the writer above stops at its next write,
+	// and it has stopped reading body before this returns: the caller may
+	// read body's state or close it next.
+	defer func() {
+		pr.Close()
+		<-copied
+	}()
 	q := url.Values{"fs": {dataDir}, "remote": {dir}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/operations/uploadfile?"+q.Encode(), pr)
 	if err != nil {

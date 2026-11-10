@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/config"
@@ -58,7 +62,7 @@ func TestArchiveUploadMakesTheFolderAndAuditsIt(t *testing.T) {
 		t.Fatalf("answer %+v", got)
 	}
 	// The whole body reached Unpack, with the configured limit.
-	if want := apitest.AliceID + ":deploys/site:104857600:false:tar.gz bytes"; len(l.Unpacks) != 1 || l.Unpacks[0] != want {
+	if want := apitest.AliceID + ":deploys/site:104857600:10000:false:tar.gz bytes"; len(l.Unpacks) != 1 || l.Unpacks[0] != want {
 		t.Fatalf("unpacked %q, want %q", l.Unpacks, want)
 	}
 	events := fileEvents(t, f)
@@ -130,6 +134,7 @@ func TestArchiveUploadExplainsABadArchive(t *testing.T) {
 		{files.ErrBadArchive, http.StatusUnprocessableEntity, reasons.Msg(reasons.MsgArchiveInvalid)},
 		{files.ErrEmptyArchive, http.StatusUnprocessableEntity, reasons.Msg(reasons.MsgArchiveEmpty)},
 		{files.ErrTooLarge, http.StatusRequestEntityTooLarge, reasons.Msg(reasons.MsgUploadTooLarge, "100 MiB")},
+		{files.ErrTooManyEntries, http.StatusRequestEntityTooLarge, reasons.Msg(reasons.MsgUploadTooManyFiles, 10000)},
 		{files.ErrNotFound, http.StatusNotFound, reasons.Msg(reasons.MsgFolderNotFound)},
 		{files.ErrHomeStarting, http.StatusServiceUnavailable, ""},
 		{errors.New("dial tcp 10.0.0.5:5572: refused"), http.StatusInternalServerError, ""},
@@ -219,5 +224,71 @@ func TestArchiveUploadDropsCachedListings(t *testing.T) {
 	f.Do(http.MethodGet, "/api/files?path=deploys", "", alice)
 	if l.Calls != 2 {
 		t.Fatalf("listed %d times, want the folder listed again after the upload", l.Calls)
+	}
+}
+
+// slowPut sends body to target on srv in two halves, wait apart, signed in
+// as c; it answers the status, or 0 when the connection failed.
+func slowPut(t *testing.T, srv *httptest.Server, c *http.Cookie, target, contentType string, wait time.Duration) int {
+	t.Helper()
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = pw.Write([]byte("first half,"))
+		time.Sleep(wait)
+		_, _ = pw.Write([]byte("second half"))
+		_ = pw.Close()
+	}()
+	r, err := http.NewRequest(http.MethodPut, srv.URL+target, pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("Content-Type", contentType)
+	r.Header.Set(authn.RequestHeader, "1")
+	r.Header.Set("If-Match", `"1-1"`)
+	r.AddCookie(c)
+	resp, err := srv.Client().Do(r)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// An upload has api.limits.uploadReadTimeout to send its body, not the
+// bodyReadTimeout every other request keeps.
+func TestArchiveUploadHasItsOwnReadTimeout(t *testing.T) {
+	t.Parallel()
+	l := &apitest.StubFilesLister{}
+	f := apitest.New(t, apitest.Options{Files: l, APILimits: config.APILimitsCfg{
+		BodyReadTimeout:   metav1.Duration{Duration: 200 * time.Millisecond},
+		UploadReadTimeout: metav1.Duration{Duration: 3 * time.Second},
+	}})
+	srv := httptest.NewServer(f.Srv)
+	defer srv.Close()
+	alice := f.Session(apitest.AliceID)
+	if code := slowPut(t, srv, alice, "/api/files/archive?path=deploys/site", "application/gzip", 600*time.Millisecond); code != http.StatusCreated {
+		t.Fatalf("slow upload within its own timeout: %d, unpacked %q", code, l.Unpacks)
+	}
+	if len(l.Unpacks) != 1 || !strings.HasSuffix(l.Unpacks[0], "first half,second half") {
+		t.Fatalf("unpacked %q", l.Unpacks)
+	}
+	// Every other body still has bodyReadTimeout.
+	if code := slowPut(t, srv, alice, "/api/files/raw?path=a.txt", "text/plain", 600*time.Millisecond); code == http.StatusOK {
+		t.Fatal("a slow save got the upload's timeout")
+	}
+
+	l = &apitest.StubFilesLister{}
+	f = apitest.New(t, apitest.Options{Files: l, APILimits: config.APILimitsCfg{
+		BodyReadTimeout:   metav1.Duration{Duration: 5 * time.Second},
+		UploadReadTimeout: metav1.Duration{Duration: 200 * time.Millisecond},
+	}})
+	srv2 := httptest.NewServer(f.Srv)
+	defer srv2.Close()
+	if code := slowPut(t, srv2, f.Session(apitest.AliceID), "/api/files/archive?path=deploys/site", "application/gzip", 800*time.Millisecond); code == http.StatusCreated {
+		t.Fatal("an upload slower than uploadReadTimeout was not cut off")
+	}
+	if len(l.Unpacks) != 1 || strings.Contains(l.Unpacks[0], "second half") {
+		t.Fatalf("unpacked %q, want the read cut off", l.Unpacks)
 	}
 }

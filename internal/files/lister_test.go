@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +90,55 @@ func TestRclonePurgeSendsRemote(t *testing.T) {
 	}
 	if path != "/operations/purge" || got["fs"] != "/home/user" || got["remote"] != "deploys/.site.old-1" {
 		t.Fatalf("got %s %v", path, got)
+	}
+}
+
+// slowBody is an endless body whose every read takes a while; reading says
+// whether a read is under way.
+type slowBody struct {
+	reading atomic.Bool
+	reads   atomic.Int32
+}
+
+func (b *slowBody) Read(p []byte) (int, error) {
+	b.reading.Store(true)
+	defer b.reading.Store(false)
+	b.reads.Add(1)
+	time.Sleep(20 * time.Millisecond)
+	return copy(p, "data"), nil
+}
+
+// failAfter is a transport that reads n bytes of the request, then fails
+// as a connection to rclone that breaks mid-upload would.
+type failAfter int64
+
+func (n failAfter) RoundTrip(r *http.Request) (*http.Response, error) {
+	buf := make([]byte, 64<<10)
+	for read := 0; int64(read) < int64(n); {
+		m, err := r.Body.Read(buf)
+		if err != nil {
+			break
+		}
+		read += m
+	}
+	return nil, errors.New("connection reset by peer")
+}
+
+// When the upload to rclone fails part way, UploadStream returns only once
+// it has stopped reading the body: the caller may read or close it next.
+func TestRcloneUploadStreamStopsReadingBeforeItReturns(t *testing.T) {
+	body := &slowBody{}
+	err := files.Rclone{HTTP: &http.Client{Transport: failAfter(400)}}.UploadStream(context.Background(), "10.0.0.5:5572", "d", "x.bin", body)
+	if err == nil {
+		t.Fatal("no error from a failing rclone")
+	}
+	if body.reading.Load() {
+		t.Fatal("still reading the body after returning")
+	}
+	n := body.reads.Load()
+	time.Sleep(100 * time.Millisecond)
+	if m := body.reads.Load(); m != n {
+		t.Fatalf("read the body %d more times after returning", m-n)
 	}
 }
 

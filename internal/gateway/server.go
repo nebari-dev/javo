@@ -22,6 +22,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/envsource"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/ext/placement"
+	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/admin"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
@@ -311,7 +312,7 @@ func NewServer(cfg Config) *Server {
 	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,
-		Usage: cfg.Usage, Groups: cfg.Groups, Now: now, UploadBytes: limits.UploadBytes,
+		Usage: cfg.Usage, Groups: cfg.Groups, Now: now, Upload: files.UploadLimits{Bytes: limits.UploadBytes, Entries: limits.UploadFiles}, UploadReadTimeout: limits.UploadReadTimeout.Duration,
 	}
 	st.Register(api)
 	storage.RegisterFiles(api, listings, nss, st)

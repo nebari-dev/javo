@@ -116,9 +116,12 @@ type API struct {
 	Usage      HomeUsages
 	Groups     podstorage.Memberships
 	Now        func() time.Time
-	// UploadBytes is api.limits.uploadBytes: the most a folder upload's body,
-	// and the files it unpacks to, may be.
-	UploadBytes int64
+	// Upload is api.limits' bounds on a folder upload: Bytes for its body and
+	// for the files it unpacks to, Entries for its tar headers.
+	Upload files.UploadLimits
+	// UploadReadTimeout is how long a folder upload may take to send its
+	// body (api.limits.uploadReadTimeout), in place of bodyReadTimeout.
+	UploadReadTimeout time.Duration
 }
 
 // Register adds the storage routes.

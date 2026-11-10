@@ -46,8 +46,8 @@ type Homes interface {
 	// a new file when version is "".
 	Save(ctx context.Context, userID, path string, data []byte, version string) (files.FileInfo, error)
 	// Unpack writes the files of archive, a gzipped tar, into the folder
-	// path, at most limit bytes of them; replace lets it replace a folder.
-	Unpack(ctx context.Context, userID, path string, archive io.Reader, limit int64, replace bool) (files.Unpacked, error)
+	// path, within limits; replace lets it replace a folder.
+	Unpack(ctx context.Context, userID, path string, archive io.Reader, limits files.UploadLimits, replace bool) (files.Unpacked, error)
 	Release(ctx context.Context, userID string) error
 	Touch(userID string)
 }

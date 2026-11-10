@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -23,16 +24,17 @@ type archiveInput struct {
 	Replace bool   `query:"replace" doc:"true: if the folder exists, replace its files with the archive's (a redeploy). Otherwise an existing folder is a 409"`
 
 	// body is the request body, read as it arrives (Resolve); length is its
-	// Content-Length, -1 when unknown.
+	// Content-Length, -1 when unknown; conn sets its read deadline.
 	body   io.Reader
 	length int64
+	conn   *http.ResponseController
 }
 
 // Resolve keeps the request body for the handler to stream, instead of
 // huma reading it all into memory first.
 func (in *archiveInput) Resolve(hc huma.Context) []error {
-	r, _ := humago.Unwrap(hc)
-	in.body, in.length = r.Body, r.ContentLength
+	r, w := humago.Unwrap(hc)
+	in.body, in.length, in.conn = r.Body, r.ContentLength, http.NewResponseController(w)
 	return nil
 }
 
@@ -60,7 +62,8 @@ func registerArchiveUpload(api huma.API, lister Homes, nss *namespaces.Finder, s
 		Description: "Unpacks the body, a gzipped tar (Content-Type: application/gzip), into the folder path. " +
 			"201 for a new folder, 200 when replace=true replaced one, 409 if the folder exists without replace=true. " +
 			"Only plain files and folders: absolute paths, .., links and devices fail the whole upload (422), " +
-			"as does a body or unpacked total over the server's limit (413). A failed upload leaves the folder as it was.",
+			"as does a body or unpacked total over the server's limit, or more files and folders than it allows (413). " +
+			"The body may take the server's upload read timeout to arrive. A failed upload leaves the folder as it was.",
 		DefaultStatus: http.StatusCreated,
 		RequestBody: &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{
 			"application/gzip": {Schema: &huma.Schema{Type: huma.TypeString, Format: "binary"}},
@@ -81,7 +84,7 @@ func registerArchiveUpload(api huma.API, lister Homes, nss *namespaces.Finder, s
 		if rel == "" {
 			return nil, problem.New(http.StatusBadRequest, reasons.Msg(reasons.MsgUploadNeedsFolder))
 		}
-		limit := st.UploadBytes
+		limit := st.Upload.Bytes
 		tooLarge := problem.New(http.StatusRequestEntityTooLarge, reasons.Msg(reasons.MsgUploadTooLarge, byteSize(limit)))
 		if in.length > limit {
 			return nil, tooLarge
@@ -91,12 +94,17 @@ func registerArchiveUpload(api huma.API, lister Homes, nss *namespaces.Finder, s
 		if err != nil {
 			return nil, err
 		}
+		// The upload's own time to send its body replaces bodyReadTimeout.
+		// Where the connection cannot say (a test recorder), nothing changes.
+		_ = in.conn.SetReadDeadline(time.Now().Add(st.UploadReadTimeout))
 		body := &capReader{r: in.body, left: limit}
-		out, err := lister.Unpack(files.WithNamespace(ctx, ns), who.ID, rel, body, limit, in.Replace)
+		out, err := lister.Unpack(files.WithNamespace(ctx, ns), who.ID, rel, body, st.Upload, in.Replace)
 		var bad *files.BadEntryError
 		switch {
 		case errors.Is(err, files.ErrTooLarge):
 			return nil, tooLarge
+		case errors.Is(err, files.ErrTooManyEntries):
+			return nil, problem.New(http.StatusRequestEntityTooLarge, reasons.Msg(reasons.MsgUploadTooManyFiles, st.Upload.Entries))
 		case errors.Is(err, files.ErrExists):
 			return nil, problem.New(http.StatusConflict, reasons.Msg(reasons.MsgFolderExists))
 		case errors.As(err, &bad):

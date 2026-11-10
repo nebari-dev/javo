@@ -49,17 +49,17 @@ type StubFilesLister struct {
 	SavedAt time.Time
 
 	// Unpack reads the whole archive, records each call as
-	// "user:path:limit:replace:what it read" and answers UnpackErr, or the
+	// "user:path:bytes:entries:replace:what it read" and answers UnpackErr, or the
 	// folder with one file of the bytes read.
 	Unpacks   []string
 	UnpackErr error
 }
 
-func (f *StubFilesLister) Unpack(_ context.Context, userID, path string, archive io.Reader, limit int64, replace bool) (files.Unpacked, error) {
+func (f *StubFilesLister) Unpack(_ context.Context, userID, path string, archive io.Reader, limits files.UploadLimits, replace bool) (files.Unpacked, error) {
 	data, err := io.ReadAll(archive)
 	f.Mu.Lock()
 	defer f.Mu.Unlock()
-	f.Unpacks = append(f.Unpacks, fmt.Sprintf("%s:%s:%d:%t:%s", userID, path, limit, replace, data))
+	f.Unpacks = append(f.Unpacks, fmt.Sprintf("%s:%s:%d:%d:%t:%s", userID, path, limits.Bytes, limits.Entries, replace, data))
 	if err != nil {
 		return files.Unpacked{}, err
 	}

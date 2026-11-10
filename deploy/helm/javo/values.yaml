@@ -605,6 +605,14 @@ config:
       # with "413". The upload needs room for a second copy in the home
       # while it replaces a folder. 104857600 is 100 MiB.
       uploadBytes: 104857600
+      # The most entries (files, folders and other tar headers) a folder
+      # upload may hold. Empty files cost no bytes but each is a write to the
+      # home, so this bounds that work. More are refused with "413".
+      uploadFiles: 10000
+      # How long a folder upload may take to send its body. It replaces
+      # bodyReadTimeout for this upload only: at 100 MiB, 60s would cut off
+      # anyone uploading slower than about 1.7 MiB/s.
+      uploadReadTimeout: 10m
   # Per-person caps (they apply to platform admins too), so one person cannot
   # fill the cluster or the database. A create, start, import, Run now, new
   # token or proposed change past one is refused with a message naming it;
