@@ -40,6 +40,9 @@ func TestLLMsTxtServedWithPublicURL(t *testing.T) {
 	if strings.Contains(commandPlaceholder.ReplaceAllString(text, ""), "{{") {
 		t.Fatalf("an unfilled template action:\n%s", text)
 	}
+	if !strings.Contains(text, `D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/javo.example.com"`) {
+		t.Fatalf("no login folder for this host:\n%s", text)
+	}
 	if strings.ContainsAny(text, "\u2013\u2014") {
 		t.Fatal("an en or em dash in the guide")
 	}
@@ -78,5 +81,36 @@ func TestLLMsTxtNamesNoFramework(t *testing.T) {
 	}
 	if !strings.Contains(text, `"template":"custom"`) {
 		t.Error("the guide does not show the custom template")
+	}
+}
+
+// tokenUse is how the guide may touch the saved token: send it, check it
+// is there, or write it. Anything else could show it.
+var tokenUse = regexp.MustCompile(`Bearer \$\(cat "\$D/token"\)|\[ -s "\$D/token" \]|> "\$D/token"`)
+
+// TestLLMsTxtNeverPrintsTheToken checks no command (an indented line) in
+// the guide prints the token: the token file is only sent, checked or
+// written, no echo or printf names a token, and the poll prints its answer
+// only when it holds no token.
+func TestLLMsTxtNeverPrintsTheToken(t *testing.T) {
+	t.Parallel()
+	for _, line := range strings.Split(llmsTxt(t), "\n") {
+		if !strings.HasPrefix(line, "    ") {
+			continue // prose, not a command
+		}
+		rest := tokenUse.ReplaceAllString(line, "")
+		if strings.Contains(rest, "$D/token") || strings.Contains(rest, "TOKEN") {
+			t.Errorf("the guide shows the token: %s", line)
+		}
+		for _, cmd := range strings.Split(line, ";") {
+			cmd = strings.TrimSpace(cmd)
+			prints := strings.Contains(cmd, "echo ") || strings.Contains(cmd, "printf ")
+			if !prints || strings.Contains(cmd, "|") || strings.Contains(cmd, ">") {
+				continue
+			}
+			if strings.Contains(strings.ToLower(cmd), "token") || (strings.Contains(line, `'"token"'`) && strings.Contains(cmd, "$ANSWER")) {
+				t.Errorf("the guide prints the token: %s", line)
+			}
+		}
 	}
 }
