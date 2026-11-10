@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -232,6 +233,16 @@ func (h *Listings) forget(user string) {
 func (h *Listings) Release(ctx context.Context, user string) error {
 	h.forget(user)
 	return h.Homes.Release(ctx, user)
+}
+
+// Unpack writes the folder, then forgets user's listings: its parent's
+// would not show it.
+func (h *Listings) Unpack(ctx context.Context, user, rel string, archive io.Reader, limit int64, replace bool) (files.Unpacked, error) {
+	out, err := h.Homes.Unpack(ctx, user, rel, archive, limit, replace)
+	if err == nil {
+		h.forget(user)
+	}
+	return out, err
 }
 
 // Save writes the file, then forgets user's listings: the folder's would

@@ -311,7 +311,7 @@ func NewServer(cfg Config) *Server {
 	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,
-		Usage: cfg.Usage, Groups: cfg.Groups, Now: now,
+		Usage: cfg.Usage, Groups: cfg.Groups, Now: now, UploadBytes: limits.UploadBytes,
 	}
 	st.Register(api)
 	storage.RegisterFiles(api, listings, nss, st)

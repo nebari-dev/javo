@@ -561,6 +561,9 @@ type APILimitsCfg struct {
 	// BodyReadTimeout is how long a request to the API or sign-in may take
 	// to send its body. Default 60s.
 	BodyReadTimeout metav1.Duration `json:"bodyReadTimeout"`
+	// UploadBytes is the most a folder upload (PUT /api/files/archive) may
+	// unpack to, and the most its compressed body may be. Default 100 MiB.
+	UploadBytes int64 `json:"uploadBytes"`
 }
 
 // WithDefaults is l with every zero value set to its default.
@@ -572,6 +575,9 @@ func (l APILimitsCfg) WithDefaults() APILimitsCfg {
 		l.ThumbnailDecodes = 4
 	}
 	setDur(&l.BodyReadTimeout, 60*time.Second)
+	if l.UploadBytes == 0 {
+		l.UploadBytes = 100 << 20
+	}
 	return l
 }
 
@@ -821,6 +827,9 @@ func (p Platform) Validate() error {
 		bad("api.limits.thumbnailDecodes", "%d must be at least 1", l.ThumbnailDecodes)
 	}
 	positive("api.limits.bodyReadTimeout", p.API.Limits.BodyReadTimeout)
+	if l := p.API.Limits; l.UploadBytes < 1 {
+		bad("api.limits.uploadBytes", "%d must be at least 1", l.UploadBytes)
+	}
 	if p.API.Tokens.MaxLifetime.Duration < 0 {
 		bad("api.tokens.maxLifetime", "%s must not be negative (zero allows tokens that never expire)", p.API.Tokens.MaxLifetime.Duration)
 	}

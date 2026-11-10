@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -46,6 +47,26 @@ type StubFilesLister struct {
 	Saved   []string
 	SaveErr error
 	SavedAt time.Time
+
+	// Unpack reads the whole archive, records each call as
+	// "user:path:limit:replace:what it read" and answers UnpackErr, or the
+	// folder with one file of the bytes read.
+	Unpacks   []string
+	UnpackErr error
+}
+
+func (f *StubFilesLister) Unpack(_ context.Context, userID, path string, archive io.Reader, limit int64, replace bool) (files.Unpacked, error) {
+	data, err := io.ReadAll(archive)
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
+	f.Unpacks = append(f.Unpacks, fmt.Sprintf("%s:%s:%d:%t:%s", userID, path, limit, replace, data))
+	if err != nil {
+		return files.Unpacked{}, err
+	}
+	if f.UnpackErr != nil {
+		return files.Unpacked{}, f.UnpackErr
+	}
+	return files.Unpacked{Path: path, Files: 1, Bytes: int64(len(data)), Replaced: replace}, nil
 }
 
 func (f *StubFilesLister) Save(_ context.Context, userID, path string, data []byte, version string) (files.FileInfo, error) {

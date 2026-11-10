@@ -91,7 +91,8 @@ var (
 	ErrPathTooDeep = errors.New("files: path has too many folders")
 	// ErrNotFound means the folder does not exist (or is not a real folder).
 	ErrNotFound = errors.New("files: folder not found")
-	// ErrTooLarge means the file is bigger than MaxOpenBytes.
+	// ErrTooLarge means the file is bigger than MaxOpenBytes, or an upload
+	// bigger than its limit.
 	ErrTooLarge = errors.New("files: file is too large to open")
 	// ErrChanged means the file is not the version the caller read: it
 	// was written since.
@@ -592,7 +593,7 @@ func (l *Lister) list(ctx context.Context, userID, fs, group, rel string) (Listi
 	if err != nil {
 		return Listing{}, err
 	}
-	if err := l.checkFolders(ctx, addr, fs, rel); err != nil {
+	if err := l.checkFolders(ctx, addr, fs, rel, false); err != nil {
 		return Listing{}, err
 	}
 	return l.remote.List(ctx, addr, fs, rel)
@@ -600,8 +601,10 @@ func (l *Lister) list(ctx context.Context, userID, fs, group, rel string) (Listi
 
 // checkFolders fails with ErrNotFound unless every folder on rel (inside fs)
 // is a real folder (not a symlink). Stat asks about one name, so a folder past
-// the listing cap of its parent is still found.
-func (l *Lister) checkFolders(ctx context.Context, addr, fs, rel string) error {
+// the listing cap of its parent is still found. With missingOK the end of rel
+// may not exist yet (rclone makes it when it writes there); the folders that
+// do exist are still checked.
+func (l *Lister) checkFolders(ctx context.Context, addr, fs, rel string, missingOK bool) error {
 	if rel == "" {
 		return nil
 	}
@@ -609,6 +612,9 @@ func (l *Lister) checkFolders(ctx context.Context, addr, fs, rel string) error {
 	for _, part := range strings.Split(rel, "/") {
 		at = path.Join(at, part)
 		e, err := l.remote.Stat(ctx, addr, fs, at)
+		if missingOK && errors.Is(err, ErrNotFound) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -635,7 +641,7 @@ func (l *Lister) Open(ctx context.Context, userID, rel string) (io.ReadCloser, F
 		return nil, FileInfo{}, err
 	}
 	dir = strings.TrimSuffix(dir, "/")
-	if err := l.checkFolders(ctx, addr, dataDir, dir); err != nil {
+	if err := l.checkFolders(ctx, addr, dataDir, dir, false); err != nil {
 		return nil, FileInfo{}, err
 	}
 	e, err := l.remote.FindFile(ctx, addr, dir, name)
@@ -695,7 +701,7 @@ func (l *Lister) Save(ctx context.Context, userID, rel string, data []byte, vers
 		return FileInfo{}, err
 	}
 	defer unlock()
-	if err := l.checkFolders(ctx, addr, dataDir, dir); err != nil {
+	if err := l.checkFolders(ctx, addr, dataDir, dir, false); err != nil {
 		return FileInfo{}, err
 	}
 	if version == "" {

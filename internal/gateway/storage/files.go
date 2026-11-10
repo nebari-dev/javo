@@ -45,6 +45,9 @@ type Homes interface {
 	// Save writes a text file: over version (FileInfo.Version) of it, or as
 	// a new file when version is "".
 	Save(ctx context.Context, userID, path string, data []byte, version string) (files.FileInfo, error)
+	// Unpack writes the files of archive, a gzipped tar, into the folder
+	// path, at most limit bytes of them; replace lets it replace a folder.
+	Unpack(ctx context.Context, userID, path string, archive io.Reader, limit int64, replace bool) (files.Unpacked, error)
 	Release(ctx context.Context, userID string) error
 	Touch(userID string)
 }
@@ -92,6 +95,7 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 	}
 	registerRawFile(api, lister, nss, st)
 	registerSaveFile(api, lister, nss, st)
+	registerArchiveUpload(api, lister, nss, st)
 	registerWarm(api, listings, nss, st)
 	huma.Register(api, huma.Operation{
 		OperationID: "listFiles", Method: http.MethodGet, Path: "/api/files",

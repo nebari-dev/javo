@@ -70,12 +70,19 @@ const (
 	MsgFileNotText        MessageCode = "FileNotText"
 	MsgFileTooLargeToEdit MessageCode = "FileTooLargeToEdit"
 	MsgFileVersionNeeded  MessageCode = "FileVersionNeeded"
-	MsgNoSample           MessageCode = "NoSample" // arg: template display name
-	MsgSampleNameTaken    MessageCode = "SampleNameTaken"
-	MsgInvalidRequest     MessageCode = "InvalidRequest"
-	MsgNoSuchAddress      MessageCode = "NoSuchAddress"
-	MsgMethodNotAllowed   MessageCode = "MethodNotAllowed"
-	MsgServerError        MessageCode = "ServerError"
+	// Uploading a folder as a tar.gz (PUT /api/files/archive).
+	MsgUploadNeedsFolder   MessageCode = "UploadNeedsFolder"
+	MsgFolderExists        MessageCode = "FolderExists"
+	MsgUploadTooLarge      MessageCode = "UploadTooLarge" // arg: the limit, as "100 MiB"
+	MsgArchiveInvalid      MessageCode = "ArchiveInvalid"
+	MsgArchiveEntryRefused MessageCode = "ArchiveEntryRefused" // arg: the entry's path in the archive
+	MsgArchiveEmpty        MessageCode = "ArchiveEmpty"
+	MsgNoSample            MessageCode = "NoSample" // arg: template display name
+	MsgSampleNameTaken     MessageCode = "SampleNameTaken"
+	MsgInvalidRequest      MessageCode = "InvalidRequest"
+	MsgNoSuchAddress       MessageCode = "NoSuchAddress"
+	MsgMethodNotAllowed    MessageCode = "MethodNotAllowed"
+	MsgServerError         MessageCode = "ServerError"
 
 	MsgJobNotFound                MessageCode = "JobNotFound"
 	MsgRunNotFound                MessageCode = "RunNotFound"
@@ -385,6 +392,12 @@ var messages = map[MessageCode]string{
 	MsgFileNotText:           "Only text files can be edited here.",
 	MsgFileTooLargeToEdit:    "This file is too large to edit here (2 MiB at most). Open it in an app.",
 	MsgFileVersionNeeded:     "Say which version of the file this replaces (If-Match), or that it is new (If-None-Match: *).",
+	MsgUploadNeedsFolder:     "Name a folder inside your home folder to upload into.",
+	MsgFolderExists:          "Something is already at that path. Send replace=true to replace a folder's files, or pick another path.",
+	MsgUploadTooLarge:        "This upload is larger than %s, the most allowed here. Leave out what the app does not need to run.",
+	MsgArchiveInvalid:        "This is not a gzipped tar file. Send the folder as tar czf makes it.",
+	MsgArchiveEntryRefused:   "The archive holds %q, which is refused: only plain files and folders inside the folder, with no absolute paths, no .., no links and no devices.",
+	MsgArchiveEmpty:          "The archive holds no files.",
 	MsgNoSample:              "%s has no sample to start.",
 	MsgSampleNameTaken:       "You already have many samples of this kind. Delete one, then try again.",
 	MsgInvalidRequest:        "Something in this form is not valid. Check it and try again.",

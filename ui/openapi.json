@@ -5352,6 +5352,29 @@
         ],
         "type": "object"
       },
+      "UploadedFolder": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "description": "The files' bytes together, unpacked",
+            "format": "int64",
+            "type": "integer"
+          },
+          "files": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "files",
+          "bytes"
+        ],
+        "type": "object"
+      },
       "UsageOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -8785,6 +8808,164 @@
           }
         },
         "summary": "List a folder of the user's home",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/files/archive": {
+      "put": {
+        "description": "Unpacks the body, a gzipped tar (Content-Type: application/gzip), into the folder path. 201 for a new folder, 200 when replace=true replaced one, 409 if the folder exists without replace=true. Only plain files and folders: absolute paths, .., links and devices fail the whole upload (422), as does a body or unpacked total over the server's limit (413). A failed upload leaves the folder as it was.",
+        "operationId": "uploadArchive",
+        "parameters": [
+          {
+            "description": "Team whose home to upload into; needed only when namespaces are per team and the user is in several",
+            "explode": false,
+            "in": "query",
+            "name": "team",
+            "schema": {
+              "description": "Team whose home to upload into; needed only when namespaces are per team and the user is in several",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Folder relative to the home folder, for example deploys/sales; made if missing",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "Folder relative to the home folder, for example deploys/sales; made if missing",
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          {
+            "description": "true: if the folder exists, replace its files with the archive's (a redeploy). Otherwise an existing folder is a 409",
+            "explode": false,
+            "in": "query",
+            "name": "replace",
+            "schema": {
+              "description": "true: if the folder exists, replace its files with the archive's (a redeploy). Otherwise an existing folder is a 409",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/gzip": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadedFolder"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Upload a folder to the user's home as a tar.gz",
         "tags": [
           "files"
         ]

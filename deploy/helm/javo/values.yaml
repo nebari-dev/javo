@@ -599,6 +599,12 @@ config:
       # without a body, such as log streams, and apps' own traffic are not
       # affected.
       bodyReadTimeout: 60s
+      # The most a folder upload (a coding agent deploying a folder from a
+      # laptop, PUT /api/files/archive) may unpack to, in bytes; its
+      # compressed body may be no bigger either. Larger uploads are refused
+      # with "413". The upload needs room for a second copy in the home
+      # while it replaces a folder. 104857600 is 100 MiB.
+      uploadBytes: 104857600
   # Per-person caps (they apply to platform admins too), so one person cannot
   # fill the cluster or the database. A create, start, import, Run now, new
   # token or proposed change past one is refused with a message naming it;

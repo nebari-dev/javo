@@ -1976,6 +1976,15 @@ export type TrustView = {
     until?: string;
 };
 
+export type UploadedFolder = {
+    /**
+     * The files' bytes together, unpacked
+     */
+    bytes: number;
+    files: number;
+    path: string;
+};
+
 export type UsageOutputBody = {
     items: Array<UsageRow> | null;
     since: string;
@@ -3978,6 +3987,76 @@ export type ListFilesResponses = {
 };
 
 export type ListFilesResponse = ListFilesResponses[keyof ListFilesResponses];
+
+export type UploadArchiveData = {
+    body: Blob | File;
+    path?: never;
+    query?: {
+        /**
+         * Team whose home to upload into; needed only when namespaces are per team and the user is in several
+         */
+        team?: string;
+        /**
+         * Folder relative to the home folder, for example deploys/sales; made if missing
+         */
+        path?: string;
+        /**
+         * true: if the folder exists, replace its files with the archive's (a redeploy). Otherwise an existing folder is a 409
+         */
+        replace?: boolean;
+    };
+    url: '/api/files/archive';
+};
+
+export type UploadArchiveErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorModel;
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Request Entity Too Large
+     */
+    413: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+    /**
+     * Service Unavailable
+     */
+    503: ErrorModel;
+};
+
+export type UploadArchiveError = UploadArchiveErrors[keyof UploadArchiveErrors];
+
+export type UploadArchiveResponses = {
+    /**
+     * Created
+     */
+    201: UploadedFolder;
+};
+
+export type UploadArchiveResponse = UploadArchiveResponses[keyof UploadArchiveResponses];
 
 export type GetRawFileData = {
     body?: never;

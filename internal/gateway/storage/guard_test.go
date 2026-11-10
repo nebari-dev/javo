@@ -37,6 +37,7 @@ func TestHomeRoutesNeedTheMemberRole(t *testing.T) {
 		{"POST", "/api/files/warm", ""},
 		{"GET", "/api/files/raw?path=a.txt", ""},
 		{"PUT", "/api/files/raw?path=a.txt", "new"},
+		{"PUT", "/api/files/archive?path=deploys/site", "tar.gz"},
 	} {
 		w := f.Do(c.method, c.path, c.body, carol)
 		if w.Code != http.StatusForbidden || apitest.DecodeFilesBody(t, w)["title"] != reasons.Msg(reasons.MsgNotAMember) {
@@ -47,10 +48,10 @@ func TestHomeRoutesNeedTheMemberRole(t *testing.T) {
 		t.Errorf("storage: %d %s", w.Code, w.Body)
 	}
 	l.Mu.Lock()
-	calls, opened, saved := l.Calls, len(l.Opened), len(l.Saved)
+	calls, opened, saved, unpacked := l.Calls, len(l.Opened), len(l.Saved), len(l.Unpacks)
 	l.Mu.Unlock()
-	if calls != 0 || opened != 0 || saved != 0 || u.Calls != 0 {
-		t.Fatalf("reached the home: lister %d, opened %d, saved %d, usage %d", calls, opened, saved, u.Calls)
+	if calls != 0 || opened != 0 || saved != 0 || unpacked != 0 || u.Calls != 0 {
+		t.Fatalf("reached the home: lister %d, opened %d, saved %d, unpacked %d, usage %d", calls, opened, saved, unpacked, u.Calls)
 	}
 	if w := f.Do("GET", "/api/files?path=", "", f.Session(apitest.AliceID, "/org/members")); w.Code != http.StatusOK {
 		t.Fatalf("member: %d %s", w.Code, w.Body)
