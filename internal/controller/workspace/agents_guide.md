@@ -59,15 +59,16 @@ javo-api /api/secrets                # 403 for you: secrets are the person's
 1. Write the code in its own folder, for a new app `~/agents/<short-name>/`
    (never overwrite a folder that exists). For an existing folder, read its
    files first.
-2. Pick the template from the files: a Streamlit `app.py` is `streamlit`
-   (file: the .py), a Dash app is `dash`, a notebook is `jupyterlab` or
-   `voila`, an `index.html` site is `static-site`, a FastAPI app is `fastapi`;
-   anything else that serves HTTP runs on `custom` with a `command`.
-   `GET /api/templates` lists them with the file extensions each opens.
+2. Pick the template from the files. Any template `GET /api/templates`
+   lists can run them: match the files to a template's `fileExtensions` and
+   `description`, and `file` is the file it opens (or the folder). A single
+   HTML file, such as an HTML page or artifact, runs on the template whose
+   `fileExtensions` include `.html`. Anything else that serves HTTP runs on
+   `custom` with a `command`.
 3. Create it:
 
    ```sh
-   javo-api POST /api/workspaces '{"displayName":"<Title>","template":"streamlit","file":"agents/<short-name>/app.py"}'
+   javo-api POST /api/workspaces '{"displayName":"<Title>","template":"<template>","file":"agents/<short-name>/<file>"}'
    javo-api POST /api/workspaces '{"displayName":"<Title>","template":"custom","file":"agents/<short-name>","command":"pixi run python server.py --port {{.Port}}"}'
    ```
 
@@ -105,7 +106,7 @@ pixi run python app.py             # run, test and debug through pixi run
 Keep `pixi.toml` and `pixi.lock` in the folder. When the project becomes an
 app on the `custom` template, its command runs through pixi too
 (`pixi run python server.py --port {{.Port}}`); for a framework template
-(streamlit, dash, fastapi...), add to the project only what that template's
+(any template other than `custom`), add to the project only what that template's
 environment lacks.
 
 ## Deploy a published container image
