@@ -164,6 +164,12 @@ type Remote interface {
 	FindFile(ctx context.Context, addr, dir, name string) (Entry, error)
 	// Upload writes data as the file name in folder dir of the home.
 	Upload(ctx context.Context, addr, dir, name string, data []byte) error
+	// UploadStream is Upload of what r holds, read as it is sent.
+	UploadStream(ctx context.Context, addr, dir, name string, r io.Reader) error
+	// MoveDir moves folder src of the home to dst, which should not exist.
+	MoveDir(ctx context.Context, addr, src, dst string) error
+	// Purge deletes folder dir of the home and everything in it.
+	Purge(ctx context.Context, addr, dir string) error
 	// About reports the space used on the volume the home is on.
 	About(ctx context.Context, addr string) (Usage, error)
 }
@@ -246,29 +252,63 @@ func do(hc *http.Client, req *http.Request, op string) (*http.Response, error) {
 // mode and owner stay) and follows a symlink it meets, so callers check the
 // path first (see Lister.Save).
 func (r Rclone) Upload(ctx context.Context, addr, dir, name string, data []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return r.UploadStream(ctx, addr, dir, name, bytes.NewReader(data))
+}
+
+// UploadStream is Upload of what body holds: it is copied into the request
+// as rclone reads it, so a large file is never held in memory.
+func (r Rclone) UploadStream(ctx context.Context, addr, dir, name string, body io.Reader) error {
 	hc := r.HTTP
 	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
+		// No overall timeout: a large file takes as long as it takes. The
+		// call is bounded by the request context.
+		hc = &http.Client{}
 	}
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	part, err := mw.CreateFormFile("file", name)
-	if err != nil {
-		return err
-	}
-	if _, err := part.Write(data); err != nil {
-		return err
-	}
-	if err := mw.Close(); err != nil {
-		return err
-	}
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		part, err := mw.CreateFormFile("file", name)
+		if err == nil {
+			_, err = io.Copy(part, body)
+		}
+		if err == nil {
+			err = mw.Close()
+		}
+		pw.CloseWithError(err)
+	}()
+	// Whatever happens to the request, the writer above must not block.
+	defer pr.Close()
 	q := url.Values{"fs": {dataDir}, "remote": {dir}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/operations/uploadfile?"+q.Encode(), &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/operations/uploadfile?"+q.Encode(), pr)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := do(hc, req, "operations/uploadfile")
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
+}
+
+// MoveDir moves folder src of the home mount to dst with sync/move, which
+// renames it when it can. Empty folders left behind in src are removed.
+func (r Rclone) MoveDir(ctx context.Context, addr, src, dst string) error {
+	resp, err := r.post(ctx, addr, "sync/move", map[string]any{
+		"srcFs": dataDir + "/" + src, "dstFs": dataDir + "/" + dst, "deleteEmptySrcDirs": true,
+	})
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
+}
+
+// Purge deletes folder dir of the home mount and all it holds, with
+// operations/purge.
+func (r Rclone) Purge(ctx context.Context, addr, dir string) error {
+	resp, err := r.post(ctx, addr, "operations/purge", map[string]any{"fs": dataDir, "remote": dir})
 	if err != nil {
 		return err
 	}

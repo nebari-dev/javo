@@ -53,6 +53,81 @@ const (
 
 // --- rclone client ---
 
+// MoveDir moves one folder of the home to another with sync/move, both
+// named as local paths inside the file pod.
+func TestRcloneMoveDirSendsFsPair(t *testing.T) {
+	var path string
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	err := files.Rclone{HTTP: srv.Client()}.MoveDir(context.Background(), strings.TrimPrefix(srv.URL, "http://"), "deploys/.site.upload-1", "deploys/site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/sync/move" || got["srcFs"] != "/home/user/deploys/.site.upload-1" || got["dstFs"] != "/home/user/deploys/site" ||
+		got["deleteEmptySrcDirs"] != true {
+		t.Fatalf("got %s %v", path, got)
+	}
+}
+
+func TestRclonePurgeSendsRemote(t *testing.T) {
+	var path string
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	err := files.Rclone{HTTP: srv.Client()}.Purge(context.Background(), strings.TrimPrefix(srv.URL, "http://"), "deploys/.site.old-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/operations/purge" || got["fs"] != "/home/user" || got["remote"] != "deploys/.site.old-1" {
+		t.Fatalf("got %s %v", path, got)
+	}
+}
+
+// UploadStream sends what it reads as one multipart file, however large,
+// without the caller holding it all.
+func TestRcloneUploadStreamSendsFile(t *testing.T) {
+	data := make([]byte, 3<<20)
+	for i := range data {
+		data[i] = byte(i % 251)
+	}
+	var fs, remote, name, path string
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		fs, remote = r.URL.Query().Get("fs"), r.URL.Query().Get("remote")
+		mr, err := r.MultipartReader()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		p, err := mr.NextPart()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		name = p.FileName()
+		body, _ = io.ReadAll(p)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	err := files.Rclone{HTTP: srv.Client()}.UploadStream(context.Background(), strings.TrimPrefix(srv.URL, "http://"), "deploys/site", "data.bin", strings.NewReader(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/operations/uploadfile" || fs != "/home/user" || remote != "deploys/site" || name != "data.bin" || !slices.Equal(body, data) {
+		t.Fatalf("got %s fs=%q remote=%q name=%q, %d bytes", path, fs, remote, name, len(body))
+	}
+}
+
 func TestRcloneListParsesEntries(t *testing.T) {
 	var got map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

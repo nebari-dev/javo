@@ -74,6 +74,23 @@ func (s stubRemote) Upload(_ context.Context, _, dir, name string, data []byte) 
 	return nil
 }
 
+func (s stubRemote) UploadStream(ctx context.Context, addr, dir, name string, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return s.Upload(ctx, addr, dir, name, data)
+}
+
+// The tree holds no folder moves; memRemote (unpack_test.go) does.
+func (stubRemote) MoveDir(context.Context, string, string, string) error {
+	return errors.New("stubRemote: no MoveDir")
+}
+
+func (stubRemote) Purge(context.Context, string, string) error {
+	return errors.New("stubRemote: no Purge")
+}
+
 var mod = time.Date(2026, 10, 30, 19, 22, 27, 123, time.UTC)
 
 // editTree is a home with notes/a.py (a real file), a symlink "link.py" in
