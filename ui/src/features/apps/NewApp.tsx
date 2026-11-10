@@ -6,6 +6,7 @@ import type { AgentStatus, DraftView, Template } from '../../api'
 import { ApiAccessChoices, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
+import { AgentDeploy } from '../../components/AgentDeploy'
 import { Card } from '../../components/Card'
 import { HomePicker } from '../files/HomePicker'
 import { IdleStopChoice } from './IdleStop'
@@ -577,6 +578,7 @@ export function NewApp() {
               <DescribeIt agent={agent} />
             ))}
           {!agent && agentStatus && !wanted && <DescribeOff status={agentStatus} />}
+          <AgentDeploy />
           <Section part="app" title="App">
           {tpl && !listOpen ? (
             <div className="stack tight-gap">

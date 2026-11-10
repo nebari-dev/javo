@@ -134,9 +134,10 @@ describe('Settings', () => {
     await user.click(await screen.findByRole('button', { name: 'New token' }))
     await user.type(screen.getByLabelText('Name'), 'notebook')
     await user.click(screen.getByRole('button', { name: 'Create token' }))
-    await user.click(await screen.findByRole('button', { name: 'Copy' }))
+    const box = within((await screen.findByText('Token notebook is ready')).parentElement!)
+    await user.click(box.getByRole('button', { name: 'Copy' }))
     expect(await navigator.clipboard.readText()).toBe(SECRET)
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy()
+    expect(box.getByRole('button', { name: 'Copied' })).toBeTruthy()
   })
 
   it('sends read and write with a chosen expiry, or none for Never', async () => {

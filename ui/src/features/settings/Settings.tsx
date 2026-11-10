@@ -2,6 +2,7 @@ import { Check, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
 import type { CreatedToken, TokenView } from '../../api'
+import { AgentDeploy } from '../../components/AgentDeploy'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -265,6 +266,9 @@ export function ApiTokens() {
       <p className="sub tok-intro">
         A token lets scripts and coding agents use the API as you. Send it as <code>Authorization: Bearer &lt;token&gt;</code>.
       </p>
+      <div className="section-sm">
+        <AgentDeploy />
+      </div>
       {made ? (
         <div className="section-sm">
           <NewSecret token={made} onDone={() => setMade(null)} />
