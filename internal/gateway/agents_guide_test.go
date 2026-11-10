@@ -11,8 +11,11 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 )
 
-// guideCall is a call to the API that the coding agents' guide names.
+// guideCall is a call to the API that a guide for coding agents names.
 var guideCall = regexp.MustCompile(`(javo-api )?(?:(GET|POST|PUT|PATCH|DELETE) )?(/api/[A-Za-z0-9_./{}-]*[A-Za-z0-9_}])`)
+
+// curlMethod is the -X of a curl command.
+var curlMethod = regexp.MustCompile(`\s-X\s+([A-Z]+)`)
 
 // TestAgentsGuideNamesRealCalls reads the API guide that coding-agent apps
 // get (internal/controller/workspace/agents_guide.md): every route it names
@@ -26,17 +29,32 @@ func TestAgentsGuideNamesRealCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ops := apiOperations(t)
 	agentWrites := slices.Concat(authn.WorkloadTokenWrites, authn.AgentDeployWrites)
+	checkGuideCalls(t, string(guide), func(method string, o parityOp) bool {
+		return method == "GET" || slices.Contains(agentWrites, o.id)
+	})
+}
+
+// checkGuideCalls checks every API route guide names: it is a route of the
+// API document with that method, and each call the guide runs (a javo-api
+// or curl line) is one allowed lets the agent's token make.
+func checkGuideCalls(t *testing.T, guide string, allowed func(method string, o parityOp) bool) {
+	t.Helper()
+	ops := apiOperations(t)
 	found := 0
-	for _, line := range strings.Split(string(guide), "\n") {
+	// A command continued on the next line is one line.
+	for _, line := range strings.Split(strings.ReplaceAll(guide, "\\\n", " "), "\n") {
+		curl := runsCurl(line)
 		for _, m := range guideCall.FindAllStringSubmatch(line, -1) {
 			viaHelper, method, path := m[1] != "", m[2], m[3]
 			if path == "/api/openapi.json" {
 				continue // the document itself
 			}
 			found++
+			runs := viaHelper || curl != ""
 			switch {
+			case curl != "":
+				method = curl
 			case method == "" && viaHelper:
 				method = "GET" // javo-api's default
 			case method == "":
@@ -51,14 +69,33 @@ func TestAgentsGuideNamesRealCalls(t *testing.T) {
 				t.Errorf("the guide names %s %s, which is not in the API document", method, path)
 				continue
 			}
-			if viaHelper && method != "GET" && !slices.Contains(agentWrites, ops[i].id) {
-				t.Errorf("the guide runs javo-api %s %s (%s), which a coding agent's token may not call", method, path, ops[i].id)
+			if runs && !allowed(method, ops[i]) {
+				t.Errorf("the guide runs %s %s (%s), which the agent's token may not call", method, path, ops[i].id)
 			}
 		}
 	}
 	if found < 10 {
 		t.Fatalf("found only %d API calls in the guide", found)
 	}
+}
+
+// runsCurl is the method of the curl command on line, or "" when the line
+// runs none: -X names it, -T uploads with PUT, -d posts, and GET otherwise.
+func runsCurl(line string) string {
+	i := strings.Index(line, "curl ")
+	if i < 0 {
+		return ""
+	}
+	cmd := " " + line[i:]
+	switch m := curlMethod.FindStringSubmatch(cmd); {
+	case m != nil:
+		return m[1]
+	case strings.Contains(cmd, " -T "):
+		return "PUT"
+	case strings.Contains(cmd, " -d "):
+		return "POST"
+	}
+	return "GET"
 }
 
 // guidePathMatches reports whether p, a path as the guide writes it (with

@@ -1,0 +1,201 @@
+# Deploy an app to Javo from this computer
+
+Javo runs web apps, notebooks and published container images for a
+person, at {{.URL}}. You deploy the app in the person's folder for them
+with only curl and tar, through the Javo API, acting as that person.
+
+Rules for every step:
+
+- Never print the token, write it to a file, put it in a command you show
+  the person, or commit it. Keep it only in the shell variable JAVO_TOKEN.
+  If your shell does not keep variables from one command to the next, run
+  the login and the calls that need the token in one shell session.
+- Never ask the person for a password, API key or other secret value in the
+  chat, a file or a command.
+- Send `X-Javo-Request: 1` with every call that is not a GET.
+- Each call uses `curl -fsS`, which stops on an error answer and prints only
+  its status. To read the error, run the same call with
+  `-sS --fail-with-body` in place of `-fsS`. Errors are JSON problems:
+  `title` and `detail` say what went wrong, and `errors` names the field.
+- The whole API, with every field, is the OpenAPI document at
+  {{.URL}}/api/openapi.json.
+
+## 1. Log in
+
+Start a login. It needs no token:
+
+    curl -fsS -X POST -H "X-Javo-Request: 1" "{{.URL}}/api/auth/device"
+
+The answer has `deviceCode`, `userCode`, `verificationURL`,
+`verificationURLComplete`, `expiresIn` (seconds, 600) and `interval`
+(seconds between polls, 5). Keep `deviceCode` to yourself.
+
+Show the person the link `verificationURLComplete` and the code `userCode`,
+and ask them to open the link, check that the page shows the same code, and
+approve. They have `expiresIn` seconds.
+
+Then poll for the token every `interval` seconds. This loop does it, keeps
+the token in JAVO_TOKEN without printing it, and stops when the person
+approves or denies, or the request expires. Put the answer's values in the
+first two lines:
+
+    DEVICE_CODE='<deviceCode>'
+    INTERVAL=<interval>
+    while :; do
+      sleep "$INTERVAL"
+      ANSWER=$(curl -sS -X POST -H "X-Javo-Request: 1" -H "Content-Type: application/json" \
+        -d "{\"deviceCode\":\"$DEVICE_CODE\"}" "{{.URL}}/api/auth/device/token")
+      case "$ANSWER" in
+        *'"token"'*) JAVO_TOKEN=$(printf '%s' "$ANSWER" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'); echo "logged in"; break ;;
+        *authorization_pending*) ;;
+        *slow_down*) INTERVAL=$((INTERVAL + 5)) ;;
+        *) printf '%s\n' "$ANSWER"; break ;;
+      esac
+    done
+
+While the person has not decided, the poll answers 400 with `error`
+`authorization_pending`: keep polling. `slow_down` means you polled too
+soon: wait 5 seconds longer each time. `access_denied` means the person
+said no, and `expired_token` means the request expired or the token was
+already given: stop, and start a new login only if the person asks.
+
+The token acts as the person, with read and write access, for 8 hours or
+less. Send it as `Authorization: Bearer $JAVO_TOKEN`.
+
+## 2. Look around
+
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/me"
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/templates"
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/sizes"
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces"
+
+- `/api/me` is the person you act as.
+- `/api/templates`: `.items[]` with `name`, `description`, `kind`,
+  `fileExtensions`, `userCommand`, `userImage`, `port` and `basePath`.
+- `/api/sizes`: `.items[]` with `name`, `cpu`, `memory` (bytes), `default`
+  and `fits`.
+- `/api/workspaces` is the person's apps. An app is called a workspace in
+  the API.
+
+## 3. Pick a template from the files
+
+Read the files in the folder. Any template in `/api/templates` can run
+them: match the files to a template's `fileExtensions` and `description`.
+A single HTML file, such as an HTML page or artifact, runs on the template
+whose `fileExtensions` include `.html`. Anything else that serves HTTP runs
+on `custom` with a `command`.
+
+Packages: the app gets its template's packages, which are pinned and hold
+its framework and common data packages; prefer what is there. Or it runs in
+a pixi environment from `GET /api/environments` (`"environment":{"id":"<id>"}`
+when you create it). Or, on `custom`, its `command` brings what it needs.
+
+The app must listen on the port in `$PORT` on all addresses, and serve
+under its base path (`$BASE_URL`). A command may use `{{"{{.Port}}"}}` and
+`{{"{{.BaseURL}}"}}` for them. With `basePath: Prefix` requests arrive with
+that prefix: pass it to the framework. With `Strip` the prefix is removed,
+the app serves at `/`, and the prefix is in the `X-Forwarded-Prefix`
+header.
+
+To run a published container image instead of the folder, use the
+`container` template with `image` (an exact version, never `latest`) and
+`port`. It runs as the person's user, never root, so it cannot bind a port
+below 1024. If no template has `userImage: true`, images are turned off:
+tell the person.
+
+## 4. Upload the folder
+
+Pick a short name for the app: lower case letters, digits and dashes. Run
+this in the app's folder. It sends the folder, without `.git`,
+`node_modules`, `.venv` and other build output, to `deploys/<short-name>`
+in the person's home folder on Javo. Add `--exclude` for any other build
+output or large data the app does not need to run (for example `dist`,
+`build`, `__pycache__`, `.next`):
+
+    tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -fsS -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/files/archive?path=deploys/<short-name>"
+
+The answer is `path`, `files` and `bytes`.
+
+- 201: uploaded.
+- 409: `deploys/<short-name>` already exists. Ask the person whether to
+  replace it. Only if they say yes, upload again with `&replace=true` at
+  the end of the address. Otherwise pick another short name.
+- 413: too large (100 MiB unpacked by default) or too many files. Leave
+  out what the app does not need to run.
+- 422: the archive holds something refused, named in the problem: only
+  plain files and folders are allowed, with no links, no absolute paths
+  and no `..`. Leave it out, or copy the file in place of the link.
+
+## 5. Create the app
+
+    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $JAVO_TOKEN" -H "Content-Type: application/json" -d '{"displayName":"<Title>","template":"<template>","file":"deploys/<short-name>/<file>"}' "{{.URL}}/api/workspaces"
+
+`file` is the file the template opens, or the folder. For `custom`:
+
+    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $JAVO_TOKEN" -H "Content-Type: application/json" -d '{"displayName":"<Title>","template":"custom","file":"deploys/<short-name>","command":"python server.py --port {{"{{.Port}}"}}"}' "{{.URL}}/api/workspaces"
+
+The command runs in the folder of `file`, without a shell. `name` in the
+answer is the app's short name: NAME below. Optional fields: `size` (a name
+from `/api/sizes`, leave it out for the default), `idleStopMinutes`, `env`
+(plain values only: `[{"name":"LOG_LEVEL","value":"info"}]`) and
+`environment`.
+
+## 6. Wait, read the logs, fix and retry
+
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces/NAME"
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces/NAME/logs?tail=200"
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces/NAME/diagnosis"
+    curl -fsS -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces/NAME/events"
+
+Get the app every few seconds until `phase` is `Running`. The phases are
+`Pending`, `Starting`, `Running`, `Stopped` and `Failed`. A first start can
+take a few minutes (installing an environment, pulling an image).
+
+When `phase` is `Failed` or a step in `steps` stays `False`, read that
+step's `title`, `what` and `todo`, its log at
+`/api/workspaces/NAME/steps/STEP/log` (STEP is the step's `type`), the
+app's logs (add `&previous=true` after a crash) and `diagnosis`, the cause
+Javo found and what may fix it.
+
+- `Started` failed or keeps restarting: read the logs. A permission error
+  means it wants root or a folder it cannot write. Only the home folder,
+  `/tmp` and `/scratch` are writable.
+- `Ready` stays `False`: the app does not listen on the port. Check the
+  port and that it listens on all addresses.
+- `Started` with reason `OutOfMemory`: pick a bigger size with
+  `PUT /api/workspaces/NAME/size` and `{"size":"<size>"}`.
+
+Fix the files, upload again (step 7), restart, and check again:
+
+    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces/NAME/restart"
+
+When it is `Running`, give the person the app's `url`.
+
+## 7. Redeploy
+
+Upload the folder again to the same `deploys/<short-name>` with
+`&replace=true` at the end of the address, then restart the app:
+
+    tar czf - --exclude .git --exclude node_modules --exclude .venv . | curl -fsS -X PUT -T - -H "X-Javo-Request: 1" -H "Content-Type: application/gzip" -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/files/archive?path=deploys/<short-name>&replace=true"
+    curl -fsS -X POST -H "X-Javo-Request: 1" -H "Authorization: Bearer $JAVO_TOKEN" "{{.URL}}/api/workspaces/NAME/restart"
+
+Replace only a folder you uploaded for this app in this session, or one the
+person told you to replace. Then wait for `Running` as in step 6.
+
+## 8. Secrets
+
+When the app needs a secret (an API key, a database password), never ask for
+its value and never put one in `env`, a command or a file. Create the app
+without it. Then ask the person to store it in Settings > Secrets in the
+browser and add it to the app's environment there. `GET /api/secret-names`
+lists the names of the secrets they have, never the values.
+
+## Stop when idle, and share
+
+`PUT /api/workspaces/NAME/idle-stop` with `{"idleStopMinutes":60}` stops an
+unused app after that long, within what `GET /api/idle-stop` allows.
+
+Sharing is the person's to do in the app's sharing settings in the browser.
+`GET /api/workspaces/NAME/sharing` shows the current setting.
+
+To delete an app: `DELETE /api/workspaces/NAME`. The home folder is kept.
