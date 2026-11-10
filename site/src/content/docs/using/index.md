@@ -16,6 +16,7 @@ Everything you do in Javo happens in the web UI, and everything the web UI does 
 - [Environments](/using/environments/): the packages an app or job runs with.
 - [Ask AI](/using/ask-ai/): model help in the UI, and coding agents through MCP.
 - [API tokens and the API](/using/api/): scripts and agents acting as you.
+- [Deploy from your computer](/using/deploy-from-your-computer/): a coding agent uploads and runs the app in a folder.
 
 ## Your files
 
