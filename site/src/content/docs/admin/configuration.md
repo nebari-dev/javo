@@ -54,7 +54,10 @@ Values fall in two groups:
 |---|---|---|
 | `streamsPerPerson` | `8` | How many followed logs (an app's live log, a startup step's log, a running job's log) one person may have open at once, all kinds together. Each holds a connection to the cluster. Another is refused with 429 until one is closed. |
 | `thumbnailDecodes` | `4` | How many uploaded app pictures the gateway decodes at once, for everyone. Each may take up to 64 MB of memory. An upload beyond that is answered 503 with `Retry-After`, and the person tries again. |
-| `bodyReadTimeout` | `60s` | How long a request to the API, sign-in or MCP may take to send its body (an upload, a saved file). A slower client is cut off. Requests without a body, such as log streams, and the traffic of apps themselves are not affected. Raise it if people upload over very slow links. |
+| `bodyReadTimeout` | `60s` | How long a request to the API, sign-in or MCP may take to send its body (an uploaded file, a saved file). A slower client is cut off. Folder uploads have their own limit, `uploadReadTimeout`. Requests without a body, such as log streams, and the traffic of apps themselves are not affected. Raise it if people upload files over very slow links. |
+| `uploadBytes` | `104857600` (100 MiB) | The most a folder upload (`PUT /api/files/archive`, which a coding agent on a person's computer uses to deploy a folder) may unpack to, and the most its compressed body may be. A larger upload is refused with 413. Replacing a folder needs room for a second copy in the person's home while it runs. |
+| `uploadFiles` | `10000` | The most entries (files, folders) one folder upload may hold. More are refused with 413. |
+| `uploadReadTimeout` | `10m` | How long a folder upload may take to send its body, in place of `bodyReadTimeout`. At 100 MiB, 60 seconds would cut off anyone uploading slower than about 1.7 MiB/s. |
 
 Paths in the file browser and editor may have at most 64 folders and names; deeper paths are refused.
 

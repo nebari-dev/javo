@@ -595,9 +595,9 @@ config:
       # moment are told to try again ("503", Retry-After).
       thumbnailDecodes: 4
       # How long a request to the API or sign-in may take to send its body
-      # (an upload, a saved file). A slower client is cut off. Requests
-      # without a body, such as log streams, and apps' own traffic are not
-      # affected.
+      # (an uploaded file, a saved file). A slower client is cut off. Folder
+      # uploads use uploadReadTimeout instead. Requests without a body, such
+      # as log streams, and apps' own traffic are not affected.
       bodyReadTimeout: 60s
       # The most a folder upload (a coding agent deploying a folder from a
       # laptop, PUT /api/files/archive) may unpack to, in bytes; its
