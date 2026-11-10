@@ -96,6 +96,9 @@ type (
 	// sharedPeerKey is set (true) when the client address cannot tell
 	// clients apart (ratelimit.SharedPeer).
 	sharedPeerKey struct{}
+	// originKey holds the scheme and host a request was sent to
+	// (requestOrigin), for PublicURL.
+	originKey struct{}
 	// agentKey holds the AgentCaps of that token's app
 	// (Authenticator.Agents).
 	agentKey struct{}
@@ -151,6 +154,43 @@ func (a *Authenticator) now() time.Time {
 	return time.Now()
 }
 
+// WithOrigin stores in a request's context the scheme and host it was
+// sent to, for PublicURL, on a route outside RequireUser.
+func (a *Authenticator) WithOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), originKey{}, requestOrigin(r, a.Trusted))))
+	})
+}
+
+// PublicURL is where the person's browser and agents reach the gateway:
+// configured (mcp.publicURL) without a trailing slash or, when that is
+// empty, the scheme and host the request in ctx was sent to.
+func PublicURL(ctx context.Context, configured string) string {
+	if configured != "" {
+		return strings.TrimSuffix(configured, "/")
+	}
+	origin, _ := ctx.Value(originKey{}).(string)
+	return origin
+}
+
+// requestOrigin is the scheme and host r was sent to. The host is r.Host,
+// which SameOrigin checks pages against too. The scheme is the first
+// X-Forwarded-Proto when r came from a trusted proxy, which ends TLS for
+// the gateway; otherwise https only when r came over TLS.
+func requestOrigin(r *http.Request, trusted []netip.Prefix) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if ratelimit.TrustedPeer(r, trusted) {
+		proto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+		if p := strings.ToLower(strings.TrimSpace(proto)); p == "http" || p == "https" {
+			scheme = p
+		}
+	}
+	return scheme + "://" + r.Host
+}
+
 // RequireUser wraps every /api route. It stores the session token and
 // client IP in the request context; outside publicRoutes it answers 401
 // unless the token names a live session, whose Principal it stores too.
@@ -167,6 +207,7 @@ func (a *Authenticator) RequireUser(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, clientKey{}, ratelimit.ClientIP(r, a.Trusted))
 		ctx = context.WithValue(ctx, peerKey{}, r.RemoteAddr)
 		ctx = context.WithValue(ctx, sharedPeerKey{}, ratelimit.SharedPeer(r, a.Trusted))
+		ctx = context.WithValue(ctx, originKey{}, requestOrigin(r, a.Trusted))
 		ctx = context.WithValue(ctx, writeKey{}, r.Method != http.MethodGet && r.Method != http.MethodHead)
 		if publicRoutes[r.Method+" "+r.URL.Path] {
 			next.ServeHTTP(w, r.WithContext(ctx))

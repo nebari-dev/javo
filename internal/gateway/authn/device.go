@@ -51,7 +51,8 @@ const (
 
 // DeviceAPI serves the device login routes. MaxLifetime is
 // api.tokens.maxLifetime: the token lives deviceTokenLifetime, or that when
-// shorter. PublicURL is where the person's browser reaches the gateway.
+// shorter. PublicURL is mcp.publicURL, where the person's browser reaches
+// the gateway; empty, the approval page is at the address the agent used.
 type DeviceAPI struct {
 	DB          *store.Store
 	Tokens      *token.DBStore
@@ -189,7 +190,7 @@ func (d *DeviceAPI) Register(api huma.API) {
 		if err != nil {
 			return nil, problem.Internal("start device login", err)
 		}
-		page := strings.TrimSuffix(d.PublicURL, "/") + "/device"
+		page := PublicURL(ctx, d.PublicURL) + "/device"
 		return &struct{ Body DeviceStart }{Body: DeviceStart{
 			DeviceCode: deviceCode, UserCode: userCode, VerificationURL: page, VerificationURLComplete: page + "?code=" + userCode,
 			ExpiresIn: int(deviceLifetime / time.Second), Interval: int(devicePollInterval / time.Second),

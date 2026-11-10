@@ -214,3 +214,22 @@ func TestDeviceUnknownCode(t *testing.T) {
 	wantCode(t, "not a code", f.Do("GET", "/api/auth/device/AEIO-U123", "", alice), http.StatusNotFound)
 	wantDeviceError(t, pollDevice(f, "not-a-device-code"), "expired_token")
 }
+
+// TestDeviceStartWithoutPublicURL checks a gateway without mcp.publicURL
+// links the approval page at the address the request came to.
+func TestDeviceStartWithoutPublicURL(t *testing.T) {
+	f := apitest.New(t, apitest.Options{})
+	r := httptest.NewRequest(http.MethodPost, "/api/auth/device", nil)
+	r.Host = "javo.example.com"
+	r.Header.Set("X-Javo-Request", "1")
+	w := httptest.NewRecorder()
+	f.Srv.ServeHTTP(w, r)
+	wantCode(t, "start", w, http.StatusOK)
+	s := apitest.Decode[deviceStart](t, w)
+	if s.VerificationURL != "http://javo.example.com/device" {
+		t.Fatalf("verificationURL %q", s.VerificationURL)
+	}
+	if want := "http://javo.example.com/device?code=" + s.UserCode; s.VerificationURLComplete != want {
+		t.Fatalf("verificationURLComplete %q, want %q", s.VerificationURLComplete, want)
+	}
+}

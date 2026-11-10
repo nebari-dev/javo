@@ -250,6 +250,13 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	return client.String()
 }
 
+// TrustedPeer reports whether r came straight from a trusted proxy, whose
+// X-Forwarded headers are believed.
+func TrustedPeer(r *http.Request, trusted []netip.Prefix) bool {
+	peer, err := netip.ParseAddrPort(r.RemoteAddr)
+	return err == nil && isTrusted(peer.Addr().Unmap(), trusted)
+}
+
 // SharedPeer reports whether r came straight from a private or loopback
 // address while no proxy is trusted: most likely an ingress or load balancer
 // that every client comes through, so its address tells no client apart and a

@@ -357,7 +357,7 @@ func NewServer(cfg Config) *Server {
 		}))
 		mux.Handle("GET "+mcp.MetadataRoute, mcp.MetadataHandler(cfg.MCP.PublicURL))
 	}
-	mux.Handle("GET "+llmsRoute, noSniff(llmsHandler(cfg.MCP.PublicURL)))
+	mux.Handle("GET "+llmsRoute, noSniff(a.WithOrigin(llmsHandler(cfg.MCP.PublicURL))))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	// /readyz is what the pod waits on before it gets traffic; /healthz only
 	// says the process is alive.

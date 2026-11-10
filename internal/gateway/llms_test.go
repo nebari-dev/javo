@@ -2,6 +2,8 @@ package gateway_test
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -203,6 +205,32 @@ func TestLLMsTxtUploadsLeaveOutSecrets(t *testing.T) {
 	for _, want := range []string{"*.pem", "Settings > Secrets", "`$HOME`", "refuse to upload"} {
 		if !strings.Contains(step, want) {
 			t.Errorf("the upload step does not mention %q:\n%s", want, text[start:end])
+		}
+	}
+}
+
+// TestLLMsTxtWithoutPublicURL checks a gateway without mcp.publicURL fills
+// llms.txt with the address the request came to: its Host, and https only
+// when a trusted proxy says so in X-Forwarded-Proto.
+func TestLLMsTxtWithoutPublicURL(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{Trusted: []netip.Prefix{netip.MustParsePrefix("10.42.0.1/32")}})
+	for _, c := range []struct{ name, peer, want string }{
+		{"from a trusted proxy", "10.42.0.1:51234", "https://javo.example.com"},
+		{"from anyone else", "203.0.113.5:51234", "http://javo.example.com"},
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/llms.txt", nil)
+		r.Host, r.RemoteAddr = "javo.example.com", c.peer
+		r.Header.Set("X-Forwarded-Proto", "https")
+		w := httptest.NewRecorder()
+		f.Srv.ServeHTTP(w, r)
+		wantCode(t, c.name, w, http.StatusOK)
+		text := w.Body.String()
+		if !strings.Contains(text, c.want+"/api/auth/device\"") {
+			t.Errorf("%s: no device login at %s:\n%s", c.name, c.want, text)
+		}
+		if !strings.Contains(text, `D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/javo.example.com"`) {
+			t.Errorf("%s: no login folder for the request's host:\n%s", c.name, text)
 		}
 	}
 }
