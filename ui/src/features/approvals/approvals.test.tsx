@@ -212,15 +212,16 @@ describe('Approvals inbox', () => {
 })
 
 describe('One request', () => {
-  it('opens from its approve link with who asks, what happens and how long it waits', async () => {
+  it('opens from its approve link as the same card the inbox shows', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/plans/p1': { body: attach() }, 'GET /api/plans': { body: [attach(), del] } })
     renderApp('/approvals/p1')
-    expect(await screen.findByRole('heading', { level: 1, name: ATTACH_Q })).toBeTruthy()
-    expect(screen.getByText(/working in Sales agent, asks:/)).toBeTruthy()
-    expect(screen.getByText('Only Sales dashboard can read the secret. Pi never sees it.')).toBeTruthy()
-    expect(screen.getByText("Expires in 8 min. If you don't decide, nothing changes.")).toBeTruthy()
+    const card = await screen.findByRole('article', { name: ATTACH_Q })
+    expect(within(card).getByText('in Sales agent, 2 minutes ago')).toBeTruthy()
+    expect(chips(card)).toEqual(['Sales dashboard restarts', 'Hidden from Pi', 'You can remove it later'])
+    expect(within(card).getByText('8 min left')).toBeTruthy()
+    expect(within(card).getByRole('button', { name: 'Give access' })).toBeTruthy()
+    expect(within(card).getByRole('button', { name: 'Details' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'See all approvals (2)' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Give access' })).toBeTruthy()
   })
 
   it('says so when the request is already decided', async () => {

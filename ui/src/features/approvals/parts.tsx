@@ -89,12 +89,14 @@ export function useDecision(plan: Plan, { onDecided, toast }: { onDecided?: (p: 
       },
     )
   const decided = current.state !== 'pending' || !!error
+  // Decided before this card opened (an approve link followed late): say it was already decided.
+  const [earlier] = useState(plan.state !== 'pending')
   return {
     r,
     current,
     decided,
     /** The result line once decided; empty while it waits. */
-    result: error || (current.state !== 'pending' ? outcome(current, r) : ''),
+    result: error || (current.state !== 'pending' ? outcome(current, r, earlier) : ''),
     ok: !error && current.state !== 'failed',
     busy: decide.isPending,
     approve: () => (r.confirm ? setAsking(true) : run(true)),
@@ -117,14 +119,13 @@ export function useDecision(plan: Plan, { onDecided, toast }: { onDecided?: (p: 
 }
 
 /** The main button, named for the action, and Decline. */
-export function Actions({ d, wide = false }: { d: ReturnType<typeof useDecision>; wide?: boolean }) {
-  const cls = wide ? 'wide' : undefined
+export function Actions({ d }: { d: ReturnType<typeof useDecision> }) {
   return (
     <>
-      <Button className={cls} variant={d.r.danger ? 'danger' : 'primary'} icon={Check} disabled={d.busy} onClick={d.approve}>
+      <Button variant={d.r.danger ? 'danger' : 'primary'} icon={Check} disabled={d.busy} onClick={d.approve}>
         {d.r.primary}
       </Button>
-      <Button className={cls} icon={X} disabled={d.busy} onClick={d.decline}>
+      <Button icon={X} disabled={d.busy} onClick={d.decline}>
         Decline
       </Button>
     </>

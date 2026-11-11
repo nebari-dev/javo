@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { location, mockApi, renderApp } from '../../test/api'
@@ -22,16 +22,22 @@ describe('Device login page', () => {
     mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() } })
     renderApp('/device?code=WDJB-MJHT')
     expect(await screen.findByText('WDJB-MJHT')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Approve an agent login' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Approve an agent login' })).toBeTruthy()
+    // The same card an approval in the inbox is: who asks, then the question.
+    const card = screen.getByRole('article', { name: 'Let an agent act as you?' })
+    expect(within(card).getByText('Agent on your computer')).toBeTruthy()
+    expect(within(card).getByText('WDJB-MJHT')).toBeTruthy()
     expect(screen.getByText('An agent asked to act as you through the API for 8 hours. Approve only if you started this yourself just now.')).toBeTruthy()
-    for (const t of [
-      'Create, change, start, stop and delete your apps and jobs',
-      'Write files in your home folder',
-      'Store and change your secrets',
-      'Share your apps, including publicly',
-      'Give an app its own API access, which lasts until you turn it off',
+    const grants = screen.getByRole('list', { name: 'What the agent can do' })
+    const rows = within(grants).getAllByRole('listitem').map((li) => [li.querySelector('b')?.textContent, li.querySelector('span')?.textContent])
+    expect(rows).toEqual([
+      ['Apps and jobs', 'Create, change, start, stop and delete them'],
+      ['Files', 'Write in your home folder'],
+      ['Secrets', 'Store and change them'],
+      ['Sharing', 'Share your apps, including publicly'],
+      ['API access', 'Give an app its own, which lasts until you turn it off'],
     ])
-      expect(screen.getByText(t)).toBeTruthy()
+    expect(screen.getByText("It can't use admin powers, make or revoke tokens, or approve requests.")).toBeTruthy()
   })
 
   it('says when the request was made', async () => {
@@ -109,9 +115,10 @@ describe('Device login page', () => {
     mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view() } })
     renderApp('/device?code=WDJB-MJHT')
     expect(await screen.findByText('This gives the agent the same power you have as a member.')).toBeTruthy()
-    const items = screen.getAllByRole('listitem').filter((li) => li.textContent?.includes('Write files in your home folder'))
-    expect(items[0].className).toContain('warn')
-    expect(items[0].querySelector('b')).toBeNull()
+    const grants = screen.getByRole('list', { name: 'What the agent can do' })
+    // Plain lines, never a safe-looking tick.
+    expect(grants.querySelector('.ok')).toBeNull()
+    expect(screen.getByText('This gives the agent the same power you have as a member.').closest('.warn')).toBeTruthy()
   })
 
   it('says a request that was already decided was already answered', async () => {
