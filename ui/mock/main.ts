@@ -520,9 +520,9 @@ const tokens: { id: string; name: string; scope: 'read' | 'read-write'; prefix: 
   tokenParams.get('tokens') === 'none'
     ? []
     : [
-        { id: 'tok-1', name: 'laptop', scope: 'read', prefix: 'javo_7f3a9c1e_', createdAt: at(-86400 * 40), lastUsedAt: at(-3600) },
-        { id: 'tok-2', name: 'ci', scope: 'read-write', prefix: 'javo_b24e6d90_', createdAt: at(-86400 * 12), lastUsedAt: at(-86400), expiresAt: at(86400 * 78) },
         { id: 'tok-3', name: 'agent', scope: 'read-write', prefix: 'javo_51c08f2b_', createdAt: at(-86400 * 2), app: 'agent' },
+        { id: 'tok-2', name: 'ci', scope: 'read-write', prefix: 'javo_b24e6d90_', createdAt: at(-86400 * 12), lastUsedAt: at(-86400), expiresAt: at(86400 * 78) },
+        { id: 'tok-1', name: 'laptop', scope: 'read', prefix: 'javo_7f3a9c1e_', createdAt: at(-86400 * 40), lastUsedAt: at(-3600) },
       ]
 // alice's secrets (names only: the API never returns a value); ?secrets=none shows the empty list.
 type Use = { name: string; displayName: string }
@@ -960,7 +960,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const prefix = `javo_${hex(4)}_`
     const now = new Date().toISOString()
     const t = { id: `tok-${hex(4)}`, name: b.name, scope: b.scope, prefix, createdAt: now, ...(b.expiresInDays ? { expiresAt: new Date(Date.now() + b.expiresInDays * 86400000).toISOString() } : {}) }
-    tokens.push(t)
+    tokens.unshift(t)
     return reply(201, { ...t, token: prefix + hex(24) })
   }
   if (key === 'GET /api/secrets') return reply(200, secrets)

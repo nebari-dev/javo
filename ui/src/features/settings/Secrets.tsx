@@ -268,14 +268,14 @@ export function Secrets() {
   useEffect(() => {
     if (askNew) setCreating(true)
   }, [askNew])
-  const head = useId()
   const list = secrets.data ?? []
   return (
-    <section className="section" aria-labelledby={head}>
+    <section className="section" aria-label="Secrets">
       <div className="section-head tok-head">
-        <PartTitle part="secrets" id={head}>
-          Secrets
-        </PartTitle>
+        <p className="sub tok-intro">
+          Apps and jobs you choose get these as environment variables. Anyone who can use an app could make it show them if the app prints its
+          environment; sharing an app does not share the secrets themselves.
+        </p>
         <div className="right row">
           <Button
             icon={Plus}
@@ -289,10 +289,6 @@ export function Secrets() {
           </Button>
         </div>
       </div>
-      <p className="sub tok-intro">
-        Apps and jobs you choose get these as environment variables. Anyone who can use an app could make it show them if the app prints its
-        environment; sharing an app does not share the secrets themselves.
-      </p>
       {saved && (
         <div className="section-sm">
           <Banner tone="info" title={saved} />

@@ -1,7 +1,5 @@
-import { useId } from 'react'
 import { Banner } from '../../../components/Banner'
 import { Card } from '../../../components/Card'
-import { PartTitle } from '../../../components/Section'
 import { Switch } from '../../../components/Switch'
 import { problemText } from '../../../lib/http'
 import { useAgentSettings, useIsAdmin, useSetAgentSettings } from './queries'
@@ -15,16 +13,12 @@ export function AdminAgents() {
   const admin = useIsAdmin()
   const q = useAgentSettings(admin)
   const set = useSetAgentSettings()
-  const head = useId()
   if (!admin) return null
   if (q.isError) return <Banner tone="err" title={problemText(q.error)} />
   if (!q.data) return <div className="muted">Loading</div>
   const s = q.data
   return (
-    <section className="section" aria-labelledby={head}>
-      <PartTitle part="trust" id={head}>
-        Agents
-      </PartTitle>
+    <section className="section" aria-label="Agents">
       <p className="sub">
         An owner can let their coding agent act as them without asking, for up to 24 hours. Then a web page, file or package that tricks the
         agent can act as its owner.

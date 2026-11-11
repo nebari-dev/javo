@@ -243,14 +243,13 @@ export function ApiTokens() {
   }, [askNew])
   // The secret lives only here, until Done; it never enters the list's cache.
   const [made, setMade] = useState<CreatedToken | null>(null)
-  const head = useId()
   const list = tokens.data ?? []
   return (
-    <section className="section" aria-labelledby={head}>
+    <section className="section" aria-label="API tokens">
       <div className="section-head tok-head">
-        <PartTitle part="tokens" id={head}>
-          API tokens
-        </PartTitle>
+        <p className="sub tok-intro">
+          A token lets scripts and coding agents use the API as you. Send it as <code>Authorization: Bearer &lt;token&gt;</code>.
+        </p>
         <div className="right row">
           {info.data?.apiDocs && (
             <a className="btn" href="/api/docs/" target="_blank" rel="noopener">
@@ -263,9 +262,6 @@ export function ApiTokens() {
           </Button>
         </div>
       </div>
-      <p className="sub tok-intro">
-        A token lets scripts and coding agents use the API as you. Send it as <code>Authorization: Bearer &lt;token&gt;</code>.
-      </p>
       <div className="section-sm">
         <AgentDeploy />
       </div>

@@ -115,9 +115,26 @@ describe('Settings for platform admins', () => {
   it('shows the admin sections only to platform admins', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/info': { body: { apiDocs: false } }, 'GET /api/tokens': { body: [] } })
     renderApp('/settings')
-    await screen.findByRole('heading', { level: 2, name: 'API tokens' })
+    await screen.findByRole('link', { name: 'API tokens', current: 'page' })
     expect(screen.queryByRole('link', { name: 'Backups' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Storage' })).toBeNull()
+  })
+
+  it.each([
+    ['/settings', 'API tokens', /New token/],
+    ['/settings/secrets', 'Secrets', /New secret/],
+    ['/settings/ai', 'AI', /AI is off/],
+    ['/settings/agents', 'Agents', /act without asking/],
+  ])('names %s once, in its tab, not again as a heading', async (path, name, loaded) => {
+    admin({
+      'GET /api/secrets': { body: [] },
+      'GET /api/admin/ai': { body: { enabled: false } },
+      'GET /api/admin/agents': { body: { allowTrusted: true, configAllows: true } },
+    })
+    renderApp(path)
+    await screen.findByRole('link', { name, current: 'page' })
+    await screen.findAllByText(loaded)
+    expect(screen.queryByRole('heading', { level: 2, name })).toBeNull()
   })
 
   it('says so when a member opens an admin page', async () => {

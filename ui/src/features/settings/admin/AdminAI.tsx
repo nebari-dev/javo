@@ -3,7 +3,6 @@ import type { AiSettings } from '../../../api'
 import { Banner } from '../../../components/Banner'
 import { Button } from '../../../components/Button'
 import { Card } from '../../../components/Card'
-import { PartTitle } from '../../../components/Section'
 import { Select } from '../../../components/Select'
 import { fieldErrors, problemText } from '../../../lib/http'
 import { addressOf, AI_PROVIDERS, providerAt } from './aiProviders'
@@ -174,16 +173,12 @@ function AIForm({ s }: { s: AiSettings }) {
 export function AdminAI() {
   const admin = useIsAdmin()
   const q = useAISettings(admin)
-  const head = useId()
   if (!admin) return null
   if (q.isError) return <Banner tone="err" title={problemText(q.error)} />
   if (!q.data) return <div className="muted">Loading</div>
   const s = q.data
   return (
-    <section className="section" aria-labelledby={head}>
-      <PartTitle part="ai" id={head}>
-        AI
-      </PartTitle>
+    <section className="section" aria-label="AI">
       {!s.enabled ? (
         <p className="sub">AI is off in the platform config (ai.enabled), so there is nothing to set here.</p>
       ) : (
