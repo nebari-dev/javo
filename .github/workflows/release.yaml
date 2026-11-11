@@ -25,8 +25,8 @@ env:
   # Go for the javo binaries: the official linux/amd64 release archive and
   # the sha256 go.dev publishes for it; go.mod's toolchain line must name
   # the same version (checked below).
-  GO_VERSION: go1.26.10
-  GO_SHA256: ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+  GO_VERSION: go1.26.11
+  GO_SHA256: 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
   # The BuildKit daemon that builds the image, and the SBOM scanner it runs,
   # by index digest (DEPENDENCIES.md), instead of the moving tags buildx
   # pulls by default.

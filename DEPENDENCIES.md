@@ -13,7 +13,7 @@ Image checks: OSV does not cover images, so each one was checked for publisher, 
 | Image | Pin | Publisher | Notes |
 |---|---|---|---|
 | node | `22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da` | Docker Official Image (nodejs) | 22 is an LTS line. Tag last pushed 2026-10-28 (rebuild; 22.23.4 itself is older). Build stage only, not shipped. |
-| golang | `1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb` | Docker Official Image (golang) | Tag last pushed 2026-10-28 (rebuild). Build stage only. Keep in step with `go` in go.mod. |
+| golang | `1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0` | Docker Official Image (golang) | Tag last pushed 2026-11-10 with Go 1.26.11. Build stage only. Keep in step with `go` in go.mod. |
 | distroless static | `gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99` | GoogleContainerTools/distroless | Runtime image. The `debian12` tags are marked deprecated upstream, hence debian13. Index has epoch build timestamps (reproducible builds), so tag age is not readable. |
 | python | `3.13.15-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26` | Docker Official Image (python) | Tag pushed 2026-09-19 (41 days). Newer 3.13.16 to 3.13.18 are under 14 days old. Runs the end-to-end tests' helper pods (seed Jobs, probes, the fake model). |
 
@@ -225,7 +225,7 @@ Checked 2026-10-30. All Go modules are fetched through proxy.golang.org; Go modu
 | golang.org/x/net | v0.62.0 | 2026-10-27 | Go project (go.googlesource.com tag) | clean | none | bumped from v0.57.0 for advisories; 14-day preference overridden for Go-team security fixes |
 | golang.org/x/text | v0.43.0 | 2026-10-09 | Go project | clean | none | pulled by x/net v0.62.0; bumped from v0.40.0 (GO-2026-6629) |
 | golang.org/x/term | v0.47.0 | n/a | Go project | clean | none | pulled by x/net v0.62.0 |
-| Go toolchain | go1.26.10 | 2026-10-19 | Go project | n/a | none | `toolchain` line in go.mod, fetched project-locally via GOTOOLCHAIN=auto and verified by the Go checksum DB; fixes stdlib advisories in 1.26.2 |
+| Go toolchain | go1.26.11 | 2026-11-10 | Go project | n/a | none | `toolchain` line in go.mod, fetched project-locally via GOTOOLCHAIN=auto and verified by the Go checksum DB; fixes stdlib advisories, last GO-2026-6859 (net/http) in 1.26.11 |
 | github.com/spf13/cobra | v1.10.2 | 2025-12-03 | spf13/cobra (maintainers eparis, n10v, spf13, marckhouzam) | clean | none | proxy tag hash 88b30ab matches GitHub tag v1.10.2; last 10 versions regular; pflag v1.0.10 already in tree |
 | golang.org/x/crypto | v0.58.0 | 2026-10-09 | Go project (go.googlesource.com tag, hash 8fdf07b3 matches) | 1 advisory, GO-2026-5932 (openpgp package unmaintained, affects every version, no fix); we import only `argon2`; govulncheck: not called | none | used for `argon2` (id). Needs x/net 0.60.0, x/sys 0.49.0, x/term 0.47.0, x/text 0.43.0 (all already satisfied) |
 | github.com/inconshreveable/mousetrap | v1.1.0 | 2022-11-27 | inconshreveable (GitHub, not archived) | clean | none | transitive via cobra; Windows-only code |
@@ -242,7 +242,7 @@ Typo-squat check: all module paths match the upstream repos named above.
 
 ### Transitive audit (`govulncheck@v1.1.4 ./...`)
 
-With go1.26.10 and x/net v0.62.0: `No vulnerabilities found.` `make test` passes (3/3 envtest tests).
+With go1.26.11 and x/net v0.62.0: `No vulnerabilities found.` `make test` passes (3/3 envtest tests).
 
 Transitive additions from cobra and controller-runtime's manager/zap logger (OSV clean for each at the pinned version): fsnotify v1.9.0, go-logr/zapr v1.3.0, inconshreveable/mousetrap v1.1.0, go.uber.org/multierr v1.11.0, go.uber.org/zap v1.27.1, golang.org/x/sync v0.24.0, gomodules.xyz/jsonpatch/v2 v2.4.0. `govulncheck@v1.1.4 ./...`: no vulnerabilities.
 huma: `govulncheck@v1.1.4 ./...` reports 0 reachable vulnerabilities; the one module-level finding is GO-2026-5932 in golang.org/x/crypto (not reachable from Javo's code). Typo-squat: `github.com/danielgtaylor/huma/v2` matches the `module` line of github.com/danielgtaylor/huma at the v2.39.1 tag.
@@ -393,7 +393,7 @@ Added 2026-11-04 (signing, provenance and the build toolchain):
 
 | Item | Pin | Checks |
 | --- | --- | --- |
-| Go for the release binaries | `go1.26.10.linux-amd64.tar.gz` from dl.google.com, sha256 `ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5` (`GO_VERSION`, `GO_SHA256` in release.yaml) | The sha256 go.dev publishes (`go.dev/dl/?mode=json`), equal to a fresh download's. Same version as go.mod's `toolchain` line and the Dockerfile's golang image; the workflow fails when go.mod names another. Replaces actions/setup-go in the release, which downloaded Go without a checked hash. |
+| Go for the release binaries | `go1.26.11.linux-amd64.tar.gz` from dl.google.com, sha256 `9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec` (`GO_VERSION`, `GO_SHA256` in release.yaml) | The sha256 go.dev publishes (`go.dev/dl/?mode=json`), equal to a fresh download's. Same version as go.mod's `toolchain` line and the Dockerfile's golang image; the workflow fails when go.mod names another. Replaces actions/setup-go in the release, which downloaded Go without a checked hash. |
 | BuildKit daemon | `moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c` (setup-buildx-action `driver-opts`) | moby org, Docker Hub pushes by `moby`; GitHub release v0.34.1 2026-10-20 (15 days) by the release workflow; v0.34.0 2026-10-07, v0.34.2 2026-11-03 (too new). OSV Go `github.com/moby/buildkit` 0.34.1: none. Index digest from `docker buildx imagetools inspect`, equal to Docker Hub's. Before, buildx pulled the moving `buildx-stable-1` tag. |
 | Dockerfile frontend | `docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e` (the Dockerfile's syntax line) | moby/buildkit release dockerfile/1.27.1, 2026-09-30 (35 days), by the release workflow; the image `docker/dockerfile:1` pointed to the same digest when pinned, so builds parse the Dockerfile exactly as before. |
 | SBOM generator | `docker.io/docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9` (build-push-action `attests`) | github.com/docker/buildkit-syft-scanner (docker org); release v1.12.0 2026-08-13 (83 days) by crazy-max; 1.12.1 (2026-10-26) is under 14 days old. OSV Go `github.com/docker/buildkit-syft-scanner` 1.12.0: none. Runs inside BuildKit on the release runner only. |

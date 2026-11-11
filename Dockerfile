@@ -50,7 +50,7 @@ RUN cd /src/terminal \
  && node page.mjs /tmp/package/lib/addon-clipboard.js /out/terminal.html \
  && cd /src/javo-api && node --test javo-api.test.mjs
 
-FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -75,7 +75,7 @@ FROM restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11
 # release tarballs, checked against the sha256 in the release's checksums.txt
 # (DEPENDENCIES.md). Both are fetched on the build machine; the one for the
 # image's architecture is unpacked.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS nebi
+FROM --platform=$BUILDPLATFORM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS nebi
 ARG TARGETARCH
 ADD --checksum=sha256:f23f55f3ab7f58d7c6a9b94d3db836406320f4763d91aecffc330f83967b4567 \
     https://github.com/nebari-dev/nebi/releases/download/v0.16/nebi_0.16_linux_x86_64.tar.gz /dl/nebi-amd64.tar.gz
@@ -94,7 +94,7 @@ ENTRYPOINT ["/bin/javo-k3s-entrypoint"]
 FROM docker:29.9.0-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0d4a0942eecda00 AS docker-cli
 
 # Helm 4.3.1 release binary, checked against the sha256 published with it.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS helm
+FROM --platform=$BUILDPLATFORM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS helm
 ARG TARGETARCH
 RUN set -eu; \
     case "$TARGETARCH" in \

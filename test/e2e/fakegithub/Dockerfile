@@ -1,6 +1,6 @@
 # Test-only (scripts/dev/up.sh with JAVO_E2E_GIT=1); base images are the ones the
 # main Dockerfile pins (provenance in DEPENDENCIES.md).
-FROM golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb AS build
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 WORKDIR /src
 COPY main.go .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/fakegithub main.go
