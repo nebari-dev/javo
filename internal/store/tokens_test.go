@@ -79,7 +79,7 @@ func TestAppTokenNamesItsApp(t *testing.T) {
 	}
 }
 
-func TestTokenListIsOwnersOldestFirst(t *testing.T) {
+func TestTokenListIsOwnersNewestFirst(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
 	a, b := signedIn(t, s, "alice"), signedIn(t, s, "bob")
@@ -90,7 +90,7 @@ func TestTokenListIsOwnersOldestFirst(t *testing.T) {
 		}
 	}
 	list, err := s.Tokens().List(ctx, a.Name)
-	if err != nil || len(list) != 2 || list[0].ID != "t1" || list[1].ID != "t2" {
+	if err != nil || len(list) != 2 || list[0].ID != "t2" || list[1].ID != "t1" {
 		t.Fatalf("List = %+v, %v", list, err)
 	}
 }

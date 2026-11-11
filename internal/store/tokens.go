@@ -102,7 +102,7 @@ func (t *Tokens) Get(ctx context.Context, id string) (APIToken, error) {
 	return tokenOf(row), err
 }
 
-// List returns the person's tokens, oldest first.
+// List returns the person's tokens, newest first.
 func (t *Tokens) List(ctx context.Context, owner string) ([]APIToken, error) {
 	rows, err := t.s.q.ListAPITokensForPerson(ctx, owner)
 	if err != nil {

@@ -148,7 +148,7 @@ FROM api_tokens t
 JOIN people p ON p.id = t.person_id
 LEFT JOIN apps a ON a.id = t.app_id
 WHERE p.name = $1
-ORDER BY t.created_at, t.id
+ORDER BY t.created_at DESC, t.id DESC
 `
 
 type ListAPITokensForPersonRow struct {

@@ -315,7 +315,7 @@ func (s *DBStore) Touch(ctx context.Context, t Token) {
 	}
 }
 
-// List returns owner's tokens, oldest first, expired ones included until the
+// List returns owner's tokens, newest first, expired ones included until the
 // janitor removes them.
 func (s *DBStore) List(ctx context.Context, owner string) ([]Token, error) {
 	rows, err := s.Tokens.List(ctx, owner)

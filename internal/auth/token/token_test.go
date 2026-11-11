@@ -162,7 +162,7 @@ func TestRevokeOnlyTheOwnersToken(t *testing.T) {
 	}
 }
 
-func TestListIsPerOwnerOldestFirst(t *testing.T) {
+func TestListIsPerOwnerNewestFirst(t *testing.T) {
 	e := newEnv(t, time.Unix(1_800_000_000, 0))
 	e.create(t, token.Token{Name: "first", Owner: e.alice, Scope: token.ScopeRead})
 	*e.now = e.now.Add(time.Minute)
@@ -172,7 +172,7 @@ func TestListIsPerOwnerOldestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(l) != 2 || l[0].Name != "first" || l[1].Name != "second" {
+	if len(l) != 2 || l[0].Name != "second" || l[1].Name != "first" {
 		t.Fatalf("list %+v", l)
 	}
 }
