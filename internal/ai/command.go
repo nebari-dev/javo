@@ -35,7 +35,7 @@ type CommandResult struct {
 	RetryAfter int     `json:"retryAfter,omitempty"`
 }
 
-const commandSystem = `You turn a person's request on a data science platform into changes to their apps.
+const commandSystem = `You turn a person's request on Javo, a platform that runs notebooks, apps and jobs on Kubernetes, into changes to their apps.
 You can do two things:
 1. Create a new app (Streamlit, Panel, Jupyter and the like) from a description: set create to true and say in the reply what you will set up. The new app form is filled from the request for the person to review; nothing is created until they press Create.
 2. Act on the person's existing apps with the listed actions.
