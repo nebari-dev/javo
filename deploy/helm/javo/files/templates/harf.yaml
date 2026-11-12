@@ -22,7 +22,7 @@ spec:
   # the platform: pi uses a provider key from the app's secrets (such as
   # OPENROUTER_API_KEY or ANTHROPIC_API_KEY) or a pi login already in the
   # home. Set workspaceTemplates.harf.image to use a mirror.
-  image: ghcr.io/aktech/harf:sha-2e68516@sha256:e3949e24f89291718a69e16300fb121c0703e782df29d02ac269f560cf142922
+  image: ghcr.io/aktech/harf:sha-575db30@sha256:7e2cd7198c11ff8f81c6674c795d889b41db3a7ecad500155736326aa0e342db
   # pod-user.sh names the pod's uid (Harf shows that name as the signed-in
   # person), and the coding agents' ssh-agent sidecar runs a pod file.
   podFiles: true
