@@ -19,7 +19,7 @@ export default defineConfig({
     starlight({
       title: 'Javo',
       description:
-        'Javo runs notebooks, web apps and scheduled jobs for data teams on Kubernetes, from one place.',
+        'Javo runs notebooks, web apps and scheduled jobs on Kubernetes, from one place.',
       favicon: '/brand/favicon.svg',
       editLink: { baseUrl: 'https://github.com/nebari-dev/javo/edit/main/site/' },
       // Last-updated dates come from git history; off so builds of a shallow
