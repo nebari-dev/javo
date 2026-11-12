@@ -362,6 +362,7 @@ workspaceTemplates:
   claude-code: {enabled: true, image: ""}
   pi: {enabled: true, image: ""}
   herdr: {enabled: true, image: ""}
+  harf: {enabled: true, image: ""}
   terminal: {enabled: true, image: ""}
   jobs-command: {enabled: true, image: ""}
   jobs-python: {enabled: true, image: ""}

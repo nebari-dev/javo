@@ -7,7 +7,7 @@ const KIND_ORDER = [
   'jupyterlab', 'whybook', 'vscode', 'rstudio', 'marimo', 'terminal',
   'streamlit', 'panel', 'dash', 'gradio', 'voila', 'bokeh',
   'fastapi', 'static', 'node', 'go', 'custom', 'container',
-  'claude-code', 'pi', 'herdr',
+  'claude-code', 'pi', 'herdr', 'harf',
   'python', 'r', 'julia',
 ]
 

@@ -14,7 +14,7 @@ import (
 // coding agents, which stay private.
 func TestShippedAppsShareUpToTheirKindsLimit(t *testing.T) {
 	t.Parallel()
-	private := []string{"terminal", "jupyterlab", "whybook", "claude-code", "pi", "herdr"}
+	private := []string{"terminal", "jupyterlab", "whybook", "claude-code", "pi", "herdr", "harf"}
 	editors := []string{"vscode", "rstudio", "marimo", "pluto"}
 	files, err := filepath.Glob(filepath.Join("..", "..", "..", "deploy", "helm", "javo", "files", "templates", "*.yaml"))
 	if err != nil || len(files) == 0 {

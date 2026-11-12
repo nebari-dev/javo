@@ -33,6 +33,7 @@ Dash cryptocurrency, not Plotly Dash; it has no Visual Studio Code icon.
 | claude-code | claudecode.svg | Simple Icons `claudecode` (Claude Code) | CC0 1.0 | #d97757 |
 | pi | pi.svg | pi's own mark, transcribed (2) from https://github.com/earendil-works/pi/blob/71023aec1546d6d677a65669c5665c0927ce0dd0/packages/coding-agent/src/modes/interactive/components/pi-logo.ts | MIT | own |
 | herdr | herdr.svg | https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/assets/logo.svg (tag v0.9.5) | Apache-2.0 | text colour (3) |
+| harf | harf.svg | https://github.com/aktech/harf/blob/c4aca4bd703ed2aa51839c9c0c45cfb70fd3f8f0/web/brand/harf-mark-ink.svg | Apache-2.0 | own (5) |
 | vscode | vscode.png | https://github.com/nebari-dev/jhub-apps/blob/ff5faa9ef2bb9171e7fd650446bbd368a43a22fa/jhub_apps/static/img/logos/vscode.png | BSD-3-Clause | text colour (4) |
 | whybook | whybook.svg | Whybook's own icon (the `svgstr` of `epiIcon`, copied verbatim) from https://github.com/openteams-ai/whybook/blob/9c486c5cda9f52679253e347bead3c07950fbb61/src/icons.ts (tag v0.5.1) | Apache-2.0 | own |
 | custom | none | Lucide `square-terminal` (not a product) | ISC | text colour |
@@ -52,3 +53,7 @@ rgb(234,182,93). `pi.svg` draws the same grid and colours as rectangles; nothing
 an 858 by 390 banner with a black mark on a light grey gradient. The vendored copy is cropped to a 243 by 243
 square around the mark, and each pixel's darkness becomes its opacity, so the background is transparent and
 the mark can be drawn in the text colour in light and dark mode. The shape is unchanged.
+
+(5) Harf ships its mark in two colourings, `harf-mark-ink.svg` (a light letter on a dark square) and
+`harf-mark-paper.svg` (the reverse). The ink one is copied verbatim and drawn in its own colours in light
+and dark mode.

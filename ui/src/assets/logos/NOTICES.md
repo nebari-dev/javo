@@ -233,3 +233,11 @@ Copyright (c) 2026, Michal Krassowski
 ```
 
 The repository has no `NOTICE` file at its root at that commit. `whybook.svg` is unmodified.
+
+## Harf (`harf.svg`)
+
+Licensed under the Apache License, Version 2.0. The license file at the source commit,
+https://github.com/aktech/harf/blob/c4aca4bd703ed2aa51839c9c0c45cfb70fd3f8f0/LICENSE, is the unmodified
+Apache-2.0 text, the same as this repository's root `LICENSE`, with no copyright line filled in.
+
+The repository has no `NOTICE` file at its root at that commit. `harf.svg` is unmodified.

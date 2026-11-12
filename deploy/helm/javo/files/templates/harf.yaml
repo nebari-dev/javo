@@ -1,0 +1,58 @@
+apiVersion: javo.nebari.dev/v1alpha1
+kind: WorkspaceTemplate
+metadata:
+  name: harf
+spec:
+  # Runs without a login: Harf has none of its own. Access control is the
+  # javo-apps NetworkPolicy (helm value networkPolicy.enabled) plus gateway
+  # authentication. The CNI must enforce NetworkPolicy (k3s does; verify on
+  # kind).
+  displayName: Harf
+  description: Chat with pi
+  category: agents
+  kind: harf
+  # Pi runs commands as you, with your home folder, for whoever opens the
+  # chat: never shared.
+  maxSharing: Private
+  # Harf's own image, unmodified and pinned by digest (DEPENDENCIES.md): Harf,
+  # pi, bash, git, ripgrep and fd on Debian 13 slim. It runs as any non-root
+  # uid and keeps everything in the home (HOME=/home/user): chats and pi
+  # sessions in ~/.harf, pi's settings and logins in ~/.pi/agent (the same as
+  # the pi template's). No API key is baked in and the app gets no model from
+  # the platform: pi uses a provider key from the app's secrets (such as
+  # OPENROUTER_API_KEY or ANTHROPIC_API_KEY) or a pi login already in the
+  # home. Set workspaceTemplates.harf.image to use a mirror.
+  image: ghcr.io/aktech/harf:sha-2e68516@sha256:e3949e24f89291718a69e16300fb121c0703e782df29d02ac269f560cf142922
+  # pod-user.sh names the pod's uid (Harf shows that name as the signed-in
+  # person), and the coding agents' ssh-agent sidecar runs a pod file.
+  podFiles: true
+  port: 8080
+  # Pi works in the chosen folder, or in ~/workspace (Harf's own default)
+  # when none is chosen, so the uploads and images Harf saves there stay out
+  # of the top of the home.
+  command: ["/opt/javo/pod-user.sh", "/usr/local/bin/harf"]
+  args:
+    - "-addr=:{{.Port}}"
+    - "-workspace={{if .File}}{{.File}}{{else}}{{.Home}}/workspace{{end}}"
+  # Harf's page and API use relative URLs, so it works under a removed prefix.
+  basePath: Strip
+  appLogin: Disabled
+  fileExtensions: []
+  # The kubelet reaches the pod directly, so no prefix here.
+  readinessPath: "/healthz"
+  # What an app runs at when no size is picked (as a custom amount, or the
+  # smallest size that holds it); not measured yet. Each chat runs its own pi,
+  # and pi runs commands: the same as JupyterLab.
+  defaultResources: {cpu: 1, memory: 2Gi}
+  # A reply streams over an open connection, which counts as use; an open tab
+  # with no reply running sends nothing. Chats are saved in the home, so a
+  # stop loses only a reply still running with no tab open. An hour unused,
+  # in place of config.idleStop.defaultMinutes; its owner can pick another
+  # time or Off. Kept inside idleStop.minMinutes and maxMinutes.
+  defaultIdleStopMinutes: 60
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  sample:
+    path: /opt/javo/samples/harf
+    title: Sales chart

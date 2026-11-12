@@ -42,7 +42,7 @@ On most installs every app is served from the same web address, with each app un
 
 ## Why a level may be missing
 
-**Terminal, JupyterLab and coding agents are always private.** The Terminal, JupyterLab, Whybook, Claude Code, pi, herdr and any other coding agent hand whoever opens them code running as you, with your files. Javo refuses to share them, whatever their template says, in the web UI and the API alike.
+**Terminal, JupyterLab and coding agents are always private.** The Terminal, JupyterLab, Whybook, Claude Code, Harf, pi, herdr and any other coding agent hand whoever opens them code running as you, with your files. Javo refuses to share them, whatever their template says, in the web UI and the API alike.
 
 **Code editors are shared only with people you add.** VS Code, RStudio, marimo and Pluto.jl let whoever opens them run any code as you, so they go no further than **Only people added**, whatever their template says. A share wider than that stops working.
 

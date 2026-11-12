@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/sizes"
@@ -769,5 +771,56 @@ func TestTemplatesWithTheAgentGuideMayDeploy(t *testing.T) {
 	}
 	if guided < 2 {
 		t.Fatalf("only %d shipped templates mount the API guide", guided)
+	}
+}
+
+// Harf runs from its own image, pinned by digest, through pod-user.sh (which
+// names the pod's user, the name Harf shows without a proxy header). It
+// listens on the app's port, and Pi works in the folder the user chose, the
+// sample's folder, or ~/workspace (Harf's own default) when none is chosen, so
+// the uploads and images Harf writes there stay out of the home's top level.
+// The kubelet checks Harf's /healthz. As a coding agent its pod gets the
+// ssh-agent sidecar, which runs a pod file, so the pod files are there.
+func TestHarfWorksInTheChosenFolder(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "harf")
+	cases := []struct {
+		label  string
+		sample bool
+		file   string
+		want   string
+	}{
+		{"folder", false, "projects/api", "/home/user/projects/api"},
+		{"no folder", false, "", "/home/user/workspace"},
+		{"sample", true, SampleFileOf(tpl), "/home/user/samples/harf"},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "chat", Owner: "alice", Template: tpl.Name, File: c.file, Sample: c.sample}
+			pod, err := BuildPod(ws, tpl, "/u/a/chat/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctr := pod.Spec.Containers[0]
+			if !strings.HasPrefix(ctr.Image, "ghcr.io/aktech/harf:") || !strings.Contains(ctr.Image, "@sha256:") {
+				t.Fatalf("image = %q, want ghcr.io/aktech/harf pinned by digest", ctr.Image)
+			}
+			argv := slices.Concat(ctr.Command, ctr.Args)
+			want := []string{"/opt/javo/pod-user.sh", "/usr/local/bin/harf", fmt.Sprintf("-addr=:%d", tpl.Spec.Port), "-workspace=" + c.want}
+			if !slices.Equal(argv, want) {
+				t.Fatalf("argv = %q, want %q", argv, want)
+			}
+			if p := ctr.ReadinessProbe; p == nil || p.HTTPGet == nil || p.HTTPGet.Path != "/healthz" {
+				t.Fatalf("readiness probe = %+v, want GET /healthz", p)
+			}
+			WithSSHAgent(pod, tpl)
+			_, side := initContainer(pod, SSHAgentContainer)
+			if side == nil {
+				t.Fatalf("no %s sidecar", SSHAgentContainer)
+			}
+			if _, err := os.Stat(podFile(t, side.Command[0])); err != nil || !slices.ContainsFunc(side.VolumeMounts, func(m corev1.VolumeMount) bool { return m.MountPath == model.PodFilesDir }) {
+				t.Fatalf("the sidecar runs %s, which it does not see (mounts %v): %v", side.Command[0], side.VolumeMounts, err)
+			}
+		})
 	}
 }

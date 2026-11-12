@@ -381,7 +381,7 @@ type Template struct {
 	Version int64
 }
 
-var templateKinds = []string{"jupyterlab", "streamlit", "vscode", "marimo", "pluto", "rstudio", "panel", "bokeh", "dash", "gradio", "voila", "custom", "fastapi", "container", "static", "claude-code", "pi", "herdr", "terminal", "whybook", "python", "julia", "r", "go", "node"}
+var templateKinds = []string{"jupyterlab", "streamlit", "vscode", "marimo", "pluto", "rstudio", "panel", "bokeh", "dash", "gradio", "voila", "custom", "fastapi", "container", "static", "claude-code", "pi", "herdr", "terminal", "whybook", "harf", "python", "julia", "r", "go", "node"}
 
 // Activity values (TemplateSpec.Activity).
 const (
@@ -602,7 +602,7 @@ func (j *TemplateJobs) validate(v *validator, field string) {
 
 // privateOnlyKinds hand whoever opens the app a shell, a notebook kernel or
 // a coding agent that runs as the owner, with the owner's files.
-var privateOnlyKinds = []string{"terminal", "jupyterlab", "whybook", "claude-code", "pi", "herdr"}
+var privateOnlyKinds = []string{"terminal", "jupyterlab", "whybook", "claude-code", "pi", "herdr", "harf"}
 
 // codeEditorKinds are IDEs and editable notebooks: whoever opens the app can
 // run any code or command as its owner.

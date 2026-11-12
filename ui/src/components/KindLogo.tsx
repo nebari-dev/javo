@@ -5,6 +5,7 @@ import vscode from '../assets/logos/vscode.png'
 import fastapi from '../assets/logos/fastapi.svg'
 import git from '../assets/logos/git.svg'
 import gradio from '../assets/logos/gradio.svg'
+import harf from '../assets/logos/harf.svg'
 import golang from '../assets/logos/go.svg'
 import julia from '../assets/logos/julia.svg'
 import nodejs from '../assets/logos/nodedotjs.svg'
@@ -44,6 +45,7 @@ const LOGOS: Record<string, Logo> = {
   'claude-code': { src: claudeCode, tint: '#d97757' },
   pi: { src: pi, site: 'https://pi.dev' },
   herdr: { src: herdr, tint: 'var(--text)' },
+  harf: { src: harf },
   python: { src: python, tint: '#3776ab' },
   // Not a template kind: the Git repository choice on New app.
   git: { src: git, tint: '#f03c2e' },
