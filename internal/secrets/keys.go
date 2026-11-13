@@ -110,6 +110,14 @@ func NebiTokenAD(appID, owner string) AD {
 	return AD{ID: appID, Owner: owner, Name: "nebi-token"}
 }
 
+// BundleAD is the row a workload's sealed bundle belongs to
+// (store.Bundles): its namespace, its name there and the id of the app or
+// job it is kept for. Its name is not a valid secret name, so no person's
+// secret shares it.
+func BundleAD(namespace, name, workloadID string) AD {
+	return AD{ID: workloadID, Owner: namespace, Name: "bundle:" + name}
+}
+
 // bytes encodes the row unambiguously (a JSON array), so no two rows share
 // an encoding.
 func (a AD) bytes() []byte {

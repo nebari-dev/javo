@@ -32,7 +32,7 @@ generate-sql: $(SQLC)
 
 # The tests that run through storetest, on both engines: SQLite, then Postgres in a throwaway
 # container (scripts/test/postgres-test.sh). A missing Postgres fails the tests.
-DB_PACKAGES = ./internal/store/... ./internal/ai/... ./internal/backup/... ./internal/secrets/... ./internal/storage/... ./internal/auth/... ./internal/gateway/... ./internal/templates/... ./internal/controller/dbsource/... ./internal/controller/workspace/... ./internal/controller/storage/... ./internal/controller/namespace/... ./internal/controller/jobs/... ./internal/controller/idle/... ./internal/controller/preview/... ./internal/jobs/notify/... ./internal/netprobe/... ./internal/identity/... ./internal/cli/...
+DB_PACKAGES = ./internal/store/... ./internal/ai/... ./internal/backup/... ./internal/secrets/... ./internal/storage/... ./internal/auth/... ./internal/gateway/... ./internal/templates/... ./internal/controller/dbsource/... ./internal/controller/workspace/... ./internal/controller/storage/... ./internal/controller/namespace/... ./internal/controller/jobs/... ./internal/controller/idle/... ./internal/controller/preview/... ./internal/jobs/notify/... ./internal/netprobe/... ./internal/identity/... ./internal/cli/... ./internal/executor/vault/...
 
 # The packages whose code differs between SQLite and Postgres (queries, the
 # change feed, backups); CI and `make test` run only these on Postgres too.
