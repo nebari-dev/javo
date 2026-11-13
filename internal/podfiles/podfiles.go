@@ -99,7 +99,13 @@ func ReadOnly() workload.Mount {
 }
 
 // Copy copies the tree at from into to, keeping modes and symbolic links.
-func Copy(from, to string) error {
+func Copy(from, to string) error { return copyTree(from, to, false) }
+
+// CopyMissing is Copy that leaves alone every file and link to already
+// has, so what a person changed in an earlier copy stays.
+func CopyMissing(from, to string) error { return copyTree(from, to, true) }
+
+func copyTree(from, to string, keep bool) error {
 	return filepath.WalkDir(from, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -113,9 +119,15 @@ func Copy(from, to string) error {
 		if err != nil {
 			return err
 		}
-		switch {
-		case d.IsDir():
+		if d.IsDir() {
 			return os.MkdirAll(dst, info.Mode().Perm()|0o700)
+		}
+		if keep {
+			if _, err := os.Lstat(dst); err == nil {
+				return nil
+			}
+		}
+		switch {
 		case info.Mode()&fs.ModeSymlink != 0:
 			target, err := os.Readlink(p)
 			if err != nil {

@@ -44,7 +44,8 @@ const (
 	// HomeFolder is the folder of the home that holds the environments
 	// (envs/<sha256>) and pixi's package cache (pixi-cache).
 	HomeFolder = ".javo"
-	volume     = "javo-env"
+	// Volume is the volume shown at Dir.
+	Volume = "javo-env"
 
 	// MaxEncoded is the most the compressed files may take in the pod spec.
 	// They travel in the init container's environment, so the pod (and a
@@ -185,29 +186,43 @@ fi`
 // when it installs one of theirs, and the repository when it may hold the
 // lockfile. Files too large to carry, or no image, are an error.
 func Add(s *workload.Spec, image string, toolsImage podspec.Image, src Source) error {
+	if (src.Files != nil || src.Default != "") && image == "" {
+		return errors.New("environment: the platform has no image to install environments with (environments.pixiImage)")
+	}
+	return AddAt(s, image, toolsImage, src, InContainer)
+}
+
+// Places is where an install finds things: Home is the home folder, Dir
+// the folder holding ActivateFile, Files the platform's files and Tmp the
+// temporary folder.
+type Places struct{ Home, Dir, Files, Tmp string }
+
+// InContainer are the fixed paths of a container.
+var InContainer = Places{Home: podspec.HomeDir, Dir: Dir, Files: podfiles.Dir, Tmp: "/tmp"}
+
+// AddAt is Add at the places at. With no image the install step runs on
+// the machine itself, which then needs what the pixi image brings.
+func AddAt(s *workload.Spec, image string, toolsImage podspec.Image, src Source, at Places) error {
 	if src.Files == nil && src.Default == "" {
 		return nil
-	}
-	if image == "" {
-		return errors.New("environment: the platform has no image to install environments with (environments.pixiImage)")
 	}
 	if toolsImage.Ref == "" {
 		return errors.New("environment: the platform's own image is not set (the controller's --runner-image)")
 	}
 	app := &s.Main
-	home, ok := app.MountAt(podspec.HomeDir)
+	home, ok := app.MountAt(at.Home)
 	if !ok {
 		return errors.New("environment: the pod has no home folder to install into")
 	}
 	home.ReadOnly = false
-	root := path.Join(podspec.HomeDir, HomeFolder)
-	tool := path.Join(Dir, model.ProductName)
-	mount := workload.Mount{Volume: volume, Path: Dir}
+	root := path.Join(at.Home, HomeFolder)
+	tool := path.Join(at.Dir, model.ProductName)
+	mount := workload.Mount{Volume: Volume, Path: at.Dir}
 	env := []workload.Env{
-		{Name: "HOME", Value: podspec.HomeDir},
+		{Name: "HOME", Value: at.Home},
 		{Name: "PIXI_CACHE_DIR", Value: root + "/pixi-cache"},
 		{Name: "JAVO_ENV_ROOT", Value: root + "/envs"},
-		{Name: "JAVO_ENV_DIR", Value: Dir},
+		{Name: "JAVO_ENV_DIR", Value: at.Dir},
 		{Name: "JAVO_TOOL", Value: tool},
 	}
 	mounts := []workload.Mount{mount, home}
@@ -230,8 +245,11 @@ func Add(s *workload.Spec, image string, toolsImage podspec.Image, src Source) e
 		env = append(env, workload.Env{Name: "JAVO_PIXI_TOML", Value: toml}, workload.Env{Name: "JAVO_PIXI_LOCK", Value: lock})
 	}
 	if src.Files == nil || beside {
-		env = append(env, workload.Env{Name: "JAVO_ENV_DEFAULT", Value: path.Join(podfiles.Dir, "envs", src.Default)})
-		mounts = append(mounts, podfiles.ReadOnly())
+		env = append(env, workload.Env{Name: "JAVO_ENV_DEFAULT", Value: path.Join(at.Files, "envs", src.Default)})
+		if at.Files == podfiles.Dir {
+			// A container sees them through a volume.
+			mounts = append(mounts, podfiles.ReadOnly())
+		}
 		if src.RepoDir != "" {
 			if m, ok := app.MountAt(src.RepoDir); ok {
 				m.ReadOnly = true
@@ -242,10 +260,10 @@ func Add(s *workload.Spec, image string, toolsImage podspec.Image, src Source) e
 	}
 	for _, v := range s.Volumes {
 		if v.Name == podspec.TmpVolume {
-			mounts = append(mounts, workload.Mount{Volume: podspec.TmpVolume, Path: "/tmp"})
+			mounts = append(mounts, workload.Mount{Volume: podspec.TmpVolume, Path: at.Tmp})
 		}
 	}
-	s.Volumes = append(s.Volumes, workload.Volume{Name: volume})
+	s.Volumes = append(s.Volumes, workload.Volume{Name: Volume})
 	s.Steps = append(s.Steps, workload.Unit{
 		Name: ToolsContainer, Image: toolsImage.Ref, ReadOnlyRoot: true,
 		Command: []string{"/" + model.ProductName},

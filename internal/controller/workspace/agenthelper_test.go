@@ -28,7 +28,7 @@ func credentialPod(t *testing.T, name, mode string) *corev1.Pod {
 	tpl := shippedTemplate(t, name)
 	s := agentSpec(t, name)
 	app := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name}
-	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com", APIInternalURL: "http://gateway.javo:8080"})
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com", APIInternalURL: "http://gateway.javo:8080"}, containerPlaces)
 	m := agentModel{mode: mode, model: "vendor/m1", baseURL: "http://gateway.javo:8080/api/ai/openai/v1"}
 	var set secretenv.Set
 	if mode == model.AgentModeOwn {
@@ -143,7 +143,7 @@ func TestNoHelperWithoutCredentialsOrOutsideAgents(t *testing.T) {
 	t.Parallel()
 	herdr := shippedTemplate(t, "herdr")
 	s := agentSpec(t, "herdr")
-	addAPIToken(&s, herdr, Inputs{APIAccess: model.APIAccessNone, APIURL: "https://javo.example.com"})
+	addAPIToken(&s, herdr, Inputs{APIAccess: model.APIAccessNone, APIURL: "https://javo.example.com"}, containerPlaces)
 	addAgentHelper(&s, herdr, testImages.Runner)
 	pod := podOf(s)
 	if _, h := initContainer(pod, AgentHelperContainer); h != nil {
@@ -151,7 +151,7 @@ func TestNoHelperWithoutCredentialsOrOutsideAgents(t *testing.T) {
 	}
 	tpl := shippedTemplate(t, "jupyterlab")
 	s = workload.Spec{Main: workload.Unit{Name: workload.MainUnit}}
-	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com"})
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com"}, containerPlaces)
 	addAgentHelper(&s, tpl, testImages.Runner)
 	pod = podOf(s)
 	if _, h := initContainer(pod, AgentHelperContainer); h != nil || envNamed(&pod.Spec.Containers[0], envToken) == nil {

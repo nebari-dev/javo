@@ -107,7 +107,7 @@ func Build(owner string, in Input) Layout {
 			{Volume: TmpVolume, Path: tmpDir},
 			{Volume: ScratchVolume, Path: ScratchDir},
 		},
-		Env:  scratchEnv(),
+		Env:  scratchEnv(ScratchDir),
 		User: workload.User{UID: in.UID, GID: in.GID},
 	}
 	if !in.ReadOnly {
@@ -123,6 +123,27 @@ func Build(owner string, in Input) Layout {
 		l.User.Groups = append(l.User.Groups, f.Status.GID)
 	}
 	return l
+}
+
+// Local is the layout of a workload that runs as plain processes of this
+// machine, as user: home is the owner's home folder, tmp and scratch the
+// folders of the workload's own temporary and scratch volumes. Each volume
+// is mounted at its own folder, since nothing can show a folder to a
+// process at another path: there is no cache folder inside the home (the
+// variables below point the tools at scratch) and no group folder.
+// Programs write their temporary files in tmp (TMPDIR), not in the
+// machine's.
+func Local(home, tmp, scratch string, user workload.User) Layout {
+	return Layout{
+		Volumes: []workload.Volume{{Name: HomeVolume, Source: home}, {Name: TmpVolume}, {Name: ScratchVolume}},
+		Mounts: []workload.Mount{
+			{Volume: HomeVolume, Path: home},
+			{Volume: TmpVolume, Path: tmp},
+			{Volume: ScratchVolume, Path: scratch},
+		},
+		Env:  append(scratchEnv(scratch), workload.Env{Name: "TMPDIR", Value: tmp}),
+		User: user,
+	}
 }
 
 // AddTo gives s the storage l lays out: its volumes, the mounts and
@@ -170,17 +191,17 @@ func (l Layout) ReadOnlyFiles() Layout {
 }
 
 // scratchEnv points every tool cache and the conda and pixi environments at
-// scratch, so a large install does not fill the home.
-func scratchEnv() []workload.Env {
-	c := ScratchDir + "/" + cacheSubPath
+// scratch, the folder dir, so a large install does not fill the home.
+func scratchEnv(dir string) []workload.Env {
+	c := dir + "/" + cacheSubPath
 	return []workload.Env{
 		{Name: "XDG_CACHE_HOME", Value: c},
 		{Name: "PIP_CACHE_DIR", Value: c + "/pip"},
 		{Name: "UV_CACHE_DIR", Value: c + "/uv"},
 		{Name: "PIXI_CACHE_DIR", Value: c + "/pixi"},
 		{Name: "npm_config_cache", Value: c + "/npm"},
-		{Name: "CONDA_PKGS_DIRS", Value: ScratchDir + "/pkgs"},
-		{Name: "CONDA_ENVS_PATH", Value: ScratchDir + "/envs"},
+		{Name: "CONDA_PKGS_DIRS", Value: dir + "/pkgs"},
+		{Name: "CONDA_ENVS_PATH", Value: dir + "/envs"},
 	}
 }
 

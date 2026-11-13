@@ -53,6 +53,16 @@ type Inputs struct {
 	// EnvFiles are the files of the environment picked for the app; nil
 	// when none is.
 	EnvFiles *model.EnvironmentFiles
+
+	// Port is the port the app is told to serve on, where the executor
+	// picks it (the port of Executor.Addr); zero is the template's.
+	Port int32
+	// Host is the machine the app runs on as plain processes; nil plans
+	// it for a container. Such an app runs the program of its template's
+	// pixi environment and nothing is kept from it or from the machine's
+	// other programs: the steps that keep a coding agent's keys and tokens
+	// away from it are left out, and it gets them as any app does.
+	Host *workload.Host
 }
 
 // EnvironmentError is why an app's environment cannot be installed: its
@@ -67,10 +77,22 @@ func (e *EnvironmentError) Unwrap() error { return e.Err }
 //
 // A registry that is not allowed is an *imageref.NotAllowedError, an
 // environment that cannot be installed an *EnvironmentError, and anything
-// else is the template's to fix.
+// else is the template's to fix: an *executor.UnsupportedError when the
+// app is planned for a Host and cannot run without containers.
 func Plan(in Inputs) (workload.Spec, error) {
 	ws, t := in.App, in.Template
-	s, err := planRun(in)
+	at, err := placesOf(in)
+	if err != nil {
+		return workload.Spec{}, err
+	}
+	if at.host != nil {
+		if err := hostProblem(in); err != nil {
+			return workload.Spec{}, err
+		}
+		// Nothing runs the pixi image: its units run on the machine.
+		in.Images.Pixi = ""
+	}
+	s, err := planRun(in, at)
 	if err != nil {
 		return workload.Spec{}, err
 	}
@@ -80,13 +102,17 @@ func Plan(in Inputs) (workload.Spec, error) {
 	if err := userImagePullSecrets(&s, t); err != nil {
 		return workload.Spec{}, err
 	}
-	addAPIToken(&s, t, in)
+	addAPIToken(&s, t, in, at)
 	addGitToken(&s, ws, in.GitHolder, in.GitGen)
 	AddEnv(&s.Main, ws.Env)
 	addAppSecrets(&s, in.Secrets)
 	addAgent(&s, ws, t, in.Agent, in.HasToken)
-	if err := addEnvironment(&s, ws, t, in); err != nil {
+	if err := addEnvironment(&s, ws, t, in, at); err != nil {
 		return workload.Spec{}, &EnvironmentError{Err: err}
+	}
+	if at.host != nil {
+		at.onHost(&s)
+		return s, nil
 	}
 	addSSHAgent(&s, t)
 	addAgentHelper(&s, t, in.Images.Runner)
@@ -94,15 +120,15 @@ func Plan(in Inputs) (workload.Spec, error) {
 }
 
 // planRun is the app's own part of its workload: what its template runs,
-// from which code, on the owner's storage.
-func planRun(in Inputs) (workload.Spec, error) {
+// from which code, on the owner's storage, at the places at.
+func planRun(in Inputs, at places) (workload.Spec, error) {
 	ws, t, img := in.App, in.Template, in.Images
-	p, err := runOf(ws, t, in.BaseURL, in.PublicHost, img.Pixi)
+	p, err := runOf(ws, t, in.BaseURL, in.PublicHost, img.Pixi, in.Port, at)
 	if err != nil {
 		return workload.Spec{}, err
 	}
 	data := p.data
-	base := appFolder(ws)
+	base := at.appFolder(ws)
 	// inits run first; site, the copy of a home page a site serves, runs
 	// after the pod files and the sample, which may be that page.
 	var inits, site []workload.Unit
@@ -116,7 +142,10 @@ func planRun(in Inputs) (workload.Spec, error) {
 		}
 	}
 	var samples []workload.Unit
-	if ws.Sample {
+	switch {
+	case ws.Sample && at.host != nil:
+		samples = []workload.Unit{at.sampleStep(t, img.Runner.Ref)}
+	case ws.Sample:
 		samples = sampleSteps(t, p.image)
 	}
 	if t.Spec.UsesPodFiles() && img.Runner.Ref == "" {
@@ -140,18 +169,22 @@ func planRun(in Inputs) (workload.Spec, error) {
 		Resources:   t.Spec.Resources,
 		Size:        in.Size,
 		Port:        p.port,
-		Main:        MainUnit(ws.Owner, p.image),
+		Main:        mainUnit(ws.Owner, p.image, at.home),
 		Steps:       inits,
 	}
 	app := &s.Main
 	if ws.Source != nil {
 		s.Pull(img.Runner.PullSecrets) // the source check
 	}
-	if t.Spec.UsesPodFiles() {
+	if t.Spec.UsesPodFiles() && at.host == nil {
+		// A host has the files in a folder of its own, and knows its user.
 		podfiles.Add(&s, img.Runner)
 	}
 	s.Steps = append(append(s.Steps, samples...), site...)
 	layout := in.Layout
+	if at.host != nil {
+		layout = at.layout()
+	}
 	if ws.ParentID != "" {
 		layout = layout.WithoutFolders()
 	}
@@ -192,7 +225,10 @@ func planRun(in Inputs) (workload.Spec, error) {
 
 // MainUnit is the unit every workload exists to run, for owner (a person's
 // name) on image. Apps and job runs share it.
-func MainUnit(owner, image string) workload.Unit {
+func MainUnit(owner, image string) workload.Unit { return mainUnit(owner, image, homeDir) }
+
+// mainUnit is MainUnit with the home in the folder home.
+func mainUnit(owner, image, home string) workload.Unit {
 	return workload.Unit{
 		Name:  workload.MainUnit,
 		Image: image,
@@ -200,7 +236,7 @@ func MainUnit(owner, image string) workload.Unit {
 		// writes would be lost with the pod; "~" is the volume. JAVO_USER
 		// is the name pod-user.sh gives a uid the image does not list.
 		Env: append([]workload.Env{
-			{Name: "HOME", Value: homeDir},
+			{Name: "HOME", Value: home},
 			{Name: "JAVO_USER", Value: naming.IdentityReadable(owner)},
 		}, colorEnv()...),
 	}

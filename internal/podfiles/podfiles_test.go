@@ -174,3 +174,33 @@ func TestApplyPullsAPrivateImageWithItsSecrets(t *testing.T) {
 		t.Fatalf("public image: imagePullSecrets = %v, want none", public.PullSecrets)
 	}
 }
+
+func TestCopyMissingKeepsWhatIsThere(t *testing.T) {
+	t.Parallel()
+	from, to := t.TempDir(), filepath.Join(t.TempDir(), "samples", "demo")
+	for name, text := range map[string]string{"app.py": "new", "data/rows.csv": "rows"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(from, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(from, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(to, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(to, "app.py"), []byte("edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Twice: a restart copies again.
+	for range 2 {
+		if err := CopyMissing(from, to); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, want := range map[string]string{"app.py": "edited", "data/rows.csv": "rows"} {
+		if got, err := os.ReadFile(filepath.Join(to, name)); err != nil || string(got) != want {
+			t.Errorf("%s = %q (%v), want %q", name, got, err, want)
+		}
+	}
+}

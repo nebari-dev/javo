@@ -50,7 +50,7 @@ func EnvironmentOf(app *model.App, t *model.Template) string {
 // picked one goes beside the template's instead. An environment that
 // replaces the template's must have the program the app starts. None for an
 // app on a template without one and nothing picked.
-func addEnvironment(s *workload.Spec, ws *model.App, t *model.Template, in Inputs) error {
+func addEnvironment(s *workload.Spec, ws *model.App, t *model.Template, in Inputs, at places) error {
 	src := pixienv.Source{Default: t.Spec.Environment, Beside: t.Spec.ServesKernels}
 	if ws.Source != nil {
 		src.RepoDir = sourceRoot
@@ -63,6 +63,9 @@ func addEnvironment(s *workload.Spec, ws *model.App, t *model.Template, in Input
 		src.Name, src.From = ws.Environment.Name, managerName(ws.Environment.Source)
 	}
 	src.Program = pixienv.ProgramOf(s.Main.Command, s.Main.Args)
+	if at.host != nil {
+		return pixienv.AddAt(s, "", in.Images.Runner, src, at.environment())
+	}
 	return pixienv.Add(s, in.Images.Pixi, in.Images.Runner, src)
 }
 

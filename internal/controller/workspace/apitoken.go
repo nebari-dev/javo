@@ -50,7 +50,7 @@ func APITokenSecretName(objectName string) string {
 // bundle as JAVO_TOKEN, the UI's public URL as JAVO_URL and the API guide.
 // With access None it does nothing. The token is never in the Spec and
 // never a file.
-func addAPIToken(s *workload.Spec, t *model.Template, in Inputs) {
+func addAPIToken(s *workload.Spec, t *model.Template, in Inputs, at places) {
 	if token.ScopeFor(in.APIAccess) == "" {
 		return
 	}
@@ -62,6 +62,11 @@ func addAPIToken(s *workload.Spec, t *model.Template, in Inputs) {
 		workload.Env{Name: envURL, Value: in.APIURL},
 		workload.Env{Name: envToken, From: &workload.SecretRef{Bundle: APITokenSecretName(s.Ref.Name), Key: APITokenKey}},
 	)
+	if at.host != nil {
+		// The guide is a file shown inside other folders, which only a
+		// container can do.
+		return
+	}
 	for _, p := range append([]string{APIGuidePath}, t.Spec.APIGuidePaths...) {
 		app.Mounts = append(app.Mounts, workload.Mount{Volume: apiGuideVolume, Path: p, SubPath: APIGuideKey, ReadOnly: true})
 	}

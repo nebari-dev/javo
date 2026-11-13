@@ -658,7 +658,7 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessOf(ws, tpl), APIURL: "https://javo.example.com", APIInternalURL: "http://javo-gateway.javo-system.svc:80"})
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessOf(ws, tpl), APIURL: "https://javo.example.com", APIInternalURL: "http://javo-gateway.javo-system.svc:80"}, containerPlaces)
 	pod, tokenSecret := podOf(s), APITokenSecretName(ws.ObjectName())
 	c := pod.Spec.Containers[0]
 	env := map[string]corev1.EnvVar{}
@@ -708,7 +708,7 @@ func TestNoAPITokenWithoutTheTemplateField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessOf(ws, tpl), APIURL: "https://javo.example.com"})
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessOf(ws, tpl), APIURL: "https://javo.example.com"}, containerPlaces)
 	pod := podOf(s)
 	for _, e := range pod.Spec.Containers[0].Env {
 		if e.Name == envURL || e.Name == envToken {

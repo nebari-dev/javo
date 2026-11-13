@@ -211,3 +211,21 @@ func (s *Spec) Step(name string) *Unit {
 	}
 	return nil
 }
+
+// Host is the machine a workload runs on as plain processes, when nothing
+// puts it in a container: its folders take the place of the fixed paths a
+// container has. A workload is planned with it, since a process sees the
+// machine's own paths and none can be shown to it under another name.
+type Host struct {
+	// Volumes holds the workload's own volumes, each a folder named after
+	// the volume.
+	Volumes string
+	// Files holds the platform's files (pod/files, the terminal page and
+	// the tools), laid out as the platform's image holds them.
+	Files string
+	// InstallPath is the PATH of the step that installs an environment:
+	// the folder with pixi, sha256sum and flock, then the machine's own.
+	InstallPath string
+	// UID and GID are who everything on the machine runs as: Javo itself.
+	UID, GID int64
+}

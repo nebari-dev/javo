@@ -41,7 +41,7 @@ func (p Platform) address(app *model.App) (baseURL, host string) {
 // line BuildPod puts in its container.
 func (p Platform) RunOf(app *model.App, t *model.Template) (Run, error) {
 	base, host := p.address(app)
-	r, err := runOf(app, t, base, host, p.PixiImage)
+	r, err := runOf(app, t, base, host, p.PixiImage, 0, containerPlaces)
 	if err != nil {
 		return Run{}, err
 	}
@@ -62,41 +62,43 @@ type runPlan struct {
 }
 
 // runOf renders ws's command on t for an app served at baseURL on
-// publicHost, with pixi the platform's pixi image.
-func runOf(ws *model.App, t *model.Template, baseURL, publicHost, pixi string) (runPlan, error) {
-	port := AppPortOf(ws, t)
-	data := templateData{BaseURL: baseURL, Port: port, Home: homeDir, Host: publicHost}
+// publicHost, with pixi the platform's pixi image. The app serves on port,
+// or on the template's when that is zero, and finds its files at the
+// places at.
+func runOf(ws *model.App, t *model.Template, baseURL, publicHost, pixi string, port int32, at places) (runPlan, error) {
+	port = cmp.Or(port, AppPortOf(ws, t))
+	data := templateData{BaseURL: baseURL, Port: port, Home: at.home, Host: publicHost}
 	if ws.Source != nil {
-		data.Source = appFolder(ws)
+		data.Source = at.appFolder(ws)
 	}
 	if ws.File != "" {
 		if err := homepath.Check(ws.File); err != nil {
 			return runPlan{}, fmt.Errorf("spec.file: %w", err)
 		}
-		data.File = FilePath(ws)
+		data.File = at.filePath(ws)
 	}
 	image := t.Spec.RunImage(pixi)
-	if image == "" && !t.Spec.UserImage {
+	if image == "" && !t.Spec.UserImage && at.host == nil {
 		return runPlan{}, fmt.Errorf("workspace template %q: it runs in the platform's pixi image, and none is set (environments.pixiImage)", t.Name)
 	}
 	if ws.Sample {
 		if t.Spec.Sample == nil || t.Spec.Sample.Path == "" {
 			return runPlan{}, fmt.Errorf("workspace template %q: spec.sample is set on the workspace but the template has no sample folder to copy", t.Name)
 		}
-		data.Sample = sampleHome(t)
+		data.Sample = at.sampleHome(t)
 	}
 	if t.Spec.UserImage && ws.Image == "" {
 		return runPlan{}, fmt.Errorf("spec.image: template %q runs the image each app names, and this app names none", t.Name)
 	}
-	command, err := renderAll(t.Name, "command", t.Spec.Command, data)
+	command, err := renderAll(t.Name, "command", at.words(t.Spec.Command), data)
 	if err != nil {
 		return runPlan{}, err
 	}
 	var args []string
 	if ws.Command != "" {
-		args, err = CommandWords(t.Name, ws.Command, data)
+		args, err = commandWords(t.Name, ws.Command, data, at)
 	} else {
-		args, err = renderAll(t.Name, "args", t.Spec.Args, data)
+		args, err = renderAll(t.Name, "args", at.words(t.Spec.Args), data)
 	}
 	if err != nil {
 		return runPlan{}, err

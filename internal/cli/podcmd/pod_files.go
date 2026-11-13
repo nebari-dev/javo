@@ -11,16 +11,21 @@ import (
 // into the pod's empty folder (internal/podfiles); the image has no cp.
 func NewPodFiles() *cobra.Command {
 	var from, to string
+	var keep bool
 	cmd := &cobra.Command{
 		Use:   "pod-files",
 		Short: "Copy the platform's pod files to --to (the init container step; the image has no cp)",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
+			if keep {
+				return podfiles.CopyMissing(from, to)
+			}
 			return podfiles.Copy(from, to)
 		},
 	}
 	cmd.Flags().StringVar(&from, "from", podfiles.ImageDir, "folder of this image that holds the files")
 	cmd.Flags().StringVar(&to, "to", "", "destination folder")
+	cmd.Flags().BoolVar(&keep, "keep", false, "leave alone the files --to already has (the copy of a sample on a machine without containers)")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
 }

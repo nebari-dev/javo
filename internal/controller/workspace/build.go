@@ -114,11 +114,16 @@ func (e *BadPlaceholder) Unwrap() error { return e.Err }
 // *BadPlaceholder. Words that render empty are dropped, as for template
 // args. Apps (with templateData) and jobs share it.
 func CommandWords(tplName, line string, data any) ([]string, error) {
+	return commandWords(tplName, line, data, containerPlaces)
+}
+
+// commandWords is CommandWords for an app planned at the places at.
+func commandWords(tplName, line string, data any, at places) ([]string, error) {
 	words, err := cmdline.Split(line)
 	if err != nil {
 		return nil, err
 	}
-	out, err := renderAll(tplName, "spec.command", words, data)
+	out, err := renderAll(tplName, "spec.command", at.words(words), data)
 	if err != nil {
 		return nil, &BadPlaceholder{Err: err}
 	}
@@ -194,9 +199,9 @@ func workDir(file, fallback string) string {
 	return path.Dir(file)
 }
 
-// sampleHome is where a template's sample is copied to inside the container.
-func sampleHome(t *model.Template) string {
-	return path.Join(homeDir, SampleDir, t.Name)
+// sampleHome is where a template's sample is copied to, in the home.
+func (p places) sampleHome(t *model.Template) string {
+	return path.Join(p.home, SampleDir, t.Name)
 }
 
 // SampleFileOf is the home-relative file or folder an app started from the
@@ -213,7 +218,7 @@ func SampleFileOf(t *model.Template) string {
 // there adds nothing). Both run as the app does, with the home mounted and
 // nothing else.
 func sampleSteps(t *model.Template, image string) []workload.Unit {
-	dest := sampleHome(t)
+	dest := containerPlaces.sampleHome(t)
 	step := func(name string, argv ...string) workload.Unit {
 		return workload.Unit{
 			Name: name, Image: image, Command: argv, ReadOnlyRoot: true,
@@ -234,20 +239,23 @@ const FixedUID int64 = podspec.FixedUID
 // FilePath is the file the app opens as a path inside its container: under
 // the home folder, or under the folder of the clone for an app that runs
 // from Git. Empty when the app opens no file.
-func FilePath(ws *model.App) string {
+func FilePath(ws *model.App) string { return containerPlaces.filePath(ws) }
+
+// filePath is FilePath for an app planned at the places p.
+func (p places) filePath(ws *model.App) string {
 	if ws.File == "" {
 		return ""
 	}
-	return path.Join(appFolder(ws), path.Clean("/"+ws.File))
+	return path.Join(p.appFolder(ws), path.Clean("/"+ws.File))
 }
 
 // appFolder is the folder the app's file is relative to: the home folder,
 // or the folder of the clone for an app that runs from Git.
-func appFolder(ws *model.App) string {
+func (p places) appFolder(ws *model.App) string {
 	if ws.Source != nil {
 		return sourceFolder(ws.Source)
 	}
-	return homeDir
+	return p.home
 }
 
 // LayoutFingerprint identifies what app's pod mounts and runs as under

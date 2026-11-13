@@ -36,19 +36,8 @@ type Options struct {
 var ErrBatch = errors.New("process executor: job runs are not supported yet")
 
 // UnsupportedError is a part of a workload that cannot be run without
-// containers. The template (or the plan made from it) has to change.
-type UnsupportedError struct {
-	// Unit is the unit it is about; empty when it is the whole workload.
-	Unit string
-	Why  string
-}
-
-func (e *UnsupportedError) Error() string {
-	if e.Unit == "" {
-		return "process executor: " + e.Why
-	}
-	return fmt.Sprintf("process executor: unit %s: %s", e.Unit, e.Why)
-}
+// containers.
+type UnsupportedError = executor.UnsupportedError
 
 // Executor runs apps as child processes.
 type Executor struct {

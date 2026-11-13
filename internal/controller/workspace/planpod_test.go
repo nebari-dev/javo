@@ -14,7 +14,7 @@ import (
 // planOf is the app's own part of its workload (planRun), for tests that
 // add a step to it before reading the Pod.
 func planOf(ws *model.App, t *model.Template, baseURL, publicHost string, layout podstorage.Layout, size sizes.Size, img Images) (workload.Spec, error) {
-	return planRun(Inputs{App: ws, Template: t, BaseURL: baseURL, PublicHost: publicHost, Layout: layout, Size: size, Images: img})
+	return planRun(Inputs{App: ws, Template: t, BaseURL: baseURL, PublicHost: publicHost, Layout: layout, Size: size, Images: img}, containerPlaces)
 }
 
 // podOf is the Pod Kubernetes runs s as.
