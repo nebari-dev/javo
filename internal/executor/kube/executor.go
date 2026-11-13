@@ -11,6 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	toolscache "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -243,90 +244,86 @@ func commitOf(pod *corev1.Pod) string {
 
 // refOf names the app an object is labelled for; its ID is empty when the
 // object is no app's.
-func refOf(o client.Object) workload.Ref {
+func refOf(o client.Object) workload.Ref { return refBy(o, model.LabelApp) }
+
+// refBy names the workload an object carries the id of under label.
+func refBy(o client.Object, label string) workload.Ref {
 	l := o.GetLabels()
-	return workload.Ref{Namespace: o.GetNamespace(), Name: o.GetName(), ID: l[model.LabelApp], Owner: l[model.LabelOwner]}
+	return workload.Ref{Namespace: o.GetNamespace(), Name: o.GetName(), ID: l[label], Owner: l[model.LabelOwner]}
 }
 
 // List names every app that has a Pod or a Service, each once. With
 // ManagedOnly, those in other namespaces are left out: nothing there is
 // the executor's to stop.
 func (e *Executor) List(ctx context.Context) ([]workload.Ref, error) {
-	var pods corev1.PodList
-	var services corev1.ServiceList
-	for _, l := range []client.ObjectList{&pods, &services} {
-		if err := e.Client.List(ctx, l, client.HasLabels{model.LabelApp}); err != nil {
-			return nil, err
-		}
-	}
+	return e.list(ctx, model.LabelApp, &corev1.PodList{}, &corev1.ServiceList{})
+}
+
+// list names the workloads the objects of lists carry the id of under
+// label, each once.
+func (e *Executor) list(ctx context.Context, label string, lists ...client.ObjectList) ([]workload.Ref, error) {
 	var out []workload.Ref
 	seen := map[workload.Ref]bool{}
 	managed := map[string]bool{}
-	add := func(o client.Object) error {
-		ref := refOf(o)
-		if seen[ref] {
-			return nil
+	for _, l := range lists {
+		if err := e.Client.List(ctx, l, client.HasLabels{label}); err != nil {
+			return nil, err
 		}
-		seen[ref] = true
-		if e.ManagedOnly {
-			ok, known := managed[ref.Namespace]
-			if !known {
-				var err error
-				if ok, err = namespace.IsManaged(ctx, e.Client, ref.Namespace); err != nil {
-					return err
+	}
+	for _, l := range lists {
+		items, err := meta.ExtractList(l)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			ref := refBy(item.(client.Object), label)
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			if e.ManagedOnly {
+				ok, known := managed[ref.Namespace]
+				if !known {
+					if ok, err = namespace.IsManaged(ctx, e.Client, ref.Namespace); err != nil {
+						return nil, err
+					}
+					managed[ref.Namespace] = ok
 				}
-				managed[ref.Namespace] = ok
+				if !ok {
+					continue
+				}
 			}
-			if !ok {
-				return nil
-			}
-		}
-		out = append(out, ref)
-		return nil
-	}
-	for i := range pods.Items {
-		if err := add(&pods.Items[i]); err != nil {
-			return nil, err
-		}
-	}
-	for i := range services.Items {
-		if err := add(&services.Items[i]); err != nil {
-			return nil, err
+			out = append(out, ref)
 		}
 	}
 	return out, nil
 }
 
-// Watch reports the app of every Pod and Service that changes, and of
-// every Pod an event is about.
-func (e *Executor) Watch(ctx context.Context, changed func(workload.Ref)) error {
-	labelled := func(o any) {
+// labelled reports the workload an object that changed carries the id of
+// under label, if it carries one.
+func labelled(label string, changed func(workload.Ref)) func(any) {
+	return func(o any) {
 		if t, ok := o.(toolscache.DeletedFinalStateUnknown); ok {
 			o = t.Obj
 		}
 		if obj, ok := o.(client.Object); ok {
-			if ref := refOf(obj); ref.ID != "" {
+			if ref := refBy(obj, label); ref.ID != "" {
 				changed(ref)
 			}
 		}
 	}
-	aboutPod := func(o any) {
-		if t, ok := o.(toolscache.DeletedFinalStateUnknown); ok {
-			o = t.Obj
-		}
-		ev, ok := o.(*corev1.Event)
-		if !ok || ev.InvolvedObject.Kind != "Pod" {
-			return
-		}
-		pod := &corev1.Pod{}
-		if err := e.Client.Get(ctx, client.ObjectKey{Namespace: ev.Namespace, Name: ev.InvolvedObject.Name}, pod); err == nil {
-			labelled(pod)
-		}
-	}
-	for _, w := range []struct {
-		kind   client.Object
-		notify func(any)
-	}{{&corev1.Pod{}, labelled}, {&corev1.Service{}, labelled}, {&corev1.Event{}, aboutPod}} {
+}
+
+// watched is a kind Watch listens to and what it does with each change.
+type watched struct {
+	kind   client.Object
+	notify func(any)
+}
+
+// inform calls each kind's notify for every object of it that changes,
+// until ctx ends.
+func (e *Executor) inform(ctx context.Context, kinds ...watched) error {
+	for _, w := range kinds {
 		informer, err := e.Informers.GetInformer(ctx, w.kind)
 		if err != nil {
 			return err
@@ -345,6 +342,26 @@ func (e *Executor) Watch(ctx context.Context, changed func(workload.Ref)) error 
 	return nil
 }
 
+// Watch reports the app of every Pod and Service that changes, and of
+// every Pod an event is about.
+func (e *Executor) Watch(ctx context.Context, changed func(workload.Ref)) error {
+	app := labelled(model.LabelApp, changed)
+	aboutPod := func(o any) {
+		if t, ok := o.(toolscache.DeletedFinalStateUnknown); ok {
+			o = t.Obj
+		}
+		ev, ok := o.(*corev1.Event)
+		if !ok || ev.InvolvedObject.Kind != "Pod" {
+			return
+		}
+		pod := &corev1.Pod{}
+		if err := e.Client.Get(ctx, client.ObjectKey{Namespace: ev.Namespace, Name: ev.InvolvedObject.Name}, pod); err == nil {
+			app(pod)
+		}
+	}
+	return e.inform(ctx, watched{&corev1.Pod{}, app}, watched{&corev1.Service{}, app}, watched{&corev1.Event{}, aboutPod})
+}
+
 // Addr is the app's Service by its name in the cluster.
 func (e *Executor) Addr(_ context.Context, ref workload.Ref, port int32) (string, error) {
 	return net.JoinHostPort(fmt.Sprintf("%s.%s.svc", ref.Name, ref.Namespace), strconv.Itoa(int(port))), nil
@@ -356,6 +373,11 @@ func (e *Executor) Logs(ctx context.Context, ref workload.Ref, o executor.LogOpt
 	if e.PodLogs == nil {
 		return nil, errors.New("no pod log reader configured")
 	}
+	return e.PodLogs.Stream(ctx, ref.Namespace, ref.Name, logOptions(o))
+}
+
+// logOptions is o as the cluster takes it.
+func logOptions(o executor.LogOptions) *corev1.PodLogOptions {
 	opts := &corev1.PodLogOptions{Container: o.Unit, Follow: o.Follow, Previous: o.Previous, Timestamps: o.Timestamps}
 	if o.Tail > 0 {
 		opts.TailLines = &o.Tail
@@ -366,5 +388,5 @@ func (e *Executor) Logs(ctx context.Context, ref workload.Ref, o executor.LogOpt
 	if !o.Since.IsZero() {
 		opts.SinceTime = &metav1.Time{Time: o.Since}
 	}
-	return e.PodLogs.Stream(ctx, ref.Namespace, ref.Name, opts)
+	return opts
 }

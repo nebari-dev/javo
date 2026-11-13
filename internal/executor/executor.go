@@ -9,14 +9,19 @@ import (
 )
 
 // Executor runs workloads. It is the only thing that knows how: no caller
-// asks which platform is in use.
+// asks which platform is in use. One Executor runs apps or runs
+// (workload.Batch), never both: a platform gives one of each, so List and
+// Watch name only the kind their caller looks after.
 type Executor interface {
 	// Start runs s. Starting a workload that already runs under s.Ref is
 	// not an error and changes nothing.
 	Start(ctx context.Context, s workload.Spec) error
 	// Stop ends the workload and removes what Start made for it. Its
 	// bundles (Secrets) stay. Stopping one that does not exist is not an
-	// error.
+	// error. A run that is going is ended and stays to be observed (Done
+	// and Stopped); Stop on a run that has ended lets go of it, once its
+	// caller has recorded it. A caller that wants a run gone whatever it
+	// is doing calls Stop twice.
 	Stop(ctx context.Context, ref workload.Ref) error
 	// Observe says what the workload is doing, or nil when there is none.
 	Observe(ctx context.Context, ref workload.Ref) (*workload.State, error)
@@ -30,7 +35,8 @@ type Executor interface {
 	// Addr is the host:port the gateway dials to reach the workload's
 	// port. It is known before the workload runs.
 	Addr(ctx context.Context, ref workload.Ref, port int32) (string, error)
-	// Logs streams what a unit of the workload printed.
+	// Logs streams what a unit of the workload printed. For a run it is
+	// nil, with no error, while there is nothing to read.
 	Logs(ctx context.Context, ref workload.Ref, o LogOptions) (io.ReadCloser, error)
 }
 

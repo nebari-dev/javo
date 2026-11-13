@@ -75,6 +75,9 @@ type RunState struct {
 	TimedOut bool
 	Timeout  time.Duration
 	Waited   time.Duration
+	// Stopped is set when the run was ended before it was done (Stop, or
+	// the platform's own): it is then Done, and Finished is when.
+	Stopped bool
 
 	// Attempts is how many times the run was tried and can still be seen.
 	// OutOfMemory and Message are about the newest: whether it was stopped

@@ -39,7 +39,7 @@ var stuckCodes = []reasons.Code{reasons.NoCapacity, reasons.HomeBusy, reasons.Im
 // message come from the runner, not from here.
 func EmittedReasons() []string {
 	out := []string{string(reasons.Succeeded), string(reasons.Running), string(reasons.RunTimedOut),
-		string(reasons.RunOutOfMemory), string(reasons.RunLost)}
+		string(reasons.RunOutOfMemory), string(reasons.RunLost), string(reasons.RunCancelled)}
 	for _, c := range stuckCodes {
 		out = append(out, string(c))
 	}
@@ -76,6 +76,9 @@ func DeriveRun(st *workload.State) model.Run {
 	switch {
 	case seen.Done && seen.Succeeded:
 		run.Outcome, run.Reason = "Succeeded", string(reasons.Succeeded)
+		run.FinishTime = seen.Finished
+	case seen.Done && seen.Stopped:
+		run.Outcome, run.Reason = "Cancelled", string(reasons.RunCancelled)
 		run.FinishTime = seen.Finished
 	case seen.Done:
 		run.FinishTime = seen.Finished

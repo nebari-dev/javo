@@ -62,6 +62,9 @@ type Batch struct {
 	Timeout time.Duration
 	// FailNow are the exit codes of Main that a retry cannot fix.
 	FailNow []int32
+	// Slot is the time a schedule starts the run for; zero for a run a
+	// person started.
+	Slot time.Time
 }
 
 // User is who a workload runs as.

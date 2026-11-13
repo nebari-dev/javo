@@ -63,6 +63,9 @@ func ObserveRun(s SeenRun) *workload.State {
 			}
 			run.Waited = waited(job, failed, s.Pods)
 		}
+	case !job.DeletionTimestamp.IsZero():
+		// Deleted while still going: stopped, by Stop or by anyone else.
+		run.Done, run.Stopped, run.Finished = true, true, job.DeletionTimestamp.Time
 	case last != nil:
 		if _, code, evidence, ok := ClassifyPod(last, eventsFor(last, s.Events)); ok {
 			st.Code, st.Evidence = reasons.Code(code), evidence
