@@ -553,4 +553,11 @@ func TestHelpersEndStopsEveryHelperAndNothingElse(t *testing.T) {
 	if want := []string{"files--" + owner, "files--" + bob}; !slices.Equal(x.stopped, want) {
 		t.Fatalf("stopped %v, want %v", x.stopped, want)
 	}
+	// A request still on its way starts none again.
+	if _, err := h.Ensure(ctx, owner); !errors.Is(err, files.ErrHomeStarting) {
+		t.Fatalf("after End: Ensure = %v", err)
+	}
+	if st, _ := x.Observe(ctx, workload.Ref{Namespace: ns, Name: "files--" + owner}); st != nil {
+		t.Fatalf("after End a helper was started again: %+v", st)
+	}
 }

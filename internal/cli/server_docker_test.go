@@ -189,13 +189,26 @@ docker:
 	if code := s.call(http.MethodGet, "/api/files", nil, nil); code == http.StatusNotImplemented || code == http.StatusOK {
 		t.Errorf("list the home folder: %d, want it to say the home is opening", code)
 	}
+	// The helper is whole when its sandbox and rclone both run. The test
+	// waits for that: a server stopped while the daemon still creates a
+	// container leaves it for the next start to tidy, and there is none
+	// here.
+	whole := func() bool {
+		running := 0
+		for _, c := range in("javo.gateway.files") {
+			if c.State == "running" {
+				running++
+			}
+		}
+		return running == 2
+	}
 	deadline := time.Now().Add(time.Minute)
-	for len(in("javo.gateway.files")) == 0 && time.Now().Before(deadline) {
+	for !whole() && time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	helpers := in("javo.gateway.files")
-	if len(helpers) == 0 {
-		t.Fatal("no file helper was started")
+	if !whole() {
+		t.Fatalf("no file helper runs: %+v", helpers)
 	}
 	for _, c := range append(helpers, in("javo.gateway")...) {
 		if c.Labels["javo.gateway"] != "" && c.Labels["javo.gateway.files"] != "" {
@@ -212,7 +225,16 @@ docker:
 	if left := in("javo.gateway"); len(left) != 0 {
 		t.Errorf("the app's containers stayed: %+v", left)
 	}
-	if len(in("javo.gateway.files")) == 0 {
+	if !whole() {
 		t.Error("the file helper went with the app")
+	}
+	// Stopping Javo stops the helper: only Javo held its password.
+	s.stop()
+	if err := <-s.done; err != nil {
+		t.Fatalf("javo server = %v", err)
+	}
+	s.done <- nil
+	if left := in("javo.gateway.files"); len(left) != 0 {
+		t.Errorf("the file helper outlived the server: %+v", left)
 	}
 }

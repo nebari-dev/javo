@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nebari-dev/javo/internal/executor"
@@ -144,6 +145,8 @@ type Helpers struct {
 	// changing lets one call at a time start or stop a person's helper,
 	// so a helper always runs with the password Logins holds for it.
 	changing fileLocks
+	// ended is set by End: no helper is started after it.
+	ended atomic.Bool
 }
 
 var _ HomePods = (*Helpers)(nil)
@@ -212,9 +215,9 @@ func (h *Helpers) Ensure(ctx context.Context, userID string) (string, error) {
 		return "", ErrHomeBusy
 	}
 	if st == nil {
-		if !in.Home.Status.Prepared {
+		if !in.Home.Status.Prepared || h.ended.Load() {
 			// As for an app: nothing mounts a home that still belongs to
-			// root.
+			// root. And a gateway that ends starts none.
 			return "", ErrHomeStarting
 		}
 		h.cfg.Logins.set(s.Ref, newPassword())
@@ -338,6 +341,8 @@ func (h *Helpers) Reap(ctx context.Context) error {
 // running would keep its owner's home mounted for nobody. Nothing that
 // does not have a helper's name is stopped.
 func (h *Helpers) End(ctx context.Context) error {
+	// A request still on its way would otherwise start one again.
+	h.ended.Store(true)
 	all, err := h.cfg.Exec.List(ctx)
 	if err != nil {
 		return err
