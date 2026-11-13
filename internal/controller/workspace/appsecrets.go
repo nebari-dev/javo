@@ -93,12 +93,11 @@ func WithEnv(pod *corev1.Pod, env []model.EnvVar) {
 
 // WithAppSecrets gives the app container of pod each of want's variables
 // from the Secret secretName, by reference: the values are never in the pod
-// spec. It records the fingerprint on the pod.
+// spec.
 func WithAppSecrets(pod *corev1.Pod, secretName string, want secretenv.Set) {
 	if want.Fingerprint == "" {
 		return
 	}
-	metav1.SetMetaDataAnnotation(&pod.ObjectMeta, model.AnnotationSecrets, want.Fingerprint)
 	app := &pod.Spec.Containers[0]
 	podspec.SetEnv(app, want.Env(secretName)...)
 }

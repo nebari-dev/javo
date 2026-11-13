@@ -335,22 +335,8 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 		layout = layout.ReadOnlyFiles()
 	}
 	layout.Apply(pod, app)
-	annotations := pod.Annotations
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-	if key := size.Key(); key != "" {
+	if size.Key() != "" {
 		size.Apply(spec, app, t.Spec.Resources)
-		annotations[model.AnnotationSize] = key
-	}
-	if fp := RunFingerprint(ws); fp != "" {
-		annotations[model.AnnotationRun] = fp
-	}
-	if mark := RestartMark(ws); mark != "" {
-		annotations[model.AnnotationRestart] = mark
-	}
-	if len(annotations) > 0 {
-		pod.Annotations = annotations
 	}
 	if t.Spec.UserImage {
 		// The owner's uid and gid run it, as every other app: the image's

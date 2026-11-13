@@ -369,9 +369,6 @@ func TestBuildPodSizeOverridesCPUAndMemory(t *testing.T) {
 	if got := r.Requests[corev1.ResourceEphemeralStorage]; !got.Equal(resource.MustParse("1Gi")) {
 		t.Errorf("ephemeral-storage request = %s, want the template's 1Gi", got.String())
 	}
-	if pod.Annotations[model.AnnotationSize] != "medium" {
-		t.Errorf("size annotation = %q", pod.Annotations[model.AnnotationSize])
-	}
 	if got := tpl.Spec.Resources.Requests[corev1.ResourceCPU]; !got.Equal(resource.MustParse("250m")) {
 		t.Errorf("template changed: cpu request %s", got.String())
 	}
@@ -408,9 +405,6 @@ func TestBuildPodZeroSizeKeepsTemplateResources(t *testing.T) {
 	r := pod.Spec.Containers[0].Resources
 	if !r.Limits.Memory().Equal(resource.MustParse("2Gi")) || len(r.Requests) != 0 {
 		t.Fatalf("resources = %+v", r)
-	}
-	if _, ok := pod.Annotations[model.AnnotationSize]; ok {
-		t.Fatal("size annotation set without a size")
 	}
 }
 
@@ -674,14 +668,6 @@ func TestRunFingerprint(t *testing.T) {
 	c.Command = "--x"
 	if RunFingerprint(a) == "" || RunFingerprint(a) == RunFingerprint(&b) || RunFingerprint(a) == RunFingerprint(&c) {
 		t.Fatal("fingerprint does not follow image, port and command")
-	}
-	_, tpl := containerFixtures()
-	pod, err := BuildPod(a, tpl, "/u/alice/web/", "", testLayout(1), sizes.Size{}, testImages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pod.Annotations[model.AnnotationRun] != RunFingerprint(a) {
-		t.Fatalf("annotations = %v", pod.Annotations)
 	}
 }
 
@@ -952,9 +938,6 @@ func TestWithGitTokenMountsTheSecretOnlyIntoClone(t *testing.T) {
 			}
 		}
 	}
-	if pod.Annotations[model.AnnotationGitToken] != "3" {
-		t.Fatalf("annotations = %v", pod.Annotations)
-	}
 }
 
 func TestWithGitTokenNeverReachesAForkPreview(t *testing.T) {
@@ -973,9 +956,6 @@ func TestWithGitTokenNeverReachesAForkPreview(t *testing.T) {
 	}
 	if slices.ContainsFunc(initNamed(t, pod, "clone").Args, func(a string) bool { return strings.HasPrefix(a, "--password-file") }) {
 		t.Fatal("fork preview clone is given the token")
-	}
-	if _, ok := pod.Annotations[model.AnnotationGitToken]; ok {
-		t.Fatal("a pod without the token must not claim a generation")
 	}
 }
 

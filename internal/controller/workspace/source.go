@@ -5,7 +5,6 @@ import (
 	"path"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -228,13 +227,12 @@ func addSourceVolumes(spec *corev1.PodSpec, ws *model.App, t *model.Template) {
 
 // WithGitToken lets the clone container read the app's repository token from
 // the Secret secretName, as a file (never in the URL, an argument value or the
-// environment), and records on the pod which paste (generation) it was built
-// for. A fork preview runs code the owner has not written and gets nothing.
+// environment). generation is which paste of the token that is; without one
+// there is nothing to read. A fork preview runs code the owner has not written and gets nothing.
 func WithGitToken(pod *corev1.Pod, ws *model.App, secretName, generation string) {
 	if ws.Source == nil || ws.Source.Fork || generation == "" {
 		return
 	}
-	metav1.SetMetaDataAnnotation(&pod.ObjectMeta, model.AnnotationGitToken, generation)
 	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: gitTokenVolume, VolumeSource: corev1.VolumeSource{
 		Secret: &corev1.SecretVolumeSource{SecretName: secretName, Items: []corev1.KeyToPath{{Key: gitTokenKey, Path: gitTokenKey}}},
 	}})

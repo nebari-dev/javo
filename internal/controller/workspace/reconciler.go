@@ -39,6 +39,7 @@ import (
 	"github.com/nebari-dev/javo/internal/status"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // Reconciler turns app rows into a Pod and a Service, asks for the owner's
@@ -338,7 +339,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if tokenSecret, err = r.ensureAPIToken(ctx, &app, scope); err != nil {
 				return ctrl.Result{}, err
 			}
-		} else if pod == nil || podAPIAccess(pod) != model.APIAccessNone {
+		} else if pod == nil || kube.FingerprintOf(pod).APIAccess != model.APIAccessNone {
 			// Only an app that had access, or whose pod is not built yet,
 			// can have a Secret left; others make no call.
 			if err := r.removeAPIToken(ctx, &app); err != nil {
@@ -368,7 +369,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			phase, conds, _ := status.Derive(&app, obs)
 			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
 		}
-		if pod != nil && r.podOutdated(&app, pod, access, gitGen, appSecrets.Fingerprint, layoutFP) {
+		built := r.fingerprint(&app, access, gitGen, appSecrets.Fingerprint, layoutFP)
+		if pod != nil && built.Outdated(kube.FingerprintOf(pod)) {
 			// The next reconcile, once the old pod is gone, builds the new one.
 			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
 				return ctrl.Result{}, err
@@ -400,10 +402,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			} else if pullErr := r.withNebi(want, &app, tpl); pullErr != nil {
 				obs.TemplateError = pullErr.Error()
 			} else {
-				if want.Annotations == nil {
-					want.Annotations = map[string]string{}
-				}
-				want.Annotations[model.AnnotationLayout] = layoutFP
+				kube.Mark(want, built)
 				r.Isolation.Apply(&want.Spec)
 				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL, r.APIInternalURL)
 				WithGitToken(want, &app, gitSecret, gitGen)
@@ -506,32 +505,18 @@ func (r *Reconciler) platform() Platform {
 	return Platform{Exposure: r.Exposure, PublicHost: r.PublicHost, PixiImage: r.PixiImage}
 }
 
-// podOutdated reports whether pod was built with another size, command,
-// image, port, Git source, API access, repository token (gitGen, the
-// generation of the paste), secrets (their fingerprint) or layout (layoutFP,
-// LayoutFingerprint; empty when it cannot be known now) than app asks for,
-// or before the app's latest restart request. A pod without the run
-// annotation (built before these fields, or for an app that names none)
-// matches an app that names none; one without the layout annotation is
-// replaced, so group folders and read-only homes hold for every pod.
-func (r *Reconciler) podOutdated(app *model.App, pod *corev1.Pod, access, gitGen, secretsFP, layoutFP string) bool {
-	return r.sizeChanged(app, pod) || pod.Annotations[model.AnnotationRun] != RunFingerprint(app) ||
-		pod.Annotations[model.AnnotationRestart] != RestartMark(app) || podAPIAccess(pod) != access ||
-		pod.Annotations[model.AnnotationGitToken] != gitGen || pod.Annotations[model.AnnotationSecrets] != secretsFP ||
-		(layoutFP != "" && pod.Annotations[model.AnnotationLayout] != layoutFP)
-}
-
-// sizeChanged reports whether pod was built with another size or custom
-// amount than app asks for. A pod without a size annotation (built before
-// sizes existed) of an app that never picked a size counts as unchanged, so
-// upgrading does not restart every app.
-func (r *Reconciler) sizeChanged(app *model.App, pod *corev1.Pod) bool {
-	have, annotated := pod.Annotations[model.AnnotationSize]
-	if !annotated && app.Size == "" && app.Resources == nil {
-		return false
+// fingerprint is what a pod built for app now would be marked with: its
+// size, its command, image, port and Git source, its latest restart
+// request, its API access, its repository token (gitGen, the generation of
+// the paste), its secrets (their fingerprint) and its layout (layoutFP,
+// LayoutFingerprint; empty when it cannot be known now).
+func (r *Reconciler) fingerprint(app *model.App, access, gitGen, secretsFP, layoutFP string) workload.Fingerprint {
+	size, _ := r.appSize(app)
+	return workload.Fingerprint{
+		Size: size.Key(), SizeUnpicked: app.Size == "" && app.Resources == nil,
+		Run: RunFingerprint(app), Restart: RestartMark(app),
+		APIAccess: access, GitToken: gitGen, Secrets: secretsFP, Layout: layoutFP,
 	}
-	want, _ := r.appSize(app)
-	return have != want.Key()
 }
 
 // appSize is what the app asks to run at: its custom amount, or its named

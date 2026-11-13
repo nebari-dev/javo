@@ -12,6 +12,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // What an app with API access (model.APIAccessOf not None) gets: a Secret in
@@ -27,7 +28,7 @@ const (
 	apiGuideVolume = "javo-api-guide"
 	envURL         = "JAVO_URL"
 	envInternalURL = "JAVO_API_URL"
-	envToken       = "JAVO_TOKEN"
+	envToken       = workload.EnvToken
 )
 
 //go:embed agents_guide.md
@@ -41,33 +42,18 @@ type TokenMinter interface {
 	Revoke(ctx context.Context, actor model.Actor, owner, id string) (token.Token, error)
 }
 
-// podAPIAccess is the API access pod was built with. A pod built before the
-// annotation existed had read-write access exactly when it got JAVO_TOKEN.
-func podAPIAccess(pod *corev1.Pod) string {
-	if a, ok := pod.Annotations[model.AnnotationAPIAccess]; ok {
-		return a
-	}
-	for _, e := range pod.Spec.Containers[0].Env {
-		if e.Name == envToken {
-			return model.APIAccessReadWrite
-		}
-	}
-	return model.APIAccessNone
-}
-
 // APITokenSecretName is the Secret holding the API token of the app whose Pod
 // and Service are called objectName (see SecretName).
 func APITokenSecretName(objectName string) string { return SecretName(objectName, "api") }
 
 // WithAPIToken gives the app container of pod, built from template t with
 // API access, the owner's API token from the Secret secretName as
-// JAVO_TOKEN, the UI's public URL as JAVO_URL and the API guide, and records
-// access on the pod. With access None it only records it. The token is
-// never in the pod spec in clear and never a file. internalURL, when set, is
+// JAVO_TOKEN, the UI's public URL as JAVO_URL and the API guide. With access
+// None it does nothing. The token is never in the pod spec in clear and
+// never a file. internalURL, when set, is
 // the gateway inside the cluster, as JAVO_API_URL: the public address may
 // resolve to one the pod may not reach.
 func WithAPIToken(pod *corev1.Pod, t *model.Template, access, secretName, apiURL, internalURL string) {
-	metav1.SetMetaDataAnnotation(&pod.ObjectMeta, model.AnnotationAPIAccess, access)
 	if token.ScopeFor(access) == "" {
 		return
 	}
