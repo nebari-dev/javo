@@ -1,12 +1,14 @@
-package storage
+package onhost
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -18,13 +20,22 @@ import (
 
 const hostOwner = "alice-aaaaaaaa"
 
+var ctx = context.Background()
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // hostHomes is a host home reconciler over a new database and a new root.
 func hostHomes(t *testing.T) (*HostHomeReconciler, *store.Store) {
 	t.Helper()
 	db := storetest.New(t)
 	root, err := hosthome.Open(filepath.Join(t.TempDir(), "homes"))
 	must(t, err)
-	return &HostHomeReconciler{Rows: Rows{Store: db}, Root: root}, db
+	return &HostHomeReconciler{Rows: rows.Rows{Store: db}, Root: root}, db
 }
 
 func requestFor(h model.Home) string { return h.ID }

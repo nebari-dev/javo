@@ -1,4 +1,4 @@
-package storage
+package onhost
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/executor/docker"
 	"github.com/nebari-dev/javo/internal/executor/docker/dockertest"
 	"github.com/nebari-dev/javo/internal/model"
@@ -38,7 +39,7 @@ func dockerHomes(t *testing.T, uids uidOf) (*DockerHomeReconciler, *store.Store,
 	t.Helper()
 	db := storetest.New(t)
 	d, c := dockertest.New(t)
-	r := &DockerHomeReconciler{Rows: Rows{Store: db}, Volumes: dockerhome.Volumes{Client: c, Image: "example.com/javo/runner@sha256:0000"}, UIDs: uids}
+	r := &DockerHomeReconciler{Rows: rows.Rows{Store: db}, Volumes: dockerhome.Volumes{Client: c, Image: "example.com/javo/runner@sha256:0000"}, UIDs: uids}
 	return r, db, d
 }
 
@@ -147,7 +148,7 @@ func TestDockerHomeSaysWhyWhenTheDaemonFails(t *testing.T) {
 		t.Fatalf("status = %+v, result %+v; want HomePending and another look", home.Status, res)
 	}
 	d.Down(false)
-	if home, _ = askedHome(t, r, db); !home.Status.Prepared || reasonOf(home) != reasonReady {
+	if home, _ = askedHome(t, r, db); !home.Status.Prepared || reasonOf(home) != rows.ReasonReady {
 		t.Fatalf("status = %+v, want ready once the daemon answers", home.Status)
 	}
 }
@@ -187,7 +188,7 @@ func TestDockerHomeVolumeOutlivesItsRow(t *testing.T) {
 func TestAFolderWhereNoneIsOfferedSaysSo(t *testing.T) {
 	db := storetest.New(t)
 	d, _ := dockertest.New(t)
-	r := &NoFolderReconciler{Rows: Rows{Store: db}, Why: "apps run as Docker containers here"}
+	r := &NoFolderReconciler{Rows: rows.Rows{Store: db}, Why: "apps run as Docker containers here"}
 	f, err := db.SharedFolders().Create(ctx, model.Actor{Person: "admin"}, model.SharedFolder{
 		Name: "team", Namespace: "javo-apps", Spec: model.SharedFolderSpec{Group: "team"},
 	})

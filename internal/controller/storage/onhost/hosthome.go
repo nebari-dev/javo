@@ -1,4 +1,9 @@
-package storage
+// Package onhost is the storage reconcilers of a machine without a
+// cluster: a home is a named volume of the Docker daemon or a folder of
+// the machine, and group folders are answered as not offered. They stand
+// in for the reconcilers of controller/storage, read and write the same
+// rows, and need no client of a cluster.
+package onhost
 
 import (
 	"context"
@@ -9,6 +14,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/storage/hosthome"
 	"github.com/nebari-dev/javo/internal/store"
@@ -25,7 +31,7 @@ import (
 // It reads and writes the database and the root folder only, never a
 // cluster.
 type HostHomeReconciler struct {
-	Rows
+	rows.Rows
 	// Root is the folder the homes are folders of. Required.
 	Root hosthome.Root
 }
@@ -42,24 +48,24 @@ func (r *HostHomeReconciler) Reconcile(ctx context.Context, id string) (time.Dur
 		return 0, err
 	}
 	base := h.DeepCopy()
-	var b *blocked
+	var b *rows.Blocked
 	if dir, err := r.Root.Ensure(h.Spec.Owner); err != nil {
-		b = &blocked{code: reasons.HomePrepareFailed, evidence: []string{err.Error()}, retry: homePrepareRetry}
+		b = &rows.Blocked{Code: reasons.HomePrepareFailed, Evidence: []string{err.Error()}, Retry: rows.HomePrepareRetry}
 		h.Status.ClaimName, h.Status.Prepared = "", false
 	} else {
 		h.Status.ClaimName, h.Status.Prepared = dir, true
 	}
 	h.Status.SizeEnforced = false
-	meta.SetStatusCondition(&h.Status.Conditions, readyCondition("The home is ready.", b))
-	if conflict, err := r.writeHome(ctx, &h, base); conflict {
-		return retryConflict, nil
+	meta.SetStatusCondition(&h.Status.Conditions, rows.ReadyCondition("The home is ready.", b))
+	if conflict, err := r.WriteHome(ctx, &h, base); conflict {
+		return rows.RetryConflict, nil
 	} else if err != nil {
 		return 0, err
 	}
 	if b == nil {
 		return 0, nil
 	}
-	return b.retry, nil
+	return b.Retry, nil
 }
 
 // Setup reconciles homes on d when their rows change, as HomeReconciler
@@ -67,8 +73,8 @@ func (r *HostHomeReconciler) Reconcile(ctx context.Context, id string) (time.Dur
 // d is a loop.Loop.
 func (r *HostHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Root.Dir() == "" {
-		return errors.New("storage.HostHomeReconciler needs Store and Root")
+		return errors.New("onhost.HostHomeReconciler needs Store and Root")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
 	return d.Reconcile("storage-host-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }

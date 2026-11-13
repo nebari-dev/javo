@@ -213,7 +213,7 @@ func setRequests(t *testing.T, fn func(*model.StorageRequests)) {
 // storageNow is the storage view the reconcilers see.
 func storageNow(t *testing.T) *model.ClusterStorage {
 	t.Helper()
-	cs, err := testRows(t).cluster(ctx)
+	cs, err := testRows(t).Cluster(ctx)
 	must(t, err)
 	return cs
 }

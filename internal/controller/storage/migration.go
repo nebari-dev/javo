@@ -96,7 +96,7 @@ func (r *MigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else if err != nil {
 		return ctrl.Result{}, err
 	}
-	cs, err := r.cluster(ctx)
+	cs, err := r.Cluster(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -121,7 +121,7 @@ func (r *MigrationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // second write in the same pass names the version the first one made. The
 // write names the version it read: the home reconciler writes the same row.
 func (r *MigrationReconciler) writeStatus(ctx context.Context, h, base *model.Home) error {
-	if conflict, err := r.writeHome(ctx, h, base); conflict {
+	if conflict, err := r.WriteHome(ctx, h, base); conflict {
 		return errRowChanged
 	} else if err != nil {
 		return err
@@ -622,8 +622,8 @@ func (r *MigrationReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.
 	if r.Store == nil || r.Reader == nil || r.UIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" || r.Storage.Folders == nil {
 		return errors.New("storage.MigrationReconciler needs Store, Reader, UIDs, Backends, Image and Storage")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
-	everyHome := func(ctx context.Context, _ string) ([]string, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
+	everyHome := func(ctx context.Context, _ string) ([]string, error) { return r.HomeIDs(ctx, nil) }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-migration").
 		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).
 		WatchesRawSource(managed.Source(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, everyHome))).

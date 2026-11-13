@@ -114,7 +114,7 @@ func ours(o client.Object, nonce string) bool {
 
 // Reconcile moves the probe named by the requested nonce one or more steps on.
 func (r *ProbeReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	cs, err := r.cluster(ctx)
+	cs, err := r.Cluster(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

@@ -147,7 +147,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if conflict, err := r.writeHome(ctx, h, base); conflict {
+	if conflict, err := r.WriteHome(ctx, h, base); conflict {
 		return ctrl.Result{RequeueAfter: retryConflict}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -744,7 +744,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Fee
 	if r.Store == nil || r.Reader == nil || r.UIDs == nil || r.Image.Ref == "" || r.Backups == nil || r.Backups.Rekey == nil || r.Storage.Homes == nil {
 		return errors.New("storage.BackupReconciler needs Store, Reader, UIDs, Image, Backups (with Rekey) and Storage")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-backup").
 		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).
 		Complete(r)

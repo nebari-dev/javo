@@ -23,7 +23,8 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop"
-	storagectl "github.com/nebari-dev/javo/internal/controller/storage"
+	"github.com/nebari-dev/javo/internal/controller/storage/onhost"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/egressproxy"
 	"github.com/nebari-dev/javo/internal/executor"
@@ -285,12 +286,12 @@ func NewHost(ctx context.Context, cfg config.Platform, in HostInputs) (*Host, er
 		// The runs' executor first: it stands on the apps' one.
 		h.closing = []func(){runs.Close, x.Close}
 		h.APIURL = "http://" + in.Listen
-		rows := storagectl.Rows{Store: in.DB, Config: cfg.Storage.Spec()}
+		rows := rows.Rows{Store: in.DB, Config: cfg.Storage.Spec()}
 		h.Setup = func(d loop.Driver, feed *dbsource.Feed) error {
-			if err := (&storagectl.HostHomeReconciler{Rows: rows, Root: root}).Setup(d, feed); err != nil {
+			if err := (&onhost.HostHomeReconciler{Rows: rows, Root: root}).Setup(d, feed); err != nil {
 				return err
 			}
-			return (&storagectl.NoFolderReconciler{
+			return (&onhost.NoFolderReconciler{
 				Rows: rows, Why: "apps run as processes of one person's machine here, where there is no group to share a folder with",
 			}).Setup(d, feed)
 		}
@@ -342,7 +343,7 @@ func (h *Host) onDocker(ctx context.Context, cfg config.Platform, in HostInputs,
 	h.APIURL = "http://" + net.JoinHostPort(d.Gateway, port)
 
 	// Homes: a volume per person, handed to its owner.
-	rows := storagectl.Rows{Store: in.DB, Config: cfg.Storage.Spec()}
+	rows := rows.Rows{Store: in.DB, Config: cfg.Storage.Spec()}
 	uids := ids.People{People: in.DB.People(store.IDRange{}), Mode: cfg.Identity.UIDMode}
 	volumes := dockerhome.Volumes{Client: scoped(d.Socket, scopeHomes, d.Gateway), Image: in.RunnerImage}
 
@@ -413,10 +414,10 @@ func (h *Host) onDocker(ctx context.Context, cfg config.Platform, in HostInputs,
 		Store: policy, Every: in.ProbeEvery, RetryMin: probeRetry,
 	}
 	h.Setup = func(drv loop.Driver, feed *dbsource.Feed) error {
-		if err := (&storagectl.DockerHomeReconciler{Rows: rows, Volumes: volumes, UIDs: uids}).Setup(drv, feed); err != nil {
+		if err := (&onhost.DockerHomeReconciler{Rows: rows, Volumes: volumes, UIDs: uids}).Setup(drv, feed); err != nil {
 			return err
 		}
-		if err := (&storagectl.NoFolderReconciler{
+		if err := (&onhost.NoFolderReconciler{
 			Rows: rows, Why: "apps run as Docker containers here, where a group has no volume of its own yet",
 		}).Setup(drv, feed); err != nil {
 			return err

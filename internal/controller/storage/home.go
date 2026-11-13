@@ -20,6 +20,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop/managed"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/ext/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -41,10 +42,7 @@ const (
 	// defaultHomeSize applies when neither the Home nor ClusterStorage names one.
 	defaultHomeSize = "10Gi"
 
-	homeWaitRetry    = 5 * time.Second
-	homeClaimRetry   = 30 * time.Second
-	homePrepareRetry = time.Minute
-	homeFirstGen     = 1
+	homeFirstGen = 1
 	// maxPrepareAttempts bounds the prepare Jobs made for one Home. The last
 	// Job has no TTL: it stays as the evidence and nothing replaces it.
 	maxPrepareAttempts = 3
@@ -92,7 +90,7 @@ func (r *HomeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// The write names the version this pass read: the migration reconciler
 	// writes the same row, and its Migrating=True (the hold on the owner's
 	// apps) must not be written over by a pass that read the home before.
-	if conflict, err := r.writeHome(ctx, &h, base); conflict {
+	if conflict, err := r.WriteHome(ctx, &h, base); conflict {
 		return ctrl.Result{RequeueAfter: retryConflict}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -100,23 +98,19 @@ func (r *HomeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if b == nil {
 		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{RequeueAfter: b.retry}, nil
+	return ctrl.Result{RequeueAfter: b.Retry}, nil
 }
-
-// errRowChanged is a write in the middle of a pass that lost the race to
-// another writer; the pass is run again.
-var errRowChanged = errors.New("the row changed since it was read")
 
 // setReady records the Ready condition; the catalog supplies the text.
 func (r *HomeReconciler) setReady(h *model.Home, b *blocked) {
-	meta.SetStatusCondition(&h.Status.Conditions, readyCondition("The home is ready.", b))
+	meta.SetStatusCondition(&h.Status.Conditions, rows.ReadyCondition("The home is ready.", b))
 }
 
 // step does the work of one pass. It changes h in memory; Reconcile writes
 // it. A returned *blocked is a state to report, not an error. base is the
 // home as stored, for a write in the middle of the pass.
 func (r *HomeReconciler) step(ctx context.Context, h, base *model.Home) (*blocked, error) {
-	cs, err := r.cluster(ctx)
+	cs, err := r.Cluster(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +123,7 @@ func (r *HomeReconciler) step(ctx context.Context, h, base *model.Home) (*blocke
 	err = r.Reader.Get(ctx, client.ObjectKey{Namespace: h.Namespace, Name: h.Status.ClaimName}, claim)
 	switch {
 	case apierrors.IsNotFound(err):
-		return &blocked{code: reasons.HomePending, evidence: []string{fmt.Sprintf("claim %s not found", h.Status.ClaimName)}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.HomePending, Evidence: []string{fmt.Sprintf("claim %s not found", h.Status.ClaimName)}, Retry: homeClaimRetry}, nil
 	case err != nil:
 		return nil, err
 	}
@@ -206,7 +200,7 @@ func (r *HomeReconciler) bind(ctx context.Context, h *model.Home, cs *model.Clus
 	switch err := r.Reader.Get(ctx, client.ObjectKey{Namespace: h.Namespace, Name: name}, existing); {
 	case err == nil:
 		if !owns(existing, h.Spec.Owner) {
-			return &blocked{code: reasons.HomeClaimForeign, evidence: []string{fmt.Sprintf("claim %s is not labelled as belonging to this home's owner", name)}}, nil
+			return &blocked{Code: reasons.HomeClaimForeign, Evidence: []string{fmt.Sprintf("claim %s is not labelled as belonging to this home's owner", name)}}, nil
 		}
 		// The claim of a removed person who came back is theirs again.
 		if _, forgotten := existing.Labels[model.LabelForgotten]; forgotten {
@@ -234,7 +228,7 @@ func (r *HomeReconciler) bind(ctx context.Context, h *model.Home, cs *model.Clus
 	}
 
 	if cs == nil || cs.Status.Choice == nil || cs.Status.Choice.Mode == "" {
-		return &blocked{code: reasons.HomePending, evidence: []string{"the cluster's storage has not been inspected yet"}, retry: homeWaitRetry}, nil
+		return &blocked{Code: reasons.HomePending, Evidence: []string{"the cluster's storage has not been inspected yet"}, Retry: homeWaitRetry}, nil
 	}
 	choice := cs.Status.Choice
 	if choice.HomeClass == "" {
@@ -242,28 +236,28 @@ func (r *HomeReconciler) bind(ctx context.Context, h *model.Home, cs *model.Clus
 		if len(cs.Status.Classes) == 0 {
 			code = reasons.NoStorageClass
 		}
-		return &blocked{code: code, evidence: []string{fmt.Sprintf("%d StorageClasses found, none chosen for homes", len(cs.Status.Classes))}, retry: homeClaimRetry}, nil
+		return &blocked{Code: code, Evidence: []string{fmt.Sprintf("%d StorageClasses found, none chosen for homes", len(cs.Status.Classes))}, Retry: homeClaimRetry}, nil
 	}
 	backend, ok := r.Backends[choice.Mode]
 	if !ok {
-		return &blocked{code: reasons.HomePending, evidence: []string{fmt.Sprintf("no storage backend for mode %q", choice.Mode)}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.HomePending, Evidence: []string{fmt.Sprintf("no storage backend for mode %q", choice.Mode)}, Retry: homeClaimRetry}, nil
 	}
 	size := wantSize(h, cs)
 	if max := cs.Spec.Home.MaxSize; max != nil && size.Cmp(*max) > 0 {
-		return &blocked{code: reasons.HomeTooLarge, evidence: []string{fmt.Sprintf("asked for %s, the largest allowed is %s", size.String(), max.String())}}, nil
+		return &blocked{Code: reasons.HomeTooLarge, Evidence: []string{fmt.Sprintf("asked for %s, the largest allowed is %s", size.String(), max.String())}}, nil
 	}
 	claim := backend.HomeClaim(h, choice.HomeClass, size)
 	claim.Name = name
 	if err := r.Create(ctx, claim); err != nil {
 		switch {
 		case apierrors.IsForbidden(err) && strings.Contains(err.Error(), quotaExceededText):
-			return &blocked{code: reasons.TeamStorageFull, evidence: []string{"namespace " + h.Namespace + ": " + err.Error()}, retry: homeClaimRetry}, nil
+			return &blocked{Code: reasons.TeamStorageFull, Evidence: []string{"namespace " + h.Namespace + ": " + err.Error()}, Retry: homeClaimRetry}, nil
 		case apierrors.IsAlreadyExists(err):
-			return &blocked{code: reasons.HomePending, evidence: []string{"claim " + name + " was just created"}, retry: homeWaitRetry}, nil
+			return &blocked{Code: reasons.HomePending, Evidence: []string{"claim " + name + " was just created"}, Retry: homeWaitRetry}, nil
 		}
 		// A LimitRange, an admission webhook or a bad class: the Home says so
 		// instead of looking like it is still starting.
-		return &blocked{code: reasons.HomePending, evidence: []string{"create claim: " + err.Error()}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.HomePending, Evidence: []string{"create claim: " + err.Error()}, Retry: homeClaimRetry}, nil
 	}
 	if choice.SingleNode && backend.Mode() == model.HomeModePerUser {
 		h.Status.CreatedOnSingleNode = true
@@ -288,13 +282,13 @@ func (r *HomeReconciler) resize(ctx context.Context, h *model.Home, claim *corev
 	case cmp == 0:
 		return nil, nil
 	case cmp < 0:
-		return &blocked{code: reasons.HomeCannotShrink, evidence: []string{fmt.Sprintf("claim %s is %s, the home asks for %s", claim.Name, have.String(), want.String())}}, nil
+		return &blocked{Code: reasons.HomeCannotShrink, Evidence: []string{fmt.Sprintf("claim %s is %s, the home asks for %s", claim.Name, have.String(), want.String())}}, nil
 	}
 	if cs != nil && cs.Spec.Home.MaxSize != nil && want.Cmp(*cs.Spec.Home.MaxSize) > 0 {
-		return &blocked{code: reasons.HomeTooLarge, evidence: []string{fmt.Sprintf("asked for %s, the largest allowed is %s", want.String(), cs.Spec.Home.MaxSize.String())}}, nil
+		return &blocked{Code: reasons.HomeTooLarge, Evidence: []string{fmt.Sprintf("asked for %s, the largest allowed is %s", want.String(), cs.Spec.Home.MaxSize.String())}}, nil
 	}
 	if !capabilityOf(cs, h.Status.StorageClassName).Expansion.Value {
-		return &blocked{code: reasons.HomeCannotGrow, evidence: []string{fmt.Sprintf("claim %s is %s, the home asks for %s, and StorageClass %q cannot expand", claim.Name, have.String(), want.String(), h.Status.StorageClassName)}}, nil
+		return &blocked{Code: reasons.HomeCannotGrow, Evidence: []string{fmt.Sprintf("claim %s is %s, the home asks for %s, and StorageClass %q cannot expand", claim.Name, have.String(), want.String(), h.Status.StorageClassName)}}, nil
 	}
 	if claim.Status.Phase != corev1.ClaimBound {
 		// The API refuses to resize a claim that is not bound yet. The
@@ -318,7 +312,7 @@ func prepareLabels(owner string) map[string]string {
 func (r *HomeReconciler) prepare(ctx context.Context, h, base *model.Home, cs *model.ClusterStorage) (*blocked, error) {
 	uid, gid, err := r.UIDs.UID(ctx, h.Spec.Owner)
 	if errors.Is(err, ids.ErrNoUID) {
-		return &blocked{code: reasons.IdentityPending, evidence: []string{"the owner has no user id yet"}, retry: homeWaitRetry}, nil
+		return &blocked{Code: reasons.IdentityPending, Evidence: []string{"the owner has no user id yet"}, Retry: homeWaitRetry}, nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -334,26 +328,26 @@ func (r *HomeReconciler) prepare(ctx context.Context, h, base *model.Home, cs *m
 		h.Status.Prepared = true
 		return nil, nil
 	case prepareForeign:
-		return &blocked{code: reasons.HomePending, evidence: res.evidence, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.HomePending, Evidence: res.evidence, Retry: homeClaimRetry}, nil
 	case prepareRunning:
 		if len(res.unmounted) > 0 {
 			// Still looked at: a volume that mounts later finishes the home.
-			return &blocked{code: reasons.HomeMountFailed, evidence: res.evidence, retry: jobPoll}, nil
+			return &blocked{Code: reasons.HomeMountFailed, Evidence: res.evidence, Retry: jobPoll}, nil
 		}
 	case prepareRetry, prepareGaveUp:
-		b := &blocked{code: reasons.HomePrepareFailed, evidence: res.evidence}
+		b := &blocked{Code: reasons.HomePrepareFailed, Evidence: res.evidence}
 		if len(res.unmounted) > 0 {
-			b.code = reasons.HomeMountFailed
+			b.Code = reasons.HomeMountFailed
 		}
 		if res.outcome == prepareRetry {
 			// The Job is kept until its TTL removes it; the next pass then runs a new one.
-			b.retry = homePrepareRetry
+			b.Retry = homePrepareRetry
 		}
 		return b, nil
 	}
 	// Helper Jobs are not in the manager's cache, so a running one is looked
 	// at again rather than watched.
-	return &blocked{code: reasons.HomePreparing, retry: jobPoll}, nil
+	return &blocked{Code: reasons.HomePreparing, Retry: jobPoll}, nil
 }
 
 // jobPoll is how often a running helper Job is looked at.
@@ -375,7 +369,7 @@ func homeJobOwner(rw Rows, h, base *model.Home) jobOwner {
 		Namespace: h.Namespace, Label: model.LabelHome, ID: h.ID, Attempts: h.Status.PrepareAttempts,
 		Count: func(ctx context.Context, n int) error {
 			h.Status.PrepareAttempts = n
-			if conflict, err := rw.writeHome(ctx, h, base); conflict {
+			if conflict, err := rw.WriteHome(ctx, h, base); conflict {
 				return errRowChanged
 			} else if err != nil {
 				return err
@@ -420,9 +414,9 @@ func (r *HomeReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed)
 	if r.Store == nil || r.Reader == nil || r.UIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" {
 		return errors.New("storage.HomeReconciler needs Store, Reader, UIDs, Backends and Image")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
 	notReady := func(ctx context.Context, _ string) ([]string, error) {
-		return r.homeRequests(ctx, notReadyHome)
+		return r.HomeIDs(ctx, notReadyHome)
 	}
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-home").
 		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).

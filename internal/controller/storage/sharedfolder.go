@@ -16,6 +16,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop/managed"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/ext/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -76,8 +77,8 @@ func (r *SharedFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	} else if err != nil {
 		return ctrl.Result{}, err
 	}
-	meta.SetStatusCondition(&f.Status.Conditions, readyCondition("The folder is ready.", b))
-	if err := r.writeFolder(ctx, f, base); errors.Is(err, errRowChanged) {
+	meta.SetStatusCondition(&f.Status.Conditions, rows.ReadyCondition("The folder is ready.", b))
+	if err := r.WriteFolder(ctx, f, base); errors.Is(err, errRowChanged) {
 		return ctrl.Result{RequeueAfter: retryConflict}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -85,7 +86,7 @@ func (r *SharedFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if b == nil {
 		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{RequeueAfter: b.retry}, nil
+	return ctrl.Result{RequeueAfter: b.Retry}, nil
 }
 
 // step does the work of one pass. It changes f.Status in memory; Reconcile
@@ -93,9 +94,9 @@ func (r *SharedFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // the folder as stored, for a write in the middle of the pass.
 func (r *SharedFolderReconciler) step(ctx context.Context, f, base *model.SharedFolder) (*blocked, error) {
 	if r.PerUserNamespaces {
-		return &blocked{code: reasons.SharedFoldersUnavailable, evidence: []string{"each person has a namespace of their own and a claim cannot span namespaces"}}, nil
+		return &blocked{Code: reasons.SharedFoldersUnavailable, Evidence: []string{"each person has a namespace of their own and a claim cannot span namespaces"}}, nil
 	}
-	cs, err := r.cluster(ctx)
+	cs, err := r.Cluster(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +106,7 @@ func (r *SharedFolderReconciler) step(ctx context.Context, f, base *model.Shared
 			return nil, err
 		}
 		if !ok || gid == 0 {
-			return &blocked{code: reasons.GroupHasNoId, evidence: []string{fmt.Sprintf("group %s", f.Spec.Group)}, retry: homeWaitRetry}, nil
+			return &blocked{Code: reasons.GroupHasNoId, Evidence: []string{fmt.Sprintf("group %s", f.Spec.Group)}, Retry: homeWaitRetry}, nil
 		}
 		f.Status.GID = gid
 	}
@@ -120,7 +121,7 @@ func (r *SharedFolderReconciler) step(ctx context.Context, f, base *model.Shared
 	claim := &corev1.PersistentVolumeClaim{}
 	switch err := r.Reader.Get(ctx, client.ObjectKey{Namespace: f.Namespace, Name: f.Status.ClaimName}, claim); {
 	case apierrors.IsNotFound(err):
-		return &blocked{code: reasons.FolderPending, evidence: []string{fmt.Sprintf("claim %s not found", f.Status.ClaimName)}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.FolderPending, Evidence: []string{fmt.Sprintf("claim %s not found", f.Status.ClaimName)}, Retry: homeClaimRetry}, nil
 	case err != nil:
 		return nil, err
 	}
@@ -176,7 +177,7 @@ func (r *SharedFolderReconciler) dirTaken(ctx context.Context, f *model.SharedFo
 	dir := naming.GroupDir(f.Spec.Group)
 	for _, o := range podstorage.FolderPerDir(all) {
 		if naming.GroupDir(o.Spec.Group) == dir && o.Name != f.Name {
-			return &blocked{code: reasons.FolderDirTaken, evidence: []string{fmt.Sprintf("group %s already has folder %s at /shared/%s", o.Spec.Group, o.Name, dir)}, retry: homeClaimRetry}, nil
+			return &blocked{Code: reasons.FolderDirTaken, Evidence: []string{fmt.Sprintf("group %s already has folder %s at /shared/%s", o.Spec.Group, o.Name, dir)}, Retry: homeClaimRetry}, nil
 		}
 	}
 	return nil, nil
@@ -189,7 +190,7 @@ func (r *SharedFolderReconciler) bind(ctx context.Context, f *model.SharedFolder
 	switch err := r.Reader.Get(ctx, client.ObjectKey{Namespace: f.Namespace, Name: name}, existing); {
 	case err == nil:
 		if !ownsClaim(existing, f) {
-			return &blocked{code: reasons.FolderClaimForeign, evidence: []string{fmt.Sprintf("claim %s is not this folder's or belongs to another group; not using it", name)}, retry: homeClaimRetry}, nil
+			return &blocked{Code: reasons.FolderClaimForeign, Evidence: []string{fmt.Sprintf("claim %s is not this folder's or belongs to another group; not using it", name)}, Retry: homeClaimRetry}, nil
 		}
 		f.Status.ClaimName = name
 		return nil, nil
@@ -200,11 +201,11 @@ func (r *SharedFolderReconciler) bind(ctx context.Context, f *model.SharedFolder
 	class, backend, ok := r.classFor(f, cs)
 	switch {
 	case !ok:
-		return &blocked{code: reasons.FolderPending, evidence: []string{"the cluster's storage has not been inspected yet"}, retry: homeWaitRetry}, nil
+		return &blocked{Code: reasons.FolderPending, Evidence: []string{"the cluster's storage has not been inspected yet"}, Retry: homeWaitRetry}, nil
 	case class == "":
-		return &blocked{code: reasons.NoStorageClass, evidence: []string{"no class chosen for folders or homes"}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.NoStorageClass, Evidence: []string{"no class chosen for folders or homes"}, Retry: homeClaimRetry}, nil
 	case backend == nil:
-		return &blocked{code: reasons.FolderPending, evidence: []string{fmt.Sprintf("no storage backend for mode %q", cs.Status.Choice.Mode)}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.FolderPending, Evidence: []string{fmt.Sprintf("no storage backend for mode %q", cs.Status.Choice.Mode)}, Retry: homeClaimRetry}, nil
 	}
 	size := resource.MustParse(defaultFolderSize)
 	switch {
@@ -216,16 +217,16 @@ func (r *SharedFolderReconciler) bind(ctx context.Context, f *model.SharedFolder
 	claim, err := backend.FolderClaim(f, class, size, cs.Status.Choice.SingleNode)
 	var unavailable *storage.UnavailableError
 	if errors.As(err, &unavailable) {
-		return &blocked{code: unavailable.Code, evidence: []string{"no storage class that several machines can share"}, retry: homeClaimRetry}, nil
+		return &blocked{Code: unavailable.Code, Evidence: []string{"no storage class that several machines can share"}, Retry: homeClaimRetry}, nil
 	} else if err != nil {
 		return nil, err
 	}
 	// Created without an owner reference, like homes: deleting the object keeps the files.
 	if err := r.Create(ctx, claim); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			return &blocked{code: reasons.FolderPending, evidence: []string{"claim " + name + " was just created"}, retry: homeWaitRetry}, nil
+			return &blocked{Code: reasons.FolderPending, Evidence: []string{"claim " + name + " was just created"}, Retry: homeWaitRetry}, nil
 		}
-		return &blocked{code: reasons.FolderPending, evidence: []string{"create claim: " + err.Error()}, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.FolderPending, Evidence: []string{"create claim: " + err.Error()}, Retry: homeClaimRetry}, nil
 	}
 	f.Status.ClaimName = name
 	return nil, nil
@@ -253,7 +254,7 @@ func (r *SharedFolderReconciler) prepare(ctx context.Context, f, base *model.Sha
 		Namespace: f.Namespace, Label: model.LabelGroupFolder, ID: f.Name, Attempts: f.Status.PrepareAttempts,
 		Count: func(ctx context.Context, n int) error {
 			f.Status.PrepareAttempts = n
-			return r.writeFolder(ctx, f, base)
+			return r.WriteFolder(ctx, f, base)
 		},
 	}
 	res, err := p.run(ctx, owner, "folder", model.RoleFolderPrepare, func() *batchv1.Job {
@@ -267,11 +268,11 @@ func (r *SharedFolderReconciler) prepare(ctx context.Context, f, base *model.Sha
 		f.Status.Prepared = true
 		return nil, nil
 	case prepareForeign:
-		return &blocked{code: reasons.FolderPending, evidence: res.evidence, retry: homeClaimRetry}, nil
+		return &blocked{Code: reasons.FolderPending, Evidence: res.evidence, Retry: homeClaimRetry}, nil
 	case prepareRunning:
 		if len(res.unmounted) > 0 {
 			// Still looked at: a volume that mounts later finishes the folder.
-			return &blocked{code: reasons.FolderPrepareFailed, evidence: res.evidence, retry: jobPoll}, nil
+			return &blocked{Code: reasons.FolderPrepareFailed, Evidence: res.evidence, Retry: jobPoll}, nil
 		}
 	case prepareRetry, prepareGaveUp:
 		// Permissions are blamed only when the prepare step itself said so; a
@@ -280,13 +281,13 @@ func (r *SharedFolderReconciler) prepare(ctx context.Context, f, base *model.Sha
 		if res.said {
 			code = reasons.FolderPermissionsUnsupported
 		}
-		b := &blocked{code: code, evidence: res.evidence}
+		b := &blocked{Code: code, Evidence: res.evidence}
 		if res.outcome == prepareRetry {
-			b.retry = homePrepareRetry
+			b.Retry = homePrepareRetry
 		}
 		return b, nil
 	}
-	return &blocked{code: reasons.FolderPreparing, retry: jobPoll}, nil
+	return &blocked{Code: reasons.FolderPreparing, Retry: jobPoll}, nil
 }
 
 // SetupWithManager reconciles folders, and every folder that is not ready
@@ -296,9 +297,9 @@ func (r *SharedFolderReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsour
 	if r.Store == nil || r.Reader == nil || r.GIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" {
 		return errors.New("storage.SharedFolderReconciler needs Store, Reader, GIDs, Backends and Image")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.folderRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.FolderIDs(ctx, nil) }
 	notReady := func(ctx context.Context, _ string) ([]string, error) {
-		return r.folderRequests(ctx, func(f *model.SharedFolder) bool {
+		return r.FolderIDs(ctx, func(f *model.SharedFolder) bool {
 			return !meta.IsStatusConditionTrue(f.Status.Conditions, model.ConditionReady)
 		})
 	}

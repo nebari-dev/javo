@@ -17,30 +17,7 @@ import (
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/podspec"
-	"github.com/nebari-dev/javo/internal/reasons"
 )
-
-// blocked is why an object is not Ready: a catalog reason, what was found, and
-// when to look again (zero: when something it watches changes).
-type blocked struct {
-	code     reasons.Code
-	evidence []string
-	retry    time.Duration
-}
-
-// readyCondition is the Ready condition for an object that is ready (b nil,
-// text is the message) or blocked; the catalog supplies the blocked text.
-func readyCondition(text string, b *blocked) metav1.Condition {
-	c := metav1.Condition{Type: model.ConditionReady, Status: metav1.ConditionTrue, Reason: reasonReady, Message: text}
-	if b != nil {
-		reason, _ := reasons.Lookup(b.code)
-		c.Status, c.Reason, c.Message = metav1.ConditionFalse, string(b.code), reason.What
-		if len(b.evidence) > 0 {
-			c.Message += " (" + strings.Join(b.evidence, "; ") + ")"
-		}
-	}
-	return c
-}
 
 // prepareJobSpec is what differs between the Jobs that ready a volume root.
 type prepareJobSpec struct {

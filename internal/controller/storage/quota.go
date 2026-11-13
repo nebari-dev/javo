@@ -47,7 +47,7 @@ type QuotaReconciler struct {
 
 // Reconcile brings every team's quota to the current limits.
 func (r *QuotaReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	cs, err := r.cluster(ctx)
+	cs, err := r.Cluster(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

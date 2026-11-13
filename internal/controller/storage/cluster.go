@@ -22,6 +22,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop/managed"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/storage/capability"
@@ -33,7 +34,7 @@ import (
 
 // Reasons for conditions that are fine. Failures come from internal/reasons.
 const (
-	reasonReady         = "Ready"
+	reasonReady         = rows.ReasonReady
 	reasonNotApplicable = "NotApplicable"
 )
 
@@ -57,7 +58,7 @@ type ClusterReconciler struct {
 
 // Reconcile refreshes the findings whatever triggered it.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	cs, err := r.cluster(ctx)
+	cs, err := r.Cluster(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

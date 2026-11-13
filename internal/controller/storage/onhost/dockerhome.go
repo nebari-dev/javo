@@ -1,4 +1,4 @@
-package storage
+package onhost
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/storage/dockerhome"
@@ -32,7 +33,7 @@ import (
 // It reads and writes the database and the daemon's volumes only, never a
 // cluster.
 type DockerHomeReconciler struct {
-	Rows
+	rows.Rows
 	// Volumes are the homes on the daemon. Required.
 	Volumes dockerhome.Volumes
 	// UIDs gives the uid and gid a person's apps run as: their home
@@ -56,30 +57,30 @@ func (r *DockerHomeReconciler) Reconcile(ctx context.Context, id string) (time.D
 		return 0, err
 	}
 	h.Status.SizeEnforced = false
-	meta.SetStatusCondition(&h.Status.Conditions, readyCondition("The home is ready.", b))
-	if conflict, err := r.writeHome(ctx, &h, base); conflict {
-		return retryConflict, nil
+	meta.SetStatusCondition(&h.Status.Conditions, rows.ReadyCondition("The home is ready.", b))
+	if conflict, err := r.WriteHome(ctx, &h, base); conflict {
+		return rows.RetryConflict, nil
 	} else if err != nil {
 		return 0, err
 	}
 	if b == nil {
 		return 0, nil
 	}
-	return b.retry, nil
+	return b.Retry, nil
 }
 
 // step does the work of one pass. It changes h in memory; Reconcile
-// writes it. A returned *blocked is a state to report, not an error.
-func (r *DockerHomeReconciler) step(ctx context.Context, h *model.Home) (*blocked, error) {
+// writes it. A returned *rows.Blocked is a state to report, not an error.
+func (r *DockerHomeReconciler) step(ctx context.Context, h *model.Home) (*rows.Blocked, error) {
 	name, fresh, err := r.Volumes.Ensure(ctx, h.Namespace, h.Spec.Owner)
 	switch {
 	case errors.Is(err, dockerhome.ErrForeign):
 		h.Status.ClaimName, h.Status.Prepared = "", false
-		return &blocked{code: reasons.HomeClaimForeign, evidence: []string{err.Error()}}, nil
+		return &rows.Blocked{Code: reasons.HomeClaimForeign, Evidence: []string{err.Error()}}, nil
 	case err != nil:
 		// The daemon's trouble, or a name no volume can have. What the
 		// home had recorded stays: its files have not gone anywhere.
-		return &blocked{code: reasons.HomePending, evidence: []string{err.Error()}, retry: homeClaimRetry}, nil
+		return &rows.Blocked{Code: reasons.HomePending, Evidence: []string{err.Error()}, Retry: rows.HomeClaimRetry}, nil
 	}
 	h.Status.ClaimName = name
 	if fresh {
@@ -92,12 +93,12 @@ func (r *DockerHomeReconciler) step(ctx context.Context, h *model.Home) (*blocke
 	}
 	uid, gid, err := r.UIDs.UID(ctx, h.Spec.Owner)
 	if errors.Is(err, ids.ErrNoUID) {
-		return &blocked{code: reasons.IdentityPending, evidence: []string{"the owner has no user id yet"}, retry: homeWaitRetry}, nil
+		return &rows.Blocked{Code: reasons.IdentityPending, Evidence: []string{"the owner has no user id yet"}, Retry: rows.HomeWaitRetry}, nil
 	} else if err != nil {
 		return nil, err
 	}
 	if err := r.Volumes.Own(ctx, h.Namespace, h.Spec.Owner, uid, gid); err != nil {
-		return &blocked{code: reasons.HomePrepareFailed, evidence: []string{err.Error()}, retry: homePrepareRetry}, nil
+		return &rows.Blocked{Code: reasons.HomePrepareFailed, Evidence: []string{err.Error()}, Retry: rows.HomePrepareRetry}, nil
 	}
 	h.Status.Prepared = true
 	return nil, nil
@@ -107,9 +108,9 @@ func (r *DockerHomeReconciler) step(ctx context.Context, h *model.Home) (*blocke
 // is set up. A Docker host has no manager: there d is a loop.Loop.
 func (r *DockerHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Volumes.Client == nil || r.Volumes.Image == "" || r.UIDs == nil {
-		return errors.New("storage.DockerHomeReconciler needs Store, Volumes and UIDs")
+		return errors.New("onhost.DockerHomeReconciler needs Store, Volumes and UIDs")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
 	return d.Reconcile("storage-docker-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }
 
@@ -119,7 +120,7 @@ func (r *DockerHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 // folder not Ready with SharedFoldersUnavailable and Why, so nothing
 // mounts it and the admin who asked sees why.
 type NoFolderReconciler struct {
-	Rows
+	rows.Rows
 	// Why says, as the folder's evidence, why there are none here.
 	// Required.
 	Why string
@@ -134,11 +135,11 @@ func (r *NoFolderReconciler) Reconcile(ctx context.Context, id string) (time.Dur
 		return 0, err
 	}
 	f, base := &got, got.DeepCopy()
-	meta.SetStatusCondition(&f.Status.Conditions, readyCondition("", &blocked{
-		code: reasons.SharedFoldersUnavailable, evidence: []string{r.Why},
+	meta.SetStatusCondition(&f.Status.Conditions, rows.ReadyCondition("", &rows.Blocked{
+		Code: reasons.SharedFoldersUnavailable, Evidence: []string{r.Why},
 	}))
-	if err := r.writeFolder(ctx, f, base); errors.Is(err, errRowChanged) {
-		return retryConflict, nil
+	if err := r.WriteFolder(ctx, f, base); errors.Is(err, rows.ErrRowChanged) {
+		return rows.RetryConflict, nil
 	} else if err != nil {
 		return 0, err
 	}
@@ -148,8 +149,8 @@ func (r *NoFolderReconciler) Reconcile(ctx context.Context, id string) (time.Dur
 // Setup reconciles folders on d when their rows change.
 func (r *NoFolderReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Why == "" {
-		return errors.New("storage.NoFolderReconciler needs Store and Why")
+		return errors.New("onhost.NoFolderReconciler needs Store and Why")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.folderRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.FolderIDs(ctx, nil) }
 	return d.Reconcile("storage-no-folder", r, dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all))
 }

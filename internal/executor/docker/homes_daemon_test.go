@@ -24,7 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/nebari-dev/javo/internal/controller/storage"
+	"github.com/nebari-dev/javo/internal/controller/storage/onhost"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"github.com/nebari-dev/javo/internal/executor/docker"
 	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 	"github.com/nebari-dev/javo/internal/files"
@@ -95,7 +96,7 @@ type rig struct {
 	all, homes, helpers, apps *docker.Client
 	gw                        string
 	db                        *store.Store
-	rec                       *storage.DockerHomeReconciler
+	rec                       *onhost.DockerHomeReconciler
 	exec                      *docker.Executor
 	logins                    *files.Logins
 	pods                      *files.Helpers
@@ -147,7 +148,7 @@ func newRig(t *testing.T) *rig {
 
 	r.db = storetest.New(t)
 	volumes := dockerhome.Volumes{Client: r.homes, Image: docker.TestImage}
-	r.rec = &storage.DockerHomeReconciler{Rows: storage.Rows{Store: r.db}, Volumes: volumes, UIDs: uids{alice: aliceUID, bob: bobUID}}
+	r.rec = &onhost.DockerHomeReconciler{Rows: rows.Rows{Store: r.db}, Volumes: volumes, UIDs: uids{alice: aliceUID, bob: bobUID}}
 	r.logins = files.NewLogins()
 	r.exec, err = docker.NewTestExecutor(ctx, docker.Options{
 		Client: r.helpers, Secrets: r.logins, Gateway: r.gw, RunnerImage: docker.TestImage, Pool: homesPool, Grace: time.Second,
