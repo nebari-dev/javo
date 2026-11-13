@@ -280,10 +280,14 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		exp = exposuresubdomain.New(o.Urls)
 	}
 	// Apps' logs are read through the executor, from the same fake as the
-	// job runs'.
+	// job runs', whose pods are found through c.
 	var apps executor.Executor
 	if o.Logs != nil {
 		apps = &kube.Executor{PodLogs: o.Logs}
+	}
+	runs := &kube.Executor{Client: c}
+	if o.Logs != nil {
+		runs.PodLogs = o.Logs
 	}
 	srv := gateway.NewServer(gateway.Config{
 		NebiTokens: nebiTokens, Revalidator: rv,
@@ -293,7 +297,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Client: c, Store: db, Sessions: sessions, Providers: providers,
 		People: people, Roles: roles, Now: o.Now,
 		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, Branding: o.Branding,
-		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Logs: o.Logs, Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
+		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Runs: runs.Runs(), Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
 		URLs: o.Urls, Exposure: exp, Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
 		AI:       o.Ai, AgentModel: o.AgentModel, AISettings: live, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp, PublicURL: o.PublicURL}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},

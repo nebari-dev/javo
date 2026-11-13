@@ -239,9 +239,10 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go proposals.RunJanitor(ctx, time.Minute)
 	go apps.TrustJanitor{DB: db, Policy: apps.TrustPolicy{Config: platform.Agents.TrustedAllowed(), DB: db}, Now: time.Now}.Run(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
-	// What runs the apps: the gateway asks it where an app listens and for
-	// its logs, and nothing else.
-	workloads := &kube.Executor{PodLogs: podlogs.Clientset{Clientset: clientset}}
+	// What runs the apps and the runs: the gateway asks it where an app
+	// listens and for logs, and nothing else. It finds a run's pods
+	// through c.
+	workloads := &kube.Executor{Client: c, PodLogs: podlogs.Clientset{Clientset: clientset}}
 	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()})
 	people := db.People(uidRange(platform.Identity))
 	revalidator := authn.NewRevalidator(providers, sessions, people, outageGrace, nil)
@@ -275,7 +276,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Groups:            ids.PersonGroups{People: db.People(store.IDRange{})},
 		Storage:           platform.Storage.Spec(),
 		Executor:          workloads,
-		Logs:              podlogs.Clientset{Clientset: clientset},
+		Runs:              workloads.Runs(),
 		PreviewsEnabled:   platform.Source.Previews.Enabled,
 		Thumbnails:        platform.Thumbnails.Enabled,
 		PreviewsMaxPerApp: platform.Source.Previews.MaxPerApp,

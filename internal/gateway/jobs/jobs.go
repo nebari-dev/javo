@@ -15,15 +15,14 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/cmdline"
 	"github.com/nebari-dev/javo/internal/controller/jobs"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/environments"
@@ -41,6 +40,7 @@ import (
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // previewRuns is how many upcoming times a schedule preview shows.
@@ -50,15 +50,15 @@ const previewRuns = 5
 // in the namespace chosen when it was made (the owner's own, in the same
 // places as the owner's apps), and every route finds it by owner and short
 // name and asks authz (ManageJob) like the app routes do. Starting and
-// cancelling a run are requests the controller acts on. Pods and their logs
-// are read live through Client.
+// cancelling a run are requests the controller acts on. A run's log is
+// read live through Runs.
 type API struct {
 	DB         *store.Store
-	Client     client.Reader
 	Namespaces *namespaces.Finder
 	// Rules holds the roles every route checks, and the sizes runs get.
 	sizing.Rules
-	Logs podlogs.Source
+	// Runs is the executor the runs run on.
+	Runs executor.Executor
 	// Homes reads a finished run's saved log once its pod is gone; nil means
 	// no saved log can be read.
 	Homes   storage.Homes
@@ -1003,11 +1003,8 @@ func (s *API) log(ctx context.Context, in *runInput) (*huma.StreamResponse, erro
 	active := runActive(run)
 	var rc io.ReadCloser
 	if run.K8sJob != "" {
-		pod, err := s.runPod(ctx, job, run.K8sJob)
-		if err != nil {
-			return nil, err
-		}
-		if rc, err = podlogs.Open(ctx, s.Logs, pod, &corev1.PodLogOptions{Follow: active}); err != nil {
+		ref := workload.Ref{Namespace: job.Namespace, Name: run.K8sJob, ID: job.ID, Owner: job.Owner}
+		if rc, err = podlogs.ReadRun(ctx, s.Runs, ref, executor.LogOptions{Follow: active}); err != nil {
 			return nil, err
 		}
 	}
@@ -1085,23 +1082,6 @@ func (s *API) savedLog(ctx context.Context, job *model.Job, k8sJob string) (io.R
 		return nil, storage.HomeError(err, job.Owner, "open saved run log", rel, reasons.MsgLogsGone, reasons.MsgServerError)
 	}
 	return rc, nil
-}
-
-// runPod returns the newest pod of a run (a retried run has several), or nil.
-func (s *API) runPod(ctx context.Context, job *model.Job, k8sJob string) (*corev1.Pod, error) {
-	var l corev1.PodList
-	if err := s.Client.List(ctx, &l, client.InNamespace(job.Namespace), client.MatchingLabels{
-		jobs.LabelJobName: k8sJob, model.LabelOwner: job.Owner, model.LabelJob: job.ID,
-	}); err != nil {
-		return nil, problem.Internal("list run pods", err)
-	}
-	var newest *corev1.Pod
-	for i := range l.Items {
-		if p := &l.Items[i]; newest == nil || p.CreationTimestamp.After(newest.CreationTimestamp.Time) {
-			newest = p
-		}
-	}
-	return newest, nil
 }
 
 type jobEnvInput struct {

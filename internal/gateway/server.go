@@ -33,7 +33,6 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/jobs"
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
@@ -141,12 +140,12 @@ type Config struct {
 	// when printing the OpenAPI document or in tests) answers GET /api/files
 	// with a server error and frees nothing.
 	Homes storage.Homes
-	// Executor is what runs the apps: their logs are read through it. Logs
-	// reads the logs of job runs. The gateway command always sets both; nil
-	// (only when printing the OpenAPI document or in tests) answers the log
-	// routes with a server error.
+	// Executor is what runs the apps and Runs what runs jobs' runs: their
+	// logs are read through them. The gateway command always sets both;
+	// nil (only when printing the OpenAPI document or in tests) answers
+	// the log routes with a server error.
 	Executor executor.Executor
-	Logs     podlogs.Source
+	Runs     executor.Executor
 	// Sizes are the admin-defined app sizes; empty offers none and keeps
 	// template resources.
 	Sizes sizes.Catalog
@@ -325,7 +324,7 @@ func NewServer(cfg Config) *Server {
 		DB: cfg.Store, Tokens: cfg.Tokens, MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, PublicURL: cfg.MCP.PublicURL,
 		Limiter: ratelimit.NewBuckets(), Now: now,
 	}).Register(api)
-	(&jobs.API{DB: cfg.Store, Client: cfg.Client, Namespaces: nss, Rules: sz, Logs: cfg.Logs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs, Streams: logStreams}).Register(api)
+	(&jobs.API{DB: cfg.Store, Namespaces: nss, Rules: sz, Runs: cfg.Runs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs, Streams: logStreams}).Register(api)
 
 	if cfg.CodeHosts != nil {
 		mux.Handle("POST "+hooks.Route, &hooks.Receiver{
