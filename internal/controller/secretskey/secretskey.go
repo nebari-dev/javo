@@ -8,6 +8,9 @@
 // carry a new random key. The controller makes it instead, outside the
 // release, and never changes or deletes it afterwards: a new key would leave
 // every stored secret unreadable.
+//
+// A Javo that runs without Kubernetes keeps the same keys as files (File),
+// made and kept the same way.
 package secretskey
 
 import (
