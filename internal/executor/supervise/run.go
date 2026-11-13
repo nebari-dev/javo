@@ -39,6 +39,12 @@ type work struct {
 	mainSince, answered time.Time
 	ready               bool
 	restarts            int
+
+	// run is what is known of a run; nil for an app. stopped is set when
+	// Stop ended it, and stuck is what keeps its attempt from going on.
+	run     *record
+	stopped bool
+	stuck   *failure
 }
 
 // failure is how a unit's run ended badly.
@@ -146,22 +152,7 @@ func (s *Supervisor) units(ctx context.Context, w *work, found *Found, kept *syn
 			continue
 		}
 		s.update(w, func() { w.at = u.Name })
-		// The next unit starts once this one runs and its check passes;
-		// the check is tried again each time the unit is started again.
-		passed := make(chan struct{}, 1)
-		kept.Go(func() {
-			s.keep(ctx, w, u, taken(u.Name), func(running context.Context, r Unit) {
-				if s.answers(running, w, u, r) {
-					select {
-					case passed <- struct{}{}:
-					default:
-					}
-				}
-			})
-		})
-		select {
-		case <-passed:
-		case <-ctx.Done():
+		if !s.beside(ctx, w, u, found, kept) {
 			return
 		}
 	}

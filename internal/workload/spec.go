@@ -67,6 +67,11 @@ type Batch struct {
 	Slot time.Time
 }
 
+// EnvTerminationLog is the variable that names, to a run's main unit on
+// a platform with no fixed place for it, the file it leaves its last
+// message in (RunState.Message).
+const EnvTerminationLog = "JAVO_TERMINATION_LOG"
+
 // User is who a workload runs as.
 type User struct {
 	UID, GID int64

@@ -35,10 +35,63 @@ type engine struct {
 	execCodes []int
 	// left is what Adopt finds.
 	left []supervise.Found
+	// kept is the record of each run, by name; messages are what the
+	// files of a run's message folder hold, by file name; envs are the
+	// variables each unit was last started with.
+	kept     map[string][]byte
+	messages map[string]string
+	envs     map[string][]workload.Env
 }
 
+var _ supervise.Keeper = (*engine)(nil)
+
 func (e *engine) Start(_ context.Context, _ workload.Spec, u workload.Unit) (supervise.Unit, error) {
+	e.mu.Lock()
+	if e.envs == nil {
+		e.envs = map[string][]workload.Env{}
+	}
+	e.envs[u.Name] = u.Env
+	e.mu.Unlock()
 	return e.start(u.Name)
+}
+
+func (e *engine) Keep(_ context.Context, s workload.Spec, record []byte) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.kept == nil {
+		e.kept = map[string][]byte{}
+	}
+	e.kept[s.Ref.Name] = record
+	return nil
+}
+
+func (e *engine) MessageDir(workload.Spec) string { return "/message" }
+
+func (e *engine) Message(_ context.Context, _ workload.Spec, name string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.messages[name]
+}
+
+// leave makes Adopt find the run called name as it was last kept, with
+// units running of it.
+func (e *engine) leave(name string, units map[string]supervise.Unit) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.left = []supervise.Found{{Record: e.kept[name], Units: units}}
+}
+
+// env is the value the unit name was last started with for the variable
+// called key.
+func (e *engine) env(name, key string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, v := range e.envs[name] {
+		if v.Name == key {
+			return v.Value
+		}
+	}
+	return ""
 }
 
 func (e *engine) start(name string) (supervise.Unit, error) {
@@ -248,3 +301,10 @@ func eventually(t *testing.T, sup *supervise.Supervisor, what string, ok func(*w
 
 func running(st *workload.State) bool { return st != nil && st.Phase == "Running" }
 func failed(st *workload.State) bool  { return st != nil && st.Phase == "Failed" }
+
+// unit is the unit called name that runs now.
+func (e *engine) unit(name string) supervise.Unit {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.units[name]
+}

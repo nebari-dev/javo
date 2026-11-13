@@ -10,10 +10,18 @@
 // What it knows is kept in memory. An engine whose units outlive Javo
 // (containers) says what still runs, and the next Supervisor adopts it
 // (Adopt) after the last one left (Leave).
+//
+// A workload with a Batch is a run (batch.go): its steps and its main
+// unit run once, to their end, and are tried again as a whole when they
+// fail. What is known of a run is kept by the engine (Keeper), so that a
+// run stays to be observed, also by the next Supervisor, until Stop lets
+// go of it.
 package supervise
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -79,8 +87,28 @@ type ImageError struct{ Err error }
 func (e *ImageError) Error() string { return e.Err.Error() }
 func (e *ImageError) Unwrap() error { return e.Err }
 
-// Found is a workload an earlier Supervisor started that still runs.
+// Keeper is an Engine that can run runs (workload.Batch). It keeps what
+// is known of a run where the next Supervisor finds it, and gives a run's
+// main unit a place for the message it ends with.
+type Keeper interface {
+	// Keep makes record all that is kept of the run s; Adopt hands it
+	// back as Found.Record until the run is removed from the engine.
+	Keep(ctx context.Context, s workload.Spec, record []byte) error
+	// MessageDir is a folder, under the name the units of s see it by,
+	// that only the units of s can write.
+	MessageDir(s workload.Spec) string
+	// Message is what the file called name in that folder holds, or ""
+	// when there is none. The run's own code may have written it.
+	Message(ctx context.Context, s workload.Spec, name string) string
+}
+
+// Found is a workload an earlier Supervisor started that still runs, or
+// a run one kept.
 type Found struct {
+	// Record is what was kept of a run (Keeper), which holds its Spec and
+	// when it was started; nil for an app. Of a run, Units holds the main
+	// unit of the newest attempt when it is still there, running or not.
+	Record []byte
 	// Spec is what it was started from.
 	Spec workload.Spec
 	// Created is when it was made, and MainSince when its main unit
@@ -157,15 +185,42 @@ func New(c Config) *Supervisor {
 
 func key(ref workload.Ref) string { return ref.Namespace + "/" + ref.Name }
 
-// Start begins running sp and returns at once; Observe says how far it is.
-func (s *Supervisor) Start(_ context.Context, sp workload.Spec) error {
-	s.begin(sp, time.Now(), nil)
+// Start begins running sp and returns at once; Observe says how far it
+// is. A run is kept by the engine before anything of it runs.
+func (s *Supervisor) Start(ctx context.Context, sp workload.Spec) error {
+	now := time.Now()
+	if sp.Batch == nil {
+		s.begin(sp, now, nil, nil)
+		return nil
+	}
+	k, ok := s.eng.(Keeper)
+	if !ok {
+		return fmt.Errorf("supervise: run %s/%s: the engine keeps no runs", sp.Ref.Namespace, sp.Ref.Name)
+	}
+	s.mu.Lock()
+	_, have := s.work[key(sp.Ref)]
+	s.mu.Unlock()
+	if have {
+		return nil
+	}
+	run := &record{Spec: sp, Started: now}
+	if _, grounded := s.eng.(Grounded); !grounded {
+		run.Placed = now
+	}
+	raw, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	if err := k.Keep(ctx, sp, raw); err != nil {
+		return err
+	}
+	s.begin(sp, now, nil, run)
 	return nil
 }
 
 // begin runs sp, taking over what was found of it, unless it runs here
-// already.
-func (s *Supervisor) begin(sp workload.Spec, created time.Time, found *Found) {
+// already. run is set for a run.
+func (s *Supervisor) begin(sp workload.Spec, created time.Time, found *Found, run *record) {
 	s.mu.Lock()
 	if _, ok := s.work[key(sp.Ref)]; ok {
 		s.mu.Unlock()
@@ -176,31 +231,49 @@ func (s *Supervisor) begin(sp workload.Spec, created time.Time, found *Found) {
 	w := &work{
 		spec: sp, created: created, cancel: cancel, done: make(chan struct{}),
 		failed: map[string]*failure{}, took: map[string]time.Duration{},
+		run: run,
 	}
 	s.work[key(sp.Ref)] = w
 	s.mu.Unlock()
-	go s.run(ctx, w, found)
+	if run != nil {
+		go s.batch(ctx, w, found)
+	} else {
+		go s.run(ctx, w, found)
+	}
 	s.changed(sp.Ref)
 }
 
 // Adopt takes over the workloads an earlier Supervisor left running on
-// the engine: none of their units is started again. Call it before the
-// first Start.
+// the engine, of which no unit is started again, and the runs one kept,
+// done or not. Call it before the first Start.
 func (s *Supervisor) Adopt(ctx context.Context) error {
 	all, err := s.eng.Adopt(ctx)
 	if err != nil {
 		return err
 	}
 	for _, f := range all {
-		s.begin(f.Spec, f.Created, &f)
+		if f.Record == nil {
+			s.begin(f.Spec, f.Created, &f, nil)
+			continue
+		}
+		// A record that cannot be read is nobody's run.
+		var run record
+		if json.Unmarshal(f.Record, &run) == nil && run.Spec.Batch != nil {
+			s.begin(run.Spec, run.Started, &f, &run)
+		}
 	}
 	return nil
 }
 
-// Stop ends the workload's units and forgets it.
+// Stop ends the workload's units and forgets it. A run that is going is
+// ended and stays, done and stopped, until Stop is called for it again.
 func (s *Supervisor) Stop(ctx context.Context, ref workload.Ref) error {
 	s.mu.Lock()
 	w := s.work[key(ref)]
+	going := w != nil && w.run != nil && !w.run.Done
+	if going {
+		w.stopped = true
+	}
 	s.mu.Unlock()
 	if w == nil {
 		return nil
@@ -211,6 +284,9 @@ func (s *Supervisor) Stop(ctx context.Context, ref workload.Ref) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	if going {
+		return nil
+	}
 	s.mu.Lock()
 	if s.work[key(ref)] == w {
 		delete(s.work, key(ref))
@@ -220,7 +296,9 @@ func (s *Supervisor) Stop(ctx context.Context, ref workload.Ref) error {
 	return nil
 }
 
-// Close stops every workload. Nothing an Engine started outlives it.
+// Close stops every workload. Nothing an Engine started outlives it. A
+// run that was going is not recorded as stopped: the next Supervisor
+// finds it as it was last kept, its units gone.
 func (s *Supervisor) Close() { s.end() }
 
 // Leave forgets every workload and stops none of them: their units run
@@ -253,6 +331,9 @@ func (s *Supervisor) Observe(_ context.Context, ref workload.Ref) (*workload.Sta
 	w := s.work[key(ref)]
 	if w == nil {
 		return nil, nil
+	}
+	if w.run != nil {
+		return w.runState(), nil
 	}
 	return w.state(), nil
 }
