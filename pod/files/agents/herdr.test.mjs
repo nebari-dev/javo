@@ -56,10 +56,13 @@ test('a temporary folder too deep for a socket is replaced by a short one', () =
   const folder = join(base, 'd'.repeat(103 - Buffer.byteLength(join(realpathSync(base), 'herdr-client.sock'))))
   mkdirSync(folder)
   assert.equal(Buffer.byteLength(join(realpathSync(folder), 'herdr-client.sock')), 104)
-  const line = start(temp(), { JAVO_FILES_DIR: dirname(dir), TMPDIR: folder })
+  const home = temp()
+  const line = start(home, { JAVO_FILES_DIR: dirname(dir), TMPDIR: folder })
   const used = line.match(/^herdr <(\/tmp\/javo-sock\.[^/>]+)\/herdr\.sock> /)?.[1]
   assert.ok(used, line)
   try {
+    // The next tab finds the same folder, and so the same server.
+    assert.equal(start(home, { JAVO_FILES_DIR: dirname(dir), TMPDIR: folder }), line)
     const st = statSync(used)
     assert.ok(st.isDirectory())
     assert.equal(st.mode & 0o777, 0o700)
