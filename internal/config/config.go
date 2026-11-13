@@ -761,6 +761,9 @@ func (p *Platform) applyDefaults() {
 	setStr(&p.Executor, ExecutorKubernetes)
 	if p.Executor == ExecutorDocker {
 		setStr(&p.Docker.Socket, DefaultDockerSocket)
+		if p.Docker.ProxyPort == 0 {
+			p.Docker.ProxyPort = DefaultProxyPort
+		}
 	}
 	setStr(&p.URLs.Mode, "path")
 	setStr(&p.Namespaces.Mode, "shared")

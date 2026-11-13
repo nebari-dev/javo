@@ -61,6 +61,7 @@ func TestAnExecutorNeedsItsSettings(t *testing.T) {
 		"docker.gateway":   localAuth + "executor: docker\nkeysDir: /k\n",
 		"keysDir":          localAuth + "executor: docker\ndocker:\n  gateway: javo\n",
 		"docker.pool":      localAuth + "executor: docker\nkeysDir: /k\ndocker:\n  gateway: javo\n  pool: 8.8.0.0/16\n",
+		"docker.proxyPort": localAuth + "executor: docker\nkeysDir: /k\ndocker:\n  gateway: javo\n  proxyPort: 70000\n",
 		"docker.socket":    localAuth + "executor: docker\nkeysDir: /k\ndocker:\n  gateway: javo\n  socket: docker.sock\n",
 		"process.stateDir": localAuth + "executor: process\nkeysDir: /k\nprocess:\n  homesDir: /h/homes\n",
 		"process.homesDir": localAuth + "executor: process\nkeysDir: /k\nprocess:\n  stateDir: state\n  homesDir: homes\n",

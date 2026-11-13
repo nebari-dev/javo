@@ -20,6 +20,10 @@ const (
 // otherwise.
 const DefaultDockerSocket = "/var/run/docker.sock"
 
+// DefaultProxyPort is where the forward proxy of a Docker install listens
+// in the container Javo runs in, unless told otherwise.
+const DefaultProxyPort = 3128
+
 // DockerCfg is the Docker daemon apps run on as containers (executor:
 // docker). Whoever holds its socket is root on that host.
 type DockerCfg struct {
@@ -37,6 +41,11 @@ type DockerCfg struct {
 	// (gVisor); empty is the daemon's own. Javo does not start when the
 	// daemon lacks it.
 	Runtime string `json:"runtime,omitempty"`
+	// ProxyPort is the port of the container Javo runs in where apps find
+	// the forward proxy that is their only way to the internet, HTTP and
+	// HTTPS (default 3128). It is one more port apps reach besides
+	// --listen, and must not be published to the host.
+	ProxyPort int `json:"proxyPort,omitempty"`
 }
 
 // AddressPool is Pool as a range; the zero range when none is named.
@@ -115,6 +124,9 @@ func (p Platform) validateExecutor(bad func(key, format string, a ...any)) {
 		}
 		if pool, err := netip.ParsePrefix(d.Pool); d.Pool != "" && (err != nil || !pool.Addr().Is4() || !pool.Addr().IsPrivate() || pool.Bits() > 28) {
 			bad("docker.pool", "%q is not a private IPv4 range of at least 16 addresses such as 10.213.0.0/16", d.Pool)
+		}
+		if d.ProxyPort < 1 || d.ProxyPort > 65535 {
+			bad("docker.proxyPort", "%d is not a port (1 to 65535)", d.ProxyPort)
 		}
 	case ExecutorProcess:
 		folder("process.stateDir", p.Process.StateDir)
