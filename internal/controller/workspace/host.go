@@ -207,11 +207,15 @@ func (p places) environment() pixienv.Places {
 const (
 	envFilesDir = "JAVO_FILES_DIR"
 	envEnvDir   = "JAVO_ENV_DIR"
+	// envListenAddr tells a program that picks its own address to listen
+	// on loopback: the samples (pod/files/samples) and Pluto's launcher
+	// read it, and listen on every address without it, as in a container.
+	envListenAddr = "JAVO_LISTEN_ADDR"
 )
 
 // onHost finishes a plan for a host: the main unit starts in the home
 // and learns where the platform's files and its environment's activation
-// are, and the install step runs with the host's tools, tells the
+// are and which address to listen on, and the install step runs with the host's tools, tells the
 // environment's own install script (javo-post-install.sh) where the
 // platform's files are, writes its temporary files in the workload's
 // folder and its message for the person beside the activation.
@@ -224,7 +228,7 @@ func (p places) onHost(s *workload.Spec) {
 		// A container starts in its image's folder; here that is the home.
 		s.Main.Dir = p.home
 	}
-	s.Main.SetEnv(workload.Env{Name: envFilesDir, Value: p.files})
+	s.Main.SetEnv(workload.Env{Name: envFilesDir, Value: p.files}, workload.Env{Name: envListenAddr, Value: loopback})
 	if install := s.Step(pixienv.InstallContainer); install != nil {
 		s.Main.SetEnv(workload.Env{Name: envEnvDir, Value: env.Dir})
 		install.SetEnv(

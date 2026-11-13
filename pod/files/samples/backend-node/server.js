@@ -1,7 +1,8 @@
 // A Node.js back-end: a plain http server (no packages) that shows the
 // server time.
 //
-// Started as: node server.js (it listens on $PORT). The gateway removes the
+// Started as: node server.js (it listens on $PORT, on every address, or on
+// $JAVO_LISTEN_ADDR alone where Javo sets it). The gateway removes the
 // app's URL prefix, so the server answers at / and gets the prefix in the
 // X-Forwarded-Prefix header; links stay relative.
 const http = require('node:http')
@@ -100,4 +101,5 @@ const page = (now, path) => `<!doctype html>
 </html>
 `
 
-server.listen(port, () => console.log(`listening on :${port}`))
+const host = process.env.JAVO_LISTEN_ADDR || undefined
+server.listen(port, host, () => console.log(`listening on ${host || ''}:${port}`))

@@ -261,7 +261,7 @@ func TestStreamlitPlannedForAHost(t *testing.T) {
 	envDir := testHost.Volumes + "/javo-env"
 	env := unitEnv(s.Main)
 	for name, want := range map[string]string{
-		"HOME": hostHome, "JAVO_FILES_DIR": hostFiles, "JAVO_ENV_DIR": envDir,
+		"HOME": hostHome, "JAVO_FILES_DIR": hostFiles, "JAVO_ENV_DIR": envDir, "JAVO_LISTEN_ADDR": "127.0.0.1",
 		"TMPDIR": testHost.Volumes + "/tmp", "XDG_CACHE_HOME": testHost.Volumes + "/scratch/cache",
 	} {
 		if env[name] != want {
@@ -319,6 +319,10 @@ func TestTheTerminalProgramListensOnLoopbackOnAHost(t *testing.T) {
 		inContainer, err := Plan(in)
 		if err != nil {
 			t.Fatal(err)
+		}
+		// Only a host names an address for programs that pick their own.
+		if _, told := unitEnv(inContainer.Main)["JAVO_LISTEN_ADDR"]; told {
+			t.Errorf("%s: a container is told where to listen", name)
 		}
 		for want, s := range map[string]workload.Spec{"--interface=127.0.0.1": onHost, "--interface=0.0.0.0": inContainer} {
 			argv := slices.Concat(s.Main.Command, s.Main.Args)

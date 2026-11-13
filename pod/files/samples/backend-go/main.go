@@ -1,6 +1,7 @@
 // A Go back-end: a standard-library web server that shows the server time.
 //
-// Started as: go run main.go (it listens on $PORT). The gateway removes the
+// Started as: go run main.go (it listens on $PORT, on every address, or on
+// $JAVO_LISTEN_ADDR alone where Javo sets it). The gateway removes the
 // app's URL prefix, so the server answers at / and gets the prefix in the
 // X-Forwarded-Prefix header; links stay relative.
 package main
@@ -29,8 +30,9 @@ func main() {
 			log.Print(err)
 		}
 	})
-	log.Printf("listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	addr := os.Getenv("JAVO_LISTEN_ADDR") + ":" + port
+	log.Printf("listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 // html/template escapes the values it fills in.

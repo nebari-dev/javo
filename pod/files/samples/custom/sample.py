@@ -1,9 +1,12 @@
 """A custom app: a standard-library web server that shows the server time.
 
 Started as: python sample.py --port <port> --base-url <prefix>
+It listens on every address, or on $JAVO_LISTEN_ADDR alone where Javo sets
+it.
 """
 import argparse
 import html
+import os
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from string import Template
@@ -106,4 +109,5 @@ PAGE = Template("""<!doctype html>
 </html>
 """)
 
-ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
+host = os.environ.get("JAVO_LISTEN_ADDR", "0.0.0.0")
+ThreadingHTTPServer((host, args.port), Handler).serve_forever()

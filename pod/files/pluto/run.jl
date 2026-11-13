@@ -18,7 +18,8 @@ port, base_url = parse(Int, ARGS[1]), ARGS[2]
 notebook = get(ARGS, 3, "")
 
 Pluto.run(;
-    host = "0.0.0.0",
+    # Every address, or the one Javo names where the app runs as a process.
+    host = get(ENV, "JAVO_LISTEN_ADDR", "0.0.0.0"),
     port,
     base_url,
     notebook = isempty(notebook) ? nothing : notebook,
