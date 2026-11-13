@@ -71,6 +71,28 @@ func (r Rows) writeHome(ctx context.Context, h, base *model.Home) (conflict bool
 	return false, nil
 }
 
+// folderRequests is a request per folder that keep accepts (all when nil).
+func (r Rows) folderRequests(ctx context.Context, keep func(*model.SharedFolder) bool) ([]reconcile.Request, error) {
+	folders, err := r.Store.SharedFolders().List(ctx)
+	return dbsource.Requests(folders, func(f *model.SharedFolder) string { return f.ID }, keep), err
+}
+
+// writeFolder stores f if it differs from base (the folder as read); another
+// writer getting there first is errRowChanged.
+func (r Rows) writeFolder(ctx context.Context, f, base *model.SharedFolder) error {
+	if equality.Semantic.DeepEqual(base.Status, f.Status) {
+		return nil
+	}
+	got, err := r.Store.SharedFolders().Update(ctx, *f, base.Version)
+	if errors.Is(err, store.ErrConflict) {
+		return errRowChanged
+	} else if err != nil {
+		return err
+	}
+	*f, *base = got, *got.DeepCopy()
+	return nil
+}
+
 // retryConflict is how soon a pass that lost a write race runs again.
 const retryConflict = 200 * time.Millisecond
 

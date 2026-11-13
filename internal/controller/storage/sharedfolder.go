@@ -8,7 +8,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -87,22 +86,6 @@ func (r *SharedFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{RequeueAfter: b.retry}, nil
-}
-
-// writeFolder stores f if it differs from base (the folder as read); another
-// writer getting there first is errRowChanged.
-func (r *SharedFolderReconciler) writeFolder(ctx context.Context, f, base *model.SharedFolder) error {
-	if equality.Semantic.DeepEqual(base.Status, f.Status) {
-		return nil
-	}
-	got, err := r.Store.SharedFolders().Update(ctx, *f, base.Version)
-	if errors.Is(err, store.ErrConflict) {
-		return errRowChanged
-	} else if err != nil {
-		return err
-	}
-	*f, *base = got, *got.DeepCopy()
-	return nil
 }
 
 // step does the work of one pass. It changes f.Status in memory; Reconcile
@@ -304,12 +287,6 @@ func (r *SharedFolderReconciler) prepare(ctx context.Context, f, base *model.Sha
 		return b, nil
 	}
 	return &blocked{code: reasons.FolderPreparing, retry: jobPoll}, nil
-}
-
-// folderRequests is a request per folder that keep accepts (all when nil).
-func (r *SharedFolderReconciler) folderRequests(ctx context.Context, keep func(*model.SharedFolder) bool) ([]reconcile.Request, error) {
-	folders, err := r.Store.SharedFolders().List(ctx)
-	return dbsource.Requests(folders, func(f *model.SharedFolder) string { return f.ID }, keep), err
 }
 
 // SetupWithManager reconciles folders, and every folder that is not ready
