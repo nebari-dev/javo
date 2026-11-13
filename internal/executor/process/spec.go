@@ -4,7 +4,6 @@ package process
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"maps"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/supervise"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/workload"
@@ -238,7 +238,7 @@ func (e *engine) command(ctx context.Context, s workload.Spec, u workload.Unit) 
 		value := v.Value
 		switch {
 		case v.RunID:
-			value = strings.ToLower(rand.Text())
+			value = supervise.RunID(s)
 		case v.From != nil:
 			b, ok := bundles[v.From.Bundle]
 			if !ok {

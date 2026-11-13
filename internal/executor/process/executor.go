@@ -40,8 +40,8 @@ type Options struct {
 	Grace time.Duration
 }
 
-// ErrBatch is Start's answer to a job run.
-var ErrBatch = errors.New("process executor: job runs are not supported yet")
+// ErrBatch is Start's answer to a job run: Runs runs those.
+var ErrBatch = errors.New("process executor: a job run is not an app")
 
 // UnsupportedError is a part of a workload that cannot be run without
 // containers.

@@ -156,7 +156,7 @@ func TestConformance(t *testing.T) {
 	})
 }
 
-// A unit that needs an image is refused; a job run is not supported yet.
+// A unit that needs an image is refused, and a job run is not an app.
 func TestRefusesImagesAndRuns(t *testing.T) {
 	x, _ := build(t, process.Options{RunnerImage: "registry.example.com/javo:1"})
 	s := app("sleep 300")

@@ -33,6 +33,9 @@ type Target struct {
 	// executor whose workloads share one machine with another test run's
 	// names one of its own.
 	Namespace string
+	// Again, for an executor of runs, ends Executor and returns one made
+	// anew on what it left behind, as when Javo restarts.
+	Again func() executor.Executor
 	// Fit, unless nil, gives a workload what this executor asks of every
 	// one and the suite does not care about: a user, a memory limit.
 	Fit func(*workload.Spec)
@@ -46,12 +49,9 @@ const patience = 30 * time.Second
 const secretValue = "v3ry-s3cr3t-9471"
 
 // Run checks the executor made by build, a fresh one per test, against
-// what every executor must do.
+// what every executor of apps must do.
 func Run(t *testing.T, build func(t *testing.T) Target) {
-	tests := []struct {
-		name string
-		run  func(*suite)
-	}{
+	check(t, "conformance", build, []test{
 		{"StartIsIdempotent", (*suite).startIsIdempotent},
 		{"ObserveIsNilBeforeStartAndAfterStop", (*suite).observeNil},
 		{"FailingStepFailsWithEvidence", (*suite).failingStep},
@@ -61,15 +61,28 @@ func Run(t *testing.T, build func(t *testing.T) Target) {
 		{"ListNamesWhatRuns", (*suite).list},
 		{"WatchFiresOnChange", (*suite).watch},
 		{"SecretValueNeverShows", (*suite).secret},
-	}
+	})
+}
+
+// test is one thing an executor must do.
+type test struct {
+	name string
+	run  func(*suite)
+}
+
+// check runs tests, each against an executor of its own made by build
+// and with a workload of its own, called after prefix.
+func check(t *testing.T, prefix string, build func(t *testing.T) Target, tests []test) {
 	for i, c := range tests {
 		t.Run(c.name, func(t *testing.T) {
 			s := &suite{T: t, Target: build(t)}
-			s.ref = workload.Ref{Namespace: cmp.Or(s.Namespace, "alice"), Name: fmt.Sprintf("conformance-%d", i), ID: fmt.Sprintf("a-%d", i), Owner: "alice"}
+			s.ref = workload.Ref{Namespace: cmp.Or(s.Namespace, "alice"), Name: fmt.Sprintf("%s-%d", prefix, i), ID: fmt.Sprintf("a-%d", i), Owner: "alice"}
 			t.Cleanup(func() {
-				// The test's own context has ended by now.
+				// The test's own context has ended by now. A run that is
+				// going is ended by the first Stop and let go by the second.
 				ctx, cancel := context.WithTimeout(context.Background(), patience)
 				defer cancel()
+				_ = s.Executor.Stop(ctx, s.ref)
 				_ = s.Executor.Stop(ctx, s.ref)
 			})
 			c.run(s)
@@ -160,7 +173,7 @@ func (s *suite) untilPhase(phase string) *workload.State {
 func (s *suite) output(o executor.LogOptions) string {
 	s.Helper()
 	rc, err := s.Executor.Logs(s.Context(), s.ref, o)
-	if err != nil {
+	if err != nil || rc == nil {
 		return ""
 	}
 	defer rc.Close()

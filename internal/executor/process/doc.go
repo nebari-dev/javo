@@ -1,5 +1,5 @@
-// Package process runs apps as child processes of Javo, for one person on
-// their own machine. It is an executor.Executor built on
+// Package process runs apps and job runs as child processes of Javo, for
+// one person on their own machine. It is an executor.Executor built on
 // internal/executor/supervise, for Linux and macOS.
 //
 // # What it does not do
@@ -69,8 +69,31 @@
 // go into the child's environment or the 0600 files above, never into a
 // log line of Javo's, an error or any other file.
 //
-// Runs. A Spec with Batch is refused with ErrBatch: job runs are not
-// supported yet.
+// # Runs
+//
+// Executor.Runs is the executor for job runs (workload.Batch), on the same
+// state directory and by the same rules: a run is refused for what an app
+// is refused for, its units run as Javo with PATH and the variables the
+// Spec names, and what they print goes to the same kind of log. The
+// Executor itself refuses a run (ErrBatch), and Runs an app. A run has no
+// port, so there is no address and nothing for guard.go to look at: a
+// run's program that listens on the network is not stopped.
+//
+// internal/executor/supervise decides how a run goes: each attempt runs
+// the steps and the main unit once, a failed one is started over while
+// retries are left, and the time limit counts from Start. A variable that
+// asks for the run's id gets the run's name. What is known of the run is
+// kept in run.json in its folder, and the main unit of attempt n is told
+// in JAVO_TERMINATION_LOG to leave its last message in message/n there:
+// a folder closed to other users, and open, like everything here, to
+// whatever else runs as Javo. The log is that of the newest attempt, and
+// the one before it the previous log.
+//
+// A run that is done stays, with its folder, until Stop lets go of it,
+// also over a restart of Javo. A run that was going when Javo ended has
+// lost that attempt, since its processes ended with Javo: the next Javo
+// starts it over while it has retries left, and else records it as
+// failed, with no message.
 //
 // # The shipped templates
 //

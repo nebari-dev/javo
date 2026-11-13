@@ -2,11 +2,13 @@ package supervise
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,9 +39,20 @@ type record struct {
 // once the run itself is over.
 const keepTime = 30 * time.Second
 
-// maxMessage is the most of a run's message that is read, as much as
+// MaxMessage is the most of a run's message an engine reads, as much as
 // Kubernetes keeps of a termination message.
-const maxMessage = 4096
+const MaxMessage = 4096
+
+// RunID is the value an engine gives a unit of s for a variable that
+// asks for the id of the run (workload.Env.RunID): a run's handle, the
+// same for every attempt, as on Kubernetes; for an app, a new one each
+// time.
+func RunID(s workload.Spec) string {
+	if s.Batch != nil {
+		return s.Ref.Name
+	}
+	return strings.ToLower(rand.Text())
+}
 
 // attempted is how one attempt of a run ended.
 type attempted struct {
