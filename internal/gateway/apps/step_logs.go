@@ -18,11 +18,11 @@ import (
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/executor"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/pixienv"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/source"
 )
 
@@ -134,14 +134,14 @@ func (l *lockedWriter) flush() {
 
 // containerStep is the startup step a container of the app's pod does its
 // work in: the app's own container starts it; the environment install, and
-// on a pod with one or a build the clone, are kube.InitStep's; the other
+// on a pod with one or a build the clone, are podread.InitStep's; the other
 // init containers (the platform's files, the sample copy) fill the home.
 func containerStep(pod *corev1.Pod, name string, init bool) string {
 	switch {
 	case !init:
 		return model.ConditionStarted
 	case name == pixienv.InstallContainer || name == pixienv.ToolsContainer || source.IsSiteStep(name):
-		return kube.InitStep(pod, name)
+		return podread.InitStep(pod, name)
 	}
 	return model.ConditionHomeReady
 }
@@ -260,7 +260,7 @@ func (f *stepFollower) run(ctx context.Context) {
 // while it runs), how a run ended, a wait or a restart. advanced is true
 // when it read a log, so the pod is read again without waiting.
 func (f *stepFollower) advance(ctx context.Context, src logSource, st *sourceState) (advanced bool, err error) {
-	cs := podlogs.ContainerStatus(src.pod, src.container)
+	cs := podread.ContainerStatus(src.pod, src.container)
 	if cs == nil || (cs.State.Running == nil && cs.State.Terminated == nil && cs.LastTerminationState.Terminated == nil) {
 		return false, nil // not started yet
 	}

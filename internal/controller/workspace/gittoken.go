@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"strconv"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/executor"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
@@ -133,7 +131,7 @@ func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, ge
 // secret of the owner sealed with the public half of the keyset. Nothing is
 // done while the Secret holds no token yet.
 func (r *Reconciler) adoptGitToken(ctx context.Context, app *model.App) error {
-	token, err := readGitToken(ctx, r.Secrets, app)
+	token, err := ReadGitToken(ctx, r.Secrets, app)
 	if err != nil || token == "" {
 		return err
 	}
@@ -169,11 +167,7 @@ func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, token, 
 // ReadGitToken returns the repository token the app's clone uses, read live
 // from its Secret, or "" when the app has none. A Secret of that name that is
 // not labelled as the app's is an error. Callers must never log the token.
-func ReadGitToken(ctx context.Context, secrets client.Reader, app *model.App) (string, error) {
-	return readGitToken(ctx, kube.Secrets{Reader: secrets}, app)
-}
-
-func readGitToken(ctx context.Context, secrets executor.Secrets, app *model.App) (string, error) {
+func ReadGitToken(ctx context.Context, secrets executor.Secrets, app *model.App) (string, error) {
 	have, err := secrets.Get(ctx, RefOf(app), GitTokenSecretName(app.ObjectName()))
 	if err != nil || have == nil {
 		return "", err

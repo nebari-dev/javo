@@ -9,8 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/nebari-dev/javo/internal/ai/agentproxy"
-	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +17,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nebari-dev/javo/internal/ai/agentproxy"
+	"github.com/nebari-dev/javo/internal/gateway/apps"
 
 	"golang.org/x/crypto/argon2"
 	corev1 "k8s.io/api/core/v1"
@@ -54,7 +55,6 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/branding"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/storage"
 	"github.com/nebari-dev/javo/internal/jobs/engine"
 	"github.com/nebari-dev/javo/internal/model"
@@ -95,7 +95,7 @@ type Options struct {
 	// Branding is the install's look; nil is the built-in one.
 	Branding *branding.Branding
 	Files    *StubFilesLister
-	Logs     podlogs.Source
+	Logs     kube.PodLogs
 	Sizes    sizes.Catalog
 	// NoLocal leaves the local provider out, as when auth.local is disabled.
 	NoLocal bool

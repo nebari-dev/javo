@@ -29,7 +29,6 @@ import (
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	gwstorage "github.com/nebari-dev/javo/internal/gateway/storage"
 	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/secrets"
@@ -237,7 +236,7 @@ func (o *gatewayOptions) clusterParts(ctx context.Context, common *commonFlags, 
 	// What runs the apps and the runs: the gateway asks it where an app
 	// listens and for logs, and nothing else. It finds a run's pods
 	// through c.
-	workloads := &kube.Executor{Client: c, PodLogs: podlogs.Clientset{Clientset: clientset}}
+	workloads := &kube.Executor{Client: c, PodLogs: kube.ClientsetLogs{Clientset: clientset}}
 	lister := files.NewLister(pods, files.Rclone{})
 	return gatewayParts{
 		client: c, machines: machines, apps: workloads, runs: workloads.Runs(),

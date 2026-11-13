@@ -14,9 +14,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -117,7 +117,7 @@ func TestEventsInTheSameSecondKeepStartupOrder(t *testing.T) {
 func TestLogsReturnsTheAppContainersRecentLinesAsText(t *testing.T) {
 	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01.5Z  You can now view your Streamlit app\n2026-10-30T12:00:02Z <script>alert(1)</script>\n")
-	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
+	f := apitest.New(t, apitest.Options{Logs: kube.ClientsetLogs{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 2))
 	alice := f.Session("alice-aaaaaaaa")
 
@@ -158,7 +158,7 @@ func TestLogsReturnsTheAppContainersRecentLinesAsText(t *testing.T) {
 
 func TestLogsTailIsBounded(t *testing.T) {
 	t.Parallel()
-	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: apitest.FakeLogs("")}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
+	f := apitest.New(t, apitest.Options{Logs: kube.ClientsetLogs{Clientset: apitest.FakeLogs("")}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 0))
 	for _, q := range []string{"tail=0", "tail=100000"} {
 		if w := f.Do("GET", "/api/workspaces/app/logs?"+q, "", f.Session("alice-aaaaaaaa")); w.Code != http.StatusUnprocessableEntity {
@@ -170,7 +170,7 @@ func TestLogsTailIsBounded(t *testing.T) {
 func TestLogsAreEmptyBeforeTheContainerStartsOrWithoutAPreviousRun(t *testing.T) {
 	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01Z never read\n")
-	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
+	f := apitest.New(t, apitest.Options{Logs: kube.ClientsetLogs{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"),
 		gatewaytest.Workspace("other", "alice-aaaaaaaa", "Other"), apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "other", "uid-other"), 0))
 	alice := f.Session("alice-aaaaaaaa")
@@ -193,7 +193,7 @@ func TestLogsOfACrashLoopingContainerAreItsLastRun(t *testing.T) {
 	cs := apitest.FakeLogs("2026-10-30T12:00:01Z ModuleNotFoundError: No module named 'plotly'\n")
 	pod := apitest.Running(gatewaytest.LivePod("alice-aaaaaaaa", "app", "uid-live"), 3)
 	pod.Status.ContainerStatuses[0].State = corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}
-	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
+	f := apitest.New(t, apitest.Options{Logs: kube.ClientsetLogs{Clientset: cs}}, gatewaytest.Workspace("app", "alice-aaaaaaaa", "App"),
 		gatewaytest.Template("streamlit", "streamlit"), pod)
 	w := f.Do("GET", "/api/workspaces/app/logs", "", f.Session("alice-aaaaaaaa"))
 	if got := apitest.Decode[apitest.LogsJSON](t, w); len(got.Lines) != 1 || got.Restarts != 3 {
@@ -251,7 +251,7 @@ func TestBuildStepLogIsTheBuildContainers(t *testing.T) {
 	t.Parallel()
 	cs := apitest.FakeLogs("2026-10-30T12:00:01Z npm error code EUSAGE\n2026-10-30T12:00:01Z npm error The `npm ci` command can only install with an existing package-lock.json\n")
 	ws, pod := apitest.SiteApp()
-	f := apitest.New(t, apitest.Options{Logs: podlogs.Clientset{Clientset: cs}}, ws, gatewaytest.Template("static-site", "static"), pod)
+	f := apitest.New(t, apitest.Options{Logs: kube.ClientsetLogs{Clientset: cs}}, ws, gatewaytest.Template("static-site", "static"), pod)
 	w := f.Do("GET", "/api/workspaces/site/logs?step=Built&tail=1000", "", f.Session("alice-aaaaaaaa"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body)

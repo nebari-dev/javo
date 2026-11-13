@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"strconv"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	toolscache "k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -63,6 +62,14 @@ type Executor struct {
 	// started are the Pods, and for runs the Jobs, Start made that the
 	// cache has not shown yet.
 	started sync.Map
+}
+
+// ClientsetLogs reads pod logs through client-go (pods/log get).
+type ClientsetLogs struct{ Clientset kubernetes.Interface }
+
+// Stream opens the log of one container of pod.
+func (c ClientsetLogs) Stream(ctx context.Context, namespace, pod string, opts *corev1.PodLogOptions) (io.ReadCloser, error) {
+	return c.Clientset.CoreV1().Pods(namespace).GetLogs(pod, opts).Stream(ctx)
 }
 
 // PodLogs reads a pod container's log (pods/log get).
@@ -362,7 +369,7 @@ func (e *Executor) Watch(ctx context.Context, changed func(workload.Ref)) error 
 
 // Addr is the app's Service by its name in the cluster.
 func (e *Executor) Addr(_ context.Context, ref workload.Ref, port int32) (string, error) {
-	return net.JoinHostPort(fmt.Sprintf("%s.%s.svc", ref.Name, ref.Namespace), strconv.Itoa(int(port))), nil
+	return ref.ServiceAddr(port), nil
 }
 
 // Logs opens the log of the container o.Unit of the app's Pod; with no

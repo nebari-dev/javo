@@ -8,6 +8,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/executor/startup"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
 
@@ -65,7 +66,7 @@ func ClassifyPod(p *corev1.Pod, evs []corev1.Event) (failing, code string, evide
 				// A pod that builds its site fetches the code and builds it
 				// in its Built step; one with an environment installs it in
 				// its EnvReady step.
-				step := InitStep(p, cs.Name)
+				step := podread.InitStep(p, cs.Name)
 				if t.ExitCode != 0 {
 					// What a failed step means is the same on every
 					// platform (startup.Failed); the kubelet's part is the

@@ -22,6 +22,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -182,7 +183,7 @@ func (r *Reconciler) sync(ctx context.Context, parent *model.App) (reconcile.Res
 			Reason: string(reasons.PreviewsUnavailable), Message: "no code host serves " + parent.Source.URL,
 		}, r.Now())
 	}
-	token, err := workspace.ReadGitToken(ctx, r.Secrets, parent)
+	token, err := workspace.ReadGitToken(ctx, kube.Secrets{Reader: r.Secrets}, parent)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("read the repository token: %w", err)
 	}

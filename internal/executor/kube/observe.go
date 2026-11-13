@@ -12,6 +12,7 @@ import (
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/executor/startup"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/workload"
 )
@@ -82,7 +83,7 @@ func Observe(s Seen) *workload.State {
 		// The steps before the app's own run in init containers; a pod that
 		// builds is in its Built step until they are all done.
 		if c := runningInit(p); c != "" {
-			step := InitStep(p, c)
+			step := podread.InitStep(p, c)
 			if step == model.ConditionStarted && podBuilds(p) {
 				step = model.ConditionBuilt
 			}
@@ -99,26 +100,9 @@ func Observe(s Seen) *workload.State {
 	return at("Starting", model.ConditionReady, reasons.Starting)
 }
 
-// initNames are the names of p's init containers, the steps of its
-// workload.
-func initNames(p *corev1.Pod) []string {
-	if p == nil {
-		return nil
-	}
-	names := make([]string, len(p.Spec.InitContainers))
-	for i, c := range p.Spec.InitContainers {
-		names[i] = c.Name
-	}
-	return names
-}
-
 // podInstallsEnv reports whether the pod installs an environment before the
 // app starts.
-func podInstallsEnv(p *corev1.Pod) bool { return startup.InstallsEnv(initNames(p)) }
-
-// InitStep is the startup step an init container of p does its work in
-// (startup.StepOf).
-func InitStep(p *corev1.Pod, name string) string { return startup.StepOf(initNames(p), name) }
+func podInstallsEnv(p *corev1.Pod) bool { return startup.InstallsEnv(podread.InitNames(p)) }
 
 // runningInit is the first init container of p that has not finished well,
 // or "" when all have.
@@ -136,7 +120,7 @@ func runningInit(p *corev1.Pod) string {
 }
 
 // podBuilds reports whether the pod makes the site it serves.
-func podBuilds(p *corev1.Pod) bool { return startup.Builds(initNames(p)) }
+func podBuilds(p *corev1.Pod) bool { return startup.Builds(podread.InitNames(p)) }
 
 func lastTerminated(cs corev1.ContainerStatus) *corev1.ContainerStateTerminated {
 	if cs.State.Terminated != nil {
@@ -166,23 +150,12 @@ func newest(evs []corev1.Event, names ...string) *corev1.Event {
 	var best *corev1.Event
 	for i := range evs {
 		for _, r := range names {
-			if evs[i].Reason == r && (best == nil || EventTime(&evs[i]).After(EventTime(best))) {
+			if evs[i].Reason == r && (best == nil || podread.EventTime(&evs[i]).After(podread.EventTime(best))) {
 				best = &evs[i]
 			}
 		}
 	}
 	return best
-}
-
-// EventTime is when the event last happened.
-func EventTime(e *corev1.Event) time.Time {
-	switch {
-	case !e.LastTimestamp.IsZero():
-		return e.LastTimestamp.Time
-	case !e.EventTime.IsZero():
-		return e.EventTime.Time
-	}
-	return e.CreationTimestamp.Time
 }
 
 // superseded reports whether the pod moved past the failure event (a volume
@@ -195,7 +168,7 @@ func superseded(p *corev1.Pod, evs []corev1.Event, failure *corev1.Event) bool {
 		}
 	}
 	for _, r := range []string{"Pulling", "Pulled", "Created", "Started"} {
-		if e := newest(evs, r); e != nil && EventTime(e).After(EventTime(failure)) {
+		if e := newest(evs, r); e != nil && podread.EventTime(e).After(podread.EventTime(failure)) {
 			return true
 		}
 	}

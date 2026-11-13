@@ -28,7 +28,6 @@ import (
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
@@ -190,7 +189,9 @@ func retryDial(wait time.Duration) func(ctx context.Context, network, addr strin
 
 // defaultResolve reaches an app by its Service's name in the cluster.
 func defaultResolve(exp exposure.Backend) func(context.Context, *model.App, *model.Template) (Backend, error) {
-	return ResolveAt(exp, (&kube.Executor{}).Addr)
+	return ResolveAt(exp, func(_ context.Context, ref workload.Ref, port int32) (string, error) {
+		return ref.ServiceAddr(port), nil
+	})
 }
 
 // ResolveAt reaches an app at the address addr gives for its workload and

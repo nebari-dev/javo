@@ -58,6 +58,8 @@ const (
 	// It is how the controller maps a runtime object back to its row and
 	// finds the ones whose row is gone.
 	LabelJob = Group + "/job"
+	// LabelTrigger says on a run what started it.
+	LabelTrigger = Group + "/trigger"
 	// LabelRole marks platform pods in the workspace namespace (file pods).
 	LabelRole = Group + "/role"
 	// LabelSession marks session Secrets; its value is the session kind

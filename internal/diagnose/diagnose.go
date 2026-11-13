@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/nebari-dev/javo/internal/actions"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/sizes"
 )
@@ -238,7 +238,7 @@ func conditionEvidence(c metav1.Condition) Evidence {
 
 func eventEvidence(ev *corev1.Event) Evidence {
 	e := excerpt(KindEvent, "event/"+ev.Name, ev.Reason+": "+ev.Message)
-	if at := kube.EventTime(ev); !at.IsZero() {
+	if at := podread.EventTime(ev); !at.IsZero() {
 		e.At = &at
 	}
 	return e

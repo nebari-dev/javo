@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
@@ -96,7 +96,7 @@ func TestNonMemberCannotCreate(t *testing.T) {
 // else naming an owner gets the same 404 as for a missing app.
 func TestPlatformAdminManagesOthersApps(t *testing.T) {
 	t.Parallel()
-	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig(), Sizes: apitest.TestCatalog(t), Logs: podlogs.Clientset{Clientset: apitest.FakeLogs("")}},
+	f := apitest.New(t, apitest.Options{Roles: apitest.RolesConfig(), Sizes: apitest.TestCatalog(t), Logs: kube.ClientsetLogs{Clientset: apitest.FakeLogs("")}},
 		gatewaytest.Workspace("sales-app", apitest.BobID, "Sales app"), gatewaytest.Template("streamlit", "streamlit"))
 	alice := f.Session(apitest.AliceID, "javo-admins")
 	carol := f.Session("carol-33333333", "/org/members")

@@ -14,6 +14,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/reasons"
 )
@@ -90,7 +91,7 @@ func (s *Workspaces) diagnose(ctx context.Context, app *model.App) (diagnose.Dia
 			return diagnose.Diagnosis{}, err
 		}
 		in.Logs = append(in.Logs, s.logLines(ctx, pod, false)...)
-		if cs := podlogs.ContainerStatus(pod, podspec.ContainerName); cs != nil && cs.RestartCount > 0 {
+		if cs := podread.ContainerStatus(pod, podspec.ContainerName); cs != nil && cs.RestartCount > 0 {
 			in.Logs = append(in.Logs, s.logLines(ctx, pod, true)...)
 		}
 	}

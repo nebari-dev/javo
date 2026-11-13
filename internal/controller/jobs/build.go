@@ -13,7 +13,6 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/jobs/runner"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -28,7 +27,7 @@ import (
 
 const (
 	// LabelTrigger says on a run what started it.
-	LabelTrigger    = kube.LabelTrigger
+	LabelTrigger    = model.LabelTrigger
 	TriggerSchedule = store.TriggerSchedule
 	TriggerManual   = store.TriggerManual
 

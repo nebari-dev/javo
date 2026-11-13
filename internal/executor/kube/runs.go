@@ -20,13 +20,14 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
 	// LabelTrigger says on a run's Job and pods what started it.
-	LabelTrigger    = model.Group + "/trigger"
+	LabelTrigger    = model.LabelTrigger
 	TriggerSchedule = "schedule"
 	TriggerManual   = "manual"
 
@@ -252,7 +253,7 @@ func (r Runs) Logs(ctx context.Context, ref workload.Ref, o executor.LogOptions)
 		o.Unit = podspec.ContainerName
 	}
 	pod := lastPod(pods.Items)
-	if pod == nil || !HasLog(ContainerStatus(pod, o.Unit), o.Previous) {
+	if pod == nil || !podread.HasLog(podread.ContainerStatus(pod, o.Unit), o.Previous) {
 		return nil, nil
 	}
 	if r.e.PodLogs == nil {
@@ -370,33 +371,4 @@ func disown(obj client.Object, uid apitypes.UID) bool {
 	kept := slices.DeleteFunc(slices.Clone(refs), func(o metav1.OwnerReference) bool { return o.UID == uid })
 	obj.SetOwnerReferences(kept)
 	return len(kept) != len(refs)
-}
-
-// ContainerStatus returns the status of the pod's container or init
-// container called name, or nil before it has one.
-func ContainerStatus(pod *corev1.Pod, name string) *corev1.ContainerStatus {
-	if pod == nil {
-		return nil
-	}
-	for _, l := range [][]corev1.ContainerStatus{pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses} {
-		for i := range l {
-			if l[i].Name == name {
-				return &l[i]
-			}
-		}
-	}
-	return nil
-}
-
-// HasLog reports whether the asked-for run of the container has a log to
-// read. A container waiting to restart (CrashLoopBackOff) still has the log
-// of the run that just ended, which the kubelet serves as the current one.
-func HasLog(cs *corev1.ContainerStatus, previous bool) bool {
-	switch {
-	case cs == nil:
-		return false
-	case previous:
-		return cs.LastTerminationState.Terminated != nil
-	}
-	return cs.State.Running != nil || cs.State.Terminated != nil || cs.LastTerminationState.Terminated != nil
 }

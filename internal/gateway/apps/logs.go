@@ -20,11 +20,11 @@ import (
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/executor"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/podread"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/source"
 	"github.com/nebari-dev/javo/internal/store"
@@ -94,7 +94,7 @@ type steppedEvent struct {
 // step. The kubelet records whole seconds and the scheduler finer times,
 // so a plain time sort can put a pull before the scheduling it followed.
 func eventOrder(a, b steppedEvent) int {
-	ta, tb := kube.EventTime(a.ev).Truncate(time.Second), kube.EventTime(b.ev).Truncate(time.Second)
+	ta, tb := podread.EventTime(a.ev).Truncate(time.Second), podread.EventTime(b.ev).Truncate(time.Second)
 	if c := ta.Compare(tb); c != 0 {
 		return c
 	}
@@ -226,7 +226,7 @@ func (s *Workspaces) recentLogs(ctx context.Context, in *logsInput) (*logsOutput
 		return nil, err
 	}
 	out := &logsOutput{CacheControl: "no-store", Body: AppLogs{Lines: []podlogs.LogLine{}}}
-	if cs := podlogs.ContainerStatus(pod, stepContainer(pod, in.Step)); cs != nil {
+	if cs := podread.ContainerStatus(pod, stepContainer(pod, in.Step)); cs != nil {
 		out.Body.Restarts = cs.RestartCount
 	}
 	if rc == nil {
@@ -358,7 +358,7 @@ func (s *Workspaces) events(ctx context.Context, in *nameInput) (*eventListOutpu
 			count = e.Series.Count
 		}
 		out.Body.Items = append(out.Body.Items, Event{
-			Step: se.step, Time: kube.EventTime(e).UTC(),
+			Step: se.step, Time: podread.EventTime(e).UTC(),
 			Type: e.Type, Reason: e.Reason, Message: e.Message, Count: max(count, 1),
 		})
 	}
