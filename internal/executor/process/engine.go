@@ -4,10 +4,12 @@ package process
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -64,6 +66,8 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 	}
 	cmd.Stdout, cmd.Stderr = in, in
 	cmd.SysProcAttr = procAttr()
+	mark := strings.ToLower(rand.Text())
+	cmd.Env = append(cmd.Env, markEnv+"="+mark)
 
 	p := &proc{grace: e.grace, exited: make(chan struct{})}
 	guarded := u.Name == s.Main.Name && s.Port != 0
@@ -89,7 +93,7 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 			_ = log.Close()
 		}()
 		p.pid = cmd.Process.Pid
-		e.record(wd, u.Name, p.pid)
+		e.record(wd, u.Name, p.pid, mark)
 		started <- nil
 		if guarded {
 			go p.guard(int(s.Port))
@@ -97,7 +101,7 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 
 		// Learn of the exit before the process is reaped: until then its
 		// pid, and so its group, cannot be anyone else's. What it left
-		// running in the group ends with it.
+		// running ends with it: the group, and what left the group.
 		err = awaitExit(p.pid)
 		p.mu.Lock()
 		p.gone = true
@@ -105,6 +109,7 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 			_ = syscall.Kill(-p.pid, syscall.SIGKILL)
 		}
 		p.mu.Unlock()
+		reap(mark)
 		_ = cmd.Wait()
 		e.forget(wd, u.Name)
 		p.code = cmd.ProcessState.ExitCode()

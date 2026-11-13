@@ -3,6 +3,7 @@ package process
 import (
 	"errors"
 	"fmt"
+	"os"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -59,4 +60,20 @@ func startTime(pid int) (string, error) {
 	}
 	t := k.Proc.P_starttime
 	return fmt.Sprintf("%d.%06d", t.Sec, t.Usec), nil
+}
+
+// processes are the pids of this user's processes.
+func processes() []int {
+	all, _ := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Getuid())
+	pids := make([]int, len(all))
+	for i := range all {
+		pids[i] = int(all[i].Proc.P_pid)
+	}
+	return pids
+}
+
+// environ is what the process pid was started with: its arguments and its
+// environment, each ended by a zero byte.
+func environ(pid int) ([]byte, error) {
+	return unix.SysctlRaw("kern.procargs2", pid)
 }

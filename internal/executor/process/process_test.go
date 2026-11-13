@@ -37,7 +37,21 @@ const (
 // address it holds.
 const listenEnv = "JAVO_TEST_LISTEN"
 
+// daemonEnv makes this test binary, run by a unit, a daemon: it leaves the
+// unit's session and process group, prints its pid and stays, for no
+// longer than a failing test waits for it to go.
+const daemonEnv = "JAVO_TEST_DAEMON"
+
 func TestMain(m *testing.M) {
+	if os.Getenv(daemonEnv) != "" {
+		if _, err := syscall.Setsid(); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Println(os.Getpid())
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
 	if addr := os.Getenv(listenEnv); addr != "" {
 		lis, err := net.Listen("tcp", addr)
 		if err != nil {
@@ -495,6 +509,51 @@ func TestProcessesAUnitLeavesBehindAreKilled(t *testing.T) {
 	until(t, "rid of the process the step left", func() bool { return !alive(child) })
 }
 
+// daemon is a script that starts this test binary as a daemon (daemonEnv)
+// and then runs what follows.
+func daemon(then string) (script string, args []string) {
+	return daemonEnv + `=1 "$1" & ` + then, []string{os.Args[0]}
+}
+
+// A process a unit started that left its process group and session, as a
+// daemon does, ends when the unit is stopped.
+func TestStopEndsWhatLeftTheProcessGroup(t *testing.T) {
+	x, _ := build(t, process.Options{})
+	script, args := daemon("exec sleep 300")
+	if err := x.Start(t.Context(), app(script, args...)); err != nil {
+		t.Fatal(err)
+	}
+	left := pidOf(t, printed(t, x, 1)[0])
+	if pgid, err := syscall.Getpgid(left); err != nil || pgid != left {
+		t.Fatalf("the daemon is in the group %d (%v), want one of its own", pgid, err)
+	}
+	if err := x.Stop(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "rid of the daemon the unit started", func() bool { return !alive(left) })
+}
+
+// So does one whose unit exited by itself, and one of a step.
+func TestADaemonEndsWithTheUnitThatStartedIt(t *testing.T) {
+	x, _ := build(t, process.Options{})
+	script, args := daemon("sleep 1")
+	s := app("sleep 300")
+	s.Steps = []workload.Unit{sh("spawn", script, args...)}
+	if err := x.Start(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	until(t, "the step printing", func() bool {
+		out := output(t, x, executor.LogOptions{Unit: "spawn"})
+		if out == "" {
+			return false
+		}
+		left = pidOf(t, out)
+		return true
+	})
+	until(t, "rid of the daemon the step left", func() bool { return !alive(left) })
+}
+
 // A Javo that starts on a state directory kills what the Javo before it
 // left running there, and leaves alone a recorded pid that is now another
 // process.
@@ -506,6 +565,29 @@ func TestNewSweepsWhatAnEarlierJavoLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	left := pidOf(t, printed(t, x, 1)[0])
+	// A unit of the earlier Javo whose first process is gone and whose
+	// daemon is not.
+	other := workload.Ref{Namespace: "alice", Name: "other", ID: "a-2", Owner: "alice"}
+	script, args := daemon("sleep 300")
+	orphaned := app(script, args...)
+	orphaned.Ref = other
+	if err := x.Start(t.Context(), orphaned); err != nil {
+		t.Fatal(err)
+	}
+	var orphan int
+	until(t, "the daemon printing", func() bool {
+		rc, err := x.Logs(t.Context(), other, executor.LogOptions{})
+		if err != nil {
+			return false
+		}
+		defer rc.Close()
+		b, _ := io.ReadAll(rc)
+		if len(b) == 0 {
+			return false
+		}
+		orphan = pidOf(t, string(b))
+		return true
+	})
 
 	// A record of a pid that is this test's own, started at another time.
 	rec := filepath.Join(dir, "w", "alice", "gone", "pids")
@@ -519,6 +601,7 @@ func TestNewSweepsWhatAnEarlierJavoLeft(t *testing.T) {
 	build(t, process.Options{Dir: dir})
 	// Still here: the stale record was not acted on.
 	until(t, "rid of the process left behind", func() bool { return !alive(left) })
+	until(t, "rid of the daemon left behind", func() bool { return !alive(orphan) })
 	if _, err := os.Stat(filepath.Join(rec, "app")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the stale record stayed: %v", err)
 	}

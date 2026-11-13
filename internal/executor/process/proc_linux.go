@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -43,4 +44,24 @@ func startTime(pid int) (string, error) {
 		return "", fmt.Errorf("unexpected /proc/%d/stat", pid)
 	}
 	return fields[19], nil
+}
+
+// processes are the pids of the machine's processes.
+func processes() []int {
+	entries, _ := os.ReadDir("/proc")
+	var pids []int
+	for _, e := range entries {
+		if pid, err := strconv.Atoi(e.Name()); err == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// environ is the environment the process pid was started with, each
+// variable ended by a zero byte, after a zero byte. Another user's cannot
+// be read.
+func environ(pid int) ([]byte, error) {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+	return append([]byte{0}, b...), err
 }

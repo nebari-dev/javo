@@ -131,14 +131,25 @@
 // process. A group is signalled only while its leader has not been
 // reaped, which is the only time its number is provably ours.
 //
+// A process that leaves the group (a daemon: the tmux server of the
+// coding agents, with the agent in it, or herdr's) is not reached that
+// way, and its parent is no longer the unit. So each unit is started
+// with a variable, JAVO_PROCESS_MARK, whose value is made up for that
+// one start, and when the leader exits every process of this user that
+// has that value in the environment it was started with is killed, by
+// its own pid, checked by its start time (sweep.go). Only the unit and
+// what it started can carry the value. A process that drops its
+// environment before it leaves the group is not found and keeps running.
+//
 // Close stops everything. When Javo dies without closing, Linux kills
 // each leader (PR_SET_PDEATHSIG), not the processes a leader started;
 // macOS has no such thing and kills nothing. Either way New sweeps: each
-// unit's pid is recorded with the time the process started (pids/<unit>
-// in the workload's folder), and a process that still has both is killed
-// with its group. A recorded pid whose start time differs, or whose
-// leader is gone, is somebody else's by now and is left alone, so
-// processes a dead leader left behind keep running until they exit.
+// unit's pid is recorded with the time the process started and with the
+// unit's mark (pids/<unit> in the workload's folder). A process that
+// still has both the pid and the time is killed with its group; a
+// recorded pid whose start time differs is somebody else's by now and is
+// left alone. Whatever carries the mark is killed too, also when the
+// leader is gone.
 //
 // # Logs
 //
