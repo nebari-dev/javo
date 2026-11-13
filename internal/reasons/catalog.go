@@ -148,6 +148,7 @@ const (
 const (
 	JobsNotAllowed     Code = "JobsNotAllowed"
 	OwnerLostAccess    Code = "OwnerLostAccess"
+	RunsUnsupported    Code = "RunsUnsupported" // the install's platform (Docker, plain processes) cannot run jobs yet
 	SchedulePaused     Code = "SchedulePaused"
 	ScheduleInvalid    Code = "ScheduleInvalid"
 	NotificationFailed Code = "NotificationFailed"
@@ -715,6 +716,11 @@ var catalog = []Reason{
 		Todo:  "Ask a cluster admin to restore access, or to reassign or delete the job.",
 		Blame: "The platform: the owner's access to the template was removed.",
 		Who:   "Cluster admins.", Blamed: PartyPlatform},
+	{Code: RunsUnsupported, Title: "Jobs cannot run here",
+		What:  "This install runs apps without Kubernetes, and jobs cannot run that way yet, so no run starts, by hand or on a schedule.",
+		Todo:  "Nothing you can change in the job. Tell your platform admin if you need jobs.",
+		Blame: "The platform: jobs need an install that runs on Kubernetes. Not your job.",
+		Who:   "Your platform admin.", Blamed: PartyPlatform},
 	{Code: SchedulePaused, Title: "Schedule paused",
 		What:  "The schedule is paused, so no new runs start by themselves.",
 		Todo:  "Resume the schedule when you want runs to start again.",

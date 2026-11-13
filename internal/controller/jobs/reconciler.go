@@ -19,6 +19,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
 	"github.com/nebari-dev/javo/internal/executor"
@@ -42,7 +43,9 @@ import (
 // columns.
 type Reconciler struct {
 	// Exec runs the jobs' runs and Secrets keeps the bundles they read.
-	// Required.
+	// Secrets is required. Exec is nil on a platform that cannot run jobs
+	// yet: every job is then Blocked as RunsUnsupported, no schedule fires
+	// and a run a person asks for fails with that reason.
 	Exec    executor.Executor
 	Secrets executor.Secrets
 	// Legacy removes what earlier versions left where the runs run; nil
@@ -83,6 +86,9 @@ type Reconciler struct {
 	// MaxTimeout is limits.jobMaxTimeout: no run takes longer. Zero is no
 	// platform limit.
 	MaxTimeout time.Duration
+
+	// unsupported is set when the platform runs no jobs (Exec was nil).
+	unsupported bool
 
 	// readable is, per job with a schedule, the fingerprint of the secrets
 	// its runs get that were last opened without trouble, so they are not
@@ -238,6 +244,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // assess decides the phase from the template, the owner's access and the job
 // itself.
 func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) (verdict, error) {
+	if r.unsupported {
+		return verdict{phase: model.JobPhaseBlocked, code: reasons.RunsUnsupported}, nil
+	}
 	tpl, err := r.Store.Templates().Get(ctx, job.Spec.Template)
 	if errors.Is(err, store.ErrNotFound) {
 		return verdict{phase: model.JobPhaseBlocked, code: reasons.TemplateMissing}, nil
@@ -914,26 +923,35 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	return failed
 }
 
-// SetupWithManager wires the controller: job rows (and the run requests,
+// SetupWithManager is Setup on a controller-runtime manager: the
+// controller on Kubernetes.
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
+	return r.Setup(loop.OnManager(mgr), feed)
+}
+
+// Setup wires the controller on d: job rows (and the run requests,
 // templates and people they depend on) come from the database through feed;
 // changes to their runs come from the executor. A job with a schedule is
 // looked at again when its next slot comes. It also adds the orphan sweep.
 // The caller runs feed.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Exec == nil || r.Secrets == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
+func (r *Reconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
+	if r.Secrets == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
 		r.Storage.Homes == nil || r.Storage.Folders == nil {
-		return errors.New("jobs reconciler needs Exec, Secrets, Store, Access, Now, RunnerImage and Storage")
+		return errors.New("jobs reconciler needs Secrets, Store, Access, Now, RunnerImage and Storage")
 	}
-	if err := mgr.Add(&sweep.Runner{What: "jobs", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
+	if r.Exec == nil {
+		// Nothing runs jobs here: the rows are still looked at, to say so.
+		r.Exec, r.unsupported = executor.None{}, true
+	}
+	if err := d.Add(&sweep.Runner{What: "jobs", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
 		return err
 	}
-	return ctrl.NewControllerManagedBy(mgr).Named("job").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), "jobs", r.ResyncEvery, r.allJobs)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "job_runs", r.jobOfRun)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "templates", r.jobsOfTemplate)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "people", r.jobsOfPerson)).
-		WatchesRawSource(r.runs()).
-		Complete(r)
+	return d.Reconcile("job", r,
+		dbsource.For(feed.Subscribe(), "jobs", r.ResyncEvery, r.allJobs),
+		dbsource.Fan(feed.Subscribe(), "job_runs", r.jobOfRun),
+		dbsource.Fan(feed.Subscribe(), "templates", r.jobsOfTemplate),
+		dbsource.Fan(feed.Subscribe(), "people", r.jobsOfPerson),
+		r.runs())
 }
 
 // runs feeds the controller the job of every run the executor saw change.
