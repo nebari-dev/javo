@@ -135,6 +135,9 @@ func (p Platform) validateExecutor(bad func(key, format string, a ...any)) {
 	folder("keysDir", p.KeysDir)
 	// What only a cluster can do, and would otherwise be accepted and never
 	// happen.
+	if p.Backup.S3 != nil {
+		bad("backup.s3", "not available with executor %s: the bucket holds the backups of home folders, which Jobs of a cluster make", p.Executor)
+	}
 	if p.Source.Previews.Enabled {
 		bad("source.previews.enabled", "not available with executor %s", p.Executor)
 	}

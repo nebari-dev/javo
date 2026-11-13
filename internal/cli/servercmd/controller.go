@@ -145,7 +145,10 @@ func NewController() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			return opts.run(ctx, &common, platform, db)
+			if err := needsCluster(platform, "javo controller"); err != nil {
+				return err
+			}
+			return opts.run(ctx, &common, platform, db, nil)
 		},
 	}
 	common.register(cmd.Flags())
@@ -153,8 +156,12 @@ func NewController() *cobra.Command {
 	return cmd
 }
 
-// run runs the controller on db until ctx ends.
-func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store) error {
+// run runs the controller on db until ctx ends: on host when apps run
+// there, else on the cluster.
+func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store, host *wiring.Host) error {
+	if host != nil {
+		return o.runOnHost(ctx, common, platform, db, host)
+	}
 	wsNamespace, releaseNS := common.workspaceNamespace, common.namespace
 	if o.runnerImage == "" || o.probe.controlURL == "" {
 		return errors.New("the controller needs --runner-image and --netprobe-control-url")
@@ -270,24 +277,11 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if err := apps.SetupWithManager(mgr); err != nil {
 		return err
 	}
-	if err := (&workspace.Reconciler{
-		Exec: apps, Place: apps, Store: db, Storage: appStorage,
-		ReadyTimeout: o.readyTimeout, PublicHost: common.publicHost, Sizes: appSizes,
-		UIDMode: platform.Identity.UIDMode, Exposure: wiring.Exposure(platform),
-		NetworkPolicy: policy,
-		Tokens:        &token.DBStore{Tokens: db.Tokens()}, Secrets: kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()},
-		APIURL:         publicURL(platform.URLs, common.publicHost),
-		APIInternalURL: gatewayBase(o.probe.controlURL),
-		CloneImage:     platform.Source.CloneImage, CloneGitConfig: platform.Source.GitConfig, RunnerImage: o.platformImage(),
-		PixiImage:  platform.Environments.PixiImage,
-		NebiURL:    wiring.NebiURL(platform),
-		AgentModel: aisettings.AgentModelOf(db, platform.AI),
-		SecretKeys: keys,
-		Access:     wiring.JobAccess(db.People(store.IDRange{}), platform.Roles),
-		// Checked again at each pod build, so a tightened list stops
-		// apps saved before.
-		AllowedRegistries: platform.ContainerImages.AllowedRegistries,
-	}).SetupWithManager(mgr, feed); err != nil {
+	appRec := o.appReconciler(common, platform, db, appSizes)
+	appRec.Exec, appRec.Place, appRec.Storage, appRec.NetworkPolicy = apps, apps, appStorage, policy
+	appRec.Secrets = kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}
+	appRec.APIInternalURL, appRec.SecretKeys = gatewayBase(o.probe.controlURL), keys
+	if err := appRec.SetupWithManager(mgr, feed); err != nil {
 		return err
 	}
 	// Always run: with the platform switch off it removes the previews that
@@ -302,15 +296,11 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	// Runs are Jobs of the same cluster the apps run on, with the same
 	// isolation. The controller fires the schedules itself.
 	runs := apps.Runs()
-	if err := (&jobs.Reconciler{
-		Exec: runs, Legacy: runs, Secrets: kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), Runs: true},
-		Store: db, RunnerImage: o.platformImage(), PixiImage: platform.Environments.PixiImage,
-		Access: wiring.JobAccess(db.People(store.IDRange{}), platform.Roles), Now: time.Now,
-		UIDMode: platform.Identity.UIDMode, Storage: wiring.StorageResolver(db, platform),
-		SecretKeys: keys, Sizes: appSizes,
-		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
-		APIInternalURL: gatewayBase(o.probe.controlURL), MaxTimeout: platform.Limits.JobMaxTimeout.Duration,
-	}).SetupWithManager(mgr, feed); err != nil {
+	jobRec := o.jobReconciler(common, platform, db, appSizes)
+	jobRec.Exec, jobRec.Legacy = runs, runs
+	jobRec.Secrets = kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), Runs: true}
+	jobRec.APIInternalURL, jobRec.SecretKeys = gatewayBase(o.probe.controlURL), keys
+	if err := jobRec.SetupWithManager(mgr, feed); err != nil {
 		return err
 	}
 	if err := o.setupStorage(mgr, feed, db, platform, probeNS, watched); err != nil {
@@ -338,6 +328,40 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		return err
 	}
 	return mgr.Start(ctx)
+}
+
+// appReconciler is the app reconciler but for where apps run, which its
+// caller fills in: Exec, Place, Secrets, Storage, NetworkPolicy,
+// APIInternalURL and SecretKeys (and Host, on a machine).
+func (o *controllerOptions) appReconciler(common *commonFlags, platform config.Platform, db *store.Store, appSizes sizes.Catalog) *workspace.Reconciler {
+	return &workspace.Reconciler{
+		Store:        db,
+		ReadyTimeout: o.readyTimeout, PublicHost: common.publicHost, Sizes: appSizes,
+		UIDMode: platform.Identity.UIDMode, Exposure: wiring.Exposure(platform),
+		Tokens:     &token.DBStore{Tokens: db.Tokens()},
+		APIURL:     publicURL(platform.URLs, common.publicHost),
+		CloneImage: platform.Source.CloneImage, CloneGitConfig: platform.Source.GitConfig, RunnerImage: o.platformImage(),
+		PixiImage:  platform.Environments.PixiImage,
+		NebiURL:    wiring.NebiURL(platform),
+		AgentModel: aisettings.AgentModelOf(db, platform.AI),
+		Access:     wiring.JobAccess(db.People(store.IDRange{}), platform.Roles),
+		// Checked again at each pod build, so a tightened list stops
+		// apps saved before.
+		AllowedRegistries: platform.ContainerImages.AllowedRegistries,
+	}
+}
+
+// jobReconciler is the jobs reconciler but for where runs run, which its
+// caller fills in: Exec, Secrets, APIInternalURL and SecretKeys.
+func (o *controllerOptions) jobReconciler(common *commonFlags, platform config.Platform, db *store.Store, appSizes sizes.Catalog) *jobs.Reconciler {
+	return &jobs.Reconciler{
+		Store: db, RunnerImage: o.platformImage(), PixiImage: platform.Environments.PixiImage,
+		Access: wiring.JobAccess(db.People(store.IDRange{}), platform.Roles), Now: time.Now,
+		UIDMode: platform.Identity.UIDMode, Storage: wiring.StorageResolver(db, platform),
+		Sizes:  appSizes,
+		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
+		MaxTimeout: platform.Limits.JobMaxTimeout.Duration,
+	}
 }
 
 // setupStorage adds the storage reconcilers: the cluster's findings, the

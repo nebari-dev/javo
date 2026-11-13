@@ -53,6 +53,18 @@ func NewServer() *cobra.Command {
 				return err
 			}
 			defer db.Close()
+			host, err := hostOf(ctx, cmd.Flags(), &common, &gw, &ctl, platform, db)
+			if err != nil {
+				return err
+			}
+			if host != nil {
+				if !runGateway || !runController {
+					return needsCluster(platform, "--components with one component")
+				}
+				// After both components have ended: apps that are processes
+				// stop here.
+				defer host.Close()
+			}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			var wg sync.WaitGroup
@@ -89,13 +101,13 @@ func NewServer() *cobra.Command {
 				start(func(ctx context.Context) error { return db.RunBackups(ctx, plan) })
 			}
 			if runController {
-				start(func(ctx context.Context) error { return ctl.run(ctx, &common, platform, db) })
+				start(func(ctx context.Context) error { return ctl.run(ctx, &common, platform, db, host) })
 			}
 			if runGateway {
 				if backup.schedule != "" {
 					gw.backups = plan
 				}
-				start(func(ctx context.Context) error { return gw.run(ctx, &common, platform, db) })
+				start(func(ctx context.Context) error { return gw.run(ctx, &common, platform, db, host) })
 			}
 			wg.Wait()
 			return errors.Join(errs...)

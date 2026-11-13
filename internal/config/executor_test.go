@@ -68,6 +68,8 @@ func TestAnExecutorNeedsItsSettings(t *testing.T) {
 		// One person on their own machine: there is no identity provider
 		// to ask who a second one is.
 		"auth.oidc": process + "urls:\n  uiHost: javo.example.com\nauth:\n  oidc:\n    issuer: https://idp.example.com\n    clientID: javo\n",
+		// Home folders are backed up by Jobs of a cluster.
+		"backup.s3": process + "backup:\n  s3:\n    endpoint: https://s3.example.com\n    bucket: backups\n",
 		// Previews are followed by a controller that only runs on a cluster.
 		"source.previews.enabled": process + "source:\n  previews:\n    enabled: true\n",
 	} {

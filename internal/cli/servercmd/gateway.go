@@ -3,7 +3,6 @@ package servercmd
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -19,35 +18,26 @@ import (
 	"github.com/tink-crypto/tink-go/v2/tink"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/nebari-dev/javo/internal/activity"
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
-	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/secretskey"
-	"github.com/nebari-dev/javo/internal/executor/kube"
-	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/admin"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/branding"
-	"github.com/nebari-dev/javo/internal/gateway/namespaces"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
-	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/plans"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/ids"
-	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/templates"
 )
@@ -136,7 +126,10 @@ func NewGateway() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			return opts.run(ctx, &common, platform, db)
+			if err := needsCluster(platform, "javo gateway"); err != nil {
+				return err
+			}
+			return opts.run(ctx, &common, platform, db, nil)
 		},
 	}
 	common.register(cmd.Flags())
@@ -146,12 +139,9 @@ func NewGateway() *cobra.Command {
 	return cmd
 }
 
-// run serves on db until ctx ends.
-func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store) error {
-	wsNamespace, namespace := common.workspaceNamespace, common.namespace
-	if namespace == "" {
-		return errors.New("--namespace is required (or set POD_NAMESPACE)")
-	}
+// run serves on db until ctx ends, for apps that run on host, or on the
+// cluster when host is nil.
+func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store, host *wiring.Host) error {
 	trusted, err := parseTrustedProxies(o.trustedProxies)
 	if err != nil {
 		return err
@@ -164,25 +154,10 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if err != nil {
 		return err
 	}
-	restCfg, err := ctrlconfig.GetConfig()
-	if err != nil {
-		return fmt.Errorf("load kubeconfig: %w", err)
-	}
-	clientset, err := kubernetes.NewForConfig(restCfg)
+	pl := wiring.Placement(platform)
+	on, err := o.parts(ctx, common, platform, db, pl, host)
 	if err != nil {
 		return err
-	}
-	scheme, err := gatewayScheme()
-	if err != nil {
-		return err
-	}
-	c, err := client.New(restCfg, client.Options{Scheme: scheme})
-	if err != nil {
-		return err
-	}
-	machines, err := capacity.Watch(ctx, restCfg)
-	if err != nil {
-		return fmt.Errorf("watch nodes: %w", err)
 	}
 	if o.templatesDir != "" {
 		if err := templates.Sync(ctx, db, os.DirFS(o.templatesDir)); err != nil {
@@ -193,32 +168,12 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if err != nil {
 		return err
 	}
-	sessionsKey, err := o.sessionsKeyOf(ctx, c, namespace)
-	if err != nil {
-		return err
-	}
+	sessionsKey := on.sessionsKey
 	sessions := &session.DBStore{Sessions: db.Sessions(), Key: sessionsKey}
 	// Webhook secrets are sealed with the same key (each bound to its hook),
 	// so a copy of the database cannot sign deliveries.
 	db.SetHookKey(sessionsKey)
 	tokens := &token.DBStore{Tokens: db.Tokens()}
-	pl := wiring.Placement(platform)
-	// c reads straight from the API server (no cache), as files.Pods needs.
-	pods, err := files.NewPods(files.PodsConfig{
-		Client: c, Namespace: wsNamespace, Image: o.filesImage, IdleAfter: o.filesIdleAfter,
-		// The sessions key is the one key every replica shares; a sealed
-		// login is bound to its pod and Secret, so it opens nothing else.
-		Seal:    sessionsKey,
-		Storage: podstorage.Provisioner{Resolver: wiring.StorageResolver(db, platform), Maker: db.Homes()},
-		UIDs:    ids.People{People: db.People(store.IDRange{}), Mode: platform.Identity.UIDMode},
-		ReapIn:  namespaces.New(pl, c).All,
-		// One namespace per person: sweep with one cluster-wide call.
-		ReapAcrossNamespaces: len(pl.Desired()) == 0,
-	})
-	if err != nil {
-		return err
-	}
-	go pods.Run(ctx)
 	go sessions.RunJanitor(ctx, platform.Sessions.SweepEvery.Duration)
 	go tokens.RunJanitor(ctx, platform.Sessions.SweepEvery.Duration, apps.AppTokenWanted(db))
 	go authn.RunDeviceJanitor(ctx, db, platform.Sessions.SweepEvery.Duration)
@@ -226,10 +181,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if oidc := platform.Auth.OIDC; oidc != nil {
 		outageGrace = oidc.OutageGrace.Duration
 	}
-	fp, err := common.fingerprinter(ctx, c)
-	if err != nil {
-		return err
-	}
+	fp := on.fingerprinter
 	aiLive := wiring.AISettings(platform.AI, db, sessionsKey)
 	aiSvc, err := wiring.AIService(ctx, platform.AI, aiLive, db, fp)
 	if err != nil {
@@ -239,19 +191,15 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go proposals.RunJanitor(ctx, time.Minute)
 	go apps.TrustJanitor{DB: db, Policy: apps.TrustPolicy{Config: platform.Agents.TrustedAllowed(), DB: db}, Now: time.Now}.Run(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
-	// What runs the apps and the runs: the gateway asks it where an app
-	// listens and for logs, and nothing else. It finds a run's pods
-	// through c.
-	workloads := &kube.Executor{Client: c, PodLogs: podlogs.Clientset{Clientset: clientset}}
+	workloads := on.apps
 	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()})
-	people := db.People(uidRange(platform.Identity))
+	people := on.people
 	revalidator := authn.NewRevalidator(providers, sessions, people, outageGrace, nil)
-	lister := files.NewLister(pods, files.Rclone{})
 	// One keeper for the API (create, start) and the app proxy, so they
 	// share its throttle.
 	nebi := wiring.NebiTokens(platform, db)
 	srv := gateway.NewServer(gateway.Config{
-		Client:            c,
+		Client:            on.client,
 		Store:             db,
 		Tokens:            tokens,
 		API:               platform.API,
@@ -271,22 +219,22 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		TrustedProxies:    trusted,
 		UIDir:             o.uiDir,
 		Branding:          look,
-		Homes:             lister,
-		Usage:             lister,
+		Homes:             on.homes,
+		Usage:             on.usage,
 		Groups:            ids.PersonGroups{People: db.People(store.IDRange{})},
 		Storage:           platform.Storage.Spec(),
 		Executor:          workloads,
-		Runs:              workloads.Runs(),
+		Runs:              on.runs,
 		PreviewsEnabled:   platform.Source.Previews.Enabled,
 		Thumbnails:        platform.Thumbnails.Enabled,
 		PreviewsMaxPerApp: platform.Source.Previews.MaxPerApp,
 		CodeHosts:         wiring.CodeHosts(platform),
 		Sizes:             appSizes,
-		Machines:          machines,
+		Machines:          on.machines,
 		Engines:           wiring.Engines(),
 		ContainerImages:   platform.ContainerImages,
 		IdleStop:          platform.IdleStop,
-		NetworkPolicy:     &netprobe.Store{Facts: db.Facts()},
+		NetworkPolicy:     on.policy,
 		Ready:             db.Ready,
 		Backups: admin.BackupConfig{
 			Engine: common.database.Engine, Dir: o.backups.Dir, Schedule: o.backups.Schedule, Keep: o.backups.Keep, Bucket: bkt,
@@ -296,7 +244,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		AI:              aiSvc,
 		AgentModel:      wiring.AgentModel(ctx, platform.AI, aiLive),
 		AISettings:      aiLive,
-		InternalHost:    o.internalHost,
+		InternalHost:    on.internalHost,
 		Agent:           apps.AgentConfig{Model: agentModelOf(aiLive), Template: platform.AI.Agent.Template},
 		AIFeatures:      platform.AI.Features,
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
