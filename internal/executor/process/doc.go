@@ -137,9 +137,12 @@
 // with a variable, JAVO_PROCESS_MARK, whose value is made up for that
 // one start, and when the leader exits every process of this user that
 // has that value in the environment it was started with is killed, by
-// its own pid, checked by its start time (sweep.go). Only the unit and
-// what it started can carry the value. A process that drops its
-// environment before it leaves the group is not found and keeps running.
+// its own pid, checked by its start time (sweep.go), with every process
+// one of those started, for as long as its parent is still there. Only
+// the unit and what it started can carry the value. What is not found
+// and keeps running: a process without the value in its environment (one
+// that dropped it or, on macOS, a program of the system's own, whose
+// environment the system does not show) whose parent has exited.
 //
 // Close stops everything. When Javo dies without closing, Linux kills
 // each leader (PR_SET_PDEATHSIG), not the processes a leader started;

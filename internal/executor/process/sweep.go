@@ -16,8 +16,15 @@ import (
 // made up for that one start. Whatever the unit starts inherits it, also
 // a daemon that leaves the unit's process group and session, whose
 // parent is no longer the unit: the mark is how such a process is known
-// to be the unit's. A process that drops its environment is not found.
+// to be the unit's.
 const markEnv = "JAVO_PROCESS_MARK"
+
+// running is a process that has not exited: its pid and the time it
+// started, which together name it, and the pid of its parent.
+type running struct {
+	pid, parent int
+	began       string
+}
 
 // record notes that the unit of the workload in wd runs as pid, with the
 // time that process started (the two together name it for as long as the
@@ -32,34 +39,47 @@ func (e *engine) record(wd, unit string, pid int, mark string) {
 // appearing or do not die.
 const reapFor = 5 * time.Second
 
-// reap kills every process of this user that carries mark in its
-// environment, where no one but the unit started with that mark and what
-// it started can have it. It looks until it finds none: a process may
-// start another while it is looked for. Each is killed by its own pid,
-// only when it started at the same time before and after its environment
-// was read, so the pid was not given to another process in between.
+// reap kills the processes of the unit that was started with mark: every
+// process that carries mark in its environment, where no one but that
+// unit and what it started can have it, and every process one of those
+// started, for as long as its parent is still there. The second finds
+// what does not show its environment (macOS shows none of a program of
+// the system's own) or was started with another. What is not found: a
+// process without the mark whose parent has exited.
+//
+// It looks until it finds none, as a process may start another while it
+// is looked for. Each is killed by its own pid, and only when it still
+// has the start time it was found with: the pid was not given to another
+// process in between.
 func reap(mark string) {
 	if mark == "" {
 		return
 	}
 	want := []byte("\x00" + markEnv + "=" + mark + "\x00")
 	for deadline := time.Now().Add(reapFor); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		all := processes()
+		ours := map[int]bool{}
+		for _, p := range all {
+			if env, err := environ(p.pid); err == nil && bytes.Contains(env, want) {
+				ours[p.pid] = true
+			}
+		}
+		for grew := true; grew; {
+			grew = false
+			for _, p := range all {
+				if !ours[p.pid] && ours[p.parent] {
+					ours[p.pid], grew = true, true
+				}
+			}
+		}
 		found := false
-		for _, pid := range processes() {
-			// 0 and 1 are never a unit's, and neither is Javo.
-			if pid <= 1 || pid == os.Getpid() {
+		for _, p := range all {
+			// 0 and 1 are never a unit's, and Javo is not killed by itself.
+			if !ours[p.pid] || p.pid <= 1 || p.pid == os.Getpid() {
 				continue
 			}
-			began, err := startTime(pid)
-			if err != nil {
-				continue
-			}
-			// A process that has exited and is not reaped has none.
-			if env, err := environ(pid); err != nil || !bytes.Contains(env, want) {
-				continue
-			}
-			if now, err := startTime(pid); err == nil && now == began {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
+			if now, err := startTime(p.pid); err == nil && now == p.began {
+				_ = syscall.Kill(p.pid, syscall.SIGKILL)
 				found = true
 			}
 		}

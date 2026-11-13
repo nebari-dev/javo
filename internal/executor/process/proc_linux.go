@@ -29,33 +29,49 @@ func awaitExit(pid int) error {
 // startTime is when the process pid started, in the kernel's own unit
 // (field 22 of /proc/<pid>/stat).
 func startTime(pid int) (string, error) {
+	p, _, err := stat(pid)
+	return p.began, err
+}
+
+// stat is the process pid as /proc/<pid>/stat has it, and its state (the
+// file's field 3).
+func stat(pid int) (running, string, error) {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
-		return "", err
+		return running{}, "", err
 	}
 	// The second field is the program's name in brackets and may hold
 	// anything; the rest starts after the last bracket, at field 3.
 	i := strings.LastIndex(string(b), ") ")
 	if i < 0 {
-		return "", fmt.Errorf("unexpected /proc/%d/stat", pid)
+		return running{}, "", fmt.Errorf("unexpected /proc/%d/stat", pid)
 	}
 	fields := strings.Fields(string(b)[i+2:])
 	if len(fields) < 20 {
-		return "", fmt.Errorf("unexpected /proc/%d/stat", pid)
+		return running{}, "", fmt.Errorf("unexpected /proc/%d/stat", pid)
 	}
-	return fields[19], nil
+	parent, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return running{}, "", fmt.Errorf("unexpected /proc/%d/stat", pid)
+	}
+	return running{pid: pid, parent: parent, began: fields[19]}, fields[0], nil
 }
 
-// processes are the pids of the machine's processes.
-func processes() []int {
+// processes are the machine's processes that have not exited.
+func processes() []running {
 	entries, _ := os.ReadDir("/proc")
-	var pids []int
+	var out []running
 	for _, e := range entries {
-		if pid, err := strconv.Atoi(e.Name()); err == nil {
-			pids = append(pids, pid)
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		// Z is a process that has exited and was not reaped.
+		if p, state, err := stat(pid); err == nil && state != "Z" {
+			out = append(out, p)
 		}
 	}
-	return pids
+	return out
 }
 
 // environ is the environment the process pid was started with, each

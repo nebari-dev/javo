@@ -58,22 +58,33 @@ func startTime(pid int) (string, error) {
 	if int(k.Proc.P_pid) != pid {
 		return "", fmt.Errorf("no process %d", pid)
 	}
-	t := k.Proc.P_starttime
-	return fmt.Sprintf("%d.%06d", t.Sec, t.Usec), nil
+	return began(k), nil
 }
 
-// processes are the pids of this user's processes.
-func processes() []int {
+func began(k *unix.KinfoProc) string {
+	t := k.Proc.P_starttime
+	return fmt.Sprintf("%d.%06d", t.Sec, t.Usec)
+}
+
+// zombie is the state (p_stat, SZOMB) of a process that has exited and
+// was not reaped.
+const zombie = 5
+
+// processes are this user's processes that have not exited.
+func processes() []running {
 	all, _ := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Getuid())
-	pids := make([]int, len(all))
+	var out []running
 	for i := range all {
-		pids[i] = int(all[i].Proc.P_pid)
+		if k := &all[i]; k.Proc.P_stat != zombie {
+			out = append(out, running{pid: int(k.Proc.P_pid), parent: int(k.Eproc.Ppid), began: began(k)})
+		}
 	}
-	return pids
+	return out
 }
 
 // environ is what the process pid was started with: its arguments and its
-// environment, each ended by a zero byte.
+// environment, each ended by a zero byte. The system shows the arguments
+// alone of a program of its own (one in /bin or /usr/bin).
 func environ(pid int) ([]byte, error) {
 	return unix.SysctlRaw("kern.procargs2", pid)
 }

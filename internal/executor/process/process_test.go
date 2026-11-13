@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -40,7 +41,12 @@ const listenEnv = "JAVO_TEST_LISTEN"
 // daemonEnv makes this test binary, run by a unit, a daemon: it leaves the
 // unit's session and process group, prints its pid and stays, for no
 // longer than a failing test waits for it to go.
-const daemonEnv = "JAVO_TEST_DAEMON"
+// With the value daemonWithChild it first starts a process with an empty
+// environment and prints that one's pid too.
+const (
+	daemonEnv       = "JAVO_TEST_DAEMON"
+	daemonWithChild = "with a child"
+)
 
 func TestMain(m *testing.M) {
 	if os.Getenv(daemonEnv) != "" {
@@ -49,6 +55,16 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		fmt.Println(os.Getpid())
+		if os.Getenv(daemonEnv) == daemonWithChild {
+			// A process of the daemon's that has nothing of its environment.
+			child := exec.Command("sleep", "60")
+			child.Env = []string{}
+			if err := child.Start(); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			fmt.Println(child.Process.Pid)
+		}
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
@@ -531,6 +547,25 @@ func TestStopEndsWhatLeftTheProcessGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	until(t, "rid of the daemon the unit started", func() bool { return !alive(left) })
+}
+
+// What such a daemon started ends too, also when it was started without
+// the daemon's environment: it is the daemon's while the daemon is its
+// parent.
+func TestStopEndsWhatADaemonStarted(t *testing.T) {
+	x, _ := build(t, process.Options{})
+	s := app(`"$1" & exec sleep 300`, os.Args[0])
+	s.Main.Env = []workload.Env{{Name: daemonEnv, Value: daemonWithChild}}
+	if err := x.Start(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	lines := printed(t, x, 2)
+	left, child := pidOf(t, lines[0]), pidOf(t, lines[1])
+	if err := x.Stop(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "rid of the daemon the unit started", func() bool { return !alive(left) })
+	until(t, "rid of the process the daemon started", func() bool { return !alive(child) })
 }
 
 // So does one whose unit exited by itself, and one of a step.
