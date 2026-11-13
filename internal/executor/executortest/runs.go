@@ -1,6 +1,7 @@
 package executortest
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -78,8 +79,14 @@ func (s *suite) listed() bool {
 
 func (s *suite) runSucceeds() {
 	before := time.Now().Add(-time.Second)
-	// It fails with 9 when the id it is given is not its handle.
-	s.start(s.batch(`[ "$RUN_ID" = "`+s.ref.Name+`" ] || exit 9; `+leave(`{"reason":"Succeeded"}`), 2))
+	if err := s.Secrets.Put(s.Context(), s.ref, "run-tokens", executor.Bundle{Data: map[string][]byte{"token": []byte(secretValue)}}); err != nil {
+		s.Fatal(err)
+	}
+	// It fails with 8 without the value of its bundle, and with 9 when
+	// the id it is given is not its handle.
+	sp := s.batch(`[ -n "$TOKEN" ] || exit 8; [ "$RUN_ID" = "`+s.ref.Name+`" ] || exit 9; `+leave(`{"reason":"Succeeded"}`), 2)
+	sp.Main.Env = append(sp.Main.Env, workload.Env{Name: "TOKEN", From: &workload.SecretRef{Bundle: "run-tokens", Key: "token"}})
+	s.start(sp)
 	r := s.finished()
 	if !r.Succeeded || r.Stopped || r.TimedOut || r.OutOfMemory || r.Attempts != 1 {
 		s.Fatalf("run %+v, want one attempt that succeeded", r)
@@ -90,8 +97,11 @@ func (s *suite) runSucceeds() {
 	if r.Started.Before(before) || r.Finished.Before(r.Started) || r.Finished.After(time.Now().Add(time.Second)) {
 		s.Fatalf("started %s, finished %s", r.Started, r.Finished)
 	}
-	if r.Env["PLAIN"] != "as-given" {
-		s.Fatalf("variables %v, want the plain one it was started with", r.Env)
+	if _, shown := r.Env["TOKEN"]; r.Env["PLAIN"] != "as-given" || shown {
+		s.Fatalf("variables %v, want the plain one it was started with and none from a bundle", r.Env)
+	}
+	if text := fmt.Sprintf("%+v %+v", *s.observe(), *r); strings.Contains(text, secretValue) {
+		s.Fatalf("the state holds the secret value: %s", text)
 	}
 	if r.Message != `{"reason":"Succeeded"}` {
 		s.Fatalf("message %q", r.Message)
