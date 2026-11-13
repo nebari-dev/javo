@@ -3,7 +3,7 @@
 # environment NAME that was picked for this app and installed beside the
 # template's (internal/pixienv: Source.Beside). Without NAME it lists them.
 set -euo pipefail
-dir=/opt/javo-env/envs
+dir=${JAVO_ENV_DIR:-/opt/javo-env}/envs
 if [ $# -eq 0 ]; then
   if [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ]; then
     ls -1 "$dir"

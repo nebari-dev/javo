@@ -12,10 +12,13 @@
 # activation at /opt/javo-env/activate.sh: pixi's own shell hook for the
 # installed environment, so its tools come first on PATH and its activation
 # scripts (Julia's depot, certificates) run.
+#
+# An app that runs as a process of a machine, without a container, is told
+# where that machine has the two folders: JAVO_ENV_DIR and JAVO_FILES_DIR.
 set -e
-if [ -r /opt/javo-env/activate.sh ]; then
+if [ -r "${JAVO_ENV_DIR:-/opt/javo-env}/activate.sh" ]; then
   # shellcheck disable=SC1091
-  . /opt/javo-env/activate.sh
+  . "${JAVO_ENV_DIR:-/opt/javo-env}/activate.sh"
 fi
 # Pods set no locale. tmux then shows every non-ASCII character as "_", and
 # other programs fall back to plain ASCII: use C.UTF-8 when the system has
@@ -26,9 +29,9 @@ if [ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ] && [ -d /usr/lib/locale/C.utf8 ]; 
 fi
 USER=$(id -un 2>/dev/null || echo user)
 LOGNAME=$USER
-EMAIL=${EMAIL:-$USER@$(cat /proc/sys/kernel/hostname)}
+EMAIL=${EMAIL:-$USER@$(cat /proc/sys/kernel/hostname 2>/dev/null || hostname)}
 SHELL=${SHELL:-/bin/bash}
 # The platform's own tools (javo-api) come last.
-PATH=$PATH:/opt/javo/bin
+PATH=$PATH:${JAVO_FILES_DIR:-/opt/javo}/bin
 export USER LOGNAME EMAIL SHELL PATH
 exec "$@"

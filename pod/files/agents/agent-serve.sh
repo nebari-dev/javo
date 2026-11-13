@@ -11,7 +11,7 @@ set -eu
 dir=$1
 cmd=$2
 shift 2
-conf=/opt/javo/agents/tmux.conf
+conf=${JAVO_FILES_DIR:-/opt/javo}/agents/tmux.conf
 # A session that cannot be made now is made by the first tab instead.
 tmux -f "$conf" new-session -d -s agent -c "$dir" "$cmd" ||
   echo "agent-serve.sh: could not start the agent's tmux session" >&2
