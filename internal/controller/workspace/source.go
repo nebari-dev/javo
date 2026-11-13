@@ -6,6 +6,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/source"
@@ -54,7 +56,9 @@ type Images struct {
 
 // GitTokenSecretName is the Secret holding the repository token of the app
 // whose Pod and Service are called objectName (see SecretName).
-func GitTokenSecretName(objectName string) string { return SecretName(objectName, "git") }
+func GitTokenSecretName(objectName string) string {
+	return kube.SecretName(objectName, executor.UseGit)
+}
 
 // sourceFolder is the folder of the clone the app runs from.
 func sourceFolder(s *model.Source) string {

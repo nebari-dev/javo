@@ -8,9 +8,10 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/workload"
 )
@@ -44,7 +45,9 @@ type TokenMinter interface {
 
 // APITokenSecretName is the Secret holding the API token of the app whose Pod
 // and Service are called objectName (see SecretName).
-func APITokenSecretName(objectName string) string { return SecretName(objectName, "api") }
+func APITokenSecretName(objectName string) string {
+	return kube.SecretName(objectName, executor.UseAPI)
+}
 
 // WithAPIToken gives the app container of pod, built from template t with
 // API access, the owner's API token from the Secret secretName as
@@ -89,17 +92,15 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 	if r.Tokens == nil || r.Secrets == nil {
 		return "", errors.New("the template gives apps an API token, but the controller has no token store")
 	}
-	name := APITokenSecretName(app.ObjectName())
-	sec, err := r.appSecret(ctx, app, name)
-	switch {
-	case err != nil:
+	name, ref := APITokenSecretName(app.ObjectName()), refOf(app)
+	have, err := r.vault().Get(ctx, ref, executor.UseAPI)
+	if err != nil {
 		return "", err
-	case sec == nil:
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
-	default:
-		id := sec.Annotations[model.AnnotationTokenID]
+	}
+	if have != nil {
+		id := have.Meta[model.AnnotationTokenID]
 		live := false
-		if id != "" && secretScope(sec) == scope && id != app.TokenRevoked && len(sec.Data[APITokenKey]) > 0 {
+		if id != "" && bundleScope(have) == scope && id != app.TokenRevoked && len(have.Data[APITokenKey]) > 0 {
 			// A Secret can name a token whose record is gone (an upgrade, or
 			// `javo user remove`): its token gets 401, so it is replaced.
 			switch tok, err := r.Tokens.Get(ctx, id); {
@@ -111,12 +112,12 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 			}
 		}
 		if live {
-			if bytes.Equal(sec.Data[APIGuideKey], apiGuide) {
+			if bytes.Equal(have.Data[APIGuideKey], apiGuide) {
 				return name, nil
 			}
 			// A newer guide ships with this controller; the token stays.
-			sec.Data[APIGuideKey] = apiGuide
-			return name, r.Update(ctx, sec)
+			have.Data[APIGuideKey] = apiGuide
+			return name, r.vault().Put(ctx, ref, executor.UseAPI, *have)
 		}
 	}
 	text, tok, err := r.Tokens.Create(ctx, model.Actor{System: model.SystemController}, token.Token{
@@ -126,20 +127,10 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 	if err != nil {
 		return "", fmt.Errorf("make the app's API token: %w", err)
 	}
-	if sec.Labels == nil {
-		sec.Labels = map[string]string{}
-	}
-	for k, v := range labels(app) {
-		sec.Labels[k] = v
-	}
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, model.AnnotationTokenID, tok.ID)
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, model.AnnotationTokenScope, string(scope))
-	sec.Data = map[string][]byte{APITokenKey: []byte(text), APIGuideKey: apiGuide}
-	if sec.ResourceVersion == "" {
-		err = r.Create(ctx, sec)
-	} else {
-		err = r.Update(ctx, sec)
-	}
+	err = r.vault().Put(ctx, ref, executor.UseAPI, executor.Bundle{
+		Data: map[string][]byte{APITokenKey: []byte(text), APIGuideKey: apiGuide},
+		Meta: map[string]string{model.AnnotationTokenID: tok.ID, model.AnnotationTokenScope: string(scope)},
+	})
 	if err != nil {
 		// No Secret holds the new token, so it must not keep working; the
 		// next reconcile makes another.
@@ -151,10 +142,10 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 	return name, nil
 }
 
-// secretScope is the scope of the token an app's Secret holds; a Secret made
+// bundleScope is the scope of the token an app's Secret holds; a Secret made
 // before the annotation existed holds a read-write one.
-func secretScope(sec *corev1.Secret) token.Scope {
-	if s, ok := sec.Annotations[model.AnnotationTokenScope]; ok {
+func bundleScope(b *executor.Bundle) token.Scope {
+	if s, ok := b.Meta[model.AnnotationTokenScope]; ok {
 		return token.Scope(s)
 	}
 	return token.ScopeReadWrite
@@ -163,5 +154,5 @@ func secretScope(sec *corev1.Secret) token.Scope {
 // removeAPIToken deletes the app's token Secret, if any. Its token record
 // is the gateway's to revoke (see ensureAPIToken).
 func (r *Reconciler) removeAPIToken(ctx context.Context, app *model.App) error {
-	return r.deleteAppSecret(ctx, app, APITokenSecretName(app.ObjectName()))
+	return r.vault().Delete(ctx, refOf(app), executor.UseAPI)
 }

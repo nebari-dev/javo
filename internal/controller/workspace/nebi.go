@@ -7,9 +7,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/secrets"
@@ -41,7 +42,9 @@ const (
 
 // NebiTokenSecretName is the Secret holding the Nebi token of the app whose
 // Pod and Service are called objectName (see SecretName).
-func NebiTokenSecretName(objectName string) string { return SecretName(objectName, "nebi") }
+func NebiTokenSecretName(objectName string) string {
+	return kube.SecretName(objectName, executor.UseNebi)
+}
 
 // WithNebi gives the app container of pod the owner's Nebi token file, the
 // Nebi address nebiURL and the nebi CLI from runner (the platform's image).
@@ -97,17 +100,14 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	if r.SecretKeys == nil || r.Secrets == nil {
 		return errors.New("the app gets a Nebi token, but the controller has no secrets key")
 	}
-	name := NebiTokenSecretName(app.ObjectName())
+	ref := refOf(app)
 	stamp := expires.UTC().Format(time.RFC3339Nano)
-	sec, err := r.appSecret(ctx, app, name)
-	create := sec == nil
+	have, err := r.vault().Get(ctx, ref, executor.UseNebi)
 	switch {
 	case err != nil:
 		return err
-	case !create && sec.Annotations[annotationNebiExpires] == stamp:
+	case have != nil && have.Meta[annotationNebiExpires] == stamp:
 		return nil
-	case create:
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
 	}
 	opener, err := r.SecretKeys.Opener(ctx)
 	if err != nil {
@@ -117,15 +117,9 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	if err != nil {
 		return fmt.Errorf("open the app's Nebi token: %w", err)
 	}
-	sec.Labels = labels(app)
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, annotationNebiExpires, stamp)
-	sec.Type = corev1.SecretTypeOpaque
-	sec.Data = map[string][]byte{NebiTokenKey: tok}
-	if create {
-		err = r.Create(ctx, sec)
-	} else {
-		err = r.Update(ctx, sec)
-	}
+	err = r.vault().Put(ctx, ref, executor.UseNebi, executor.Bundle{
+		Data: map[string][]byte{NebiTokenKey: tok}, Meta: map[string]string{annotationNebiExpires: stamp},
+	})
 	if err != nil {
 		// The API server's error names the object, never its data.
 		return fmt.Errorf("store the app's Nebi token: %w", err)

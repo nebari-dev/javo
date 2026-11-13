@@ -7,12 +7,13 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
+	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/source"
@@ -62,7 +63,7 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 	if bound.Fingerprint != "" {
 		gen := "secret-" + bound.Fingerprint
 		if app.ParentID == "" {
-			if unreadable, err = r.writeBoundGitSecret(ctx, app, secretName, gen, bound); err != nil || unreadable != "" {
+			if unreadable, err = r.writeBoundGitSecret(ctx, app, gen, bound); err != nil || unreadable != "" {
 				return "", "", unreadable, err
 			}
 		}
@@ -75,13 +76,13 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 	switch {
 	case !has:
 		if app.ParentID == "" && (pod == nil || pod.Annotations[model.AnnotationGitToken] != "") {
-			if err := r.deleteAppSecret(ctx, app, secretName); err != nil {
+			if err := r.vault().Delete(ctx, refOf(app), executor.UseGit); err != nil {
 				return "", "", "", err
 			}
 		}
 		return "", "", "", nil
 	case pasted != "" && app.ParentID == "":
-		if err := r.writeGitSecret(ctx, app, secretName, pasted, strconv.FormatInt(gen, 10)); err != nil {
+		if err := r.writeGitSecret(ctx, app, pasted, strconv.FormatInt(gen, 10)); err != nil {
 			return "", "", "", err
 		}
 		if err := r.Store.GitTokens().HandedOff(ctx, app.ID, gen); err != nil {
@@ -110,22 +111,22 @@ func (r *Reconciler) gitTokenOf(ctx context.Context, app *model.App) (secretenv.
 // writeBoundGitSecret makes the app's token Secret hold the value of the
 // secret in bound, opened with the KEK, unless it already holds generation
 // gen. unreadable is why the value could not be opened.
-func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, name, gen string, bound secretenv.Set) (unreadable string, err error) {
+func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, gen string, bound secretenv.Set) (unreadable string, err error) {
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	sec, err := r.appSecret(ctx, app, name)
+	have, err := r.vault().Get(ctx, refOf(app), executor.UseGit)
 	if err != nil {
 		return "", err
 	}
-	if sec != nil && sec.Annotations[model.AnnotationGitToken] == gen {
+	if have != nil && have.Meta[model.AnnotationGitToken] == gen {
 		return "", nil
 	}
 	data, unreadable := bound.Open(ctx, r.SecretKeys)
 	if unreadable != "" {
 		return unreadable, nil
 	}
-	return "", r.writeGitSecret(ctx, app, name, string(data[model.GitTokenEnv]), gen)
+	return "", r.writeGitSecret(ctx, app, string(data[model.GitTokenEnv]), gen)
 }
 
 // adoptGitToken moves the app's pasted token, read from its Secret, into a
@@ -152,26 +153,13 @@ func (r *Reconciler) adoptGitToken(ctx context.Context, app *model.App) error {
 
 // writeGitSecret creates or replaces the Secret holding the token of
 // generation gen. Errors never include the token.
-func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, name, token, gen string) error {
+func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, token, gen string) error {
 	if r.Secrets == nil {
 		return errors.New("the app has a repository token, but the controller has no Secret reader")
 	}
-	sec, err := r.appSecret(ctx, app, name)
-	if err != nil {
-		return err
-	}
-	create := sec == nil
-	if create {
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
-	}
-	sec.Labels = labels(app)
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, model.AnnotationGitToken, gen)
-	sec.Data = map[string][]byte{gitTokenKey: []byte(token)}
-	if create {
-		err = r.Create(ctx, sec)
-	} else {
-		err = r.Update(ctx, sec)
-	}
+	err := r.vault().Put(ctx, refOf(app), executor.UseGit, executor.Bundle{
+		Data: map[string][]byte{gitTokenKey: []byte(token)}, Meta: map[string]string{model.AnnotationGitToken: gen},
+	})
 	if err != nil {
 		return fmt.Errorf("store the app's repository token: %w", err)
 	}
@@ -197,9 +185,9 @@ func commitOf(pod *corev1.Pod) string {
 // from its Secret, or "" when the app has none. A Secret of that name that is
 // not labelled as the app's is an error. Callers must never log the token.
 func ReadGitToken(ctx context.Context, secrets client.Reader, app *model.App) (string, error) {
-	sec, err := ownedSecret(ctx, secrets, app, GitTokenSecretName(app.ObjectName()))
-	if err != nil || sec == nil {
+	have, err := kube.Secrets{Reader: secrets}.Get(ctx, refOf(app), executor.UseGit)
+	if err != nil || have == nil {
 		return "", err
 	}
-	return string(sec.Data[gitTokenKey]), nil
+	return string(have.Data[gitTokenKey]), nil
 }

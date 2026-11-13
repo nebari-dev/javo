@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
+	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 )
@@ -17,7 +17,9 @@ import (
 // AppSecretsName is the Secret holding the secret values of the app whose
 // Pod and Service are called objectName, one key per environment variable
 // (see SecretName).
-func AppSecretsName(objectName string) string { return SecretName(objectName, "secrets") }
+func AppSecretsName(objectName string) string {
+	return kube.SecretName(objectName, executor.UseSecrets)
+}
 
 // secretsOf reads the secrets app gets that pass secretenv.For, with the
 // owner's own agent key when agent has one.
@@ -34,43 +36,27 @@ func (r *Reconciler) secretsOf(ctx context.Context, app *model.App, agent agentM
 // is why the values could not be opened (never a value), for the app's
 // status. No error or log line holds a value.
 func (r *Reconciler) writeAppSecrets(ctx context.Context, app *model.App, want secretenv.Set) (unreadable string, err error) {
-	name := AppSecretsName(app.ObjectName())
+	ref := refOf(app)
 	if want.Fingerprint == "" {
-		return "", r.deleteAppSecret(ctx, app, name)
+		return "", r.vault().Delete(ctx, ref, executor.UseSecrets)
 	}
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	sec, err := r.appSecret(ctx, app, name)
-	create := sec == nil
+	have, err := r.vault().Get(ctx, ref, executor.UseSecrets)
 	switch {
 	case err != nil:
 		return "", err
-	case !create && sec.Annotations[model.AnnotationSecrets] == want.Fingerprint:
+	case have != nil && have.Meta[model.AnnotationSecrets] == want.Fingerprint:
 		return "", nil
-	case create:
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: app.Namespace}}
 	}
 	data, unreadable := want.Open(ctx, r.SecretKeys)
 	if unreadable != "" {
 		return unreadable, nil
 	}
-	// The app's Service owns the Secret: Kubernetes deletes it with the
-	// Service, also when the sweep removes an orphaned one.
-	svc := &corev1.Service{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: app.ObjectName()}, svc); err != nil {
-		return "", err
-	}
-	sec.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: svc.Name, UID: svc.UID}}
-	sec.Labels = labels(app)
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, model.AnnotationSecrets, want.Fingerprint)
-	sec.Type = corev1.SecretTypeOpaque
-	sec.Data = data
-	if create {
-		err = r.Create(ctx, sec)
-	} else {
-		err = r.Update(ctx, sec)
-	}
+	err = r.vault().Put(ctx, ref, executor.UseSecrets, executor.Bundle{
+		Data: data, Meta: map[string]string{model.AnnotationSecrets: want.Fingerprint},
+	})
 	if err != nil {
 		// The API server's error names the object, never its data.
 		return "", fmt.Errorf("store the app's secrets: %w", err)

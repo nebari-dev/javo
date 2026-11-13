@@ -483,7 +483,7 @@ func (r *Reconciler) finalize(ctx context.Context, app *model.App) error {
 		}
 	}
 	for _, use := range secretUses {
-		if err := r.deleteAppSecret(ctx, app, SecretName(app.ObjectName(), use)); err != nil {
+		if err := r.vault().Delete(ctx, refOf(app), use); err != nil {
 			return err
 		}
 	}
