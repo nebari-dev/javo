@@ -741,28 +741,34 @@ type SharingCfg struct {
 
 // Load reads, strictly decodes, defaults and validates the file at path.
 func Load(path string) (Platform, error) {
-	var p Platform
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return p, fmt.Errorf("read config: %w", err)
+		return Platform{}, fmt.Errorf("read config: %w", err)
 	}
+	return Parse(path, data)
+}
+
+// Parse strictly decodes, defaults and validates data, the content of a
+// config file; name is what errors call it.
+func Parse(name string, data []byte) (Platform, error) {
+	var p Platform
 	js, err := yaml.YAMLToJSON(data)
 	if err != nil {
-		return p, fmt.Errorf("parse %s: %w", path, err)
+		return p, fmt.Errorf("parse %s: %w", name, err)
 	}
 	// sigs.k8s.io/json reports unknown fields with their full dotted path.
 	strict, err := json.UnmarshalStrict(js, &p)
 	if err != nil {
-		return p, fmt.Errorf("decode %s: %w", path, err)
+		return p, fmt.Errorf("decode %s: %w", name, err)
 	}
 	if len(strict) > 0 {
-		return p, fmt.Errorf("decode %s: %w", path, errors.Join(strict...))
+		return p, fmt.Errorf("decode %s: %w", name, errors.Join(strict...))
 	}
 	// What is set is only known before the defaults fill the rest in.
 	misplaced := p.misplaced()
 	p.applyDefaults()
 	if err := errors.Join(misplaced, p.Validate()); err != nil {
-		return p, fmt.Errorf("%s: %w", path, err)
+		return p, fmt.Errorf("%s: %w", name, err)
 	}
 	return p, nil
 }
