@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"net/http"
@@ -29,6 +30,11 @@ const testImage = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd
 // testLabel marks what the daemon tests create.
 const testLabel = "javo.test"
 
+// testRun marks what this run of the tests creates: an Executor of the
+// tests adopts and lists only that, and never what another run going on
+// against the same daemon made.
+var testRun = strings.ToLower(rand.Text())
+
 // daemon is a client of the Docker daemon on this machine, holding the
 // test image.
 func daemon(t *testing.T) (*Client, Daemon) {
@@ -40,7 +46,7 @@ func daemon(t *testing.T) (*Client, Daemon) {
 	}
 	for _, sock := range sockets {
 		c := New(sock)
-		c.Labels = map[string]string{testLabel: "1"}
+		c.Labels = map[string]string{testLabel: "1", testLabel + ".run": testRun}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		d, err := c.Daemon(ctx)
 		cancel()
