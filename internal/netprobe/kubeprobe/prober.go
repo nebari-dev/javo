@@ -1,24 +1,11 @@
-// Package netprobe finds out whether the platform keeps apps apart: whether
-// the cluster enforces NetworkPolicy on Kubernetes, and whether a workload's
-// network reaches nothing but the gateway on Docker. Apps whose template has
-// no login of their own are safe only when it does, so the controller probes
-// at start and every few hours, stores the answer (Store), and the controller
-// and gateway read it.
-//
-// A probe is anything with the Probe method (Probe, in loop.go); the store,
-// the loop and what reads the answer are the same for every platform.
-//
-// On Kubernetes (Prober) the probe starts a listener pod and a dialer pod in
-// the apps namespace, where the allow-gateway-only policy covers the listener
-// and the dialer has no gateway labels. (The release namespace holds the
-// gateway's Secrets, so the controller may not create pods there.) It reports
-// Enforced only when the dialer reaches the gateway (the control) and does not
-// reach the listener.
-//
-// On Docker (the Prober of internal/netprobe/dockerprobe) the listener and
-// the dialer are containers on two workload networks, and the dialer must
-// reach the gateway and nothing else.
-package netprobe
+// Package kubeprobe is the isolation probe of a cluster (netprobe): it
+// starts a listener pod and a dialer pod in the apps namespace, where the
+// allow-gateway-only policy covers the listener and the dialer has no
+// gateway labels. (The release namespace holds the gateway's Secrets, so
+// the controller may not create pods there.) It reports Enforced only when
+// the dialer reaches the gateway (the control) and does not reach the
+// listener.
+package kubeprobe
 
 import (
 	"context"
@@ -36,28 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/podspec"
 )
-
-// State is what the probe concluded.
-type State string
-
-const (
-	// Enforced: the dialer reached the gateway but not the listener.
-	Enforced State = "Enforced"
-	// NotEnforced: the dialer reached the listener.
-	NotEnforced State = "NotEnforced"
-	// Unknown: the probe could not tell, or has not run. It counts as not
-	// enforced wherever the answer gates something.
-	Unknown State = "Unknown"
-)
-
-// Result is one probe's answer with the lines behind it.
-type Result struct {
-	State     State     `json:"state"`
-	CheckedAt time.Time `json:"checkedAt"`
-	Evidence  []string  `json:"evidence,omitempty"`
-}
 
 const (
 	roleLabel    = model.LabelRole
@@ -88,13 +56,13 @@ type Prober struct {
 }
 
 // Probe runs the probe and returns its result. It never fails: whatever
-// goes wrong is an Unknown result with the reason as evidence. Its pods are
+// goes wrong is an netprobe.Unknown result with the reason as evidence. Its pods are
 // deleted before it returns.
-func (p *Prober) Probe(ctx context.Context) Result {
+func (p *Prober) Probe(ctx context.Context) netprobe.Result {
 	ctx, cancel := context.WithTimeout(ctx, p.Timeout)
 	defer cancel()
-	res := Result{State: Unknown, CheckedAt: time.Now().UTC()}
-	unknown := func(format string, a ...any) Result {
+	res := netprobe.Result{State: netprobe.Unknown, CheckedAt: time.Now().UTC()}
+	unknown := func(format string, a ...any) netprobe.Result {
 		res.Evidence = append(res.Evidence, fmt.Sprintf(format, a...))
 		return res
 	}
@@ -131,7 +99,7 @@ func (p *Prober) Probe(ctx context.Context) Result {
 	case !out.Control:
 		return unknown("the dialer in %s could not reach the gateway at %s, so its failure to reach the listener proves nothing", p.AppsNamespace, p.ControlURL)
 	case out.Target:
-		res.State = NotEnforced
+		res.State = netprobe.NotEnforced
 		res.Evidence = []string{fmt.Sprintf("a pod without the gateway's labels reached the listener %s:%d in %s", ip, listenPort, p.AppsNamespace)}
 	default:
 		// Not reaching the listener proves enforcement only if the listener
@@ -139,7 +107,7 @@ func (p *Prober) Probe(ctx context.Context) Result {
 		if err := p.listenerServing(ctx, listener); err != nil {
 			return unknown("listener pod was not serving when the dialer ran, so its unreachability proves nothing: %v", err)
 		}
-		res.State = Enforced
+		res.State = netprobe.Enforced
 		res.Evidence = []string{fmt.Sprintf("a pod without the gateway's labels reached the gateway but not the listener %s:%d in %s", ip, listenPort, p.AppsNamespace)}
 	}
 	return res
@@ -205,8 +173,8 @@ func (p *Prober) waitIP(ctx context.Context, pod *corev1.Pod) (string, error) {
 }
 
 // waitOutcome waits until the dialer has terminated and reads its message.
-func (p *Prober) waitOutcome(ctx context.Context, pod *corev1.Pod) (Outcome, error) {
-	var out Outcome
+func (p *Prober) waitOutcome(ctx context.Context, pod *corev1.Pod) (netprobe.Outcome, error) {
+	var out netprobe.Outcome
 	var parseErr error
 	err := p.until(ctx, pod, func(got *corev1.Pod) bool {
 		for _, cs := range got.Status.ContainerStatuses {

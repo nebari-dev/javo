@@ -44,6 +44,7 @@ import (
 	"github.com/nebari-dev/javo/internal/features/placementshared"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/netprobe"
+	"github.com/nebari-dev/javo/internal/netprobe/kubeprobe"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
@@ -264,7 +265,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	}
 	policy := &netprobe.Store{Facts: db.Facts()}
 	if err := mgr.Add(&netprobe.Loop{
-		Prober: &netprobe.Prober{
+		Prober: &kubeprobe.Prober{
 			Client: direct, AppsNamespace: probeNS,
 			Image: o.platformImage(), ControlURL: o.probe.controlURL, Timeout: o.probe.timeout,
 		},

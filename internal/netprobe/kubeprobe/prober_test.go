@@ -1,4 +1,4 @@
-package netprobe
+package kubeprobe
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/podspec"
 )
 
@@ -28,7 +29,7 @@ const (
 // fakeCluster plays the kubelet: a created listener pod gets an IP and runs;
 // a created dialer pod finishes at once with the outcome dial returns, or
 // never finishes when dial is nil.
-func fakeCluster(t *testing.T, dial func() *Outcome, created ...*[]corev1.Pod) client.Client {
+func fakeCluster(t *testing.T, dial func() *netprobe.Outcome, created ...*[]corev1.Pod) client.Client {
 	t.Helper()
 	s := runtime.NewScheme()
 	if err := corev1.AddToScheme(s); err != nil {
@@ -80,14 +81,14 @@ func prober(c client.Client) *Prober {
 func TestProbeStates(t *testing.T) {
 	cases := []struct {
 		name     string
-		dial     func() *Outcome
-		want     State
+		dial     func() *netprobe.Outcome
+		want     netprobe.State
 		evidence string
 	}{
-		{"listener reachable means NotEnforced", func() *Outcome { return &Outcome{Control: true, Target: true} }, NotEnforced, podIP},
-		{"control ok and listener unreachable means Enforced", func() *Outcome { return &Outcome{Control: true} }, Enforced, podIP},
-		{"control unreachable proves nothing", func() *Outcome { return &Outcome{Target: false} }, Unknown, "gateway"},
-		{"dialer that never finishes is Unknown", func() *Outcome { return nil }, Unknown, "did not finish"},
+		{"listener reachable means NotEnforced", func() *netprobe.Outcome { return &netprobe.Outcome{Control: true, Target: true} }, netprobe.NotEnforced, podIP},
+		{"control ok and listener unreachable means Enforced", func() *netprobe.Outcome { return &netprobe.Outcome{Control: true} }, netprobe.Enforced, podIP},
+		{"control unreachable proves nothing", func() *netprobe.Outcome { return &netprobe.Outcome{Target: false} }, netprobe.Unknown, "gateway"},
+		{"dialer that never finishes is Unknown", func() *netprobe.Outcome { return nil }, netprobe.Unknown, "did not finish"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -106,7 +107,7 @@ func TestProbeStates(t *testing.T) {
 }
 
 func TestProbeDeletesItsPods(t *testing.T) {
-	c := fakeCluster(t, func() *Outcome { return &Outcome{Control: true} })
+	c := fakeCluster(t, func() *netprobe.Outcome { return &netprobe.Outcome{Control: true} })
 	prober(c).Probe(context.Background())
 	var pods corev1.PodList
 	if err := c.List(context.Background(), &pods); err != nil {
@@ -119,7 +120,7 @@ func TestProbeDeletesItsPods(t *testing.T) {
 
 func TestProbePodsAreRestricted(t *testing.T) {
 	var seen []corev1.Pod
-	prober(fakeCluster(t, func() *Outcome { return &Outcome{Control: true} }, &seen)).Probe(context.Background())
+	prober(fakeCluster(t, func() *netprobe.Outcome { return &netprobe.Outcome{Control: true} }, &seen)).Probe(context.Background())
 	if len(seen) != 2 {
 		t.Fatalf("%d pods created, want a listener and a dialer", len(seen))
 	}
@@ -146,7 +147,7 @@ func TestProbePodsAreRestricted(t *testing.T) {
 }
 
 func TestProbeSweepsPodsLeftByACrashedProbe(t *testing.T) {
-	c := fakeCluster(t, func() *Outcome { return &Outcome{Control: true} })
+	c := fakeCluster(t, func() *netprobe.Outcome { return &netprobe.Outcome{Control: true} })
 	stale := &corev1.Pod{}
 	stale.Name, stale.Namespace = "javo-netprobe-old", appsNS
 	stale.Labels = map[string]string{roleLabel: roleListener}
@@ -183,15 +184,15 @@ func TestProbeIsUnknownWhenTheListenerWasNotServing(t *testing.T) {
 	for name, spoil := range cases {
 		t.Run(name, func(t *testing.T) {
 			var c client.Client
-			c = fakeCluster(t, func() *Outcome {
+			c = fakeCluster(t, func() *netprobe.Outcome {
 				var pods corev1.PodList
 				_ = c.List(context.Background(), &pods, client.MatchingLabels{roleLabel: roleListener})
 				spoil(c, &pods.Items[0])
-				return &Outcome{Control: true}
+				return &netprobe.Outcome{Control: true}
 			})
 			got := prober(c).Probe(context.Background())
-			if got.State != Unknown {
-				t.Fatalf("state %q, want Unknown (evidence %v)", got.State, got.Evidence)
+			if got.State != netprobe.Unknown {
+				t.Fatalf("state %q, want netprobe.Unknown (evidence %v)", got.State, got.Evidence)
 			}
 		})
 	}
@@ -199,7 +200,7 @@ func TestProbeIsUnknownWhenTheListenerWasNotServing(t *testing.T) {
 
 func TestListenerHasAReadinessProbe(t *testing.T) {
 	var seen []corev1.Pod
-	prober(fakeCluster(t, func() *Outcome { return &Outcome{Control: true} }, &seen)).Probe(context.Background())
+	prober(fakeCluster(t, func() *netprobe.Outcome { return &netprobe.Outcome{Control: true} }, &seen)).Probe(context.Background())
 	rp := seen[0].Spec.Containers[0].ReadinessProbe
 	if rp == nil || rp.HTTPGet == nil || rp.HTTPGet.Port.IntValue() != listenPort {
 		t.Fatalf("listener readiness probe %+v, want httpGet on %d", rp, listenPort)
@@ -219,24 +220,24 @@ func TestProbeWaitsForTheListenerToBeReady(t *testing.T) {
 		},
 	}).Build()
 	got := prober(c).Probe(context.Background())
-	if got.State != Unknown || !strings.Contains(strings.Join(got.Evidence, "\n"), "listener") {
-		t.Fatalf("got %q %v, want Unknown naming the listener", got.State, got.Evidence)
+	if got.State != netprobe.Unknown || !strings.Contains(strings.Join(got.Evidence, "\n"), "listener") {
+		t.Fatalf("got %q %v, want netprobe.Unknown naming the listener", got.State, got.Evidence)
 	}
 }
 
 // Until the policy the probe tests exists (a namespace made a moment ago,
 // as the probe's own namespace is on a fresh per-user install), a pod
-// reaching the listener proves nothing: the probe answers Unknown and starts
-// no pods, rather than a NotEnforced that would hold for hours.
+// reaching the listener proves nothing: the probe answers netprobe.Unknown and starts
+// no pods, rather than a netprobe.NotEnforced that would hold for hours.
 func TestProbeWithoutThePolicyIsUnknownAndStartsNothing(t *testing.T) {
 	var created []corev1.Pod
-	c := fakeCluster(t, func() *Outcome { return &Outcome{Control: true, Target: true} }, &created)
+	c := fakeCluster(t, func() *netprobe.Outcome { return &netprobe.Outcome{Control: true, Target: true} }, &created)
 	if err := c.Delete(context.Background(), gatewayOnly()); err != nil {
 		t.Fatal(err)
 	}
 	got := prober(c).Probe(context.Background())
-	if got.State != Unknown || !strings.Contains(strings.Join(got.Evidence, "\n"), model.PolicyAllowGateway) {
-		t.Fatalf("got %+v, want Unknown naming %s", got, model.PolicyAllowGateway)
+	if got.State != netprobe.Unknown || !strings.Contains(strings.Join(got.Evidence, "\n"), model.PolicyAllowGateway) {
+		t.Fatalf("got %+v, want netprobe.Unknown naming %s", got, model.PolicyAllowGateway)
 	}
 	if len(created) != 0 {
 		t.Fatalf("created %d pods without the policy", len(created))
@@ -247,7 +248,7 @@ func TestProbeWithoutThePolicyIsUnknownAndStartsNothing(t *testing.T) {
 // its Secrets.
 func TestProbePodsPullAPrivateImageWithItsSecrets(t *testing.T) {
 	var seen []corev1.Pod
-	p := prober(fakeCluster(t, func() *Outcome { return &Outcome{Control: true} }, &seen))
+	p := prober(fakeCluster(t, func() *netprobe.Outcome { return &netprobe.Outcome{Control: true} }, &seen))
 	p.Image.PullSecrets = []string{"ghcr"}
 	p.Probe(context.Background())
 	if len(seen) != 2 {
