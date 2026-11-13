@@ -1,0 +1,2 @@
+# The archive `make local` writes here; the binary built with -tags local carries it.
+bundle.zip

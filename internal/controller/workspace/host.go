@@ -125,6 +125,17 @@ func RunsAsProcesses(t *model.Template, platform string) error {
 	return lockedFor(t, platform)
 }
 
+// RunsWithoutContainers says whether anything of t, an app or a job's run,
+// can run as plain processes of a machine pixi calls platform: nil, or an
+// *executor.UnsupportedError that says why not. It is what decides which
+// templates the binary of `javo local` carries (internal/bundle/pack).
+func RunsWithoutContainers(t *model.Template, platform string) error {
+	if err := needsImage(t); err != nil {
+		return err
+	}
+	return lockedFor(t, platform)
+}
+
 func unsupported(t *model.Template, format string, args ...any) error {
 	return &executor.UnsupportedError{Why: fmt.Sprintf("template %q ", t.Name) + fmt.Sprintf(format, args...)}
 }

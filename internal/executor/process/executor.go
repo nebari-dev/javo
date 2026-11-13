@@ -161,9 +161,13 @@ func (x *Executor) Host(ref workload.Ref) workload.Host {
 		Files:       x.eng.files,
 		InstallPath: filepath.Join(x.eng.dir, toolsDir) + string(os.PathListSeparator) + os.Getenv("PATH"),
 		UID:         int64(os.Getuid()), GID: int64(os.Getgid()),
-		Platform: pixiPlatforms[runtime.GOOS+"/"+runtime.GOARCH],
+		Platform: Platform(runtime.GOOS, runtime.GOARCH),
 	}
 }
+
+// Platform is what pixi calls a machine of that Go operating system and
+// architecture; empty when this executor does not run there.
+func Platform(goos, goarch string) string { return pixiPlatforms[goos+"/"+goarch] }
 
 // pixiPlatforms is what pixi calls the machines this executor runs on.
 var pixiPlatforms = map[string]string{

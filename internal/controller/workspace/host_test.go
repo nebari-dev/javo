@@ -521,3 +521,20 @@ func TestTmuxKeepsItsSocketInTheWorkloadOnAHost(t *testing.T) {
 		}
 	}
 }
+
+// A template that only runs jobs runs none as an app and still runs its
+// jobs as processes; one that needs an image, or an environment not
+// locked for the machine, runs nothing there.
+func TestWhatRunsWithoutContainersCountsJobsToo(t *testing.T) {
+	t.Parallel()
+	for name, runs := range map[string]bool{"jobs-python": true, "jupyterlab": true, "container": false, "rstudio": false, "jobs-julia": false} {
+		tpl := shippedTemplate(t, name)
+		var no *executor.UnsupportedError
+		if err := RunsWithoutContainers(tpl, "osx-arm64"); (err == nil) != runs || err != nil && !errors.As(err, &no) {
+			t.Errorf("%s on a Mac: %v, want it to run: %v", name, err, runs)
+		}
+	}
+	if err := RunsWithoutContainers(shippedTemplate(t, "jobs-julia"), "linux-64"); err != nil {
+		t.Errorf("jobs-julia on Linux: %v", err)
+	}
+}
