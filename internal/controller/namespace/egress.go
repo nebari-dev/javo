@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/nebari-dev/javo/internal/egress"
 	"github.com/nebari-dev/javo/internal/model"
 )
 
@@ -103,43 +104,16 @@ func parsePrefixes(cidrs []string) ([]netip.Prefix, error) {
 	return out, nil
 }
 
-// privateRanges are the addresses the cluster lives on (private, carrier-grade
-// NAT, link-local, loopback; IPv6 unique-local and link-local): by default
-// pods reach every address but these. Nodes, the API server
-// and storage servers sit here; pods in other namespaces are kept away by
-// leaving them out of the policy, since some network plugins (Cilium) never
-// match pods by ipBlock.
-var privateRanges = []netip.Prefix{
-	netip.MustParsePrefix("10.0.0.0/8"),
-	netip.MustParsePrefix("172.16.0.0/12"),
-	netip.MustParsePrefix("192.168.0.0/16"),
-	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("169.254.0.0/16"),
-	netip.MustParsePrefix("127.0.0.0/8"),
-	netip.MustParsePrefix("fc00::/7"),
-	netip.MustParsePrefix("fe80::/10"),
-}
-
-// reservedRanges are not private but are no public host either: "this
-// network", IETF protocol assignments, benchmarking, multicast and the
-// reserved class E (some clusters run pods or services on these), and on
-// IPv6 the unspecified and loopback addresses, NAT64 (64:ff9b::/96 and the
-// local-use 64:ff9b:1::/48 reach IPv4 addresses, private ones included,
-// through the cluster's NAT64 gateway), 6to4 (deprecated, also carries IPv4
-// addresses) and multicast.
-var reservedRanges = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("224.0.0.0/4"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("::/128"),
-	netip.MustParsePrefix("::1/128"),
-	netip.MustParsePrefix("64:ff9b::/96"),
-	netip.MustParsePrefix("64:ff9b:1::/48"),
-	netip.MustParsePrefix("2002::/16"),
-	netip.MustParsePrefix("ff00::/8"),
-}
+// privateRanges and reservedRanges are the addresses pods do not reach by
+// default: the ones the cluster lives on, and the ones that are no public
+// host. Nodes, the API server and storage servers sit on the first; pods in
+// other namespaces are kept away by leaving them out of the policy, since
+// some network plugins (Cilium) never match pods by ipBlock. The forward
+// proxy of Docker apps refuses the same lists (internal/egress).
+var (
+	privateRanges  = egress.Private()
+	reservedRanges = egress.Reserved()
+)
 
 // limitEgress lets every pod but the file pods (deny-egress-files keeps those
 // off the network; policies add up, so this one must not select them) reach
