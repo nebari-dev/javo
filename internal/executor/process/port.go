@@ -22,7 +22,7 @@ func (e *engine) Addr(_ context.Context, ref workload.Ref, _ int32) (string, err
 	if err != nil {
 		return "", err
 	}
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), nil
+	return net.JoinHostPort(loopbackIP, strconv.Itoa(port)), nil
 }
 
 // port is the workload's port, read from its folder or picked and written

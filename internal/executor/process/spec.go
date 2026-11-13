@@ -80,6 +80,9 @@ func (e *engine) prepare(ctx context.Context, s workload.Spec) error {
 			return &UnsupportedError{Why: fmt.Sprintf("it serves on port %d; without containers its port is the one Addr names, %d", s.Port, port)}
 		}
 	}
+	if err := e.tools(); err != nil {
+		return err
+	}
 	for _, sub := range []string{"logs", "pids", "work", "volumes"} {
 		if err := e.root.MkdirAll(path.Join(wd, sub), 0o700); err != nil {
 			return err

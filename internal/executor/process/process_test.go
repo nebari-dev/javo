@@ -9,8 +9,10 @@ import (
 	"io"
 	"io/fs"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -31,7 +33,20 @@ const (
 	selfWords = "the running binary, with"
 )
 
+// listenEnv makes this test binary, run as a unit, serve HTTP on the
+// address it holds.
+const listenEnv = "JAVO_TEST_LISTEN"
+
 func TestMain(m *testing.M) {
+	if addr := os.Getenv(listenEnv); addr != "" {
+		lis, err := net.Listen("tcp", addr)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		_ = http.Serve(lis, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "hello") }))
+		os.Exit(1)
+	}
 	if os.Getenv(selfEnv) != "" {
 		fmt.Println(selfWords, strings.Join(os.Args[1:], " "))
 		os.Exit(0)
@@ -506,5 +521,114 @@ func TestNewSweepsWhatAnEarlierJavoLeft(t *testing.T) {
 	until(t, "rid of the process left behind", func() bool { return !alive(left) })
 	if _, err := os.Stat(filepath.Join(rec, "app")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the stale record stayed: %v", err)
+	}
+}
+
+// server is a workload of ref whose main unit serves HTTP on host and the
+// workload's port.
+func server(t *testing.T, x *process.Executor, host string) workload.Spec {
+	t.Helper()
+	addr, err := x.Addr(t.Context(), ref, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(addr)
+	n, _ := strconv.Atoi(port)
+	return workload.Spec{Ref: ref, Port: int32(n), Main: workload.Unit{
+		Name: workload.MainUnit, Command: []string{os.Args[0]},
+		Env:   []workload.Env{{Name: listenEnv, Value: net.JoinHostPort(host, port)}},
+		Ready: &workload.Check{HTTPPath: "/"},
+	}}
+}
+
+// An app that listens on loopback runs and answers.
+func TestAnAppOnLoopbackRuns(t *testing.T) {
+	x, _ := build(t, process.Options{})
+	if err := x.Start(t.Context(), server(t, x, "127.0.0.1")); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "running", func() bool {
+		st, _ := x.Observe(t.Context(), ref)
+		return st != nil && st.Phase == "Running"
+	})
+}
+
+// An app that listens on every address is open to the network this
+// machine is on: it is killed, and its log says why.
+func TestAnAppOpenToTheNetworkIsKilled(t *testing.T) {
+	addrs, _ := net.InterfaceAddrs()
+	outside := false
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+			outside = true
+		}
+	}
+	if !outside {
+		t.Skip("this machine has no address but loopback")
+	}
+	x, _ := build(t, process.Options{})
+	if err := x.Start(t.Context(), server(t, x, "0.0.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	var st *workload.State
+	until(t, "failed", func() bool {
+		st, _ = x.Observe(t.Context(), ref)
+		return st != nil && st.Phase == "Failed"
+	})
+	if !strings.Contains(strings.Join(st.Evidence, "\n"), "must listen on 127.0.0.1 only") {
+		t.Fatalf("%s: %q", st.Code, st.Evidence)
+	}
+}
+
+// What a plan for this machine is made with: the workload's own folders,
+// the platform's files, and, for the step that installs an environment,
+// the given pixi with sha256sum and flock ahead of the machine's PATH.
+func TestHostNamesTheFoldersAndTheInstallTools(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	pixi := filepath.Join(t.TempDir(), "pixi")
+	if err := os.WriteFile(pixi, []byte("#!/bin/sh\necho pixi here\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := t.TempDir()
+	x, _ := build(t, process.Options{Dir: dir, Pixi: pixi, Files: files})
+	h := x.Host(ref)
+	if h.Files != files || h.Volumes != filepath.Dir(x.VolumeDir(ref, "tmp")) || h.UID != int64(os.Getuid()) || h.GID != int64(os.Getgid()) {
+		t.Fatalf("host = %+v", h)
+	}
+	bin := filepath.Join(dir, "bin")
+	if h.InstallPath != bin+":"+os.Getenv("PATH") {
+		t.Fatalf("install path = %q", h.InstallPath)
+	}
+
+	// A step with that PATH finds the three tools; the two that are Javo's
+	// own run this binary under their name.
+	t.Setenv(selfEnv, "1")
+	s := app(`pixi; sha256sum a b; flock l true`)
+	s.Main.Env = []workload.Env{{Name: "PATH", Value: h.InstallPath}, {Name: selfEnv, Value: "1"}}
+	if err := x.Start(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"pixi here", selfWords + " sha256sum a b", selfWords + " flock l true"}
+	if got := printed(t, x, 3); !slices.Equal(got[:3], want) {
+		t.Fatalf("the tools printed %q, want %q", got, want)
+	}
+	for _, name := range []string{"sha256sum", "flock"} {
+		if info, err := os.Stat(filepath.Join(bin, name)); err != nil || info.Mode().Perm() != 0o700 {
+			t.Errorf("%s: %v, %v", name, info, err)
+		}
+	}
+}
+
+func TestNewRefusesAPixiOrFilesThatAreNotThere(t *testing.T) {
+	for name, o := range map[string]process.Options{
+		"a relative pixi":  {Pixi: "pixi"},
+		"a missing pixi":   {Pixi: filepath.Join(t.TempDir(), "pixi")},
+		"a missing folder": {Files: filepath.Join(t.TempDir(), "files")},
+	} {
+		o.Dir = filepath.Join(t.TempDir(), "state")
+		if x, err := process.New(o); err == nil {
+			x.Close()
+			t.Errorf("%s: no error", name)
+		}
 	}
 }

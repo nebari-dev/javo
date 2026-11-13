@@ -27,7 +27,9 @@ type engine struct {
 	// runner is the platform's own image and self the binary that stands
 	// in for it.
 	runner, self string
-	grace        time.Duration
+	// pixi is the pixi binary and files the platform's files (Options).
+	pixi, files string
+	grace       time.Duration
 	// ports lets one caller pick a port at a time.
 	ports sync.Mutex
 }
@@ -64,6 +66,7 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 	cmd.SysProcAttr = procAttr()
 
 	p := &proc{grace: e.grace, exited: make(chan struct{})}
+	guarded := u.Name == s.Main.Name && s.Port != 0
 	started := make(chan error)
 	go func() {
 		// The process is killed when the thread that started it ends
@@ -88,6 +91,9 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 		p.pid = cmd.Process.Pid
 		e.record(wd, u.Name, p.pid)
 		started <- nil
+		if guarded {
+			go p.guard(int(s.Port))
+		}
 
 		// Learn of the exit before the process is reaped: until then its
 		// pid, and so its group, cannot be anyone else's. What it left
@@ -107,6 +113,11 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 		}
 		select {
 		case <-copied:
+			// The log is closed: say why the unit was killed, for whoever
+			// reads its last lines.
+			if p.open != "" {
+				e.note(wd, u.Name, fmt.Sprintf(openNote, p.open))
+			}
 		case <-time.After(drain):
 		}
 		close(p.exited)
@@ -129,6 +140,9 @@ type proc struct {
 	// gone is set once the process has exited: its group is no longer
 	// signalled.
 	gone bool
+	// open is the address beyond loopback the unit was killed for
+	// listening on (guard); empty for a unit that was not.
+	open string
 }
 
 func (p *proc) Wait() int {
