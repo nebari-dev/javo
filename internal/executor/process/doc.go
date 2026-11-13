@@ -63,7 +63,8 @@
 // fails as a crashed app.
 //
 // Environment. A unit gets PATH from Javo and the variables its Spec
-// names, nothing else of Javo's own environment. Values of bundles are
+// names (a PATH among them replaces Javo's), nothing else of Javo's own
+// environment. Values of bundles are
 // read from the executor.Secrets given to New each time a unit starts and
 // go into the child's environment or the 0600 files above, never into a
 // log line of Javo's, an error or any other file.
@@ -73,26 +74,29 @@
 //
 // # The shipped templates
 //
-// Read from deploy/helm/javo/files/templates. None runs today, because
-// the planner (internal/controller/workspace) gives every unit an image
-// and container paths.
+// The planner (internal/controller/workspace) plans an app for this
+// executor when it is given Host: the folders of this machine in place of
+// a container's paths, no image, the port Addr names and Javo's own uid
+// and gid. workspace.RunsAsProcesses says which templates can run this
+// way: the ones that name no image and take their program from a pixi
+// environment, which the install step (internal/pixienv) installs with
+// the machine's sh and the tools of tools.go. A template that needs an
+// image (harf, rstudio, static-site, container), an app from a repository
+// and an app with Nebi access are refused, and the templates for job runs
+// stay out.
 //
-// These need their image and cannot run as processes: harf, rstudio,
-// static-site (which also builds in a node image) and container (the
-// image each app names). backup and the four jobs-* templates are for job
-// runs.
+// What the machine must have: sh and bash, the pixi binary of
+// Options.Pixi, the platform's files in Options.Files, and a bundled
+// environment locked for the machine's platform. Today every bundled
+// environment (pod/files/envs) is locked for Linux only, so on macOS an
+// app runs only in an environment picked for it.
 //
-// The other nineteen name no image and run from a pixi environment a step
-// installs: backend-go, backend-node, bokeh, claude-code, custom, dash,
-// fastapi, gradio, herdr, jupyterlab, marimo, panel, pi, pluto,
-// streamlit, terminal, voila, vscode and whybook. They can run here once
-// the planner leaves their image empty and plans with this machine's
-// folders, and once the files they run stop naming container paths: the
-// templates' own command lines (/opt/javo/pod-user.sh, /opt/javo/samples,
-// 0.0.0.0 as the address to listen on) and pod-user.sh
-// (/opt/javo-env/activate.sh, /opt/javo/bin). The machine then needs
-// what the pixi image brings: bash, pixi, and for the install step
-// sha256sum and flock, which macOS does not ship.
+// # Loopback
+//
+// An app must listen on 127.0.0.1 and nothing else: the planner tells it
+// to, where the template or the typed command says so in a word of its
+// own, and guard.go kills an app whose port answers on another address of
+// this machine. See guard for what that does not catch.
 //
 // # Processes
 //
