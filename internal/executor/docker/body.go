@@ -112,7 +112,7 @@ type Inputs struct {
 // Docker's init is not used: PID 1 is the unit's own command, as in a
 // Pod, so an image behaves the same on both platforms.
 func ContainerBody(s workload.Spec, u workload.Unit, in Inputs) (Body, error) {
-	if u.Name == Sandbox || u.Name == Setup {
+	if u.Name == Sandbox || u.Name == Setup || u.Name == Record {
 		return Body{}, fmt.Errorf("unit %q: the name is reserved", u.Name)
 	}
 	if _, err := ContainerName(s.Ref, u.Name); err != nil {

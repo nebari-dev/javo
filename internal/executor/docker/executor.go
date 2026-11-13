@@ -60,8 +60,8 @@ type Options struct {
 // another.
 var DefaultPool = netip.MustParsePrefix("10.213.0.0/16")
 
-// ErrBatch is Start's answer to a job run.
-var ErrBatch = errors.New("docker executor: job runs are not supported yet")
+// ErrBatch is Start's answer to a job run: Runs runs those.
+var ErrBatch = errors.New("docker executor: a job run is not an app")
 
 // Executor runs apps as containers on one Docker host: each workload is a
 // sandbox on a network of its own and one container per unit beside it.
@@ -76,6 +76,7 @@ type Executor struct {
 	// the same free range of the pool.
 	starting sync.Mutex
 	close    context.CancelFunc
+	in       internals
 }
 
 var _ executor.Executor = (*Executor)(nil)
@@ -140,7 +141,7 @@ func build(ctx context.Context, o Options, in internals) (*Executor, error) {
 	}
 	x := &Executor{
 		Supervisor: supervise.New(supervise.Config{Engine: eng, Every: in.every, Dial: in.dial}),
-		eng:        eng, close: cancel,
+		eng:        eng, close: cancel, in: in,
 	}
 	if err := x.Supervisor.Adopt(ctx); err != nil {
 		x.Close()
@@ -209,10 +210,16 @@ func (x *Executor) Close() {
 	x.close()
 }
 
-// List names every workload that has something on the daemon (a
-// container or a network carrying Javo's labels) or is being started.
+// List names every app that has something on the daemon (a container or
+// a network carrying Javo's labels) or is being started.
 func (x *Executor) List(ctx context.Context) ([]workload.Ref, error) {
-	out, err := x.Supervisor.List(ctx)
+	return x.eng.list(ctx, x.Supervisor)
+}
+
+// list names every workload of the engine's kind (apps, or runs) that
+// sup runs or that has something on the daemon.
+func (e *engine) list(ctx context.Context, sup *supervise.Supervisor) ([]workload.Ref, error) {
+	out, err := sup.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -221,19 +228,19 @@ func (x *Executor) List(ctx context.Context) ([]workload.Ref, error) {
 		seen[r.Namespace+"/"+r.Name] = true
 	}
 	add := func(labels map[string]string) {
-		if r := RefOf(labels); r.Name != "" && !seen[r.Namespace+"/"+r.Name] {
+		if r := RefOf(labels); r.Name != "" && isRun(labels) == e.runs && !seen[r.Namespace+"/"+r.Name] {
 			seen[r.Namespace+"/"+r.Name] = true
 			out = append(out, r)
 		}
 	}
-	containers, err := x.eng.c.ContainerList(ctx, x.eng.c.mine(Managed)...)
+	containers, err := e.c.ContainerList(ctx, e.c.mine(Managed)...)
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range containers {
 		add(c.Labels)
 	}
-	networks, err := x.eng.c.NetworkList(ctx, x.eng.c.mine(Managed)...)
+	networks, err := e.c.NetworkList(ctx, e.c.mine(Managed)...)
 	if err != nil {
 		return nil, err
 	}
@@ -248,15 +255,21 @@ func (x *Executor) List(ctx context.Context) ([]workload.Ref, error) {
 // second, and changes nothing.
 var watched = []string{"create", "start", "die", "oom", "destroy"}
 
-// Watch reports the workload of each change the supervisor makes or
-// sees, and of each change the daemon reports for a container of Javo's:
-// one made behind the executor's back shows too. A daemon that ends its
-// event stream is asked again.
+// Watch reports the app of each change the supervisor makes or sees, and
+// of each change the daemon reports for a container of Javo's: one made
+// behind the executor's back shows too. A daemon that ends its event
+// stream is asked again.
 func (x *Executor) Watch(ctx context.Context, changed func(workload.Ref)) error {
-	go func() { _ = x.Supervisor.Watch(ctx, changed) }()
+	return x.eng.watch(ctx, x.Supervisor, changed)
+}
+
+// watch reports the changes to the workloads of the engine's kind.
+func (e *engine) watch(ctx context.Context, sup *supervise.Supervisor, changed func(workload.Ref)) error {
+	go func() { _ = sup.Watch(ctx, changed) }()
 	for ctx.Err() == nil {
-		_ = x.eng.c.Events(ctx, x.eng.c.mine(Managed), func(e Event) {
-			if r := RefOf(e.Actor.Attributes); r.Name != "" && slices.Contains(watched, e.Action) {
+		_ = e.c.Events(ctx, e.c.mine(Managed), func(ev Event) {
+			labels := ev.Actor.Attributes
+			if r := RefOf(labels); r.Name != "" && isRun(labels) == e.runs && slices.Contains(watched, ev.Action) {
 				changed(r)
 			}
 		})

@@ -2,7 +2,6 @@ package docker
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +39,9 @@ type engine struct {
 	proxy  string
 	logins func(name string) []RegistryAuth
 	grace  time.Duration
+	// runs is set for the engine of job runs: c then marks what it makes
+	// with LabelRun, and finds only that.
+	runs bool
 	// ctx ends when the executor is closed: nothing waits for a container
 	// after that.
 	ctx context.Context
@@ -111,8 +113,9 @@ func (e *engine) Ground(ctx context.Context, s workload.Spec) (supervise.Unit, e
 	return &unit{e: e, id: id}, nil
 }
 
-// removeContainers removes every container of the workload ref. Each is
-// checked for Javo's label before it goes (ContainerRemove).
+// removeContainers removes every container of the workload ref but the
+// one that holds a run's record. Each is checked for Javo's label before
+// it goes (ContainerRemove).
 func (e *engine) removeContainers(ctx context.Context, ref workload.Ref) error {
 	all, err := e.c.ContainerList(ctx, Selector(ref)...)
 	if err != nil {
@@ -120,6 +123,9 @@ func (e *engine) removeContainers(ctx context.Context, ref workload.Ref) error {
 	}
 	var errs []error
 	for _, have := range all {
+		if have.Labels[LabelUnit] == Record {
+			continue
+		}
 		errs = append(errs, e.c.ContainerRemove(ctx, have.ID))
 	}
 	return errors.Join(errs...)
@@ -138,7 +144,7 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 	}
 	body, err := ContainerBody(s, u, Inputs{
 		Secret:  func(r workload.SecretRef) (string, bool) { v, ok := values[r]; return v, ok },
-		RunID:   strings.ToLower(rand.Text()),
+		RunID:   supervise.RunID(s),
 		Runtime: e.runtime,
 		Proxy:   e.proxy,
 	})
@@ -311,6 +317,9 @@ func (e *engine) Adopt(ctx context.Context) ([]supervise.Found, error) {
 	groups := map[string]*group{}
 	var order []string
 	for _, have := range all {
+		if isRun(have.Labels) {
+			continue
+		}
 		ref := RefOf(have.Labels)
 		k := ref.Namespace + "/" + ref.Name
 		if groups[k] == nil {

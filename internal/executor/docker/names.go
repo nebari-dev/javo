@@ -7,13 +7,14 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// Sandbox and Setup are the unit names of the two containers of a
+// Sandbox, Setup and Record are the unit names of the containers of a
 // workload that run none of its units: the one that holds its network and
-// secret files, and the one, never started, its volumes are prepared
-// through.
+// secret files, the one, never started, its volumes are prepared through,
+// and the one, never started either, that holds what is kept of a run.
 const (
 	Sandbox = "sandbox"
 	Setup   = "setup"
+	Record  = "record"
 )
 
 // part is what a namespace, a workload, a unit and a volume may be called:

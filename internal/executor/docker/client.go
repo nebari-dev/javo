@@ -44,6 +44,13 @@ func (c *Client) mine(labels ...string) []string {
 	return labels
 }
 
+// with is a client of the same daemon whose Labels also hold key=value.
+func (c *Client) with(key, value string) *Client {
+	out := *c
+	out.Labels = c.stamped(map[string]string{key: value})
+	return &out
+}
+
 // New is a client of the daemon listening on the unix socket at path.
 func New(socket string) *Client {
 	return &Client{http: &http.Client{Transport: &http.Transport{

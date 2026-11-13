@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"archive/tar"
 	"context"
 	"io"
 	"net/http"
@@ -139,6 +140,24 @@ func (c *Client) PathExists(ctx context.Context, id, path string) (bool, error) 
 	}
 	resp.Body.Close()
 	return true, nil
+}
+
+// ReadFile returns the first max bytes of the regular file at path in
+// the container, which need not run. A path that does not exist is
+// ErrNotFound; one that is anything but a regular file (a folder, a
+// link) reads as empty.
+func (c *Client) ReadFile(ctx context.Context, id, path string, max int64) ([]byte, error) {
+	resp, err := c.do(ctx, request{method: http.MethodGet, path: "/containers/" + url.PathEscape(id) + "/archive", query: url.Values{"path": {path}}})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	r := tar.NewReader(resp.Body)
+	h, err := r.Next()
+	if err != nil || h.Typeflag != tar.TypeReg {
+		return nil, nil
+	}
+	return io.ReadAll(io.LimitReader(r, max))
 }
 
 // Extract unpacks a tar stream at path in the container. The daemon does

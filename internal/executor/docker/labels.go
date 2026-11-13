@@ -16,9 +16,13 @@ const (
 	LabelName      = "javo.name"
 	LabelID        = "javo.id"
 	LabelOwner     = "javo.owner"
-	// LabelUnit is the unit a container runs; the sandbox and the setup
-	// container carry Sandbox and Setup.
+	// LabelUnit is the unit a container runs; the sandbox, the setup
+	// container and a run's record carry Sandbox, Setup and Record.
 	LabelUnit = "javo.unit"
+	// LabelRun marks what belongs to a job run. The executor of runs puts
+	// it on everything it makes and finds only that; the executor of apps
+	// passes it over.
+	LabelRun = "javo.run"
 
 	labelFingerprint = "javo.fingerprint."
 )
@@ -31,6 +35,9 @@ const Managed = LabelManaged + "=true"
 var ErrForeign = errors.New("is not Javo's")
 
 func foreign(kind, name string) error { return fmt.Errorf("%s %q %w", kind, name, ErrForeign) }
+
+// isRun reports whether labels mark a thing as a job run's.
+func isRun(labels map[string]string) bool { return labels[LabelRun] == "true" }
 
 // Ours reports whether labels mark a thing as Javo's.
 func Ours(labels map[string]string) bool { return labels[LabelManaged] == "true" }

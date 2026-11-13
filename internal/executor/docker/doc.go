@@ -1,4 +1,4 @@
-// Package docker runs apps as containers on one Docker host. It holds a
+// Package docker runs apps and job runs as containers on one Docker host. It holds a
 // small client for the Docker Engine API, the translation of a
 // workload's unit into a hardened container, the network, volume and
 // secret-file steps a workload needs, and the Executor that joins them:
@@ -40,7 +40,38 @@
 // started again by its caller. Only what was made through a Client with
 // the same Labels is adopted, listed or watched.
 //
-// What it does not do: job runs (ErrBatch); the output of a unit's
+// # Runs
+//
+// Executor.Runs is the executor for job runs (workload.Batch) on the same
+// daemon, with the same gateway, pool, runtime and secrets. A run is put
+// together as an app is, by the same code: refused when it cannot run
+// confined, a sandbox on a network of its own from the pool, volumes
+// prepared first, one container per unit from ContainerBody, values read
+// from the bundles when a unit starts. Everything of a run carries
+// LabelRun, which is how the two executors keep apart: each lists,
+// watches and adopts its own kind only, and the Executor refuses a run
+// (ErrBatch) as Runs refuses an app.
+//
+// internal/executor/supervise decides how a run goes: each attempt makes
+// the sandbox anew and runs the steps and the main unit once, a failed
+// one is started over while retries are left, and the time limit counts
+// from Start. A variable that asks for the run's id gets the run's name.
+// Three things are added for a run. Its main unit mounts a volume of the
+// run's own at /run/javo/message and is told in JAVO_TERMINATION_LOG to
+// leave its last message in a file there, one per attempt, which the
+// daemon reads back from the exited container. What is known of the run
+// is kept as a label of a container that is never started (Record), made
+// anew each time it changes. And when the run has ended, its sandbox is
+// stopped and the container of its main unit stays, exited, for its
+// output: Stop on a run that has ended tears all of it down, with the
+// network and the run's volumes.
+//
+// A Runs made later adopts every run that has a record: one that is done
+// is shown as it ended, one whose main unit is still there (running or
+// exited) is waited for as the same attempt, and one with less than that
+// has lost the attempt.
+//
+// What it does not do: the output of a unit's
 // earlier run (LogOptions.Previous), since a container is replaced when
 // its unit starts again; the commit of an app from Git (State.Commit),
 // which Kubernetes reads from a termination message Docker does not
