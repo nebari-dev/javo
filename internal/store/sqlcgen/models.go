@@ -368,3 +368,13 @@ type UsageInterval struct {
 	StartedAt dbtime.Time
 	StoppedAt dbtime.NullTime
 }
+
+type WorkloadBundle struct {
+	Namespace  string
+	Name       string
+	WorkloadID string
+	Owner      string
+	Meta       string
+	Sealed     []byte
+	UpdatedAt  dbtime.Time
+}
