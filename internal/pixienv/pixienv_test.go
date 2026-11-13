@@ -38,6 +38,50 @@ func installStep(t *testing.T, spec *workload.Spec) *workload.Unit {
 	return nil
 }
 
+// standIns is the folder of the stand-ins for pixi and flock, with the one
+// for the platform's binary beside it. Every machine runs the same files,
+// which find the machine they run on in MACHINE: macOS checks each new
+// program file the first time it runs, one at a time for the whole
+// computer, so a set per test waits there.
+var standIns string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "javo-pixienv-test")
+	if err != nil {
+		panic(err)
+	}
+	standIns = filepath.Join(dir, "bin")
+	for name, body := range map[string]string{
+		"bin/pixi": `#!/bin/sh
+case "$1" in
+install) [ "$2" = --frozen ] || exit 9
+  echo "$PWD" >> "$MACHINE/calls"
+  echo "${RUST_LOG:-}" >> "$MACHINE/calls.log"
+  [ ! -e fail ] || exit 3
+  mkdir -p .pixi/envs/default/bin
+  for b in $(sed -n 's/^# bin //p' pixi.toml); do printf '#!/bin/sh\n' > ".pixi/envs/default/bin/$b"; chmod +x ".pixi/envs/default/bin/$b"; done ;;
+shell-hook) echo "export PATH=\"$PWD/.pixi/envs/default/bin:/usr/bin\""; echo "export CONDA_PREFIX=$PWD/.pixi/envs/default" ;;
+*) exit 8 ;;
+esac
+`,
+		"bin/flock": "#!/bin/sh\nshift\nexec \"$@\"\n",
+		// It records what it was asked to clear and whether pixi had
+		// installed by then.
+		model.ProductName: "#!/bin/sh\necho \"$* $(test -d \"$2/bin\" && echo installed)\" >> \"$MACHINE/tool-calls\"\n",
+	} {
+		file := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.WriteFile(file, []byte(body), 0o755); err != nil {
+			panic(err)
+		}
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 // machine is the install step run on this machine: the pod's paths are
 // folders of a temporary directory, and pixi and flock are stand-ins. pixi
 // records each install (its folder) in calls, makes the prefix and prints a
@@ -53,29 +97,20 @@ func newMachine(t *testing.T) *machine {
 	m := &machine{t: t, root: t.TempDir()}
 	m.home, m.envDir, m.files, m.repo = filepath.Join(m.root, "home"), filepath.Join(m.root, "env"), filepath.Join(m.root, "files"), filepath.Join(m.root, "repo")
 	m.calls = filepath.Join(m.root, "calls")
-	bin := filepath.Join(m.root, "bin")
-	for _, d := range []string{m.home, m.envDir, m.repo, bin} {
+	for _, d := range []string{m.home, m.envDir, m.repo} {
 		m.must(os.MkdirAll(d, 0o755))
 	}
-	m.write(filepath.Join(bin, "pixi"), `#!/bin/sh
-case "$1" in
-install) [ "$2" = --frozen ] || exit 9
-  echo "$PWD" >> "`+m.calls+`"
-  echo "${RUST_LOG:-}" >> "`+m.calls+`.log"
-  [ ! -e fail ] || exit 3
-  mkdir -p .pixi/envs/default/bin
-  for b in $(sed -n 's/^# bin //p' pixi.toml); do printf '#!/bin/sh\n' > ".pixi/envs/default/bin/$b"; chmod +x ".pixi/envs/default/bin/$b"; done ;;
-shell-hook) echo "export PATH=\"$PWD/.pixi/envs/default/bin:/usr/bin\""; echo "export CONDA_PREFIX=$PWD/.pixi/envs/default" ;;
-*) exit 8 ;;
-esac
-`, 0o755)
-	m.write(filepath.Join(bin, "flock"), "#!/bin/sh\nshift\nexec \"$@\"\n", 0o755)
 	// The platform's binary, which the tools step copies next to the
-	// activation: it records what it was asked to clear and whether pixi
-	// had installed by then.
-	m.write(filepath.Join(m.envDir, model.ProductName), "#!/bin/sh\necho \"$* $(test -d \"$2/bin\" && echo installed)\" >> \""+filepath.Join(m.root, "tool-calls")+"\"\n", 0o755)
+	// activation.
+	m.must(os.Symlink(filepath.Join(filepath.Dir(standIns), model.ProductName), filepath.Join(m.envDir, model.ProductName)))
 	m.bundle("streamlit", "streamlit-lock")
 	return m
+}
+
+// env is what a step of the machine runs with, before the step's own: the
+// stand-ins first on its PATH, and where they keep their records.
+func (m *machine) env() []string {
+	return []string{"PATH=" + standIns + ":/usr/bin:/bin:/sbin", "TMPDIR=" + m.root, "MACHINE=" + m.root}
 }
 
 func (m *machine) must(err error) {
@@ -125,8 +160,7 @@ func (m *machine) step(src Source) ([]byte, error) {
 	step := installStep(m.t, spec)
 	paths := strings.NewReplacer(podspec.HomeDir, m.home, Dir, m.envDir, podfiles.Dir, m.files, "/srv/src/current", m.repo)
 	cmd := exec.Command(step.Command[0], step.Command[1:]...)
-	cmd.Env = []string{"PATH=" + filepath.Join(m.root, "bin") + ":/usr/bin:/bin:/sbin", "TMPDIR=" + m.root,
-		"JAVO_TERMINATION_LOG=" + filepath.Join(m.root, "termination-log")}
+	cmd.Env = append(m.env(), "JAVO_TERMINATION_LOG="+filepath.Join(m.root, "termination-log"))
 	for _, e := range step.Env {
 		cmd.Env = append(cmd.Env, e.Name+"="+paths.Replace(e.Value))
 	}
@@ -211,7 +245,7 @@ func TestAFailedInstallIsNotMarkedReady(t *testing.T) {
 	step := installStep(t, spec)
 	paths := strings.NewReplacer(podspec.HomeDir, m.home, Dir, m.envDir, podfiles.Dir, m.files)
 	cmd := exec.Command(step.Command[0], step.Command[1:]...)
-	cmd.Env = []string{"PATH=" + filepath.Join(m.root, "bin") + ":/usr/bin:/bin:/sbin", "TMPDIR=" + m.root}
+	cmd.Env = m.env()
 	for _, e := range step.Env {
 		cmd.Env = append(cmd.Env, e.Name+"="+paths.Replace(e.Value))
 	}
