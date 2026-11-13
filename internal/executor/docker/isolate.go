@@ -87,6 +87,10 @@ func Release(ctx context.Context, c *Client, ref workload.Ref, gateway string) e
 	return c.NetworkRemove(ctx, name)
 }
 
+// ErrPoolFull means the pool has no range left for one more workload's
+// network. Stopping a workload frees its range.
+var ErrPoolFull = errors.New("the network pool is full")
+
 // subnetBits is the size of a workload's network: 16 addresses, for its
 // sandbox, the gateway and a probe.
 const subnetBits = 28
@@ -119,5 +123,5 @@ next:
 		}
 		return candidate, nil
 	}
-	return netip.Prefix{}, fmt.Errorf("docker: the network pool %s is full", pool)
+	return netip.Prefix{}, fmt.Errorf("docker: %w: every /%d range of %s is some network's", ErrPoolFull, subnetBits, pool)
 }

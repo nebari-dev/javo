@@ -35,6 +35,15 @@ func (c *Client) stamped(labels map[string]string) map[string]string {
 	return out
 }
 
+// mine is labels with a filter for each of the client's own added: what
+// it finds was made through a client with the same Labels.
+func (c *Client) mine(labels ...string) []string {
+	for k, v := range c.Labels {
+		labels = append(labels, k+"="+v)
+	}
+	return labels
+}
+
 // New is a client of the daemon listening on the unix socket at path.
 func New(socket string) *Client {
 	return &Client{http: &http.Client{Transport: &http.Transport{

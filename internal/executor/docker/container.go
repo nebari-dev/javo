@@ -13,10 +13,11 @@ import (
 type Container struct {
 	ID string `json:"Id"`
 	// Name starts with a slash, as the daemon gives it.
-	Name   string
-	Image  string
-	State  ContainerState
-	Config struct {
+	Name    string
+	Image   string
+	Created time.Time
+	State   ContainerState
+	Config  struct {
 		Image  string
 		Labels map[string]string
 	}

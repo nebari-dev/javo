@@ -28,6 +28,9 @@ type Target struct {
 	// Image has sh, sleep, echo and cat; empty for an executor that runs
 	// units without an image.
 	Image string
+	// Fit, unless nil, gives a workload what this executor asks of every
+	// one and the suite does not care about: a user, a memory limit.
+	Fit func(*workload.Spec)
 }
 
 // patience is how long a workload gets to reach a state.
@@ -95,6 +98,9 @@ func (s *suite) spec(script string, steps ...string) workload.Spec {
 	sp := workload.Spec{Ref: s.ref, Port: int32(n), Main: sh(workload.MainUnit, script)}
 	for i, step := range steps {
 		sp.Steps = append(sp.Steps, sh(fmt.Sprintf("step-%d", i), step))
+	}
+	if s.Fit != nil {
+		s.Fit(&sp)
 	}
 	return sp
 }
