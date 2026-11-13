@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/netprobe"
+	"github.com/nebari-dev/javo/internal/status"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
@@ -29,7 +31,10 @@ func processConfig(t *testing.T) config.Platform {
 }
 
 func hostInputs(t *testing.T) HostInputs {
-	return HostInputs{DB: storetest.New(t), Namespace: "javo-apps", Listen: "127.0.0.1:8080", RunnerImage: "example.com/javo:1"}
+	return HostInputs{
+		DB: storetest.New(t), Namespace: "javo-apps", Listen: "127.0.0.1:8080", RunnerImage: "example.com/javo:1",
+		FilesImage: "example.com/rclone:1",
+	}
 }
 
 // wantRefused builds the host and fails unless it is refused in words
@@ -82,8 +87,23 @@ func TestAProcessHostMakesItsFoldersAndKeepsItsKeys(t *testing.T) {
 	if plain, err := second.SessionsKey.Decrypt(sealed, []byte("ad")); err != nil || string(plain) != "token" {
 		t.Fatalf("the next start does not open what the first sealed: %v", err)
 	}
-	if second.Runs != nil || second.Files == nil || second.Homes == nil || second.PlanFor == nil {
+	if second.Runs == nil || second.Files == nil || second.Setup == nil || second.PlanFor == nil {
 		t.Fatalf("a process host: runs %v, files %v", second.Runs, second.Files)
+	}
+}
+
+// As processes of one person's machine an app with no login of its own
+// starts: the gate that holds such an app back is answered there without
+// a probe.
+func TestAProcessHostLetsAppsWithNoLoginStart(t *testing.T) {
+	h, err := NewHost(context.Background(), processConfig(t), hostInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	res, err := h.NetworkPolicy().Get(context.Background())
+	if err != nil || status.LoginlessBlocked("Disabled", res.State) {
+		t.Fatalf("an app with no login of its own is held back: %+v, %v", res, err)
 	}
 }
 
@@ -149,6 +169,17 @@ type fakeDocker struct {
 	api      string
 	runtimes map[string]any
 	gateway  string
+	// hostname is the gateway container's.
+	hostname string
+}
+
+// inside makes Javo take itself to run on a machine called name, until
+// the test ends.
+func inside(t *testing.T, name string) {
+	t.Helper()
+	before := hostname
+	hostname = func() (string, error) { return name, nil }
+	t.Cleanup(func() { hostname = before })
 }
 
 // socket serves d on a unix socket and returns its path.
@@ -173,7 +204,7 @@ func (d fakeDocker) socket(t *testing.T) string {
 		case strings.HasSuffix(p, "/info"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"Runtimes": d.runtimes, "CgroupVersion": "2"})
 		case strings.HasSuffix(p, "/containers/"+d.gateway+"/json") && d.gateway != "":
-			_ = json.NewEncoder(w).Encode(map[string]any{"Id": "gw"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"Id": "gw", "Config": map[string]string{"Hostname": d.hostname}})
 		case strings.HasSuffix(p, "/json") && strings.Contains(p, "/containers/") && !strings.HasSuffix(p, "/containers/json"):
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "No such container"})
@@ -197,7 +228,8 @@ func dockerConfig(t *testing.T, socket string) config.Platform {
 // one that does not answer or is too old, one without the runtime the
 // admin asked for, or one that does not have Javo's own container.
 func TestADockerHostRefusesADaemonItCannotUse(t *testing.T) {
-	good := fakeDocker{api: "1.53", runtimes: map[string]any{"runc": nil}, gateway: "javo"}
+	good := fakeDocker{api: "1.53", runtimes: map[string]any{"runc": nil}, gateway: "javo", hostname: "javo-1"}
+	inside(t, "javo-1")
 	t.Run("no daemon", func(t *testing.T) {
 		wantRefused(t, dockerConfig(t, filepath.Join(t.TempDir(), "none.sock")), hostInputs(t), "docker executor")
 	})
@@ -216,17 +248,63 @@ func TestADockerHostRefusesADaemonItCannotUse(t *testing.T) {
 		gone.gateway = ""
 		wantRefused(t, dockerConfig(t, gone.socket(t)), hostInputs(t), `gateway container "javo"`)
 	})
+	t.Run("a Javo outside its gateway container", func(t *testing.T) {
+		// Its readiness checks, the file helpers and the proxy all need
+		// Javo on the workloads' networks, where only that container is.
+		inside(t, "a-laptop")
+		wantRefused(t, dockerConfig(t, good.socket(t)), hostInputs(t), `docker.gateway "javo"`, "a-laptop", "inside the container")
+	})
 	t.Run("a daemon it can use", func(t *testing.T) {
-		h, err := NewHost(context.Background(), dockerConfig(t, good.socket(t)), hostInputs(t))
+		in := hostInputs(t)
+		// What a Javo on a cluster, or on another daemon, measured there.
+		stale := &netprobe.Store{Facts: in.DB.Facts()}
+		if err := stale.Put(context.Background(), netprobe.Result{State: netprobe.Enforced}); err != nil {
+			t.Fatal(err)
+		}
+		h, err := NewHost(context.Background(), dockerConfig(t, good.socket(t)), in)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer h.Close()
-		// Homes and files on Docker are not built yet, and neither are runs.
-		if h.Runs != nil || h.Files != nil || h.Homes != nil || h.PlanFor != nil {
+		if h.Runs == nil || h.Files == nil || h.Setup == nil || h.PlanFor != nil {
 			t.Fatalf("a docker host: %+v", h)
 		}
+		// Until this Javo's own probe has measured it, an app with no
+		// login of its own does not start.
+		res, err := h.NetworkPolicy().Get(context.Background())
+		if err != nil || !status.LoginlessBlocked("Disabled", res.State) {
+			t.Fatalf("an app with no login of its own starts unprobed: %+v, %v", res, err)
+		}
 	})
+}
+
+// What one Javo makes on a daemon in one scope is never found in
+// another: the labels a scope's client puts on a thing do not match the
+// filter of any other scope's client, nor that of another Javo's.
+func TestTheScopesOfADockerHostAreApart(t *testing.T) {
+	scopes := []string{scopeWorkloads, scopeFiles, scopeHomes, scopeProbe}
+	type client struct{ scope, gateway string }
+	var all []client
+	for _, gw := range []string{"javo", "javo-2"} {
+		for _, s := range scopes {
+			all = append(all, client{s, gw})
+		}
+	}
+	for _, maker := range all {
+		made := scoped("/none.sock", maker.scope, maker.gateway).Labels
+		for _, finder := range all {
+			found := true
+			for k, v := range scoped("/none.sock", finder.scope, finder.gateway).Labels {
+				found = found && made[k] == v
+			}
+			if len(scoped("/none.sock", finder.scope, finder.gateway).Labels) == 0 {
+				t.Fatalf("%+v has no label: it would find everything", finder)
+			}
+			if found != (maker == finder) {
+				t.Errorf("what %+v makes: found by %+v = %v", maker, finder, found)
+			}
+		}
+	}
 }
 
 // Apps as processes all run as one user, so the first person to sign in

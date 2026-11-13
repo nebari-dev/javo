@@ -21,6 +21,8 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/idle"
 	"github.com/nebari-dev/javo/internal/controller/loop"
+	"github.com/nebari-dev/javo/internal/controller/namespace"
+	"github.com/nebari-dev/javo/internal/egressproxy"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/placement"
@@ -38,26 +40,35 @@ import (
 )
 
 // clusterFlags are the flags of `javo server` that only mean something on
-// Kubernetes: its namespaces, policies, Secrets, probes and the manager's
-// own listeners. Given with another executor they are refused, not
-// ignored.
+// Kubernetes: its namespaces, policies, Secrets and the manager's own
+// listeners. Given with another executor they are refused, not ignored.
 var clusterFlags = []string{
 	"namespace", "gateway-namespace", "gateway-pod-labels", "gateway-port", "network-policy",
-	"egress-deny-cidrs", "egress-allow-cidrs", "egress-allow-cluster-cidrs", "egress-allow-namespaces",
+	"egress-allow-namespaces",
 	"app-role-binding", "image-pull-secret",
 	"notifications-namespace", "notifications-config-map", "notifications-secret",
-	"netprobe-control-url", "netprobe-interval", "netprobe-timeout",
+	"netprobe-control-url",
 	"secrets-key-file", "secrets-key-secret", "secrets-key-create",
 	"sessions-key-secret", "sessions-key-create",
 	"secret-fingerprint-key-secret", "secret-fingerprint-key-create",
 	"backup-password-secret", "backup-password-create",
 	"backup-claim", "backup-claim-size", "backup-claim-storage-class",
+}
+
+// containerFlags are the flags a Docker host reads as a cluster does:
+// what apps may reach (through the forward proxy there), the isolation
+// probe's pace and the file helpers. Where apps are processes there is
+// none of the three, and they are refused.
+var containerFlags = []string{
+	"egress-deny-cidrs", "egress-allow-cidrs", "egress-allow-cluster-cidrs",
+	"netprobe-interval", "netprobe-timeout",
 	"files-image", "files-idle-after",
 }
 
 // listenerFlags are the listeners the controller-runtime manager serves
 // besides the gateway's port. Without a cluster there is no manager and
-// nothing but the gateway's port is listened on.
+// nothing but the gateway's port is listened on, and on Docker the port
+// of the apps' forward proxy (docker.proxyPort).
 var listenerFlags = []string{"metrics-bind-address", "health-probe-bind-address"}
 
 // refuseClusterFlags is an error for each flag given that the executor
@@ -69,6 +80,11 @@ func refuseClusterFlags(f *pflag.FlagSet, executor string) error {
 	for _, name := range clusterFlags {
 		if fl := f.Lookup(name); fl != nil && fl.Changed {
 			errs = append(errs, fmt.Errorf("--%s is for executor kubernetes and means nothing with executor %s", name, executor))
+		}
+	}
+	for _, name := range containerFlags {
+		if fl := f.Lookup(name); fl != nil && fl.Changed && executor != config.ExecutorDocker {
+			errs = append(errs, fmt.Errorf("--%s is for executor kubernetes or docker and means nothing with executor %s", name, executor))
 		}
 	}
 	for _, name := range listenerFlags {
@@ -99,8 +115,15 @@ func hostOf(ctx context.Context, flags *pflag.FlagSet, common *commonFlags, gw *
 	if err := refuseClusterFlags(flags, platform.Executor); err != nil {
 		return nil, err
 	}
+	egress, err := namespace.ParseEgress(ctl.egressDeny, ctl.egressAllow, ctl.egressAllowC)
+	if err != nil {
+		return nil, err
+	}
 	return wiring.NewHost(ctx, platform, wiring.HostInputs{
 		DB: db, Namespace: common.workspaceNamespace, Listen: gw.listen, RunnerImage: ctl.runnerImage,
+		FilesImage: gw.filesImage, FilesIdleAfter: gw.filesIdleAfter,
+		Egress:     egressproxy.Rules{Deny: egress.Deny, Allow: egress.Allow, AllowCluster: egress.AllowCluster},
+		ProbeEvery: ctl.probe.every, ProbeTimeout: ctl.probe.timeout,
 	})
 }
 
@@ -112,8 +135,7 @@ type gatewayParts struct {
 	// apps and runs say where a workload listens and what it printed.
 	apps, runs executor.Executor
 	policy     netprobe.Reader
-	// homes and usage read people's files; nil where that is not
-	// available.
+	// homes and usage read people's files.
 	homes gwstorage.Homes
 	usage gwstorage.HomeUsages
 	// sessionsKey and fingerprinter are Javo's own keys.
@@ -133,18 +155,14 @@ func (o *gatewayOptions) parts(ctx context.Context, common *commonFlags, platfor
 		on.people = people
 		return on, err
 	}
+	// What the host serves beside the gateway ends with it.
+	host.Serve(ctx)
 	on := gatewayParts{
 		machines: host.Machines(), apps: host.Apps, runs: host.Runs, policy: host.NetworkPolicy(),
 		sessionsKey: host.SessionsKey, fingerprinter: host.Fingerprinter, people: host.People(people),
 		internalHost: o.internalHost,
 	}
-	if on.runs == nil {
-		// No run was ever started here, so there is none to read.
-		on.runs = executor.None{}
-	}
-	if host.Files != nil {
-		on.homes, on.usage = host.Files, host.Files
-	}
+	on.homes, on.usage = host.Files, host.Files
 	if u, err := url.Parse(host.APIURL); err == nil && on.internalHost == "" {
 		on.internalHost = u.Host
 	}
@@ -217,13 +235,14 @@ func (o *gatewayOptions) clusterParts(ctx context.Context, common *commonFlags, 
 }
 
 // runOnHost runs the controller where there is no cluster: the app and
-// job reconcilers, the homes and the idle check, driven by the database's
-// change feed and the executor's Watch on a loop.Loop. There is no
-// manager, so no leader election (this process is the only controller),
-// no metrics or health listener, and none of what only a cluster has:
-// namespaces, network policy and its probe, storage classes and their
-// probe, home moves and backups, the backup claim, previews and failure
-// notices.
+// job reconcilers, what the host sets up beside them (homes, the answer
+// to group folders, on Docker the isolation probe) and the idle check,
+// driven by the database's change feed and the executors' Watch on a
+// loop.Loop. There is no manager, so no leader election (this process is
+// the only controller), no metrics or health listener, and none of what
+// only a cluster has: namespaces, network policy, storage classes and
+// their probe, home moves and backups, the backup claim, previews and
+// failure notices.
 func (o *controllerOptions) runOnHost(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store, host *wiring.Host) error {
 	if o.runnerImage == "" {
 		return errors.New("the controller needs --runner-image")
@@ -247,15 +266,13 @@ func (o *controllerOptions) runOnHost(ctx context.Context, common *commonFlags, 
 		return err
 	}
 	jobRec := o.jobReconciler(common, platform, db, appSizes)
-	jobRec.Exec, jobRec.Secrets = host.Runs, host.Secrets
+	jobRec.Exec, jobRec.Secrets, jobRec.Host = host.Runs, host.Secrets, host.PlanFor
 	jobRec.APIInternalURL, jobRec.SecretKeys = host.APIURL, host.Keys
 	if err := jobRec.Setup(&l, feed); err != nil {
 		return err
 	}
-	if host.Homes != nil {
-		if err := host.Homes(&l, feed); err != nil {
-			return err
-		}
+	if err := host.Setup(&l, feed); err != nil {
+		return err
 	}
 	if err := l.Add(&idle.Checker{Apps: db.Apps()}); err != nil {
 		return err

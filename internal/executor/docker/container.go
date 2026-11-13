@@ -19,8 +19,10 @@ type Container struct {
 	Created time.Time
 	State   ContainerState
 	Config  struct {
-		Image  string
-		Labels map[string]string
+		Image string
+		// Hostname is the name the container knows itself by.
+		Hostname string
+		Labels   map[string]string
 	}
 	NetworkSettings struct {
 		Networks map[string]struct{ IPAddress string }

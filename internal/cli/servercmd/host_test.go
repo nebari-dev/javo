@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func refused(t *testing.T, cmd *cobra.Command, args ...string) string {
 // only a cluster gives meaning to.
 func TestServerRefusesAClustersFlagsWithAnotherExecutor(t *testing.T) {
 	flags := NewServer().Flags()
-	for _, name := range append(append([]string{}, clusterFlags...), listenerFlags...) {
+	for _, name := range slices.Concat(clusterFlags, containerFlags, listenerFlags) {
 		if flags.Lookup(name) == nil {
 			t.Errorf("--%s is refused but is no flag of javo server", name)
 		}
@@ -76,6 +77,22 @@ func TestServerRefusesAClustersFlagsWithAnotherExecutor(t *testing.T) {
 				t.Errorf("%s with %s: %q", flag, executor, got)
 			}
 		}
+	}
+}
+
+// What apps may reach, the isolation probe's pace and the file helpers
+// are a Docker host's as they are a cluster's: their flags are read
+// there, and refused where apps are processes, which have none of them.
+func TestServerReadsContainerFlagsOnDockerOnly(t *testing.T) {
+	const flag = "--egress-allow-cidrs=192.0.2.0/24"
+	_, args := hostConfig(t, "process")
+	if got := refused(t, NewServer(), append(args, "--listen", "127.0.0.1:0", flag)...); !strings.Contains(got, "--egress-allow-cidrs is for executor kubernetes or docker") {
+		t.Errorf("with process: %q", got)
+	}
+	// On Docker the start goes on to the daemon, which does not answer here.
+	_, args = hostConfig(t, "docker")
+	if got := refused(t, NewServer(), append(args, "--listen", "127.0.0.1:0", flag)...); strings.Contains(got, "--egress-allow-cidrs") || !strings.Contains(got, "docker executor") {
+		t.Errorf("with docker: %q", got)
 	}
 }
 

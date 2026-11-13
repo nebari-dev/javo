@@ -18,7 +18,6 @@ func emittedByJobs() []Code {
 		OutputWriteFailed, RunSkipped, RunMissed,
 		RunCancelled, RunInterrupted, ParametersInvalid, RunLimitReached,
 		JobsNotAllowed, OwnerLostAccess, SchedulePaused, ScheduleInvalid, NotificationFailed, JobSizeUnknown, EnvironmentUnavailable,
-		RunsUnsupported,
 		TemplateMissing, NetworkPolicyNotEnforced, CommandFailed,
 	}
 	for _, c := range jobstatus.EmittedReasons() {

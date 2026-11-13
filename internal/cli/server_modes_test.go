@@ -80,6 +80,13 @@ func freeAddr(t *testing.T) string {
 	return l.Addr().String()
 }
 
+// freePort is a port of loopback nothing listens on now.
+func freePort(t *testing.T) string {
+	t.Helper()
+	_, port, _ := net.SplitHostPort(freeAddr(t))
+	return port
+}
+
 // seedAccount makes the local account people sign in with, as `javo user
 // add` does, in the SQLite file at path before the server opens it.
 func seedAccount(t *testing.T, path string, names ...string) {

@@ -22,6 +22,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
+	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/jobs/schedule"
@@ -43,11 +44,13 @@ import (
 // columns.
 type Reconciler struct {
 	// Exec runs the jobs' runs and Secrets keeps the bundles they read.
-	// Secrets is required. Exec is nil on a platform that cannot run jobs
-	// yet: every job is then Blocked as RunsUnsupported, no schedule fires
-	// and a run a person asks for fails with that reason.
+	// Both are required.
 	Exec    executor.Executor
 	Secrets executor.Secrets
+	// Host says what a run is planned with to run as plain processes of
+	// this machine; nil where runs are containers. A job whose template
+	// cannot run that way is Blocked as TemplateInvalid.
+	Host func(workload.Ref) workload.Host
 	// Legacy removes what earlier versions left where the runs run; nil
 	// where there is nothing to remove.
 	Legacy Legacy
@@ -86,9 +89,6 @@ type Reconciler struct {
 	// MaxTimeout is limits.jobMaxTimeout: no run takes longer. Zero is no
 	// platform limit.
 	MaxTimeout time.Duration
-
-	// unsupported is set when the platform runs no jobs (Exec was nil).
-	unsupported bool
 
 	// readable is, per job with a schedule, the fingerprint of the secrets
 	// its runs get that were last opened without trouble, so they are not
@@ -244,9 +244,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // assess decides the phase from the template, the owner's access and the job
 // itself.
 func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) (verdict, error) {
-	if r.unsupported {
-		return verdict{phase: model.JobPhaseBlocked, code: reasons.RunsUnsupported}, nil
-	}
 	tpl, err := r.Store.Templates().Get(ctx, job.Spec.Template)
 	if errors.Is(err, store.ErrNotFound) {
 		return verdict{phase: model.JobPhaseBlocked, code: reasons.TemplateMissing}, nil
@@ -287,7 +284,16 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 	if v.size, ok = r.Sizes.For(job.Size, job.Resources); !ok {
 		return verdict{phase: model.JobPhaseInvalid, code: reasons.JobSizeUnknown}, nil
 	}
-	if tpl.Spec.Environment != "" && r.PixiImage == "" {
+	if r.Host != nil {
+		// As processes of this machine: its pixi installs environments,
+		// and a template that needs an image cannot run.
+		host := r.Host(jobRef(job))
+		var no *executor.UnsupportedError
+		if _, err := workspace.PlanRunOnHost(&host, v.layout, &tpl, job.Spec.Environment != nil); errors.As(err, &no) {
+			log.FromContext(ctx).Info("job blocked: its runs cannot be processes of this machine", "job", job.Name, "why", no.Error())
+			return verdict{phase: model.JobPhaseBlocked, code: reasons.TemplateInvalid}, nil
+		}
+	} else if tpl.Spec.Environment != "" && r.PixiImage == "" {
 		return verdict{phase: model.JobPhaseBlocked, code: reasons.EnvironmentUnavailable}, nil
 	}
 	if job.Spec.Environment != nil {
@@ -295,7 +301,7 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return verdict{}, err
 		}
-		if err != nil || r.PixiImage == "" || pixienv.Fits(files) != nil {
+		if err != nil || (r.PixiImage == "" && r.Host == nil) || pixienv.Fits(files) != nil {
 			return verdict{phase: model.JobPhaseBlocked, code: reasons.EnvironmentUnavailable}, nil
 		}
 		v.env = &files
@@ -535,7 +541,12 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v *verd
 			}
 			continue
 		}
-		spec, err := PlanRun(r.inputs(job, *v), run.ID, run.Parameters, run.Slot)
+		in := r.inputs(job, *v)
+		if r.Host != nil {
+			host := r.Host(ref)
+			in.Host = &host
+		}
+		spec, err := PlanRun(in, run.ID, run.Parameters, run.Slot)
 		if errors.Is(err, ErrParameterNotDeclared) {
 			if err := r.endRequest(ctx, run, model.RunOutcomeFailed, reasons.ParametersInvalid, now); err != nil {
 				return err
@@ -935,13 +946,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 // looked at again when its next slot comes. It also adds the orphan sweep.
 // The caller runs feed.
 func (r *Reconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
-	if r.Secrets == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
+	if r.Exec == nil || r.Secrets == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
 		r.Storage.Homes == nil || r.Storage.Folders == nil {
-		return errors.New("jobs reconciler needs Secrets, Store, Access, Now, RunnerImage and Storage")
-	}
-	if r.Exec == nil {
-		// Nothing runs jobs here: the rows are still looked at, to say so.
-		r.Exec, r.unsupported = executor.None{}, true
+		return errors.New("jobs reconciler needs Exec, Secrets, Store, Access, Now, RunnerImage and Storage")
 	}
 	if err := d.Add(&sweep.Runner{What: "jobs", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
 		return err

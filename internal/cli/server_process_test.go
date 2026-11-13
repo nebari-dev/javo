@@ -21,9 +21,10 @@ type processInstall struct {
 }
 
 // fixtureTemplate is an app whose command is a shell one-liner that
-// serves on the port it is given. It runs in a pixi environment, as every
-// template that needs no image does; the environment here is installed by
-// a stand-in for pixi that puts the fixture app on its PATH.
+// serves on the port it is given, and has no login of its own. It runs
+// in a pixi environment, as every template that needs no image does; the
+// environment here is installed by a stand-in for pixi that puts the
+// fixture app on its PATH.
 const fixtureTemplate = `apiVersion: javo.nebari.dev/v1alpha1
 kind: WorkspaceTemplate
 metadata:
@@ -34,7 +35,7 @@ spec:
   environment: fixture
   port: 8080
   command: ["/opt/javo/pod-user.sh", "sh", "-c", "exec ` + fixtureApp + ` {{.Port}}"]
-  appLogin: Enabled
+  appLogin: Disabled
   readinessPath: "/"
   jobs:
     engines: [command]
@@ -88,8 +89,9 @@ process:
 }
 
 // `javo server` with executor process starts with no cluster and no
-// kubeconfig, signs a person in, runs their app as a process of this
-// machine until it is Running, and serves it through the gateway.
+// kubeconfig, signs a person in, runs their app (one with no login of its
+// own) as a process of this machine until it is Running, serves it
+// through the gateway, and runs their job to Succeeded.
 func TestServerRunsAnAppAsAProcess(t *testing.T) {
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
 	in := newProcessInstall(t, testPerson)
@@ -124,22 +126,41 @@ func TestServerRunsAnAppAsAProcess(t *testing.T) {
 		t.Errorf("events: %d", code)
 	}
 
-	// Nothing runs jobs here yet: a job says so instead of waiting.
+	// A job runs as processes too: the runner in the person's home, its
+	// command in the template's environment, which alone has the fixture
+	// app on its PATH.
 	var job struct {
 		Name    string `json:"name"`
-		Phase   string `json:"phase"`
-		Problem *struct {
-			Reason string `json:"reason"`
-		} `json:"problem"`
+		LastRun *struct {
+			Outcome, Reason, Message, OutputPath string
+		} `json:"lastRun"`
 	}
-	if code := s.call(http.MethodPost, "/api/jobs", map[string]string{"displayName": "Nightly", "template": "fixture", "engine": "command", "command": "true"}, &job); code != http.StatusCreated {
+	if code := s.call(http.MethodPost, "/api/jobs", map[string]string{
+		"displayName": "Nightly", "template": "fixture", "engine": "command",
+		"command": `sh -c "command -v ` + fixtureApp + ` && echo ran > job-was-here.txt"`,
+	}, &job); code != http.StatusCreated {
 		t.Fatalf("create job: %d", code)
 	}
-	for deadline := time.Now().Add(30 * time.Second); job.Phase != "Blocked" && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		s.call(http.MethodGet, "/api/jobs/"+job.Name, nil, &job)
+	if code := s.call(http.MethodPost, "/api/jobs/"+job.Name+"/run", nil, nil); code != http.StatusCreated {
+		t.Fatalf("run the job: %d", code)
 	}
-	if job.Phase != "Blocked" || job.Problem == nil || job.Problem.Reason != "RunsUnsupported" {
-		t.Errorf("a job where nothing runs jobs: %+v", job)
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		s.call(http.MethodGet, "/api/jobs/"+job.Name, nil, &job)
+		if job.LastRun != nil && job.LastRun.Outcome != "Running" && job.LastRun.Outcome != "" {
+			break
+		}
+	}
+	if job.LastRun == nil || job.LastRun.Outcome != "Succeeded" {
+		t.Fatalf("the job's run: %+v", job.LastRun)
+	}
+	homes, err := filepath.Glob(filepath.Join(in.dir, "homes", "*", "job-was-here.txt"))
+	if err != nil || len(homes) != 1 {
+		t.Errorf("what the job wrote in the home: %v, %v", homes, err)
+	}
+	// A group folder asked for says it is not offered here, and nothing
+	// fails for it.
+	if code := s.call(http.MethodGet, "/api/storage", nil, nil); code != http.StatusOK {
+		t.Errorf("the storage page: %d", code)
 	}
 
 	// Stopping Javo stops the app: nothing serves on its port any more.

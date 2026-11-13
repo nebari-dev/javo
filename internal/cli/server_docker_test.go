@@ -4,31 +4,17 @@ package cli
 
 import (
 	"context"
-	"crypto/rand"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	"github.com/nebari-dev/javo/internal/executor/docker"
-	"github.com/nebari-dev/javo/internal/workload"
+	"github.com/nebari-dev/javo/internal/executor/docker/dockerlive"
+	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 )
-
-// dockerImage is busybox 1.37.0 by the digest of its image index, the
-// image the Docker executor's own tests run.
-const dockerImage = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
-
-// dockerRun marks what this run of the tests makes on the daemon, which
-// other test runs use at the same time: only what carries it is removed.
-var dockerRun = strings.ToLower(rand.Text())
-
-const dockerRunLabel = "javo.wiring-test"
 
 // dockerTemplate is an app that serves one page from the test image.
 const dockerTemplate = `apiVersion: javo.nebari.dev/v1alpha1
@@ -38,7 +24,7 @@ metadata:
 spec:
   displayName: Page
   kind: custom
-  image: ` + dockerImage + `
+  image: ` + dockerlive.Busybox + `
   port: 8080
   command: ["sh", "-c", "mkdir -p /tmp/w && echo page > /tmp/w/index.html && exec httpd -f -p {{.Port}} -h /tmp/w"]
   appLogin: Enabled
@@ -47,93 +33,111 @@ spec:
     limits: {cpu: 500m, memory: 64Mi}
 `
 
-// dockerDaemon is the socket of a Docker daemon of this machine that can
-// run the tests, holding the test image; the test is skipped without one.
-func dockerDaemon(t *testing.T) (string, *docker.Client) {
-	t.Helper()
-	home, _ := os.UserHomeDir()
-	sockets := []string{"/var/run/docker.sock", filepath.Join(home, ".colima/default/docker.sock"), filepath.Join(home, ".docker/run/docker.sock")}
-	if h, ok := strings.CutPrefix(os.Getenv("DOCKER_HOST"), "unix://"); ok {
-		sockets = []string{h}
-	}
-	for _, sock := range sockets {
-		c := docker.New(sock)
-		c.Labels = map[string]string{dockerRunLabel: dockerRun}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_, err := c.Daemon(ctx)
-		cancel()
-		if errors.Is(err, docker.ErrTooOld) {
-			t.Skipf("the Docker daemon at %s is too old: %v", sock, err)
-		}
-		if err != nil {
-			continue
-		}
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := docker.EnsureImage(ctx, c, dockerImage, false, nil); err != nil {
-			t.Skipf("cannot pull %s: %v", dockerImage, err)
-		}
-		return sock, c
-	}
-	t.Skip("no Docker daemon answers")
-	return "", nil
-}
+// The scopes a Javo marks what it makes on a daemon with (wiring), each
+// a label whose value is its gateway container's name.
+var dockerScopes = []string{"javo.gateway", "javo.gateway.files", "javo.gateway.homes", "javo.gateway.probe"}
 
 // gatewayContainer starts a container that stands in for the one Javo
-// runs in, under a name of this test run, and removes it when the test
-// ends.
-func gatewayContainer(t *testing.T, c *docker.Client) string {
+// runs in, under a name of this test process and with this machine's
+// host name, which is how Javo tells that it runs inside it. When the
+// test ends it removes what a Javo of that name made on the daemon, in
+// every scope, and fails the test for anything left.
+func gatewayContainer(t *testing.T, d *dockerlive.Daemon) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	name := "javo-wiring-gateway-" + dockerRun
-	spec := workload.Spec{
-		Ref:  workload.Ref{Namespace: "wiring-" + dockerRun, Name: "gateway", ID: "gateway-" + dockerRun, Owner: testPerson},
-		User: workload.User{UID: 1000, GID: 100},
-		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("64Mi"), corev1.ResourceCPU: resource.MustParse("500m"),
-		}},
-	}
-	body, err := docker.ContainerBody(spec, workload.Unit{Name: "gateway", Image: dockerImage, Command: []string{"sleep", "86400"}}, docker.Inputs{})
+	name := "javo-wiring-gateway-" + testrun.ID
+	self, err := os.Hostname()
 	if err != nil {
 		t.Fatal(err)
 	}
-	body.HostConfig.NetworkMode = "bridge"
-	id, err := c.ContainerCreate(ctx, name, body)
-	if err != nil {
+	var made struct {
+		ID string `json:"Id"`
+	}
+	if err := d.Call(ctx, http.MethodPost, "/containers/create", map[string][]string{"name": {name}}, map[string]any{
+		"Image": dockerlive.Busybox, "Cmd": []string{"sleep", "86400"}, "Hostname": self, "Labels": dockerlive.Stamp(),
+	}, &made); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := c.ContainerRemove(ctx, id); err != nil {
-			t.Errorf("removing the test's gateway container: %v", err)
-		}
-		left, err := c.ContainerList(ctx, dockerRunLabel+"="+dockerRun)
-		if err != nil || len(left) != 0 {
-			t.Errorf("this run left containers on the daemon: %v, %v", left, err)
+		for _, scope := range dockerScopes {
+			c := docker.New(testrun.Socket(t))
+			mark := scope + "=" + name
+			containers, _ := c.ContainerList(ctx, mark)
+			networks, _ := c.NetworkList(ctx, mark)
+			for _, have := range containers {
+				if err := docker.Teardown(ctx, c, docker.RefOf(have.Labels), name); err != nil {
+					t.Errorf("removing what the server left: %v", err)
+				}
+			}
+			for _, have := range networks {
+				if err := docker.Teardown(ctx, c, docker.RefOf(have.Labels), name); err != nil {
+					t.Errorf("removing what the server left: %v", err)
+				}
+			}
+			volumes, _ := c.VolumeList(ctx, mark)
+			for _, v := range volumes {
+				if err := c.VolumeRemove(ctx, v.Name); err != nil {
+					t.Errorf("removing what the server left: %v", err)
+				}
+			}
+			containers, _ = c.ContainerList(ctx, mark)
+			networks, _ = c.NetworkList(ctx, mark)
+			volumes, _ = c.VolumeList(ctx, mark)
+			if len(containers)+len(networks)+len(volumes) != 0 {
+				t.Errorf("left on the daemon in scope %s: %v %v %v", scope, containers, networks, volumes)
+			}
 		}
 	})
-	if err := c.ContainerStart(ctx, id); err != nil {
+	if err := d.Call(ctx, http.MethodPost, "/containers/"+made.ID+"/start", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	return name
 }
 
+// rcloneImage is the rclone image the chart names for file pods, which
+// the file helpers run too; the test is skipped when the daemon cannot
+// get it.
+func rcloneImage(t *testing.T, d *dockerlive.Daemon) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "helm", "javo", "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*image: (rclone/rclone:\S+@sha256:[0-9a-f]{64})\s*$`).FindSubmatch(raw)
+	if m == nil {
+		t.Fatal("the chart's values name no rclone image pinned by digest")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	if err := docker.EnsureImage(ctx, d.Client, string(m[1]), false, nil); err != nil {
+		t.Skipf("cannot pull %s: %v", m[1], err)
+	}
+	return string(m[1])
+}
+
 // `javo server` with executor docker starts against a real daemon with no
-// cluster and no kubeconfig, finds its own container, signs a person in
-// and takes their app.
+// cluster and no kubeconfig, finds its own container, signs a person in,
+// gives them a home that is a volume of theirs, starts their app's
+// containers and a file helper for their home, and keeps the two apart:
+// what runs the apps never sees the helper.
 //
-// The app does not reach Running here, for two reasons this test states
-// rather than hides. Homes on Docker (a volume per person) are not built
-// yet, so the app waits for its home; and an app is only Ready once Javo
-// reaches its port, which it does from inside the gateway container, not
-// from a test process on the host. When the home provider lands, the
-// first assertion below is the one to change.
+// The app does not reach Running here and the helper is never reached:
+// Javo checks an app's port, and talks to a helper, from inside the
+// gateway container, and this test's Javo runs on the host and only
+// takes itself to be there. The whole of it, with Javo in its container,
+// is what deploy/compose/docker.yaml runs.
 func TestServerStartsOnDocker(t *testing.T) {
-	socket, c := dockerDaemon(t)
+	if testing.Short() {
+		t.Skip("builds the javo binary into an image")
+	}
+	d := dockerlive.New(t)
+	ctx := context.Background()
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
-	gateway := gatewayContainer(t, c)
+	gateway := gatewayContainer(t, d)
+	runner := d.Image(t, map[string]string{"/javo": "./cmd/javo"})
 	dir := t.TempDir()
 	db := filepath.Join(dir, "javo.db")
 	config := write(t, filepath.Join(dir, "config.yaml"), `auth:
@@ -144,35 +148,71 @@ urls:
 executor: docker
 keysDir: `+filepath.Join(dir, "keys")+`
 docker:
-  socket: `+socket+`
+  socket: `+testrun.Socket(t)+`
   gateway: `+gateway+`
+  proxyPort: `+freePort(t)+`
 `, 0o600)
 	templates := filepath.Join(dir, "templates")
 	write(t, filepath.Join(templates, "page.yaml"), dockerTemplate, 0o600)
 	seedAccount(t, db, testPerson)
 
 	s := startServer(t, "--config", config, "--database-path", db, "--templates-dir", templates,
-		"--runner-image", dockerImage, "--workspace-namespace", "wiring-"+dockerRun)
+		"--runner-image", runner, "--files-image", rcloneImage(t, d))
 	if code := s.signIn(testPerson); code != http.StatusOK {
 		t.Fatalf("sign in: %d", code)
 	}
 	name := s.createApp("Page", "page")
-	waiting := func(a appView) bool {
+	in := func(scope string) []docker.ContainerSummary {
+		t.Helper()
+		all, err := d.Client.ContainerList(ctx, scope+"="+gateway)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return all
+	}
+	// The home is a volume of the person's, handed to them, and the app's
+	// containers start on it.
+	s.waitApp(name, "past its home", func(a appView) bool {
 		for _, step := range a.Steps {
-			if step.Type == "HomeReady" && step.Status == "False" {
-				return true
+			if step.Type == "HomeReady" && step.Status == "True" {
+				return len(in("javo.gateway")) > 0
 			}
 		}
 		return false
+	})
+	homes, err := docker.New(testrun.Socket(t)).VolumeList(ctx, "javo.gateway.homes="+gateway)
+	if err != nil || len(homes) != 1 || homes[0].Labels[docker.LabelOwner] == "" {
+		t.Fatalf("the person's home volume: %+v, %v", homes, err)
 	}
-	if app := s.waitApp(name, "waiting for its home", waiting); app.Phase == "Running" {
-		t.Fatalf("the app runs without a home: %+v", app)
+	// Asking for the files starts the person's helper, in a scope of its
+	// own; it is not ready, never "not available".
+	if code := s.call(http.MethodGet, "/api/files", nil, nil); code == http.StatusNotImplemented || code == http.StatusOK {
+		t.Errorf("list the home folder: %d, want it to say the home is opening", code)
 	}
-	// Nothing reads a home on Docker yet: the file routes say so.
-	if code := s.call(http.MethodGet, "/api/files", nil, nil); code != http.StatusNotImplemented {
-		t.Errorf("list the home folder: %d, want 501", code)
+	deadline := time.Now().Add(time.Minute)
+	for len(in("javo.gateway.files")) == 0 && time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
 	}
+	helpers := in("javo.gateway.files")
+	if len(helpers) == 0 {
+		t.Fatal("no file helper was started")
+	}
+	for _, c := range append(helpers, in("javo.gateway")...) {
+		if c.Labels["javo.gateway"] != "" && c.Labels["javo.gateway.files"] != "" {
+			t.Errorf("container %v is in two scopes: %v", c.Names, c.Labels)
+		}
+	}
+	// Removing the app removes its containers and leaves the helper.
 	if code := s.call(http.MethodDelete, "/api/workspaces/"+name, nil, nil); code >= 300 {
-		t.Errorf("delete the app: %d", code)
+		t.Fatalf("delete the app: %d", code)
+	}
+	for deadline = time.Now().Add(time.Minute); len(in("javo.gateway")) != 0 && time.Now().Before(deadline); {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if left := in("javo.gateway"); len(left) != 0 {
+		t.Errorf("the app's containers stayed: %+v", left)
+	}
+	if len(in("javo.gateway.files")) == 0 {
+		t.Error("the file helper went with the app")
 	}
 }
