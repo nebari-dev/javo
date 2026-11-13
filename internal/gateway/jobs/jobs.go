@@ -1002,15 +1002,15 @@ func (s *API) log(ctx context.Context, in *runInput) (*huma.StreamResponse, erro
 	}
 	active := runActive(run)
 	var rc io.ReadCloser
-	if run.K8sJob != "" {
-		ref := workload.Ref{Namespace: job.Namespace, Name: run.K8sJob, ID: job.ID, Owner: job.Owner}
+	if run.Handle != "" {
+		ref := workload.Ref{Namespace: job.Namespace, Name: run.Handle, ID: job.ID, Owner: job.Owner}
 		if rc, err = podlogs.ReadRun(ctx, s.Runs, ref, executor.LogOptions{Follow: active}); err != nil {
 			return nil, err
 		}
 	}
 	source := logSourceLive
 	if rc == nil && !active {
-		if rc, err = s.savedLog(ctx, job, run.K8sJob); err != nil {
+		if rc, err = s.savedLog(ctx, job, run.Handle); err != nil {
 			return nil, err
 		}
 		source = logSourceSaved

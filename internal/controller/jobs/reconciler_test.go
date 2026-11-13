@@ -334,10 +334,10 @@ func (h *harness) requestRun(j model.Job, params map[string]string) (model.Run, 
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	run = h.waitRunWhere(j, run.ID, " to start", func(r model.Run) bool { return r.K8sJob != "" })
+	run = h.waitRunWhere(j, run.ID, " to start", func(r model.Run) bool { return r.Handle != "" })
 	k := &batchv1.Job{}
 	eventually(h.t, "the run's Job", func() bool {
-		return k8s.Get(bg, client.ObjectKey{Namespace: h.ns, Name: run.K8sJob}, k) == nil
+		return k8s.Get(bg, client.ObjectKey{Namespace: h.ns, Name: run.Handle}, k) == nil
 	})
 	return run, k
 }
@@ -404,10 +404,10 @@ func (h *harness) runs(j model.Job) []model.Run {
 	return runs
 }
 
-// runOfK8sJob is the run recorded for the Kubernetes Job of that name.
-func (h *harness) runOfK8sJob(j model.Job, k8sJob string) (model.Run, bool) {
+// runOfHandle is the run recorded for the Kubernetes Job of that name.
+func (h *harness) runOfHandle(j model.Job, k8sJob string) (model.Run, bool) {
 	for _, r := range h.runs(j) {
-		if r.K8sJob == k8sJob {
+		if r.Handle == k8sJob {
 			return r, true
 		}
 	}
@@ -421,7 +421,7 @@ func (h *harness) waitRun(j model.Job, k8sJob string) model.Run {
 	var got model.Run
 	eventually(h.t, "run of "+k8sJob+" in "+j.Name, func() bool {
 		var ok bool
-		got, ok = h.runOfK8sJob(j, k8sJob)
+		got, ok = h.runOfHandle(j, k8sJob)
 		return ok
 	})
 	return got
@@ -434,7 +434,7 @@ func (h *harness) waitFinalRun(j model.Job, k8sJob string) model.Run {
 	var got model.Run
 	eventually(h.t, "run of "+k8sJob+" in "+j.Name+" to finish", func() bool {
 		var ok bool
-		got, ok = h.runOfK8sJob(j, k8sJob)
+		got, ok = h.runOfHandle(j, k8sJob)
 		return ok && final(got.Outcome)
 	})
 	return got
@@ -1001,7 +1001,7 @@ func TestRunWhoseJobVanishedWhileRunningIsLost(t *testing.T) {
 	}
 
 	eventually(t, "lost run", func() bool {
-		r, ok := h.runOfK8sJob(d, k.Name)
+		r, ok := h.runOfHandle(d, k.Name)
 		return ok && r.Outcome == model.RunOutcomeLost && r.Reason == string(reasons.RunLost) && !r.FinishTime.IsZero()
 	})
 }
@@ -1085,7 +1085,7 @@ func TestCancelBeforeTheStartEndsTheRunWithoutAJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := h.db.Jobs().Run(bg, run.ID)
-	if got.Outcome != model.RunOutcomeCancelled || got.Reason != string(reasons.RunCancelled) || got.FinishTime.IsZero() || got.K8sJob != "" {
+	if got.Outcome != model.RunOutcomeCancelled || got.Reason != string(reasons.RunCancelled) || got.FinishTime.IsZero() || got.Handle != "" {
 		t.Fatalf("run = %+v", got)
 	}
 	var jobs batchv1.JobList
@@ -1154,7 +1154,7 @@ func TestRunRequestCreatesOneJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The crash: the Job exists, the row forgot it.
-	storetest.Exec(t, h.db, "UPDATE job_runs SET k8s_job = '', outcome = '', reason = '' WHERE id = ?", run.ID)
+	storetest.Exec(t, h.db, "UPDATE job_runs SET handle = '', outcome = '', reason = '' WHERE id = ?", run.ID)
 	if err := r.startRequested(bg, &d, v, fixedNow); err != nil {
 		t.Fatal(err)
 	}
@@ -1164,7 +1164,7 @@ func TestRunRequestCreatesOneJob(t *testing.T) {
 		t.Fatalf("jobs = %d, %v; want one", len(jobs.Items), err)
 	}
 	got, _ := h.db.Jobs().Run(bg, run.ID)
-	if got.K8sJob != jobs.Items[0].Name || got.Outcome != model.RunOutcomeRunning {
+	if got.Handle != jobs.Items[0].Name || got.Outcome != model.RunOutcomeRunning {
 		t.Fatalf("run = %+v, job %s", got, jobs.Items[0].Name)
 	}
 }
@@ -1179,7 +1179,7 @@ func TestPruneToKeepRuns(t *testing.T) {
 	h.waitPhase(d, model.JobPhaseReady)
 	for i := range 4 {
 		if _, err := h.db.Jobs().RecordRun(bg, model.Run{
-			JobID: d.ID, Trigger: "schedule", K8sJob: fmt.Sprintf("old-%d", i),
+			JobID: d.ID, Trigger: "schedule", Handle: fmt.Sprintf("old-%d", i),
 			Outcome: model.RunOutcomeSucceeded, FinishTime: fixedNow.Add(-time.Duration(4-i) * time.Hour),
 		}); err != nil {
 			t.Fatal(err)
@@ -1188,8 +1188,8 @@ func TestPruneToKeepRuns(t *testing.T) {
 
 	eventually(t, "two runs kept", func() bool { return len(h.runs(d)) == 2 })
 	for _, r := range h.runs(d) {
-		if r.K8sJob != "old-3" && r.K8sJob != "old-2" {
-			t.Fatalf("kept %s, want the newest two", r.K8sJob)
+		if r.Handle != "old-3" && r.Handle != "old-2" {
+			t.Fatalf("kept %s, want the newest two", r.Handle)
 		}
 	}
 }
@@ -1212,7 +1212,7 @@ func TestPruneKeepsRunsOfJobsThatStillExist(t *testing.T) {
 		out := map[string]string{}
 		for _, r := range h.runs(d) {
 			if final(r.Outcome) {
-				out[r.K8sJob] = r.ID
+				out[r.Handle] = r.ID
 			}
 		}
 		return out
@@ -1479,7 +1479,7 @@ func TestThePersonsRunCapHoldsSchedulesAndFailsRequests(t *testing.T) {
 	busy := h.definition("busy", nil)
 	other := h.definition("other", nil)
 	k := h.scheduledJob(busy, tpl, "busy-1")
-	if _, err := h.db.Jobs().RecordRun(bg, model.Run{JobID: busy.ID, K8sJob: k.Name, Trigger: TriggerSchedule,
+	if _, err := h.db.Jobs().RecordRun(bg, model.Run{JobID: busy.ID, Handle: k.Name, Trigger: TriggerSchedule,
 		ScheduledTime: fixedNow, Outcome: model.RunOutcomeRunning, Reason: string(reasons.Running)}); err != nil {
 		t.Fatal(err)
 	}
@@ -1491,7 +1491,7 @@ func TestThePersonsRunCapHoldsSchedulesAndFailsRequests(t *testing.T) {
 	h.db.SetLimits(store.Limits{RunsPerPerson: 1})
 	h.start()
 	got := h.waitRunWhere(other, run.ID, " to fail", func(r model.Run) bool { return final(r.Outcome) })
-	if got.Outcome != model.RunOutcomeFailed || got.Reason != string(reasons.RunLimitReached) || got.K8sJob != "" {
+	if got.Outcome != model.RunOutcomeFailed || got.Reason != string(reasons.RunLimitReached) || got.Handle != "" {
 		t.Fatalf("run = %+v, want failed as RunLimitReached without a Job", got)
 	}
 	eventually(t, "the other job's schedule held", func() bool { return h.suspended(other) })

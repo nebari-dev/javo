@@ -459,7 +459,7 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 		return err
 	}
 	for _, run := range runs {
-		if run.Outcome != "" || run.K8sJob != "" {
+		if run.Outcome != "" || run.Handle != "" {
 			continue
 		}
 		ref := runRef(job, ManualJobName(job, run.ID))
@@ -517,7 +517,7 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 			return err
 		}
 		v.active, v.running = v.active+1, v.running+1
-		run.K8sJob, run.Outcome, run.Reason = ref.Name, model.RunOutcomeRunning, string(reasons.Running)
+		run.Handle, run.Outcome, run.Reason = ref.Name, model.RunOutcomeRunning, string(reasons.Running)
 		if _, err := r.Store.Jobs().RecordRun(ctx, run); err != nil {
 			return err
 		}
@@ -572,7 +572,7 @@ func (r *Reconciler) look(ctx context.Context, job *model.Job) ([]seenRun, error
 	}
 	over := map[string]bool{}
 	for _, run := range stored {
-		over[run.K8sJob] = run.K8sJob != "" && final(run.Outcome)
+		over[run.Handle] = run.Handle != "" && final(run.Outcome)
 	}
 	var seen []seenRun
 	for _, ref := range refs {
@@ -604,8 +604,8 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seen
 	}
 	byHandle := make(map[string]model.Run, len(stored))
 	for _, run := range stored {
-		if run.K8sJob != "" {
-			byHandle[run.K8sJob] = run
+		if run.Handle != "" {
+			byHandle[run.Handle] = run
 		}
 	}
 
@@ -639,10 +639,10 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seen
 	// cannot finish any more. One started since the look above is still
 	// there.
 	for _, old := range stored {
-		if old.Outcome != model.RunOutcomeRunning || old.K8sJob == "" || had[old.K8sJob] {
+		if old.Outcome != model.RunOutcomeRunning || old.Handle == "" || had[old.Handle] {
 			continue
 		}
-		st, err := r.Exec.Observe(ctx, runRef(job, old.K8sJob))
+		st, err := r.Exec.Observe(ctx, runRef(job, old.Handle))
 		if err != nil {
 			return nil, err
 		}
@@ -671,8 +671,8 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seen
 		if !ok {
 			continue
 		}
-		live = append(live, run.K8sJob)
-		if _, known := byHandle[run.K8sJob]; known {
+		live = append(live, run.Handle)
+		if _, known := byHandle[run.Handle]; known {
 			continue
 		}
 		run.JobID = job.ID
@@ -704,7 +704,7 @@ func (r *Reconciler) cronJobEvents(ctx context.Context, job *model.Job) ([]corev
 }
 
 // runFromEvent maps the CronJob controller's overlap and missed-start events
-// to runs. Such a run has no Kubernetes Job, so its K8sJob is a key derived
+// to runs. Such a run has no Kubernetes Job, so its Handle is a key derived
 // from what the event says, and the same event always names the same run.
 //
 // The CronJob controller does not advance lastScheduleTime on a skip, so it
@@ -718,7 +718,7 @@ func runFromEvent(job *model.Job, e corev1.Event) (model.Run, bool) {
 	case eventJobAlreadyActive:
 		at = skippedSlot(job, e, at)
 		return model.Run{
-			K8sJob: fmt.Sprintf("skipped-%d", at.Unix()), Trigger: TriggerSchedule, ScheduledTime: at, FinishTime: at,
+			Handle: fmt.Sprintf("skipped-%d", at.Unix()), Trigger: TriggerSchedule, ScheduledTime: at, FinishTime: at,
 			Outcome: model.RunOutcomeSkipped, Reason: string(reasons.RunSkipped),
 		}, true
 	case eventMissSchedule:
@@ -727,7 +727,7 @@ func runFromEvent(job *model.Job, e corev1.Event) (model.Run, bool) {
 		}
 		at = at.UTC()
 		return model.Run{
-			K8sJob: fmt.Sprintf("missed-%d", at.Unix()), Trigger: TriggerSchedule, ScheduledTime: at, FinishTime: at,
+			Handle: fmt.Sprintf("missed-%d", at.Unix()), Trigger: TriggerSchedule, ScheduledTime: at, FinishTime: at,
 			Outcome: model.RunOutcomeMissed, Reason: string(reasons.RunMissed),
 		}, true
 	}

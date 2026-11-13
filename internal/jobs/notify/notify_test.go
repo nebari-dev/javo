@@ -123,7 +123,7 @@ var recorded = time.Date(2026, 10, 30, 8, 0, 0, 0, time.UTC)
 func finish(t *testing.T, db *store.Store, j model.Job, k8sJob, outcome, reason string) model.Run {
 	t.Helper()
 	r, err := db.Jobs().RecordRun(bg, model.Run{
-		JobID: j.ID, Trigger: "schedule", K8sJob: k8sJob, Outcome: outcome, Reason: reason, FinishTime: recorded,
+		JobID: j.ID, Trigger: "schedule", Handle: k8sJob, Outcome: outcome, Reason: reason, FinishTime: recorded,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestSuccessAndRunningSendNothing(t *testing.T) {
 	hook := newWebhook(t, http.StatusOK)
 	j := jobOf(t, db, "nightly", nil)
 	finish(t, db, j, "n-1", model.RunOutcomeSucceeded, "")
-	if _, err := db.Jobs().RecordRun(bg, model.Run{JobID: j.ID, Trigger: "schedule", K8sJob: "n-2", Outcome: model.RunOutcomeRunning}); err != nil {
+	if _, err := db.Jobs().RecordRun(bg, model.Run{JobID: j.ID, Trigger: "schedule", Handle: "n-2", Outcome: model.RunOutcomeRunning}); err != nil {
 		t.Fatal(err)
 	}
 	start(t, db, configMap(hook.srv.URL))

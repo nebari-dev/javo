@@ -62,7 +62,7 @@ func TestDeriveRunFailedFromTerminationMessage(t *testing.T) {
 	if run.Outcome != "Failed" || run.Reason != string(reasons.CellError) || run.Message != "Cell 7 raised KeyError: 'region'" {
 		t.Errorf("run = %+v", run)
 	}
-	if run.K8sJob != "nightly-29" || run.Trigger != "schedule" || run.OutputPath != "jobs/nightly/nightly-29" {
+	if run.Handle != "nightly-29" || run.Trigger != "schedule" || run.OutputPath != "jobs/nightly/nightly-29" {
 		t.Errorf("identity fields wrong: %+v", run)
 	}
 	if !run.ScheduledTime.Equal(runT0) {

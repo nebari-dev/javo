@@ -131,12 +131,12 @@ func TestRequestRunAndCancel(t *testing.T) {
 		t.Fatalf("cancel not recorded: %+v", got)
 	}
 	// The controller reports progress; the cancel request stays.
-	got.K8sJob, got.StartTime, got.Outcome = "nightly-abc", t0, model.RunOutcomeRunning
+	got.Handle, got.StartTime, got.Outcome = "nightly-abc", t0, model.RunOutcomeRunning
 	if _, err := s.Jobs().RecordRun(ctx, got); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := s.Jobs().Run(ctx, run.ID)
-	if after.K8sJob != "nightly-abc" || after.Outcome != model.RunOutcomeRunning || !after.CancelRequested {
+	if after.Handle != "nightly-abc" || after.Outcome != model.RunOutcomeRunning || !after.CancelRequested {
 		t.Fatalf("after = %+v", after)
 	}
 	if _, err := s.Jobs().RequestRun(ctx, alice, "nope", nil); !errors.Is(err, store.ErrNotFound) {
@@ -152,7 +152,7 @@ func TestRecordRunCreatesScheduledRun(t *testing.T) {
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	run, err := s.Jobs().RecordRun(ctx, model.Run{
-		JobID: j.ID, Trigger: "schedule", K8sJob: "nightly-1", ScheduledTime: t0, StartTime: t0,
+		JobID: j.ID, Trigger: "schedule", Handle: "nightly-1", ScheduledTime: t0, StartTime: t0,
 		Outcome: model.RunOutcomeSucceeded, FinishTime: t0.Add(time.Minute), OutputPath: "runs/1", Outputs: []string{"out.html"},
 	})
 	if err != nil || run.ID == "" {
@@ -214,7 +214,7 @@ func TestPruneRunsKeepsRunsOfLiveJobs(t *testing.T) {
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	for _, k := range []string{"j-1", "j-2", "j-3", "j-4"} {
-		if _, err := s.Jobs().RecordRun(ctx, model.Run{JobID: j.ID, Trigger: "schedule", K8sJob: k,
+		if _, err := s.Jobs().RecordRun(ctx, model.Run{JobID: j.ID, Trigger: "schedule", Handle: k,
 			Outcome: model.RunOutcomeFailed, StartTime: t0, FinishTime: t0.Add(time.Minute)}); err != nil {
 			t.Fatal(err)
 		}
@@ -226,7 +226,7 @@ func TestPruneRunsKeepsRunsOfLiveJobs(t *testing.T) {
 	left, _ := s.Jobs().Runs(ctx, j.ID)
 	var got []string
 	for _, r := range left {
-		got = append(got, r.K8sJob)
+		got = append(got, r.Handle)
 	}
 	if !slices.Equal(got, []string{"j-4", "j-3", "j-1"}) {
 		t.Fatalf("left %v", got)
@@ -241,7 +241,7 @@ func TestPruneRunsOrdersByRunTimeNotInsertOrder(t *testing.T) {
 	j := createJob(t, s, "alice", "nightly")
 	for i, k := range []string{"new", "old"} { // inserted newest first
 		at := t0.Add(-time.Duration(i) * time.Hour)
-		if _, err := s.Jobs().RecordRun(ctx, model.Run{JobID: j.ID, Trigger: "schedule", K8sJob: k,
+		if _, err := s.Jobs().RecordRun(ctx, model.Run{JobID: j.ID, Trigger: "schedule", Handle: k,
 			Outcome: model.RunOutcomeSucceeded, ScheduledTime: at, StartTime: at, FinishTime: at.Add(time.Minute)}); err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +250,7 @@ func TestPruneRunsOrdersByRunTimeNotInsertOrder(t *testing.T) {
 		t.Fatalf("PruneRuns = %d, %v", n, err)
 	}
 	left, _ := s.Jobs().Runs(ctx, j.ID)
-	if len(left) != 1 || left[0].K8sJob != "new" {
+	if len(left) != 1 || left[0].Handle != "new" {
 		t.Fatalf("left %+v, want the run scheduled last", left)
 	}
 }
@@ -277,18 +277,18 @@ func TestPurgeJobRemovesRuns(t *testing.T) {
 
 // A resync, a finalizer retry or a reconcile that runs twice records the same
 // Kubernetes Job again: it must stay one run.
-func TestRecordRunTwiceForTheSameK8sJobKeepsOneRun(t *testing.T) {
+func TestRecordRunTwiceForTheSameHandleKeepsOneRun(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	first, err := s.Jobs().RecordRun(ctx, model.Run{
-		JobID: j.ID, Trigger: "schedule", K8sJob: "nightly-1", ScheduledTime: t0, StartTime: t0, Outcome: model.RunOutcomeRunning,
+		JobID: j.ID, Trigger: "schedule", Handle: "nightly-1", ScheduledTime: t0, StartTime: t0, Outcome: model.RunOutcomeRunning,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, err := s.Jobs().RecordRun(ctx, model.Run{
-		JobID: j.ID, Trigger: "schedule", K8sJob: "nightly-1", ScheduledTime: t0, StartTime: t0,
+		JobID: j.ID, Trigger: "schedule", Handle: "nightly-1", ScheduledTime: t0, StartTime: t0,
 		FinishTime: t0.Add(time.Minute), Outcome: model.RunOutcomeSucceeded,
 	})
 	if err != nil {
@@ -303,7 +303,7 @@ func TestRecordRunTwiceForTheSameK8sJobKeepsOneRun(t *testing.T) {
 	}
 	// Another job may reuse the Kubernetes Job name.
 	other := createJob(t, s, "alice", "other")
-	if _, err := s.Jobs().RecordRun(ctx, model.Run{JobID: other.ID, Trigger: "schedule", K8sJob: "nightly-1"}); err != nil {
+	if _, err := s.Jobs().RecordRun(ctx, model.Run{JobID: other.ID, Trigger: "schedule", Handle: "nightly-1"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -313,7 +313,7 @@ func TestRecordRunAgainKeepsNotifiedTimeOutputsAndTimes(t *testing.T) {
 	s := storetest.New(t)
 	j := createJob(t, s, "alice", "nightly")
 	first, err := s.Jobs().RecordRun(ctx, model.Run{
-		JobID: j.ID, Trigger: "schedule", K8sJob: "nightly-1", StartTime: t0,
+		JobID: j.ID, Trigger: "schedule", Handle: "nightly-1", StartTime: t0,
 		FinishTime: t0.Add(time.Minute), Outcome: model.RunOutcomeSucceeded,
 		OutputPath: "out/1", Outputs: []string{"a.csv"},
 	})
@@ -325,10 +325,10 @@ func TestRecordRunAgainKeepsNotifiedTimeOutputsAndTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A resync records the same Job again from the Job object alone, by
-	// K8sJob and then by ID.
+	// Handle and then by ID.
 	for _, id := range []string{"", first.ID} {
 		got, err := s.Jobs().RecordRun(ctx, model.Run{
-			ID: id, JobID: j.ID, Trigger: "schedule", K8sJob: "nightly-1", Outcome: model.RunOutcomeSucceeded,
+			ID: id, JobID: j.ID, Trigger: "schedule", Handle: "nightly-1", Outcome: model.RunOutcomeSucceeded,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -391,7 +391,7 @@ func TestUnnotifiedFailedRunsListsOnlyFailuresNotYetTold(t *testing.T) {
 	j := createJob(t, s, "alice", "nightly")
 	record := func(k8sJob, outcome string) model.Run {
 		t.Helper()
-		r, err := s.Jobs().RecordRun(ctx, model.Run{JobID: j.ID, Trigger: "schedule", K8sJob: k8sJob, Outcome: outcome, FinishTime: t0})
+		r, err := s.Jobs().RecordRun(ctx, model.Run{JobID: j.ID, Trigger: "schedule", Handle: k8sJob, Outcome: outcome, FinishTime: t0})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -464,5 +464,88 @@ func TestSetConditionKeepsNewerPhase(t *testing.T) {
 	}
 	if err := s.Jobs().SetCondition(ctx, "nope", notifiedFalse(1)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing job = %v", err)
+	}
+}
+
+// A slot of a job's schedule is claimed once: whoever asks again, another
+// controller or the same one after a retry, gets the run that holds it.
+func TestASlotIsClaimedOnce(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	j := createJob(t, s, "alice", "nightly")
+	claim := model.Run{JobID: j.ID, Trigger: store.TriggerSchedule, Slot: t0, ScheduledTime: t0}
+	first, claimed, err := s.Jobs().ClaimSlot(ctx, claim)
+	if err != nil || !claimed || first.ID == "" || !first.Slot.Equal(t0) || first.Outcome != "" {
+		t.Fatalf("first claim = %+v, %v, %v", first, claimed, err)
+	}
+	// The second claimant records another decision; the first one stands.
+	claim.Outcome = model.RunOutcomeSkipped
+	second, claimed, err := s.Jobs().ClaimSlot(ctx, claim)
+	if err != nil || claimed || second.ID != first.ID || second.Outcome != "" {
+		t.Fatalf("second claim = %+v, %v, %v", second, claimed, err)
+	}
+	if runs, _ := s.Jobs().Runs(ctx, j.ID); len(runs) != 1 {
+		t.Fatalf("%d runs, want 1", len(runs))
+	}
+	// The next slot, and the same slot of another job, are free.
+	claim.Slot = t0.Add(time.Hour)
+	if _, claimed, err := s.Jobs().ClaimSlot(ctx, claim); err != nil || !claimed {
+		t.Fatalf("next slot: %v, %v", claimed, err)
+	}
+	other := createJob(t, s, "alice", "other")
+	if _, claimed, err := s.Jobs().ClaimSlot(ctx, model.Run{JobID: other.ID, Trigger: store.TriggerSchedule, Slot: t0}); err != nil || !claimed {
+		t.Fatalf("another job: %v, %v", claimed, err)
+	}
+	if _, _, err := s.Jobs().ClaimSlot(ctx, model.Run{JobID: j.ID}); err == nil {
+		t.Fatal("a claim without a slot was accepted")
+	}
+}
+
+// A run something else started for a slot (a CronJob of an earlier version)
+// holds that slot once it is recorded. When the slot is taken already, the
+// run is still recorded: it exists.
+func TestARecordedRunHoldsItsSlot(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	j := createJob(t, s, "alice", "nightly")
+	adopted, err := s.Jobs().RecordRun(ctx, model.Run{
+		JobID: j.ID, Trigger: store.TriggerSchedule, Handle: "nightly-1", Slot: t0, ScheduledTime: t0, Outcome: model.RunOutcomeRunning,
+	})
+	if err != nil || !adopted.Slot.Equal(t0) {
+		t.Fatalf("RecordRun = %+v, %v", adopted, err)
+	}
+	if got, claimed, err := s.Jobs().ClaimSlot(ctx, model.Run{JobID: j.ID, Trigger: store.TriggerSchedule, Slot: t0}); err != nil || claimed || got.ID != adopted.ID {
+		t.Fatalf("claim of a slot a recorded run holds = %+v, %v, %v", got, claimed, err)
+	}
+	second, err := s.Jobs().RecordRun(ctx, model.Run{
+		JobID: j.ID, Trigger: store.TriggerSchedule, Handle: "nightly-2", Slot: t0, ScheduledTime: t0, Outcome: model.RunOutcomeRunning,
+	})
+	if err != nil || second.ID == adopted.ID || !second.Slot.IsZero() || !second.ScheduledTime.Equal(t0) {
+		t.Fatalf("a second run for the slot = %+v, %v", second, err)
+	}
+}
+
+// Rows written before the handle and the slot were split stay readable:
+// the name of the Kubernetes Job is the handle, and none has a slot.
+func TestUpgradeKeepsRunsReadable(t *testing.T) {
+	t.Parallel()
+	s := storetest.Open(t, storetest.Config(t))
+	if err := s.MigrateTo(ctx, 25); err != nil {
+		t.Fatal(err)
+	}
+	storetest.Exec(t, s, `INSERT INTO jobs (id, namespace, name, owner, template, paused, spec, status, version, observed_version, created_at)
+		VALUES ('job-1', 'javo', 'nightly', 'alice', 'lab', FALSE, '{}', '{}', 1, 0, 0)`)
+	insert := func(id, k8sJob, outcome string) {
+		storetest.Exec(t, s, `INSERT INTO job_runs (id, job_id, k8s_job, trigger, created_at, scheduled_at, outcome, reason, message,
+			output_path, outputs, parameters, cancel_requested) VALUES (?, 'job-1', ?, 'schedule', 0, ?, ?, '', '', '', '[]', '{}', FALSE)`,
+			id, k8sJob, t0.UnixMilli(), outcome)
+	}
+	insert("run-1", "alice-nightly-29384756", model.RunOutcomeSucceeded)
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.Jobs().Run(ctx, "run-1")
+	if err != nil || run.Handle != "alice-nightly-29384756" || !run.Slot.IsZero() || !run.ScheduledTime.Equal(t0) {
+		t.Fatalf("run = %+v, %v", run, err)
 	}
 }

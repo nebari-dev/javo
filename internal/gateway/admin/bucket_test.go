@@ -132,7 +132,7 @@ func TestTheBackupsPageSumsUpTheNewestRun(t *testing.T) {
 		}
 	}
 	now := time.Now()
-	if _, err := f.Db.Jobs().RecordRun(ctx, model.Run{JobID: job.ID, K8sJob: "r1", Trigger: "schedule",
+	if _, err := f.Db.Jobs().RecordRun(ctx, model.Run{JobID: job.ID, Handle: "r1", Trigger: "schedule",
 		StartTime: now.Add(-time.Hour), FinishTime: now, Outcome: model.RunOutcomeFailed}); err != nil {
 		t.Fatal(err)
 	}

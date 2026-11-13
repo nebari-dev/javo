@@ -288,11 +288,11 @@ func (j *Jobs) RequestCancel(ctx context.Context, actor model.Actor, runID strin
 }
 
 // RecordRun is the controller's record of a run. With an ID it updates what
-// the controller reports (Kubernetes Job, times, outcome, reason, outputs)
+// the controller reports (handle, times, outcome, reason, outputs)
 // and leaves a pending cancel request, the notified time, and any time,
 // output path or outputs the report leaves empty alone, or returns
 // ErrNotFound; without an ID it adds the run (a scheduled one), unless the
-// job already has a run for the same Kubernetes Job, which is updated
+// job already has a run with the same handle, which is updated
 // instead, so recording a Job again after a resync or retry keeps one run.
 // It is neither audited nor announced.
 func (j *Jobs) RecordRun(ctx context.Context, run model.Run) (model.Run, error) {
@@ -316,7 +316,7 @@ func (j *Jobs) RecordRun(ctx context.Context, run model.Run) (model.Run, error) 
 				return err
 			}
 			n, err := q.UpdateRun(ctx, sqlcgen.UpdateRunParams{
-				K8sJob: run.K8sJob, StartedAt: nullTime(run.StartTime), FinishedAt: nullTime(run.FinishTime),
+				Handle: run.Handle, StartedAt: nullTime(run.StartTime), FinishedAt: nullTime(run.FinishTime),
 				Outcome: run.Outcome, Reason: run.Reason, Message: run.Message, OutputPath: run.OutputPath,
 				Outputs: outputs, ID: run.ID,
 			})
@@ -334,12 +334,12 @@ func (j *Jobs) RecordRun(ctx context.Context, run model.Run) (model.Run, error) 
 	return out, err
 }
 
-// mergeRun fills what a report leaves empty (Kubernetes Job, times, output
+// mergeRun fills what a report leaves empty (handle, times, output
 // path, outputs) from the stored run, so a Job recorded again from the Job
 // object alone does not wipe what an earlier report stored.
 func mergeRun(run *model.Run, stored model.Run) {
-	if run.K8sJob == "" {
-		run.K8sJob = stored.K8sJob
+	if run.Handle == "" {
+		run.Handle = stored.Handle
 	}
 	if run.StartTime.IsZero() {
 		run.StartTime = stored.StartTime
@@ -380,21 +380,58 @@ func (j *Jobs) UnnotifiedFailedRuns(ctx context.Context) ([]model.Run, error) {
 	return runsOf(rows)
 }
 
-// addRun inserts run under a new id. When its job already has a run for the
-// same Kubernetes Job, nothing is inserted: run.ID becomes that run's id and
-// added is false.
+// addRun inserts run under a new id. When its job already has a run with
+// the same handle, nothing is inserted: run.ID becomes that run's id and
+// added is false. When another run holds its slot, it is added without
+// one: the run exists, whoever started it.
 func addRun(ctx context.Context, q *sqlcgen.Queries, run *model.Run) (added bool, err error) {
 	run.ID = newID()
 	err = insertRun(ctx, q, *run)
-	if !errors.Is(err, ErrExists) || run.K8sJob == "" {
+	if !errors.Is(err, ErrExists) || run.Handle == "" {
 		return err == nil, err
 	}
-	existing, err := q.GetRunByK8sJob(ctx, sqlcgen.GetRunByK8sJobParams{JobID: run.JobID, K8sJob: run.K8sJob})
+	existing, err := q.GetRunByHandle(ctx, sqlcgen.GetRunByHandleParams{JobID: run.JobID, Handle: run.Handle})
+	if errors.Is(err, sql.ErrNoRows) && !run.Slot.IsZero() {
+		run.Slot = time.Time{}
+		err = insertRun(ctx, q, *run)
+		return err == nil, err
+	}
 	if err != nil {
 		return false, err
 	}
 	run.ID = existing.ID
 	return false, nil
+}
+
+// ClaimSlot adds run as the job's run for the slot run.Slot of its
+// schedule, and reports true; when the job already has a run for that slot
+// it adds nothing and returns that run and false. So a slot is decided
+// once, whoever asks and however often. It is neither audited nor
+// announced.
+func (j *Jobs) ClaimSlot(ctx context.Context, run model.Run) (model.Run, bool, error) {
+	if run.Slot.IsZero() {
+		return model.Run{}, false, errors.New("store: claim a slot: the run has none")
+	}
+	var out model.Run
+	claimed := false
+	err := j.s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		run.ID = newID()
+		err := insertRun(ctx, q, run)
+		claimed = err == nil
+		if errors.Is(err, ErrExists) {
+			var row sqlcgen.JobRun
+			if row, err = q.GetRunBySlot(ctx, sqlcgen.GetRunBySlotParams{JobID: run.JobID, Slot: nullTime(run.Slot)}); err == nil {
+				out, err = runOf(row)
+			}
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		out, err = readRun(ctx, q, run.ID)
+		return err
+	})
+	return out, claimed, err
 }
 
 // Run returns one run or ErrNotFound.
@@ -414,7 +451,7 @@ func (j *Jobs) Runs(ctx context.Context, jobID string) ([]model.Run, error) {
 // PruneRuns deletes the job's finished runs beyond the newest keep and
 // returns how many went. Newest is by when the run was scheduled or started
 // (insert order breaks ties), not by when its row was written. Runs still
-// going, runs whose k8s_job key is named in live (a Job or CronJob Event
+// going, runs whose handle is named in live (a Job or CronJob Event
 // still listed, which the controller would record again as a new run) and
 // other jobs' runs are kept.
 // Deleting run history is audited; a prune that deletes nothing is not.
@@ -444,7 +481,7 @@ func (j *Jobs) PruneRuns(ctx context.Context, actor model.Actor, jobID string, k
 			return effect{}, nil
 		}
 		for _, r := range finished[keep:] {
-			if r.K8sJob != "" && slices.Contains(live, r.K8sJob) {
+			if r.Handle != "" && slices.Contains(live, r.Handle) {
 				continue
 			}
 			deleted, err := q.DeleteRun(ctx, r.ID)
@@ -490,11 +527,11 @@ func insertRun(ctx context.Context, q *sqlcgen.Queries, r model.Run) error {
 		return err
 	}
 	n, err := q.InsertRun(ctx, sqlcgen.InsertRunParams{
-		ID: r.ID, JobID: r.JobID, K8sJob: r.K8sJob, Trigger: r.Trigger, CreatedAt: dbtime.From(now()),
+		ID: r.ID, JobID: r.JobID, Handle: r.Handle, Trigger: r.Trigger, CreatedAt: dbtime.From(now()),
 		RequestedAt: nullTime(r.RequestedAt), ScheduledAt: nullTime(r.ScheduledTime),
 		StartedAt: nullTime(r.StartTime), FinishedAt: nullTime(r.FinishTime), Outcome: r.Outcome,
 		Reason: r.Reason, Message: r.Message, OutputPath: r.OutputPath, Outputs: outputs, Parameters: params,
-		CancelRequested: r.CancelRequested, NotifiedAt: nullTime(r.NotifiedAt),
+		CancelRequested: r.CancelRequested, NotifiedAt: nullTime(r.NotifiedAt), Slot: nullTime(r.Slot),
 	})
 	if err == nil && n == 0 {
 		err = ErrExists
@@ -553,10 +590,10 @@ func runsOf(rows []sqlcgen.JobRun) ([]model.Run, error) {
 
 func runOf(r sqlcgen.JobRun) (model.Run, error) {
 	run := model.Run{
-		ID: r.ID, JobID: r.JobID, K8sJob: r.K8sJob, Trigger: r.Trigger, RequestedAt: timeOf(r.RequestedAt),
+		ID: r.ID, JobID: r.JobID, Handle: r.Handle, Trigger: r.Trigger, RequestedAt: timeOf(r.RequestedAt),
 		ScheduledTime: timeOf(r.ScheduledAt), StartTime: timeOf(r.StartedAt), FinishTime: timeOf(r.FinishedAt),
 		Outcome: r.Outcome, Reason: r.Reason, Message: r.Message, OutputPath: r.OutputPath,
-		NotifiedAt: timeOf(r.NotifiedAt), CancelRequested: r.CancelRequested,
+		NotifiedAt: timeOf(r.NotifiedAt), CancelRequested: r.CancelRequested, Slot: timeOf(r.Slot),
 	}
 	if err := unmarshal(r.Outputs, &run.Outputs); err != nil {
 		return model.Run{}, err

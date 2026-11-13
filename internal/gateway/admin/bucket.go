@@ -294,12 +294,12 @@ func (a *API) bucket(ctx context.Context) (*bucketState, error) {
 	}
 	var lastGood time.Time
 	for i, r := range runs {
-		if r.K8sJob == "" && r.Outcome != "" && r.Outcome != model.RunOutcomeRunning {
+		if r.Handle == "" && r.Outcome != "" && r.Outcome != model.RunOutcomeRunning {
 			continue
 		}
 		var s BackupRunSummary
 		if len(out.Runs) == 0 && i == 0 {
-			p, err := a.backupProgress(ctx, r.K8sJob, false)
+			p, err := a.backupProgress(ctx, r.Handle, false)
 			if err != nil {
 				return nil, err
 			}
@@ -334,7 +334,7 @@ func (a *API) bucket(ctx context.Context) (*bucketState, error) {
 			return nil, err
 		}
 		if len(rruns) > 0 {
-			p, err := a.restoreProgress(ctx, rruns[0].K8sJob, false)
+			p, err := a.restoreProgress(ctx, rruns[0].Handle, false)
 			if err != nil {
 				return nil, err
 			}
@@ -347,7 +347,7 @@ func (a *API) bucket(ctx context.Context) (*bucketState, error) {
 
 // runSummary sums a job run up, with its steps when p is given.
 func runSummary(r model.Run, p *BackupRunProgress) BackupRunSummary {
-	s := BackupRunSummary{Run: r.K8sJob, RunID: r.ID, Trigger: r.Trigger, Outcome: r.Outcome}
+	s := BackupRunSummary{Run: r.Handle, RunID: r.ID, Trigger: r.Trigger, Outcome: r.Outcome}
 	if !r.StartTime.IsZero() {
 		t := r.StartTime
 		s.StartedAt = &t

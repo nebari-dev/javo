@@ -92,7 +92,7 @@ const NewJob = `{"displayName":"Nightly sales","template":"lab","engine":"paperm
 // saved the log as jobs/nightly-sales/nightly-sales-29/run.log.
 func Sales29() gatewaytest.WithRuns {
 	return gatewaytest.WithRuns{Job: JobObj(AliceID, "nightly-sales"), Runs: []model.Run{
-		{K8sJob: "nightly-sales-29", Trigger: "schedule", Outcome: "Succeeded"}}}
+		{Handle: "nightly-sales-29", Trigger: "schedule", Outcome: "Succeeded"}}}
 }
 
 // ShellTemplate is a job template that runs only bash scripts.

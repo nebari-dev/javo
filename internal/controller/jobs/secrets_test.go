@@ -254,7 +254,7 @@ func TestUnreadableSecretsBlockTheJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	run = h.waitRunWhere(d, run.ID, " to fail", func(r model.Run) bool { return r.Outcome != "" })
-	if run.Outcome != model.RunOutcomeFailed || run.Reason != string(reasons.SecretsUnreadable) || run.K8sJob != "" {
+	if run.Outcome != model.RunOutcomeFailed || run.Reason != string(reasons.SecretsUnreadable) || run.Handle != "" {
 		t.Fatalf("run %+v", run)
 	}
 	if h.k8sSecret(ScheduledSecretName(&d)) != nil {

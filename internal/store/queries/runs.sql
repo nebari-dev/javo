@@ -1,16 +1,20 @@
--- A taken (job, Kubernetes Job) inserts nothing: it is the same run again.
+-- A taken (job, handle) or (job, slot) inserts nothing: it is the same run
+-- again.
 -- name: InsertRun :execrows
-INSERT INTO job_runs (id, job_id, k8s_job, trigger, created_at, requested_at, scheduled_at,
+INSERT INTO job_runs (id, job_id, handle, trigger, created_at, requested_at, scheduled_at,
                       started_at, finished_at, outcome, reason, message, output_path, outputs,
-                      parameters, cancel_requested, notified_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                      parameters, cancel_requested, notified_at, slot)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT DO NOTHING;
 
 -- name: GetRun :one
 SELECT * FROM job_runs WHERE id = $1;
 
--- name: GetRunByK8sJob :one
-SELECT * FROM job_runs WHERE job_id = $1 AND k8s_job = $2;
+-- name: GetRunByHandle :one
+SELECT * FROM job_runs WHERE job_id = $1 AND handle = $2;
+
+-- name: GetRunBySlot :one
+SELECT * FROM job_runs WHERE job_id = $1 AND slot = $2;
 
 -- name: ListRunsByJob :many
 SELECT * FROM job_runs WHERE job_id = $1 ORDER BY created_at DESC, id DESC;
@@ -19,7 +23,7 @@ SELECT * FROM job_runs WHERE job_id = $1 ORDER BY created_at DESC, id DESC;
 -- notified_at are not overwritten (MarkRunNotified sets the latter).
 -- name: UpdateRun :execrows
 UPDATE job_runs
-SET k8s_job = $1, started_at = $2, finished_at = $3, outcome = $4, reason = $5,
+SET handle = $1, started_at = $2, finished_at = $3, outcome = $4, reason = $5,
     message = $6, output_path = $7, outputs = $8
 WHERE id = $9;
 

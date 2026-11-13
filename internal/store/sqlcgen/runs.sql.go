@@ -24,7 +24,7 @@ func (q *Queries) DeleteRun(ctx context.Context, id string) (int64, error) {
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, job_id, k8s_job, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at FROM job_runs WHERE id = $1
+SELECT id, job_id, handle, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at, slot FROM job_runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (JobRun, error) {
@@ -33,7 +33,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (JobRun, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.JobID,
-		&i.K8sJob,
+		&i.Handle,
 		&i.Trigger,
 		&i.CreatedAt,
 		&i.RequestedAt,
@@ -48,26 +48,27 @@ func (q *Queries) GetRun(ctx context.Context, id string) (JobRun, error) {
 		&i.Parameters,
 		&i.CancelRequested,
 		&i.NotifiedAt,
+		&i.Slot,
 	)
 	return i, err
 }
 
-const getRunByK8sJob = `-- name: GetRunByK8sJob :one
-SELECT id, job_id, k8s_job, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at FROM job_runs WHERE job_id = $1 AND k8s_job = $2
+const getRunByHandle = `-- name: GetRunByHandle :one
+SELECT id, job_id, handle, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at, slot FROM job_runs WHERE job_id = $1 AND handle = $2
 `
 
-type GetRunByK8sJobParams struct {
+type GetRunByHandleParams struct {
 	JobID  string
-	K8sJob string
+	Handle string
 }
 
-func (q *Queries) GetRunByK8sJob(ctx context.Context, arg GetRunByK8sJobParams) (JobRun, error) {
-	row := q.db.QueryRowContext(ctx, getRunByK8sJob, arg.JobID, arg.K8sJob)
+func (q *Queries) GetRunByHandle(ctx context.Context, arg GetRunByHandleParams) (JobRun, error) {
+	row := q.db.QueryRowContext(ctx, getRunByHandle, arg.JobID, arg.Handle)
 	var i JobRun
 	err := row.Scan(
 		&i.ID,
 		&i.JobID,
-		&i.K8sJob,
+		&i.Handle,
 		&i.Trigger,
 		&i.CreatedAt,
 		&i.RequestedAt,
@@ -82,22 +83,58 @@ func (q *Queries) GetRunByK8sJob(ctx context.Context, arg GetRunByK8sJobParams) 
 		&i.Parameters,
 		&i.CancelRequested,
 		&i.NotifiedAt,
+		&i.Slot,
+	)
+	return i, err
+}
+
+const getRunBySlot = `-- name: GetRunBySlot :one
+SELECT id, job_id, handle, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at, slot FROM job_runs WHERE job_id = $1 AND slot = $2
+`
+
+type GetRunBySlotParams struct {
+	JobID string
+	Slot  dbtime.NullTime
+}
+
+func (q *Queries) GetRunBySlot(ctx context.Context, arg GetRunBySlotParams) (JobRun, error) {
+	row := q.db.QueryRowContext(ctx, getRunBySlot, arg.JobID, arg.Slot)
+	var i JobRun
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.Handle,
+		&i.Trigger,
+		&i.CreatedAt,
+		&i.RequestedAt,
+		&i.ScheduledAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Outcome,
+		&i.Reason,
+		&i.Message,
+		&i.OutputPath,
+		&i.Outputs,
+		&i.Parameters,
+		&i.CancelRequested,
+		&i.NotifiedAt,
+		&i.Slot,
 	)
 	return i, err
 }
 
 const insertRun = `-- name: InsertRun :execrows
-INSERT INTO job_runs (id, job_id, k8s_job, trigger, created_at, requested_at, scheduled_at,
+INSERT INTO job_runs (id, job_id, handle, trigger, created_at, requested_at, scheduled_at,
                       started_at, finished_at, outcome, reason, message, output_path, outputs,
-                      parameters, cancel_requested, notified_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                      parameters, cancel_requested, notified_at, slot)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT DO NOTHING
 `
 
 type InsertRunParams struct {
 	ID              string
 	JobID           string
-	K8sJob          string
+	Handle          string
 	Trigger         string
 	CreatedAt       dbtime.Time
 	RequestedAt     dbtime.NullTime
@@ -112,14 +149,16 @@ type InsertRunParams struct {
 	Parameters      string
 	CancelRequested bool
 	NotifiedAt      dbtime.NullTime
+	Slot            dbtime.NullTime
 }
 
-// A taken (job, Kubernetes Job) inserts nothing: it is the same run again.
+// A taken (job, handle) or (job, slot) inserts nothing: it is the same run
+// again.
 func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, insertRun,
 		arg.ID,
 		arg.JobID,
-		arg.K8sJob,
+		arg.Handle,
 		arg.Trigger,
 		arg.CreatedAt,
 		arg.RequestedAt,
@@ -134,6 +173,7 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) (int64, er
 		arg.Parameters,
 		arg.CancelRequested,
 		arg.NotifiedAt,
+		arg.Slot,
 	)
 	if err != nil {
 		return 0, err
@@ -142,7 +182,7 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) (int64, er
 }
 
 const listRunsByJob = `-- name: ListRunsByJob :many
-SELECT id, job_id, k8s_job, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at FROM job_runs WHERE job_id = $1 ORDER BY created_at DESC, id DESC
+SELECT id, job_id, handle, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at, slot FROM job_runs WHERE job_id = $1 ORDER BY created_at DESC, id DESC
 `
 
 func (q *Queries) ListRunsByJob(ctx context.Context, jobID string) ([]JobRun, error) {
@@ -157,7 +197,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string) ([]JobRun, er
 		if err := rows.Scan(
 			&i.ID,
 			&i.JobID,
-			&i.K8sJob,
+			&i.Handle,
 			&i.Trigger,
 			&i.CreatedAt,
 			&i.RequestedAt,
@@ -172,6 +212,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string) ([]JobRun, er
 			&i.Parameters,
 			&i.CancelRequested,
 			&i.NotifiedAt,
+			&i.Slot,
 		); err != nil {
 			return nil, err
 		}
@@ -187,7 +228,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string) ([]JobRun, er
 }
 
 const listUnnotifiedRuns = `-- name: ListUnnotifiedRuns :many
-SELECT id, job_id, k8s_job, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at FROM job_runs
+SELECT id, job_id, handle, trigger, created_at, requested_at, scheduled_at, started_at, finished_at, outcome, reason, message, output_path, outputs, parameters, cancel_requested, notified_at, slot FROM job_runs
 WHERE notified_at IS NULL AND finished_at IS NOT NULL AND outcome IN ($1, $2, $3)
 ORDER BY created_at, id
 `
@@ -213,7 +254,7 @@ func (q *Queries) ListUnnotifiedRuns(ctx context.Context, arg ListUnnotifiedRuns
 		if err := rows.Scan(
 			&i.ID,
 			&i.JobID,
-			&i.K8sJob,
+			&i.Handle,
 			&i.Trigger,
 			&i.CreatedAt,
 			&i.RequestedAt,
@@ -228,6 +269,7 @@ func (q *Queries) ListUnnotifiedRuns(ctx context.Context, arg ListUnnotifiedRuns
 			&i.Parameters,
 			&i.CancelRequested,
 			&i.NotifiedAt,
+			&i.Slot,
 		); err != nil {
 			return nil, err
 		}
@@ -273,13 +315,13 @@ func (q *Queries) RequestRunCancel(ctx context.Context, id string) (int64, error
 
 const updateRun = `-- name: UpdateRun :execrows
 UPDATE job_runs
-SET k8s_job = $1, started_at = $2, finished_at = $3, outcome = $4, reason = $5,
+SET handle = $1, started_at = $2, finished_at = $3, outcome = $4, reason = $5,
     message = $6, output_path = $7, outputs = $8
 WHERE id = $9
 `
 
 type UpdateRunParams struct {
-	K8sJob     string
+	Handle     string
 	StartedAt  dbtime.NullTime
 	FinishedAt dbtime.NullTime
 	Outcome    string
@@ -294,7 +336,7 @@ type UpdateRunParams struct {
 // notified_at are not overwritten (MarkRunNotified sets the latter).
 func (q *Queries) UpdateRun(ctx context.Context, arg UpdateRunParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateRun,
-		arg.K8sJob,
+		arg.Handle,
 		arg.StartedAt,
 		arg.FinishedAt,
 		arg.Outcome,

@@ -192,7 +192,7 @@ func TestRunNowCreatesRequest(t *testing.T) {
 	}](t, w)
 	runs := f.RunsOf(apitest.AliceID, "nightly-sales")
 	if len(runs) != 1 || runs[0].ID != run.ID || runs[0].Trigger != store.TriggerManual || runs[0].Outcome != "" ||
-		runs[0].K8sJob != "" || runs[0].Parameters["region"] != "apac" || runs[0].RequestedAt.IsZero() {
+		runs[0].Handle != "" || runs[0].Parameters["region"] != "apac" || runs[0].RequestedAt.IsZero() {
 		t.Fatalf("response %+v, stored runs %+v", run, runs)
 	}
 	// Until the controller starts it the run shows as running.
@@ -334,7 +334,7 @@ func TestSavedLogWhileTheHomeIsStartingAsksAgain(t *testing.T) {
 func TestLogStreamsTheRunPodAsPlainText(t *testing.T) {
 	t.Parallel()
 	def := gatewaytest.WithRuns{Job: apitest.JobObj(apitest.AliceID, "nightly-sales"), Runs: []model.Run{
-		{K8sJob: "nightly-sales-30", Trigger: "schedule", Outcome: model.RunOutcomeRunning}}}
+		{Handle: "nightly-sales-30", Trigger: "schedule", Outcome: model.RunOutcomeRunning}}}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "nightly-sales-30-abc", Namespace: gatewaytest.Namespace, Labels: map[string]string{
 			jobs.LabelJobName: "nightly-sales-30", model.LabelOwner: apitest.AliceID}},
@@ -378,11 +378,11 @@ func TestLogStreamsTheRunPodAsPlainText(t *testing.T) {
 func TestCancelAsksTheControllerToStopTheRun(t *testing.T) {
 	t.Parallel()
 	def := gatewaytest.WithRuns{Job: apitest.JobObj(apitest.AliceID, "nightly-sales"), Runs: []model.Run{
-		{K8sJob: "nightly-sales-1", Trigger: "schedule", Outcome: model.RunOutcomeRunning},
-		{K8sJob: "nightly-sales-2", Trigger: "schedule", Outcome: model.RunOutcomeSucceeded},
+		{Handle: "nightly-sales-1", Trigger: "schedule", Outcome: model.RunOutcomeRunning},
+		{Handle: "nightly-sales-2", Trigger: "schedule", Outcome: model.RunOutcomeSucceeded},
 	}}
 	other := gatewaytest.WithRuns{Job: apitest.JobObj(apitest.AliceID, "weekly"), Runs: []model.Run{
-		{K8sJob: "weekly-1", Trigger: "schedule", Outcome: model.RunOutcomeRunning},
+		{Handle: "weekly-1", Trigger: "schedule", Outcome: model.RunOutcomeRunning},
 	}}
 	deletes := 0
 	funcs := &interceptor.Funcs{Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
@@ -394,7 +394,7 @@ func TestCancelAsksTheControllerToStopTheRun(t *testing.T) {
 		t.Helper()
 		for _, owner := range []string{"nightly-sales", "weekly"} {
 			for _, r := range f.RunsOf(apitest.AliceID, owner) {
-				if r.K8sJob == k8sJob {
+				if r.Handle == k8sJob {
 					return r
 				}
 			}
@@ -438,9 +438,9 @@ func TestJobViewListsRunsOldestFirstInTheStripAndExplainsAFailure(t *testing.T) 
 	start := time.Date(2026, 10, 31, 5, 0, 0, 0, time.UTC)
 	seeded := gatewaytest.WithRuns{Job: def}
 	for i := 0; i < 13; i++ { // oldest first, as they were recorded
-		seeded.Runs = append(seeded.Runs, model.Run{K8sJob: "r" + string(rune('a'+i)), Trigger: "schedule", Outcome: "Succeeded", StartTime: start})
+		seeded.Runs = append(seeded.Runs, model.Run{Handle: "r" + string(rune('a'+i)), Trigger: "schedule", Outcome: "Succeeded", StartTime: start})
 	}
-	seeded.Runs = append(seeded.Runs, model.Run{K8sJob: "newest", Trigger: "schedule", Outcome: "Failed", Reason: "KernelDied",
+	seeded.Runs = append(seeded.Runs, model.Run{Handle: "newest", Trigger: "schedule", Outcome: "Failed", Reason: "KernelDied",
 		Message: "Cell 3: ZeroDivisionError", StartTime: start,
 		OutputPath: "jobs/nightly-sales/newest", Outputs: []string{"output.ipynb", "output.html"}})
 	f := apitest.JobFixture(t, apitest.Options{}, seeded)
@@ -669,7 +669,7 @@ func TestLogOfAnActiveRunWhoseContainerHasNotStartedIs409WithRetryAfter(t *testi
 		Status: corev1.PodStatus{Phase: corev1.PodPending, ContainerStatuses: []corev1.ContainerStatus{{
 			Name: "app", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}}}},
 	}
-	started := model.Run{K8sJob: "nightly-sales-31", Trigger: "schedule", Outcome: model.RunOutcomeRunning}
+	started := model.Run{Handle: "nightly-sales-31", Trigger: "schedule", Outcome: model.RunOutcomeRunning}
 	requested := model.Run{Trigger: store.TriggerManual} // nobody has started it yet
 	for name, tc := range map[string]struct {
 		run  model.Run

@@ -62,6 +62,8 @@ sql:
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
           - column: "job_runs.notified_at"
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
+          - column: "job_runs.slot"
+            go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
           - column: "usage_intervals.stopped_at"
             go_type: {import: github.com/nebari-dev/javo/internal/store/dbtime, type: NullTime}
           - column: "plans.expires_at"

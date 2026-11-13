@@ -26,7 +26,7 @@ func TestFailureTextIsEscapedAndCappedForAWebhook(t *testing.T) {
     body: '{"job":"{{.job.displayName}}","message":"{{.run.message}}","raw":"{{(index .obj.status.recentRuns 0).message}}","json":{{ toJson .run.message }}}'
 `
 	j := jobOf(t, db, "nightly", nil)
-	if _, err := db.Jobs().RecordRun(bg, model.Run{JobID: j.ID, Trigger: "schedule", K8sJob: "n-1", Outcome: model.RunOutcomeFailed,
+	if _, err := db.Jobs().RecordRun(bg, model.Run{JobID: j.ID, Trigger: "schedule", Handle: "n-1", Outcome: model.RunOutcomeFailed,
 		Reason: string(reasons.RunTimedOut), Message: hostile, FinishTime: recorded}); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestFailureTextIsEscapedForAChat(t *testing.T) {
 `
 	cm.Data["subscriptions"] = "- recipients: [mattermost:ops]\n  triggers: [on-run-failed]\n"
 	j := jobOf(t, db, "nightly", nil)
-	if _, err := db.Jobs().RecordRun(bg, model.Run{JobID: j.ID, Trigger: "schedule", K8sJob: "n-1", Outcome: model.RunOutcomeFailed,
+	if _, err := db.Jobs().RecordRun(bg, model.Run{JobID: j.ID, Trigger: "schedule", Handle: "n-1", Outcome: model.RunOutcomeFailed,
 		Reason: string(reasons.RunTimedOut), Message: hostile, FinishTime: recorded}); err != nil {
 		t.Fatal(err)
 	}

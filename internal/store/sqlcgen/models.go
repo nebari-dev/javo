@@ -216,7 +216,7 @@ type JobEnvironment struct {
 type JobRun struct {
 	ID              string
 	JobID           string
-	K8sJob          string
+	Handle          string
 	Trigger         string
 	CreatedAt       dbtime.Time
 	RequestedAt     dbtime.NullTime
@@ -231,6 +231,7 @@ type JobRun struct {
 	Parameters      string
 	CancelRequested bool
 	NotifiedAt      dbtime.NullTime
+	Slot            dbtime.NullTime
 }
 
 type JobSecret struct {

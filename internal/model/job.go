@@ -179,9 +179,13 @@ type Job struct {
 type Run struct {
 	ID    string
 	JobID string
-	// K8sJob is the name of the Kubernetes Job running it; empty until the
-	// controller has created one.
-	K8sJob string
+	// Handle is the name the executor knows the run by, and of its run
+	// folder; empty until the controller has started it.
+	Handle string
+	// Slot is the time of the schedule the run was started for: a job has
+	// one run per slot. Zero for a run a person started, and for runs
+	// recorded before the controller started them itself.
+	Slot time.Time
 	// Trigger is schedule or manual.
 	Trigger string
 	// RequestedAt is when a person asked for a manual run. A run with no
