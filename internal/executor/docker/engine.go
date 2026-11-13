@@ -36,8 +36,10 @@ type engine struct {
 	pause   Tool
 	pool    netip.Prefix
 	runtime string
-	logins  func(name string) []RegistryAuth
-	grace   time.Duration
+	// proxy is the gateway's forward proxy as workloads reach it.
+	proxy  string
+	logins func(name string) []RegistryAuth
+	grace  time.Duration
 	// ctx ends when the executor is closed: nothing waits for a container
 	// after that.
 	ctx context.Context
@@ -138,6 +140,7 @@ func (e *engine) Start(ctx context.Context, s workload.Spec, u workload.Unit) (s
 		Secret:  func(r workload.SecretRef) (string, bool) { v, ok := values[r]; return v, ok },
 		RunID:   strings.ToLower(rand.Text()),
 		Runtime: e.runtime,
+		Proxy:   e.proxy,
 	})
 	if err != nil {
 		return nil, err

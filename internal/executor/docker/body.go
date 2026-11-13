@@ -95,6 +95,10 @@ type Inputs struct {
 	// Runtime is the container runtime the operator configured (a sandbox
 	// such as runsc); empty is the daemon's default.
 	Runtime string
+	// Proxy is the URL of the gateway's forward proxy as the workload
+	// reaches it; the unit is told to use it (withProxy). Empty tells it
+	// nothing.
+	Proxy string
 }
 
 // ContainerBody is the container that runs unit u of workload s. Every
@@ -131,6 +135,11 @@ func ContainerBody(s workload.Spec, u workload.Unit, in Inputs) (Body, error) {
 	b.HostConfig.MemorySwap = b.HostConfig.Memory
 	if b.Env, err = environment(u.Env, in); err != nil {
 		return Body{}, fmt.Errorf("unit %q: %w", u.Name, err)
+	}
+	if in.Proxy != "" {
+		if b.Env, err = withProxy(b.Env, in.Proxy); err != nil {
+			return Body{}, err
+		}
 	}
 	for _, m := range u.Mounts {
 		mount, err := mountOf(s, m)

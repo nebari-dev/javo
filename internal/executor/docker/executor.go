@@ -35,6 +35,13 @@ type Options struct {
 	// sandbox such as runsc); empty is the daemon's own. NewExecutor refuses a
 	// runtime the daemon does not know.
 	Runtime string
+	// Proxy is the URL of the gateway's forward proxy
+	// (internal/egressproxy) as a workload reaches it: the gateway
+	// container's name and the proxy's port, such as http://javo:3128.
+	// Every unit gets it as HTTP_PROXY, HTTPS_PROXY and their lower-case
+	// twins, with NO_PROXY for the gateway and loopback. Empty gives
+	// units no way to the internet.
+	Proxy string
 	// Logins gives the registry logins kept under a name a Spec's
 	// PullSecrets holds; nil is none.
 	Logins func(name string) []RegistryAuth
@@ -102,6 +109,11 @@ func build(ctx context.Context, o Options, in internals) (*Executor, error) {
 	case o.RunnerImage == "":
 		return nil, errors.New("docker executor: no runner image named")
 	}
+	if o.Proxy != "" {
+		if _, err := proxyHost(o.Proxy); err != nil {
+			return nil, fmt.Errorf("docker executor: %w", err)
+		}
+	}
 	d, err := o.Client.Daemon(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("docker executor: %w", err)
@@ -115,7 +127,7 @@ func build(ctx context.Context, o Options, in internals) (*Executor, error) {
 	lasting, cancel := context.WithCancel(context.Background())
 	eng := &engine{
 		c: o.Client, secrets: o.Secrets, gateway: o.Gateway, pause: in.pause,
-		pool: o.Pool, runtime: o.Runtime, logins: o.Logins, grace: o.Grace, ctx: lasting,
+		pool: o.Pool, runtime: o.Runtime, proxy: o.Proxy, logins: o.Logins, grace: o.Grace, ctx: lasting,
 	}
 	if !eng.pool.IsValid() {
 		eng.pool = DefaultPool
@@ -167,7 +179,7 @@ func (e *engine) confines(s workload.Spec) error {
 	if _, err := SandboxBody(s, e.pause, e.runtime); err != nil {
 		return err
 	}
-	filled := Inputs{Secret: func(workload.SecretRef) (string, bool) { return "", true }}
+	filled := Inputs{Secret: func(workload.SecretRef) (string, bool) { return "", true }, Proxy: e.proxy}
 	for _, u := range append(slices.Clone(s.Steps), s.Main) {
 		if _, err := ContainerBody(s, u, filled); err != nil {
 			return err

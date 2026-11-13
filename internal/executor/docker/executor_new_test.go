@@ -38,6 +38,7 @@ func TestNewExecutorRefuses(t *testing.T) {
 		"no secrets":           func(o *Options) { o.Secrets = nil },
 		"no gateway container": func(o *Options) { o.Gateway = "" },
 		"no client":            func(o *Options) { o.Client = nil },
+		"the proxy must be":    func(o *Options) { o.Proxy = "javo:3128" },
 	} {
 		o := good
 		change(&o)
