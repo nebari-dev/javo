@@ -74,6 +74,13 @@ func Internal(what string, err error) error {
 	return New(http.StatusInternalServerError, reasons.Msg(reasons.MsgServerError))
 }
 
+// Unavailable is the answer of a route that needs what the install's
+// executor does not have (a cluster, a way to read homes): 501 and the
+// catalog's words, never a failure for want of it.
+func Unavailable() *Details {
+	return New(http.StatusNotImplemented, reasons.Msg(reasons.MsgNotAvailableHere))
+}
+
 // limitMessages are the catalog messages of the per-person caps.
 var limitMessages = map[store.Limit]reasons.MessageCode{
 	store.LimitApps:          reasons.MsgLimitApps,

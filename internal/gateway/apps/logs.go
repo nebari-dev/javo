@@ -302,6 +302,10 @@ func (s *Workspaces) events(ctx context.Context, in *nameInput) (*eventListOutpu
 	}
 	out := &eventListOutput{CacheControl: "no-store"}
 	out.Body.Items = []Event{}
+	if s.k == nil {
+		// Events are a cluster's: where apps run without one there are none.
+		return out, nil
+	}
 	pod, err := s.pod(ctx, app)
 	if err != nil {
 		return nil, err
@@ -394,8 +398,12 @@ func (s *Workspaces) homePrepareEvents(ctx context.Context, app *model.App) ([]c
 	return out, nil
 }
 
-// pod returns the app's live pod (named like the app), or nil.
+// pod returns the app's live pod (named like the app), or nil: also where
+// apps do not run on a cluster, and so not as pods.
 func (s *Workspaces) pod(ctx context.Context, app *model.App) (*corev1.Pod, error) {
+	if s.k == nil {
+		return nil, nil
+	}
 	var pod corev1.Pod
 	err := s.k.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: app.ObjectName()}, &pod)
 	switch {

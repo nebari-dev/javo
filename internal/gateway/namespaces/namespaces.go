@@ -33,7 +33,8 @@ type Finder struct {
 }
 
 // New returns the finder for pl; c reads Namespaces (only needed
-// when pl lists none).
+// when pl lists none). Nil where apps do not run on a cluster: then only
+// the namespaces pl lists hold apps.
 func New(pl placement.Placement, c client.Reader) *Finder {
 	return &Finder{pl: pl, c: c}
 }
@@ -46,6 +47,9 @@ func (n *Finder) All(ctx context.Context) ([]string, error) {
 			names[i] = d.Name
 		}
 		return names, nil
+	}
+	if n.c == nil {
+		return nil, nil
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -75,6 +79,9 @@ func (n *Finder) Managed(ctx context.Context, ns string) (bool, error) {
 	}
 	if slices.Contains(all, ns) {
 		return true, nil
+	}
+	if n.c == nil {
+		return false, nil
 	}
 	var o corev1.Namespace
 	switch err := n.c.Get(ctx, client.ObjectKey{Name: ns}, &o); {

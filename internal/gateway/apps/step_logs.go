@@ -385,7 +385,7 @@ func (f *stepFollower) sources(ctx context.Context) ([]logSource, types.UID, err
 		return nil, "", err
 	}
 	var out []logSource
-	if f.step == model.ConditionHomeReady {
+	if f.step == model.ConditionHomeReady && f.s.k != nil {
 		// The Jobs that ready the home and copy it to another storage mode.
 		var jobPods []corev1.Pod
 		for _, role := range []string{model.RoleHomePrepare, model.RoleHomeMigrate} {

@@ -84,6 +84,7 @@ const (
 	MsgNoSuchAddress       MessageCode = "NoSuchAddress"
 	MsgMethodNotAllowed    MessageCode = "MethodNotAllowed"
 	MsgServerError         MessageCode = "ServerError"
+	MsgNotAvailableHere    MessageCode = "NotAvailableHere"
 
 	MsgJobNotFound                MessageCode = "JobNotFound"
 	MsgRunNotFound                MessageCode = "RunNotFound"
@@ -406,6 +407,7 @@ var messages = map[MessageCode]string{
 	MsgNoSuchAddress:         "There is nothing at this address.",
 	MsgMethodNotAllowed:      "This address does not accept that kind of request.",
 	MsgServerError:           "Something went wrong on our side. Try again in a moment.",
+	MsgNotAvailableHere:      "This is not available with this executor: the install runs its apps without Kubernetes.",
 
 	MsgJobNotFound:                "No job with that name.",
 	MsgRunNotFound:                "No run with that id.",

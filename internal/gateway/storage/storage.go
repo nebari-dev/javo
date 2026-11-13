@@ -108,7 +108,9 @@ type API struct {
 	DB *store.Store
 	// spec is the platform config's storage section, defaults applied.
 	Spec model.ClusterStorageSpec
-	// c reads pods and nodes, for the placement preview.
+	// c reads pods and nodes, for the placement preview. Nil where apps do
+	// not run on a cluster: the preview and the admin's report then answer
+	// that they are not available.
 	Client     client.Client
 	Sizes      sizes.Catalog
 	Namespaces *namespaces.Finder
@@ -145,6 +147,9 @@ func (s *API) Register(api huma.API) {
 	}
 	authn.RegisterAdmin(api, s.Roles, admin("getAdminStorage", http.MethodGet, "/api/admin/storage", "Storage capability report"),
 		func(ctx context.Context, _ *struct{}) (*adminStorageOutput, error) {
+			if s.Client == nil {
+				return nil, problem.Unavailable()
+			}
 			cs, err := s.clusterStorage(ctx)
 			if err != nil {
 				return nil, problem.Internal("read the cluster's storage", err)
@@ -331,6 +336,9 @@ func (s *API) folders(ctx context.Context, ns, owner string) ([]StorageFolder, e
 }
 
 func (s *API) placement(ctx context.Context, in *placementInput) (*placementOutput, error) {
+	if s.Client == nil {
+		return nil, problem.Unavailable()
+	}
 	p := authn.User(ctx)
 	t, err := templates.Usable(ctx, s.DB.Templates(), s.Roles, p, in.Template)
 	if err != nil {

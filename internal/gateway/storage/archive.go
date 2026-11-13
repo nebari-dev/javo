@@ -75,7 +75,7 @@ func registerArchiveUpload(api huma.API, lister Homes, nss *namespaces.Finder, s
 			return nil, err
 		}
 		if lister == nil {
-			return nil, problem.Internal("upload home folder", errors.New("no home folder lister configured"))
+			return nil, problem.Unavailable()
 		}
 		rel, err := cleanPath(in.Path)
 		if err != nil {

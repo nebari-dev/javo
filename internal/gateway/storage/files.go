@@ -107,7 +107,7 @@ func RegisterFiles(api huma.API, listings *Listings, nss *namespaces.Finder, st 
 			return nil, err
 		}
 		if listings == nil {
-			return nil, problem.Internal("list home folder", errors.New("no home folder lister configured"))
+			return nil, problem.Unavailable()
 		}
 		rel, err := cleanPath(in.Path)
 		if err != nil {
@@ -196,7 +196,7 @@ func registerWarm(api huma.API, listings *Listings, nss *namespaces.Finder, st *
 			return nil, err
 		}
 		if listings == nil {
-			return nil, problem.Internal("warm home folder", errors.New("no home folder lister configured"))
+			return nil, problem.Unavailable()
 		}
 		who := authn.User(ctx)
 		ns, err := homeNamespace(nss, who, in.Team)
@@ -308,7 +308,7 @@ func registerRawFile(api huma.API, lister Homes, nss *namespaces.Finder, st *API
 			return nil, err
 		}
 		if lister == nil {
-			return nil, problem.Internal("open home file", errors.New("no home folder lister configured"))
+			return nil, problem.Unavailable()
 		}
 		rel, err := cleanPath(in.Path)
 		if err != nil {
@@ -411,7 +411,7 @@ func registerSaveFile(api huma.API, lister Homes, nss *namespaces.Finder, st *AP
 			return nil, err
 		}
 		if lister == nil {
-			return nil, problem.Internal("save home file", errors.New("no home folder lister configured"))
+			return nil, problem.Unavailable()
 		}
 		rel, err := cleanPath(in.Path)
 		if err != nil {
