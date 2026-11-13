@@ -171,6 +171,12 @@ func NebiURL(p config.Platform) string {
 	return p.Nebi.URL
 }
 
+// LockAgents says whether the coding agents start locked in with Landlock
+// (workloads.landlock), for the controller that plans their apps and the
+// gateway that shows what they run, on every executor. Where apps run as
+// processes NewHost refuses a machine that cannot apply the lock.
+func LockAgents(p config.Platform) bool { return p.Workloads.Landlock }
+
 // Engines is the only place job engines are wired in.
 func Engines() *engine.Registry {
 	r := registry.New[engine.Engine]()

@@ -179,7 +179,8 @@ func (c LimitsCfg) validate(bad func(key, format string, a ...any)) {
 	}
 }
 
-// WorkloadsCfg is the extra isolation of people's pods from the node.
+// WorkloadsCfg is the extra isolation of people's pods from the node, and
+// of the coding agents from their owner's files.
 type WorkloadsCfg struct {
 	// HostUsers false runs each pod in a user namespace of its own; omitted
 	// means true (the node's). Needs Kubernetes 1.33+ and a runtime and
@@ -188,6 +189,15 @@ type WorkloadsCfg struct {
 	// RuntimeClassName is a RuntimeClass the pods run under (gVisor, Kata);
 	// empty is the cluster's default runtime.
 	RuntimeClassName string `json:"runtimeClassName,omitempty"`
+	// Landlock starts the coding agents (Claude Code, pi, herdr) locked in
+	// with Landlock: the agent and every command it runs may read and write
+	// only its project, its own state and caches, and read the system
+	// (pod/files/agents/agent-lock.sh). Needs Linux 6.2+ (Landlock version
+	// 3) on the nodes; on an older kernel the agent does not start. It is
+	// the one setting here that every executor takes: with executor docker
+	// the daemon's kernel must have it, and with executor process Javo does
+	// not start where the lock cannot be applied (a Mac).
+	Landlock bool `json:"landlock,omitempty"`
 }
 
 // Isolation is what the controller applies to people's pods.

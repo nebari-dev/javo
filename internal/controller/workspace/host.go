@@ -179,6 +179,9 @@ func hostProblem(in Inputs) error {
 			return err
 		}
 	}
+	if err := lockProblem(in); err != nil {
+		return err
+	}
 	switch {
 	case in.App.Source != nil:
 		return &executor.UnsupportedError{Why: "the app runs from a repository, which is cloned by an image, and nothing here runs images"}

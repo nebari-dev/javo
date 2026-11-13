@@ -97,7 +97,11 @@ func (p Platform) misplaced() error {
 		errs = append(errs, fmt.Errorf("%s: is set, and means nothing with executor %s (it is for executor %s)", key, executor, strings.Join(executors, " or ")))
 	}
 	only("namespaces", p.Namespaces, Namespaces{}, ExecutorKubernetes)
-	only("workloads", p.Workloads, WorkloadsCfg{}, ExecutorKubernetes)
+	// The coding agents' lock is applied by the agent's own process, so
+	// every executor takes it; the rest of workloads is the cluster's.
+	cluster := p.Workloads
+	cluster.Landlock = false
+	only("workloads", cluster, WorkloadsCfg{}, ExecutorKubernetes)
 	only("storage", p.Storage, StorageCfg{}, ExecutorKubernetes)
 	only("limits.namespace", p.Limits.Namespace, NamespaceLimitsCfg{}, ExecutorKubernetes)
 	only("keysDir", p.KeysDir, "", ExecutorDocker, ExecutorProcess)

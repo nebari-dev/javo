@@ -46,10 +46,13 @@ const (
 // adds no flag; Runner's pull secrets go on every pod that runs it, except
 // a pod that runs an image the person named. AllowedRegistries is
 // containerImages.allowedRegistries, which such an image must still pass.
+// LockAgents starts the coding agents locked in with Landlock
+// (workloads.landlock: Platform.LockAgents).
 type Images struct {
 	Clone, Pixi, GitConfig string
 	Runner                 podspec.Image
 	AllowedRegistries      []string
+	LockAgents             bool
 }
 
 // GitTokenSecretName is the Secret holding the repository token of the app

@@ -553,3 +553,22 @@ func TestAgentsAllowTrustedDefaultsToOn(t *testing.T) {
 		t.Fatal("agents.allowTrusted false allows trusted agents")
 	}
 }
+
+// The coding agents run unlocked unless the admin turns the Landlock lock
+// on (workloads.landlock).
+func TestAgentLockIsOffByDefault(t *testing.T) {
+	p, err := load(t, "auth:\n  local:\n    enabled: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Workloads.Landlock {
+		t.Fatal("agents locked by default")
+	}
+	p, err = load(t, "auth:\n  local:\n    enabled: true\nworkloads:\n  landlock: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Workloads.Landlock {
+		t.Fatal("workloads.landlock true left the agents unlocked")
+	}
+}

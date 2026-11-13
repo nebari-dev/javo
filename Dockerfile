@@ -64,7 +64,9 @@ ARG JAVO_VERSION= JAVO_COMMIT=
 RUN --mount=type=cache,id=javo-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=javo-go-build,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w -X github.com/nebari-dev/javo/internal/buildinfo.version=${JAVO_VERSION} -X github.com/nebari-dev/javo/internal/buildinfo.commit=${JAVO_COMMIT}" -o /out/javo ./cmd/javo
+    go build -trimpath -ldflags="-s -w -X github.com/nebari-dev/javo/internal/buildinfo.version=${JAVO_VERSION} -X github.com/nebari-dev/javo/internal/buildinfo.commit=${JAVO_COMMIT}" -o /out/javo ./cmd/javo && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/javo-sandbox ./cmd/javo-sandbox
 
 # restic 0.19.1 (backups to the S3-compatible bucket): restic's own image,
 # pinned by index digest; the image for each architecture carries that
@@ -121,13 +123,13 @@ COPY deploy/compose/install.sh deploy/compose/values.yaml /opt/javo/deploy/compo
 WORKDIR /opt/javo
 ENTRYPOINT ["/opt/javo/deploy/compose/install.sh"]
 
-# The javo binary for the image's architecture, at /linux_<arch>/javo. The
-# release workflow compiles it on the runner, with Go's build cache kept
-# between runs, and passes that folder in place of this stage (build context
-# javo-bin).
+# The javo and javo-sandbox binaries for the image's architecture, at
+# /linux_<arch>/. The release workflow compiles them on the runner, with Go's
+# build cache kept between runs, and passes that folder in place of this
+# stage (build context javo-bin).
 FROM scratch AS javo-bin
 ARG TARGETARCH
-COPY --from=build /out/javo /linux_${TARGETARCH}/javo
+COPY --from=build /out/javo /out/javo-sandbox /linux_${TARGETARCH}/
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 ARG TARGETARCH
@@ -143,5 +145,8 @@ COPY pod/files/ /opt/javo-files/
 COPY --from=pod-files /out/terminal.html /opt/javo-files/agents/terminal.html
 COPY --chmod=755 pod/javo-api/javo-api.mjs /opt/javo-files/bin/javo-api
 COPY --chmod=755 pod/bin/ /opt/javo-files/bin/
+# The coding agents start through it when they are locked in with Landlock
+# (pod/files/agents/agent-lock.sh).
+COPY --from=javo-bin /linux_${TARGETARCH}/javo-sandbox /opt/javo-files/bin/javo-sandbox
 USER 65532:65532
 ENTRYPOINT ["/javo"]

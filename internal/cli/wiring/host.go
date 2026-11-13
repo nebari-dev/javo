@@ -10,7 +10,11 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tink-crypto/tink-go/v2/tink"
@@ -248,6 +252,9 @@ func NewHost(ctx context.Context, cfg config.Platform, in HostInputs) (*Host, er
 	}
 	if cfg.Executor == config.ExecutorProcess {
 		if err := onePersonsMachine(ctx, in); err != nil {
+			return nil, fmt.Errorf("executor process: %w", err)
+		}
+		if err := agentLockWorks(ctx, cfg); err != nil {
 			return nil, fmt.Errorf("executor process: %w", err)
 		}
 	}
@@ -496,6 +503,37 @@ func onePersonsMachine(ctx context.Context, in HostInputs) error {
 	}
 	if len(people) > 1 {
 		return fmt.Errorf("the database holds %d people, and apps here all run as one user: it serves one person", len(people))
+	}
+	return nil
+}
+
+// goos is the system Javo runs on.
+var goos = runtime.GOOS
+
+// agentLockWorks is why this machine cannot start the coding agents
+// locked in with Landlock although the config asks for it
+// (workloads.landlock); nil when it can, or the lock is off. Apps here are
+// processes of this machine, so the lock is this machine's kernel's:
+// Landlock is Linux's, and on Linux the javo-sandbox of the platform's
+// files (process.filesDir, bin/javo-sandbox) must lock a command in now.
+// Javo does not start otherwise: an agent would either never start or,
+// worse, be thought locked in.
+func agentLockWorks(ctx context.Context, cfg config.Platform) error {
+	if !LockAgents(cfg) {
+		return nil
+	}
+	if goos != "linux" {
+		return fmt.Errorf("workloads.landlock is on, and Landlock needs Linux: this machine is %s, where the coding agents cannot be locked in; turn workloads.landlock off to run them with every file of yours in reach", goos)
+	}
+	if cfg.Process.FilesDir == "" {
+		return errors.New("workloads.landlock is on, and process.filesDir is not set: the coding agents start through bin/javo-sandbox of the platform's files")
+	}
+	sandbox := filepath.Join(cfg.Process.FilesDir, "bin", "javo-sandbox")
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	// Everything readable, nothing writable: enough to run true locked in.
+	if out, err := exec.CommandContext(ctx, sandbox, "--ro", "/", "--", "true").CombinedOutput(); err != nil {
+		return fmt.Errorf("workloads.landlock is on, and %s could not lock a command in: %w: %s", sandbox, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

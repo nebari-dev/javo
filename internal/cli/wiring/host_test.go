@@ -133,6 +133,61 @@ func TestAProcessHostRefusesWhatItCannotKeepSafe(t *testing.T) {
 	})
 }
 
+// With the coding agents' lock on (workloads.landlock), a machine that
+// runs apps as processes must be able to lock them in: Landlock is
+// Linux's, so on a Mac Javo does not start rather than run the agents with
+// every file of the person's in reach; on Linux it starts once the
+// javo-sandbox of the platform's files has locked a command in.
+func TestAProcessHostRefusesTheAgentLockItCannotApply(t *testing.T) {
+	defer func(was string) { goos = was }(goos)
+	locked := func(t *testing.T, sandbox string) config.Platform {
+		cfg := processConfig(t)
+		cfg.Workloads.Landlock = true
+		if sandbox != "" {
+			cfg.Process.FilesDir = t.TempDir()
+			bin := filepath.Join(cfg.Process.FilesDir, "bin")
+			if err := os.Mkdir(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "javo-sandbox"), []byte(sandbox), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return cfg
+	}
+	t.Run("a Mac", func(t *testing.T) {
+		goos = "darwin"
+		wantRefused(t, locked(t, ""), hostInputs(t), "workloads.landlock", "Linux", "darwin", "executor process")
+	})
+	t.Run("Linux without the platform's files", func(t *testing.T) {
+		goos = "linux"
+		wantRefused(t, locked(t, ""), hostInputs(t), "workloads.landlock", "process.filesDir")
+	})
+	t.Run("Linux whose kernel has no Landlock", func(t *testing.T) {
+		goos = "linux"
+		cfg := locked(t, "#!/bin/sh\necho 'javo-sandbox: this kernel has no Landlock' >&2\nexit 125\n")
+		wantRefused(t, cfg, hostInputs(t), "workloads.landlock", "this kernel has no Landlock")
+	})
+	t.Run("Linux with Landlock", func(t *testing.T) {
+		goos = "linux"
+		// A stand-in that locks nothing in and runs the command it is given.
+		cfg := locked(t, "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n")
+		h, err := NewHost(context.Background(), cfg, hostInputs(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Close()
+	})
+	t.Run("the lock off", func(t *testing.T) {
+		goos = "darwin"
+		h, err := NewHost(context.Background(), processConfig(t), hostInputs(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Close()
+	})
+}
+
 // The folders Javo keeps homes, state and keys in must be its user's
 // alone: one that others can open is refused, not repaired.
 func TestAHostRefusesFoldersOpenToOthers(t *testing.T) {

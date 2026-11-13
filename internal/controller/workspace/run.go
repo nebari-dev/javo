@@ -28,6 +28,9 @@ type Platform struct {
 	PublicHost string
 	// PixiImage runs templates with an environment (environments.pixiImage).
 	PixiImage string
+	// LockAgents starts the coding agents locked in with Landlock to their
+	// folder (workloads.landlock; see addAgentLock).
+	LockAgents bool
 }
 
 // address is the base path app serves under and the host browsers load it
@@ -41,11 +44,14 @@ func (p Platform) address(app *model.App) (baseURL, host string) {
 // line BuildPod puts in its container.
 func (p Platform) RunOf(app *model.App, t *model.Template) (Run, error) {
 	base, host := p.address(app)
-	r, err := runOf(app, t, base, host, p.PixiImage, 0, containerPlaces)
+	r, err := runOf(app, t, base, host, p.PixiImage, 0, p.LockAgents, containerPlaces)
 	if err != nil {
 		return Run{}, err
 	}
 	run := Run{Image: r.image, Command: slices.Concat(r.command, r.args)}
+	if locksAgent(t, p.LockAgents) {
+		run.Command = lockAgent(agentLock, containerPlaces.lockFolder(app), run.Command)
+	}
 	if t.Spec.UserImage {
 		run.Image = app.Image
 	}
@@ -64,8 +70,9 @@ type runPlan struct {
 // runOf renders ws's command on t for an app served at baseURL on
 // publicHost, with pixi the platform's pixi image. The app serves on port,
 // or on the template's when that is zero, and finds its files at the
-// places at.
-func runOf(ws *model.App, t *model.Template, baseURL, publicHost, pixi string, port int32, at places) (runPlan, error) {
+// places at. lock starts a coding agent in the folder it is locked to
+// (lockFolder); the lock itself goes around the command after (addAgentLock).
+func runOf(ws *model.App, t *model.Template, baseURL, publicHost, pixi string, port int32, lock bool, at places) (runPlan, error) {
 	port = cmp.Or(port, AppPortOf(ws, t))
 	data := templateData{BaseURL: baseURL, Port: port, Home: at.home, Host: publicHost}
 	if ws.Source != nil {
@@ -76,6 +83,11 @@ func runOf(ws *model.App, t *model.Template, baseURL, publicHost, pixi string, p
 			return runPlan{}, fmt.Errorf("spec.file: %w", err)
 		}
 		data.File = at.filePath(ws)
+	}
+	if locksAgent(t, lock) {
+		// Locked to the whole home the lock would keep nothing out, so an
+		// agent app with no folder works in one of its own.
+		data.File = at.lockFolder(ws)
 	}
 	image := t.Spec.RunImage(pixi)
 	if image == "" && !t.Spec.UserImage && at.host == nil {

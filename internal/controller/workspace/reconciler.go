@@ -89,6 +89,9 @@ type Reconciler struct {
 	// containers of apps from Git. Required when any app has a source.
 	CloneImage, CloneGitConfig string
 	RunnerImage                podspec.Image
+	// LockAgents starts the coding agents locked in with Landlock (config
+	// workloads.landlock).
+	LockAgents bool
 	// AllowedRegistries is containerImages.allowedRegistries: an app's own
 	// image is checked again when its pod is built, so tightening the list
 	// stops apps saved before. Empty allows any registry.
@@ -454,7 +457,7 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 	}
 	in := Inputs{
 		App: app, Template: tpl, Layout: p.layout, Size: size, Fingerprint: built,
-		Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries},
+		Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries, LockAgents: r.LockAgents},
 		APIAccess: access, HasToken: hasToken, APIURL: r.APIURL, APIInternalURL: r.APIInternalURL,
 		GitHolder: p.gitHolder, GitGen: p.gitGen, Secrets: appSecrets, Agent: agent,
 		Port: port,
@@ -555,7 +558,7 @@ func (r *Reconciler) finalize(ctx context.Context, app *model.App) error {
 
 // platform is what apps' runs take from the install (Platform).
 func (r *Reconciler) platform() Platform {
-	return Platform{Exposure: r.Exposure, PublicHost: r.PublicHost, PixiImage: r.PixiImage}
+	return Platform{Exposure: r.Exposure, PublicHost: r.PublicHost, PixiImage: r.PixiImage, LockAgents: r.LockAgents}
 }
 
 // fingerprint is what a pod built for app now would be marked with: its

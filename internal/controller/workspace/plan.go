@@ -96,6 +96,7 @@ func Plan(in Inputs) (workload.Spec, error) {
 	if err != nil {
 		return workload.Spec{}, err
 	}
+	addAgentLock(&s, ws, t, in.Images.LockAgents, at)
 	if in.NebiURL != "" {
 		addNebi(&s, in.NebiURL, in.Images.Runner)
 	}
@@ -123,7 +124,7 @@ func Plan(in Inputs) (workload.Spec, error) {
 // from which code, on the owner's storage, at the places at.
 func planRun(in Inputs, at places) (workload.Spec, error) {
 	ws, t, img := in.App, in.Template, in.Images
-	p, err := runOf(ws, t, in.BaseURL, in.PublicHost, img.Pixi, in.Port, at)
+	p, err := runOf(ws, t, in.BaseURL, in.PublicHost, img.Pixi, in.Port, img.LockAgents, at)
 	if err != nil {
 		return workload.Spec{}, err
 	}

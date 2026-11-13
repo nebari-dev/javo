@@ -1018,6 +1018,27 @@ func TestAppPodsRunInTheirOwnUserNamespaceWhenAsked(t *testing.T) {
 	}
 }
 
+// With the lock on (workloads.landlock), the reconciler starts a coding
+// agent's pod locked in, and leaves other apps' pods as they are.
+func TestReconcilerLocksCodingAgentsWhenAsked(t *testing.T) {
+	t.Parallel()
+	fx := newEnv(t, func(r *Reconciler) { r.LockAgents = true })
+	fx.newTemplate(t, "agent-locked", func(s *model.TemplateSpec) { s.Category = model.CategoryAgents })
+	fx.newTemplate(t, "lab-unlocked")
+	agent := fx.newApp(t, "ws-agent-locked", "lou", "agent-locked")
+	lab := fx.newApp(t, "ws-lab-unlocked", "lou", "lab-unlocked")
+	var agentPod, labPod corev1.Pod
+	eventually(t, "pods created", func() bool {
+		return fx.exists(&agentPod, agent.ObjectName()) && fx.exists(&labPod, lab.ObjectName())
+	})
+	if c := agentPod.Spec.Containers[0].Command; len(c) == 0 || c[0] != agentLock {
+		t.Fatalf("agent command = %q, want it started through %s", c, agentLock)
+	}
+	if c := labPod.Spec.Containers[0].Command; slices.Contains(c, agentLock) {
+		t.Fatalf("lab command = %q, want it unlocked", c)
+	}
+}
+
 func TestInvalidTemplateFailsWithTemplateInvalid(t *testing.T) {
 	t.Parallel()
 	fx := newEnv(t)

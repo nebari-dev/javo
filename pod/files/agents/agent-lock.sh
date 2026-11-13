@@ -34,11 +34,21 @@ set -- --rw "$HOME/.claude.json" --rw /tmp "$@"
 # Terminals: /dev/null, the pseudo-terminals tmux and ttyd open, the
 # termination log.
 set -- --rw /dev "$@"
+# An app that runs as a process of a machine keeps tmux's sockets in a
+# folder of its own (TMUX_TMPDIR: agent-serve.sh); a container is told
+# nothing, and keeps them in /tmp.
+if [ -n "${TMUX_TMPDIR:-}" ]; then
+  mkdir -p "$TMUX_TMPDIR"
+  set -- --rw "$TMUX_TMPDIR" "$@"
+fi
 
 # ~/.ssh is the pod's own folder of public files (known_hosts, config: the
 # ssh-agent sidecar fills it), never the private keys; git reads the
-# person's settings; ~/.javo/envs holds the installed environments.
-for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc /opt/javo /opt/javo-env /proc /sys /home/AGENTS.md \
+# person's settings; ~/.javo/envs holds the installed environments. The pod
+# files and the environment's activation are at /opt/javo and /opt/javo-env
+# in a container, and where JAVO_FILES_DIR and JAVO_ENV_DIR say on a machine
+# the app is a process of (pod-user.sh).
+for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc "${JAVO_FILES_DIR:-/opt/javo}" "${JAVO_ENV_DIR:-/opt/javo-env}" /proc /sys /home/AGENTS.md \
   "$HOME/.javo/envs" "$HOME/.ssh" "$HOME/.gitconfig" "$HOME/.config/git"; do
   [ ! -e "$p" ] || set -- --ro "$p" "$@"
 done

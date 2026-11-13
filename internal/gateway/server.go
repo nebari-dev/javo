@@ -91,9 +91,11 @@ type Config struct {
 	Sharing config.SharingCfg
 	// Exposure decides where apps are served; wired in internal/cli/wiring.
 	Exposure exposure.Backend
-	// PublicHost (--public-host) and PixiImage (environments.pixiImage) fill
-	// in the command each app is shown to run, as the controller does.
+	// PublicHost (--public-host), PixiImage (environments.pixiImage) and
+	// LockAgents (workloads.landlock) fill in the command each app is shown
+	// to run, as the controller does.
 	PublicHost, PixiImage string
+	LockAgents            bool
 	// StaleAfter is how long since last login before a person shared with
 	// shows as no longer active; zero means never.
 	StaleAfter time.Duration
@@ -295,7 +297,7 @@ func NewServer(cfg Config) *Server {
 	}
 	limits := cfg.API.Limits.WithDefaults()
 	logStreams := streams.New(limits.StreamsPerPerson)
-	run := workspace.Platform{Exposure: cfg.Exposure, PublicHost: cfg.PublicHost, PixiImage: cfg.PixiImage}
+	run := workspace.Platform{Exposure: cfg.Exposure, PublicHost: cfg.PublicHost, PixiImage: cfg.PixiImage, LockAgents: cfg.LockAgents}
 	ws := apps.New(apps.Config{
 		Run:   run,
 		Store: cfg.Store, Client: cfg.Client, Namespaces: nss, Homes: cfg.Homes, Sizing: sz, Exposure: cfg.Exposure,

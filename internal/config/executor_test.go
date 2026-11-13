@@ -49,6 +49,25 @@ func TestSectionsOfAnotherExecutorAreRefused(t *testing.T) {
 	}
 }
 
+// The coding agents' lock (workloads.landlock) is applied by the agent's
+// own process, whatever runs it, so every executor takes it; the rest of
+// workloads stays the cluster's.
+func TestTheAgentLockIsForEveryExecutor(t *testing.T) {
+	for name, yaml := range map[string]string{
+		"docker":  localAuth + "executor: docker\nkeysDir: /var/lib/javo/keys\ndocker:\n  gateway: javo\n",
+		"process": localAuth + "executor: process\nkeysDir: /h/keys\nprocess:\n  stateDir: /h/state\n  homesDir: /h/homes\n",
+	} {
+		p, err := load(t, yaml+"workloads:\n  landlock: true\n")
+		if err != nil || !p.Workloads.Landlock {
+			t.Errorf("workloads.landlock under %s: %v, %v", name, p.Workloads.Landlock, err)
+		}
+		_, err = load(t, yaml+"workloads:\n  landlock: true\n  runtimeClassName: gvisor\n")
+		if err == nil || !strings.Contains(err.Error(), "workloads: ") || !strings.Contains(err.Error(), "executor "+name) {
+			t.Errorf("workloads.runtimeClassName under %s: %v", name, err)
+		}
+	}
+}
+
 // Each executor that is not Kubernetes needs to know where it is: the
 // Docker one its own container, the process one its folders, both where
 // Javo's keys are kept.

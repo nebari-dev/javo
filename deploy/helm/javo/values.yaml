@@ -536,6 +536,17 @@ config:
     # A RuntimeClass to run them under, such as a gVisor or Kata sandbox
     # installed on the nodes; empty is the default runtime.
     runtimeClassName: ""
+    # true locks the coding agents (Claude Code, pi, herdr) in with Landlock:
+    # the agent, its terminal and every command they run may read and write
+    # only the app's project folder, the agents' own settings and caches,
+    # /tmp and /dev, and read the system, the pod files and the installed
+    # environments; the rest of the home (other projects, dotfiles) is
+    # refused (pod/files/agents/agent-lock.sh). An agent app with no folder
+    # works in ~/projects/<app name>. Needs Landlock version 3 (Linux 6.2+,
+    # with landlock in the kernel's lsm= list) on the nodes: elsewhere the
+    # agent does not start and its log says why. Only file access is
+    # locked, not the network.
+    landlock: false
   sessions:
     ttl: 12h
     sweepEvery: 5m # how often each gateway deletes expired sessions

@@ -206,6 +206,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Exposure:          exp,
 		PublicHost:        common.publicHost,
 		PixiImage:         platform.Environments.PixiImage,
+		LockAgents:        wiring.LockAgents(platform),
 		Providers:         providers,
 		Revalidator:       revalidator,
 		People:            people,

@@ -12,6 +12,11 @@ const temp = () => mkdtempSync(join(tmpdir(), 'agent-lock-'))
 // of the pod files whose bin/javo-sandbox only records what it was asked
 // to grant; returns the --rw and --ro paths and the command it would run.
 function lock(home, folder, ...command) {
+  return lockWith({}, home, folder, ...command)
+}
+
+// lockWith is lock with the variables env set besides HOME.
+function lockWith(env, home, folder, ...command) {
   const opt = temp()
   mkdirSync(join(opt, 'agents'))
   mkdirSync(join(opt, 'bin'))
@@ -19,7 +24,7 @@ function lock(home, folder, ...command) {
   const calls = join(opt, 'calls')
   writeFileSync(join(opt, 'bin', 'javo-sandbox'), `#!/bin/sh\nfor a; do printf '%s\\n' "$a"; done > ${calls}\n`, { mode: 0o755 })
   // Run as the pod runs it: the file itself, so it must be executable.
-  execFileSync(join(opt, 'agents', 'agent-lock.sh'), [folder, '--', ...command], { env: { ...process.env, HOME: home } })
+  execFileSync(join(opt, 'agents', 'agent-lock.sh'), [folder, '--', ...command], { env: { ...process.env, HOME: home, ...env } })
   const argv = readFileSync(calls, 'utf8').split('\n').slice(0, -1)
   const sep = argv.indexOf('--')
   const got = { rw: [], ro: [], command: argv.slice(sep + 1) }
@@ -79,4 +84,34 @@ test('runs the command as given', () => {
   const home = temp()
   const got = lock(home, join(home, 'p'), '/opt/javo/pod-user.sh', 'sh', '-c', 'echo "a b"; exit 0')
   assert.deepEqual(got.command, ['/opt/javo/pod-user.sh', 'sh', '-c', 'echo "a b"; exit 0'])
+})
+
+// An app that runs as a process of a machine is told where that machine
+// has the platform's files, its environment's activation and tmux's
+// sockets (JAVO_FILES_DIR, JAVO_ENV_DIR, TMUX_TMPDIR): those are granted in
+// place of a container's /opt/javo and /opt/javo-env.
+test('on a host grants the folders the app is told of', () => {
+  const home = temp()
+  const files = temp()
+  const env = temp()
+  const tmux = join(temp(), 'tmp')
+  const got = lockWith({ JAVO_FILES_DIR: files, JAVO_ENV_DIR: env, TMUX_TMPDIR: tmux }, home, join(home, 'p'), 'claude')
+  assert.ok(got.ro.includes(files), `--ro ${got.ro}`)
+  assert.ok(got.ro.includes(env), `--ro ${got.ro}`)
+  assert.ok(statSync(tmux).isDirectory(), 'the folder of tmux was not made')
+  assert.ok(got.rw.includes(tmux), `--rw ${got.rw}`)
+  assert.ok(!got.rw.includes(files) && !got.rw.includes(env), `--rw ${got.rw}`)
+})
+
+test('in a container grants nothing a host is told of', () => {
+  const home = temp()
+  const { JAVO_FILES_DIR, JAVO_ENV_DIR, TMUX_TMPDIR, ...rest } = process.env
+  const saved = process.env
+  process.env = rest
+  try {
+    const got = lock(home, join(home, 'p'), 'claude')
+    assert.deepEqual(got.rw.filter((p) => !p.startsWith(home) && p !== '/tmp' && p !== '/dev'), [])
+  } finally {
+    process.env = saved
+  }
 })

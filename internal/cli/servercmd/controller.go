@@ -348,6 +348,7 @@ func (o *controllerOptions) appReconciler(common *commonFlags, platform config.P
 		// Checked again at each pod build, so a tightened list stops
 		// apps saved before.
 		AllowedRegistries: platform.ContainerImages.AllowedRegistries,
+		LockAgents:        wiring.LockAgents(platform),
 	}
 }
 
