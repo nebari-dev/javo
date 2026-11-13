@@ -6,7 +6,12 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 const dir = import.meta.dirname
-const temp = () => mkdtempSync(join(tmpdir(), 'agent-lock-'))
+// The stand-in homes are kept out of /tmp, which the script grants: on Linux
+// the system's temporary folder is /tmp, and a home inside it would be
+// reachable whatever else the script does. .dev is ignored by git.
+const base = tmpdir().startsWith('/tmp') ? join(dir, '..', '..', '..', '.dev', 'test-tmp') : tmpdir()
+mkdirSync(base, { recursive: true })
+const temp = () => mkdtempSync(join(base, 'agent-lock-'))
 
 // lock runs agent-lock.sh FOLDER -- COMMAND... with HOME home, from a copy
 // of the pod files whose bin/javo-sandbox only records what it was asked
