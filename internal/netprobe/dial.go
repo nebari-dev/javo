@@ -10,9 +10,15 @@ import (
 // which the cluster must let it reach) and the target URL (the listener in
 // the apps namespace, which the cluster must refuse) answered. The dialer
 // writes it as its termination message.
+//
+// The Docker probe's dialer also says how each address it was told to
+// connect to answered (TCP, see Connect) and which names resolved
+// (Resolved): on Docker more than one listener must be out of reach.
 type Outcome struct {
-	Control bool `json:"control"`
-	Target  bool `json:"target"`
+	Control  bool              `json:"control"`
+	Target   bool              `json:"target"`
+	TCP      map[string]string `json:"tcp,omitempty"`
+	Resolved []string          `json:"resolved,omitempty"`
 }
 
 // Listener answers every request with 200. It runs in the listener pod.

@@ -9,7 +9,10 @@ import (
 // The probe waits for the gateway-only policy it tests.
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get
 
-// Probe is what Loop runs; *Prober implements it.
+// Probe is a prober: it measures once whether apps are kept apart and
+// never fails, since what goes wrong is an Unknown Result. *Prober is the
+// one for Kubernetes and dockerprobe.Prober the one for Docker; Loop
+// runs either.
 type Probe interface {
 	Probe(ctx context.Context) Result
 }
