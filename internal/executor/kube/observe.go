@@ -10,10 +10,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/executor/startup"
 	"github.com/nebari-dev/javo/internal/model"
-	"github.com/nebari-dev/javo/internal/pixienv"
 	"github.com/nebari-dev/javo/internal/reasons"
-	"github.com/nebari-dev/javo/internal/source"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
@@ -100,27 +99,26 @@ func Observe(s Seen) *workload.State {
 	return at("Starting", model.ConditionReady, reasons.Starting)
 }
 
-// podInstallsEnv reports whether the pod installs an environment before the
-// app starts.
-func podInstallsEnv(p *corev1.Pod) bool {
-	return p != nil && slices.ContainsFunc(p.Spec.InitContainers, func(c corev1.Container) bool {
-		return c.Name == pixienv.InstallContainer
-	})
+// initNames are the names of p's init containers, the steps of its
+// workload.
+func initNames(p *corev1.Pod) []string {
+	if p == nil {
+		return nil
+	}
+	names := make([]string, len(p.Spec.InitContainers))
+	for i, c := range p.Spec.InitContainers {
+		names[i] = c.Name
+	}
+	return names
 }
 
-// InitStep is the startup step an init container of p does its work in:
-// Built for the steps that fetch and build a site, EnvReady for the
-// environment install and, on a pod that has one, everything before it
-// that is not the build, else Started.
-func InitStep(p *corev1.Pod, name string) string {
-	switch {
-	case podBuilds(p) && source.IsSiteStep(name):
-		return model.ConditionBuilt
-	case podInstallsEnv(p):
-		return model.ConditionEnvReady
-	}
-	return model.ConditionStarted
-}
+// podInstallsEnv reports whether the pod installs an environment before the
+// app starts.
+func podInstallsEnv(p *corev1.Pod) bool { return startup.InstallsEnv(initNames(p)) }
+
+// InitStep is the startup step an init container of p does its work in
+// (startup.StepOf).
+func InitStep(p *corev1.Pod, name string) string { return startup.StepOf(initNames(p), name) }
 
 // runningInit is the first init container of p that has not finished well,
 // or "" when all have.
@@ -137,13 +135,8 @@ func runningInit(p *corev1.Pod) string {
 	return ""
 }
 
-// podBuilds reports whether the pod makes the site it serves: it has a build
-// or site-copy step.
-func podBuilds(p *corev1.Pod) bool {
-	return p != nil && slices.ContainsFunc(p.Spec.InitContainers, func(c corev1.Container) bool {
-		return c.Name == source.BuildContainer || c.Name == source.SiteCopyContainer
-	})
-}
+// podBuilds reports whether the pod makes the site it serves.
+func podBuilds(p *corev1.Pod) bool { return startup.Builds(initNames(p)) }
 
 func lastTerminated(cs corev1.ContainerStatus) *corev1.ContainerStateTerminated {
 	if cs.State.Terminated != nil {

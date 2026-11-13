@@ -6,10 +6,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/nebari-dev/javo/internal/executor/startup"
 	"github.com/nebari-dev/javo/internal/model"
-	"github.com/nebari-dev/javo/internal/pixienv"
 	"github.com/nebari-dev/javo/internal/reasons"
-	"github.com/nebari-dev/javo/internal/source"
 )
 
 // ClassifyPod applies the pod and event rules for a pod that is not doing its
@@ -68,19 +67,14 @@ func ClassifyPod(p *corev1.Pod, evs []corev1.Event) (failing, code string, evide
 				// its EnvReady step.
 				step := InitStep(p, cs.Name)
 				if t.ExitCode != 0 {
-					// The steps of an app from Git say what to fix; evidence is
-					// the failing line, never git-sync's whole log.
-					if cs.Name == pixienv.InstallContainer {
-						code := reasons.EnvironmentInstallFailed
-						if t.ExitCode == pixienv.ExitProgramMissing {
-							code = reasons.EnvironmentLacksProgram
-						}
-						return found(step, code, ev, strings.TrimSpace(t.Message))
+					// What a failed step means is the same on every
+					// platform (startup.Failed); the kubelet's part is the
+					// termination message.
+					code, lines := startup.Failed(cs.Name, int(t.ExitCode), t.Message)
+					if lines == nil {
+						lines = []string{strings.TrimSpace(t.Message)}
 					}
-					if code, ok := source.Classify(cs.Name, t.Message); ok {
-						return found(step, code, append([]string{ev}, source.Evidence(cs.Name, t.Message)...)...)
-					}
-					return found(step, reasons.SampleMissing, ev, strings.TrimSpace(t.Message))
+					return found(step, code, append([]string{ev}, lines...)...)
 				}
 				continue
 			}

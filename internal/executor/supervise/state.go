@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/executor/startup"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/pixienv"
 	"github.com/nebari-dev/javo/internal/reasons"
-	"github.com/nebari-dev/javo/internal/source"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
@@ -20,7 +20,7 @@ const factTime = "2006-01-02 15:04:05 UTC"
 // rule reads both.
 func (w *work) state() *workload.State {
 	st := &workload.State{
-		Builds: w.builds(), InstallsEnv: w.installsEnv(),
+		Builds: startup.Builds(w.steps()), InstallsEnv: startup.InstallsEnv(w.steps()),
 		Created: w.created, Facts: w.facts(),
 	}
 	main := w.spec.Main.Name
@@ -46,44 +46,35 @@ func (w *work) state() *workload.State {
 	return st
 }
 
-func (w *work) builds() bool {
-	return w.spec.Step(source.BuildContainer) != nil || w.spec.Step(source.SiteCopyContainer) != nil
+// steps are the names of the workload's steps.
+func (w *work) steps() []string {
+	names := make([]string, len(w.spec.Steps))
+	for i, u := range w.spec.Steps {
+		names[i] = u.Name
+	}
+	return names
 }
 
-func (w *work) installsEnv() bool { return w.spec.Step(pixienv.InstallContainer) != nil }
-
-// stepOf is the startup step the unit called name does its work in: Built
-// for the steps that fetch and build a site, EnvReady for the environment
-// install and, in a workload that has one, every other step, else Started.
+// stepOf is the startup step the unit called name does its work in: the
+// main unit in Started, a step where startup.StepOf says.
 func (w *work) stepOf(name string) string {
-	switch {
-	case name == w.spec.Main.Name || name == "":
+	if name == w.spec.Main.Name || name == "" {
 		return model.ConditionStarted
-	case w.builds() && source.IsSiteStep(name):
-		return model.ConditionBuilt
-	case w.installsEnv():
-		return model.ConditionEnvReady
 	}
-	return model.ConditionStarted
+	return startup.StepOf(w.steps(), name)
 }
 
 // diagnose names the failure f of the unit called name, with its evidence:
 // what happened, then the lines that say why.
 func (w *work) diagnose(name string, f *failure) (reasons.Code, []string) {
-	ev := append([]string{f.what}, f.output...)
-	text := strings.Join(f.output, "\n")
-	switch {
-	case name == w.spec.Main.Name:
-		return reasons.AppCrashed, ev
-	case name == pixienv.InstallContainer && f.exit == pixienv.ExitProgramMissing:
-		return reasons.EnvironmentLacksProgram, ev
-	case name == pixienv.InstallContainer:
-		return reasons.EnvironmentInstallFailed, ev
+	if name == w.spec.Main.Name {
+		return reasons.AppCrashed, append([]string{f.what}, f.output...)
 	}
-	if code, ok := source.Classify(name, text); ok {
-		return code, append([]string{f.what}, source.Evidence(name, text)...)
+	code, lines := startup.Failed(name, f.exit, strings.Join(f.output, "\n"))
+	if lines == nil {
+		lines = f.output
 	}
-	return reasons.SampleMissing, ev
+	return code, append([]string{f.what}, lines...)
 }
 
 // facts is, per startup step, short lines on how it went.
