@@ -196,12 +196,22 @@ func TestStopEndsARunThatIsGoingAndThenLetsGoOfIt(t *testing.T) {
 	if refs, _ := sup.List(t.Context()); len(refs) != 1 {
 		t.Fatalf("listed %v, want the run", refs)
 	}
+	if got := e.let(); len(got) != 0 {
+		t.Fatalf("the engine was told to let go of %v while the run is kept", got)
+	}
 
 	if err := sup.Stop(t.Context(), ref); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := sup.Observe(t.Context(), ref); st != nil {
 		t.Fatalf("after the second Stop: %+v", st)
+	}
+	if got := e.let(); !slices.Equal(got, []string{ref.Name}) {
+		t.Fatalf("the engine was told to let go of %v, want the run", got)
+	}
+	// What the supervisor does not know may still be the engine's.
+	if err := sup.Stop(t.Context(), ref); err != nil || len(e.let()) != 2 {
+		t.Fatalf("Stop of a run the supervisor does not know: %v, let go of %v", err, e.let())
 	}
 	if refs, _ := sup.List(t.Context()); len(refs) != 0 {
 		t.Fatalf("listed %v", refs)

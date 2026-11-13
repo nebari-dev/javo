@@ -41,6 +41,8 @@ type engine struct {
 	kept     map[string][]byte
 	messages map[string]string
 	envs     map[string][]workload.Env
+	// released are the runs Release was called for.
+	released []string
 }
 
 var _ supervise.Keeper = (*engine)(nil)
@@ -63,6 +65,21 @@ func (e *engine) Keep(_ context.Context, s workload.Spec, record []byte) error {
 	}
 	e.kept[s.Ref.Name] = record
 	return nil
+}
+
+func (e *engine) Release(_ context.Context, ref workload.Ref) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.kept, ref.Name)
+	e.released = append(e.released, ref.Name)
+	return nil
+}
+
+// let is the runs the engine was told to let go of, in order.
+func (e *engine) let() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.released)
 }
 
 func (e *engine) MessageDir(workload.Spec) string { return "/message" }

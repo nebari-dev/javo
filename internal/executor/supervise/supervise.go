@@ -100,6 +100,10 @@ type Keeper interface {
 	// Message is what the file called name in that folder holds, or ""
 	// when there is none. The run's own code may have written it.
 	Message(ctx context.Context, s workload.Spec, name string) string
+	// Release removes all the engine has of the run ref, none of whose
+	// units runs: what Keep holds, what its units printed and left.
+	// Releasing a run the engine has nothing of is not an error.
+	Release(ctx context.Context, ref workload.Ref) error
 }
 
 // Found is a workload an earlier Supervisor started that still runs, or
@@ -266,7 +270,8 @@ func (s *Supervisor) Adopt(ctx context.Context) error {
 }
 
 // Stop ends the workload's units and forgets it. A run that is going is
-// ended and stays, done and stopped, until Stop is called for it again.
+// ended and stays, done and stopped; Stop for a run that has ended, or
+// that is not known here, has the engine let go of it (Keeper).
 func (s *Supervisor) Stop(ctx context.Context, ref workload.Ref) error {
 	s.mu.Lock()
 	w := s.work[key(ref)]
@@ -275,24 +280,26 @@ func (s *Supervisor) Stop(ctx context.Context, ref workload.Ref) error {
 		w.stopped = true
 	}
 	s.mu.Unlock()
-	if w == nil {
-		return nil
+	if w != nil {
+		w.cancel()
+		select {
+		case <-w.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if going {
+			return nil
+		}
+		s.mu.Lock()
+		if s.work[key(ref)] == w {
+			delete(s.work, key(ref))
+		}
+		s.mu.Unlock()
+		s.changed(ref)
 	}
-	w.cancel()
-	select {
-	case <-w.done:
-	case <-ctx.Done():
-		return ctx.Err()
+	if k, ok := s.eng.(Keeper); ok {
+		return k.Release(ctx, ref)
 	}
-	if going {
-		return nil
-	}
-	s.mu.Lock()
-	if s.work[key(ref)] == w {
-		delete(s.work, key(ref))
-	}
-	s.mu.Unlock()
-	s.changed(ref)
 	return nil
 }
 

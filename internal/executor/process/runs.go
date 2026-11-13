@@ -26,7 +26,9 @@ const (
 
 // Runs runs job runs (workload.Batch) as child processes, by the rules
 // the Executor it was made from runs apps by: what that refuses, this
-// refuses. It is an executor.Executor.
+// refuses. It is an executor.Executor. Stop ends a run that is going,
+// which stays to be observed; a run that has ended it lets go of, and the
+// run's folder goes.
 type Runs struct {
 	*supervise.Supervisor
 	x *Executor
@@ -68,23 +70,6 @@ func (r *Runs) Start(ctx context.Context, s workload.Spec) error {
 		return err
 	}
 	return r.Supervisor.Start(ctx, s)
-}
-
-// Stop ends a run that is going, which stays to be observed. A run that
-// has ended is let go of: its folder goes, with its logs, its record and
-// its message.
-func (r *Runs) Stop(ctx context.Context, ref workload.Ref) error {
-	if err := r.Supervisor.Stop(ctx, ref); err != nil {
-		return err
-	}
-	if st, err := r.Observe(ctx, ref); err != nil || st != nil {
-		return err
-	}
-	wd, err := folder(ref)
-	if err != nil {
-		return err
-	}
-	return r.x.eng.root.RemoveAll(wd)
 }
 
 // Addr is an error: a run serves nothing.
@@ -140,6 +125,16 @@ func (e runEngine) Keep(_ context.Context, s workload.Spec, record []byte) error
 		return err
 	}
 	return e.root.Rename(fresh, path.Join(wd, recordFile))
+}
+
+// Release removes the run's folder: its logs, its record and its
+// messages.
+func (e runEngine) Release(_ context.Context, ref workload.Ref) error {
+	wd, err := folder(ref)
+	if err != nil {
+		return err
+	}
+	return e.root.RemoveAll(wd)
 }
 
 // MessageDir is a folder of the run's own. It is closed to other users

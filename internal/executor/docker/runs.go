@@ -30,6 +30,10 @@ const (
 // own and a container per unit, made by the same code, from the same
 // bodies, as an app's. It is an executor.Executor.
 //
+// Stop ends a run that is going: its containers stay, stopped, and the
+// run stays to be observed. A run that has ended it lets go of, and all
+// that was made for the run is removed.
+//
 // A run's containers outlive Javo, and so does what is kept of the run:
 // Close leaves all of it, and the next Runs on the same daemon goes on
 // waiting for a run that is going and still shows one that is done.
@@ -84,24 +88,6 @@ func (r *Runs) Start(ctx context.Context, s workload.Spec) error {
 		return errors.Join(err, Teardown(ctx, r.eng.c, s.Ref, r.eng.gateway))
 	}
 	return nil
-}
-
-// Stop ends a run that is going: its containers stay, stopped, and the
-// run stays to be observed. A run that has ended is let go of: its
-// containers, its network and its own volumes are removed. Its bundles
-// and the person's storage stay.
-func (r *Runs) Stop(ctx context.Context, ref workload.Ref) error {
-	if _, err := NetworkName(ref); err != nil {
-		// Nothing was ever made under such a name.
-		return nil
-	}
-	if err := r.Supervisor.Stop(ctx, ref); err != nil {
-		return err
-	}
-	if st, err := r.Observe(ctx, ref); err != nil || st != nil {
-		return err
-	}
-	return Teardown(ctx, r.eng.c, ref, r.eng.gateway)
 }
 
 // Close ends the executor and stops nothing: runs that are going go on,
@@ -181,6 +167,17 @@ func (e runEngine) Keep(ctx context.Context, s workload.Spec, record []byte) err
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Release removes the run's containers, its network, which goes back to
+// the pool, and its own volumes. Its bundles and the person's storage
+// stay.
+func (e runEngine) Release(ctx context.Context, ref workload.Ref) error {
+	if _, err := NetworkName(ref); err != nil {
+		// Nothing was ever made under such a name.
+		return nil
+	}
+	return Teardown(ctx, e.c, ref, e.gateway)
 }
 
 func (e runEngine) MessageDir(workload.Spec) string { return messageDir }
