@@ -4,22 +4,14 @@ package servercmd
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
-	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/pflag"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
-	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/model"
-	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -57,39 +49,6 @@ func (c *commonFlags) register(f *pflag.FlagSet) {
 	f.BoolVar(&c.backupPasswordCreate, "backup-password-create", false, "make the --backup-password-secret Secret, immutable with a new random password, when it does not exist; never changed afterwards")
 }
 
-// backupPasswordKey is the data key of the backup password Secret.
-const backupPasswordKey = "password"
-
-// backupPassword reads the --backup-password-secret Secret through k (making
-// it first with --backup-password-create) into platform's bucket settings;
-// nothing without a bucket or a Secret named.
-func (c *commonFlags) backupPassword(ctx context.Context, k client.Client, platform *config.Platform) error {
-	if c.backupPasswordSecret == "" || platform.Backup.S3 == nil {
-		return nil
-	}
-	b, err := secretskey.Secret{
-		Client: k, Namespace: c.namespace, Name: c.backupPasswordSecret, Key: backupPasswordKey,
-		Component: "backup-password", Create: c.backupPasswordCreate, New: newBackupPassword,
-	}.Bytes(ctx)
-	if err != nil {
-		return err
-	}
-	if len(b) == 0 {
-		return fmt.Errorf("Secret %s/%s has no %q", c.namespace, c.backupPasswordSecret, backupPasswordKey)
-	}
-	platform.Backup.S3.Password = strings.TrimSpace(string(b))
-	return nil
-}
-
-// newBackupPassword is 288 random bits as 48 URL-safe characters.
-func newBackupPassword() ([]byte, error) {
-	b := make([]byte, 36)
-	if _, err := rand.Read(b); err != nil {
-		return nil, err
-	}
-	return []byte(base64.RawURLEncoding.EncodeToString(b)), nil
-}
-
 // load reads the platform config and, when the bucket's password is kept in
 // a Secret, the password.
 func (c *commonFlags) load(ctx context.Context) (config.Platform, error) {
@@ -97,15 +56,7 @@ func (c *commonFlags) load(ctx context.Context) (config.Platform, error) {
 	if err != nil || c.backupPasswordSecret == "" || platform.Backup.S3 == nil {
 		return platform, err
 	}
-	restCfg, err := ctrlconfig.GetConfig()
-	if err != nil {
-		return platform, fmt.Errorf("load kubeconfig: %w", err)
-	}
-	k, err := client.New(restCfg, client.Options{})
-	if err != nil {
-		return platform, err
-	}
-	return platform, c.backupPassword(ctx, k, &platform)
+	return platform, c.readBackupPassword(ctx, &platform)
 }
 
 // openDB opens the database the flags name, with the per-person caps of
@@ -117,27 +68,4 @@ func (c *commonFlags) openDB(ctx context.Context, platform config.Platform) (*st
 	}
 	db.SetLimits(wiring.StoreLimits(platform.Limits))
 	return db, nil
-}
-
-// keySecretKey is the data key of the sessions and fingerprint key Secrets.
-const keySecretKey = "key"
-
-// fingerprinter reads the --secret-fingerprint-key-secret Secret through c,
-// making it first with --secret-fingerprint-key-create; nil without one.
-func (c *commonFlags) fingerprinter(ctx context.Context, k client.Client) (*secrets.Fingerprinter, error) {
-	if c.fingerprintKeySecret == "" {
-		return nil, nil
-	}
-	b, err := secretskey.Secret{
-		Client: k, Namespace: c.namespace, Name: c.fingerprintKeySecret, Key: keySecretKey,
-		Component: "secret-fingerprint-key", Create: c.fingerprintKeyCreate,
-	}.Bytes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	f, err := secrets.FingerprinterFromBytes(b)
-	if err != nil {
-		return nil, fmt.Errorf("Secret %s/%s: %w", c.namespace, c.fingerprintKeySecret, err)
-	}
-	return f, nil
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -17,10 +16,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/tink-crypto/tink-go/v2/tink"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/activity"
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
@@ -29,7 +24,6 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
-	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/features/authlocal"
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/admin"
@@ -38,7 +32,6 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/branding"
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/plans"
-	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/store"
@@ -350,11 +343,6 @@ func parseTrustedProxies(in []string) ([]netip.Prefix, error) {
 // and the mitigations that make them acceptable are in DEPENDENCIES.md.
 const defaultFilesImage = "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5"
 
-func gatewayScheme() (*runtime.Scheme, error) {
-	scheme := runtime.NewScheme()
-	return scheme, corev1.AddToScheme(scheme)
-}
-
 // serve runs h on addr, or on l when it is already listened on, until ctx
 // ends, then drains for up to 10s.
 func serve(ctx context.Context, addr string, l net.Listener, h http.Handler) error {
@@ -384,29 +372,6 @@ func uidRange(c config.IdentityCfg) store.IDRange {
 		return store.IDRange{}
 	}
 	return store.IDRange{First: c.UIDRange.First, Last: c.UIDRange.Last}
-}
-
-// sessionsKeyOf reads the --sessions-key-secret Secret through c (making it
-// first with --sessions-key-create), or makes a key that lives as long as
-// the process when there is none: the provider's tokens are never written
-// in clear either way.
-func (o *gatewayOptions) sessionsKeyOf(ctx context.Context, c client.Client, namespace string) (tink.AEAD, error) {
-	if o.sessionsKeySecret == "" {
-		slog.Warn("no --sessions-key-secret: sessions are sealed with a key made now, so a restart signs everyone out")
-		return secrets.NewKey()
-	}
-	b, err := secretskey.Secret{
-		Client: c, Namespace: namespace, Name: o.sessionsKeySecret, Key: keySecretKey,
-		Component: "sessions-key", Create: o.sessionsKeyCreate,
-	}.Bytes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	k, err := secrets.KEKFromBytes(b)
-	if err != nil {
-		return nil, fmt.Errorf("the sessions key in Secret %s/%s: %w", namespace, o.sessionsKeySecret, err)
-	}
-	return k, nil
 }
 
 // agentModelOf is the agent model of the AI settings in force; nil (AI off)
