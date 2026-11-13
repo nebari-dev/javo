@@ -23,7 +23,6 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop"
-	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	storagectl "github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/egressproxy"
@@ -37,6 +36,7 @@ import (
 	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/netprobe/dockerprobe"
 	"github.com/nebari-dev/javo/internal/secrets"
+	"github.com/nebari-dev/javo/internal/secrets/keyfile"
 	"github.com/nebari-dev/javo/internal/storage/dockerhome"
 	"github.com/nebari-dev/javo/internal/storage/hosthome"
 	"github.com/nebari-dev/javo/internal/storage/ids"
@@ -459,7 +459,7 @@ func inGateway(ctx context.Context, c *docker.Client, gateway string) error {
 // start. A key that does not open the secrets already stored is refused:
 // every app's values are sealed with it.
 func (h *Host) loadKeys(ctx context.Context, dir string, db *store.Store) error {
-	file := func(name string) secretskey.File { return secretskey.File{Dir: dir, Name: name, Create: true} }
+	file := func(name string) keyfile.File { return keyfile.File{Dir: dir, Name: name, Create: true} }
 	kek, err := file(secretsKeyFile).Load(ctx)
 	if err != nil {
 		return err

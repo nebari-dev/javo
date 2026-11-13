@@ -1,4 +1,8 @@
-package secretskey
+// Package keyfile keeps one of Javo's keys as a file, for a Javo that runs
+// without Kubernetes: the key-encryption key of people's secrets, the
+// sessions key and the secrets' fingerprint key. On Kubernetes each is a
+// Secret (controller/secretskey), made and kept the same way.
+package keyfile
 
 import (
 	"context"
@@ -16,8 +20,8 @@ import (
 )
 
 // File is a key kept as a file, for a Javo that runs without Kubernetes:
-// the file Name, mode 0600, in the folder Dir, mode 0700. Like Secret, it
-// makes the key on the first start and never changes it afterwards.
+// the file Name, mode 0600, in the folder Dir, mode 0700. Like secretskey.Secret,
+// it makes the key on the first start and never changes it afterwards.
 type File struct {
 	// Dir is the folder holding Javo's keys.
 	Dir string

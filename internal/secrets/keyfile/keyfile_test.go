@@ -1,4 +1,4 @@
-package secretskey
+package keyfile
 
 import (
 	"bytes"
@@ -310,4 +310,17 @@ func tree(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	return b.String()
+}
+
+// opensTheSameKeyset fails unless a and b are the same key: a keyset wrapped
+// with a opens with b.
+func opensTheSameKeyset(t *testing.T, a, b secrets.KEK) {
+	t.Helper()
+	ks, err := secrets.NewKeyset(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := secrets.NewOpener(ks, b); err != nil {
+		t.Fatalf("not the same key: %v", err)
+	}
 }
