@@ -78,7 +78,7 @@ func (r *SharedFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 	meta.SetStatusCondition(&f.Status.Conditions, rows.ReadyCondition("The folder is ready.", b))
-	if err := r.WriteFolder(ctx, f, base); errors.Is(err, errRowChanged) {
+	if err := rows.WriteFolder(ctx, r.Rows, f, base); errors.Is(err, errRowChanged) {
 		return ctrl.Result{RequeueAfter: retryConflict}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -96,7 +96,7 @@ func (r *SharedFolderReconciler) step(ctx context.Context, f, base *model.Shared
 	if r.PerUserNamespaces {
 		return &blocked{Code: reasons.SharedFoldersUnavailable, Evidence: []string{"each person has a namespace of their own and a claim cannot span namespaces"}}, nil
 	}
-	cs, err := r.Cluster(ctx)
+	cs, err := rows.Cluster(ctx, r.Rows)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (r *SharedFolderReconciler) prepare(ctx context.Context, f, base *model.Sha
 		Namespace: f.Namespace, Label: model.LabelGroupFolder, ID: f.Name, Attempts: f.Status.PrepareAttempts,
 		Count: func(ctx context.Context, n int) error {
 			f.Status.PrepareAttempts = n
-			return r.WriteFolder(ctx, f, base)
+			return rows.WriteFolder(ctx, r.Rows, f, base)
 		},
 	}
 	res, err := p.run(ctx, owner, "folder", model.RoleFolderPrepare, func() *batchv1.Job {
@@ -297,9 +297,9 @@ func (r *SharedFolderReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsour
 	if r.Store == nil || r.Reader == nil || r.GIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" {
 		return errors.New("storage.SharedFolderReconciler needs Store, Reader, GIDs, Backends and Image")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.FolderIDs(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return rows.FolderIDs(ctx, r.Rows, nil) }
 	notReady := func(ctx context.Context, _ string) ([]string, error) {
-		return r.FolderIDs(ctx, func(f *model.SharedFolder) bool {
+		return rows.FolderIDs(ctx, r.Rows, func(f *model.SharedFolder) bool {
 			return !meta.IsStatusConditionTrue(f.Status.Conditions, model.ConditionReady)
 		})
 	}

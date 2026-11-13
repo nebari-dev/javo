@@ -80,9 +80,12 @@ func For(feed <-chan store.Change, table string, every time.Duration, all func(c
 	if every <= 0 {
 		every = DefaultResync
 	}
-	return &tableSource{feed: feed, table: table, every: every, all: all,
-		expand: func(_ context.Context, id string) ([]string, error) { return []string{id}, nil }}
+	return &tableSource{feed: feed, table: table, every: every, all: all, expand: itself}
 }
+
+// itself is what a change to a row of a source's own table asks for: that
+// row.
+func itself(_ context.Context, id string) ([]string, error) { return []string{id}, nil }
 
 // Fan returns a source for a table other rows depend on (templates, people):
 // each change to it asks for the rows expand names for the changed row's

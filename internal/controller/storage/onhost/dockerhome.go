@@ -58,7 +58,7 @@ func (r *DockerHomeReconciler) Reconcile(ctx context.Context, id string) (time.D
 	}
 	h.Status.SizeEnforced = false
 	meta.SetStatusCondition(&h.Status.Conditions, rows.ReadyCondition("The home is ready.", b))
-	if conflict, err := r.WriteHome(ctx, &h, base); conflict {
+	if conflict, err := rows.WriteHome(ctx, r.Rows, &h, base); conflict {
 		return rows.RetryConflict, nil
 	} else if err != nil {
 		return 0, err
@@ -110,7 +110,7 @@ func (r *DockerHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Volumes.Client == nil || r.Volumes.Image == "" || r.UIDs == nil {
 		return errors.New("onhost.DockerHomeReconciler needs Store, Volumes and UIDs")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return rows.HomeIDs(ctx, r.Rows, nil) }
 	return d.Reconcile("storage-docker-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }
 
@@ -138,7 +138,7 @@ func (r *NoFolderReconciler) Reconcile(ctx context.Context, id string) (time.Dur
 	meta.SetStatusCondition(&f.Status.Conditions, rows.ReadyCondition("", &rows.Blocked{
 		Code: reasons.SharedFoldersUnavailable, Evidence: []string{r.Why},
 	}))
-	if err := r.WriteFolder(ctx, f, base); errors.Is(err, rows.ErrRowChanged) {
+	if err := rows.WriteFolder(ctx, r.Rows, f, base); errors.Is(err, rows.ErrRowChanged) {
 		return rows.RetryConflict, nil
 	} else if err != nil {
 		return 0, err
@@ -151,6 +151,6 @@ func (r *NoFolderReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Why == "" {
 		return errors.New("onhost.NoFolderReconciler needs Store and Why")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.FolderIDs(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return rows.FolderIDs(ctx, r.Rows, nil) }
 	return d.Reconcile("storage-no-folder", r, dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all))
 }

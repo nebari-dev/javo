@@ -58,7 +58,7 @@ type ClusterReconciler struct {
 
 // Reconcile refreshes the findings whatever triggered it.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	cs, err := r.Cluster(ctx)
+	cs, err := rows.Cluster(ctx, r.Rows)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

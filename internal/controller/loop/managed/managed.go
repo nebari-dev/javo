@@ -40,8 +40,12 @@ func Request(id string) reconcile.Request {
 }
 
 // Source is s as a source of a controller built on a manager.
-func Source(s loop.Source) source.TypedSource[reconcile.Request] {
-	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-		return s.Start(ctx, func(id string) { q.Add(Request(id)) })
-	})
+func Source(s loop.Source) source.TypedSource[reconcile.Request] { return rows{s} }
+
+// rows is a loop.Source whose ids are put on a controller's queue as
+// requests.
+type rows struct{ loop.Source }
+
+func (r rows) Start(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+	return r.Source.Start(ctx, func(id string) { q.Add(Request(id)) })
 }

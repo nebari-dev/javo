@@ -21,7 +21,9 @@ import (
 )
 
 // Rows is what every storage reconciler reads: the database and the
-// platform config's storage section (defaults applied).
+// platform config's storage section (defaults applied). The reconcilers
+// embed it, so what is done with it is functions, not methods every one
+// of them would carry.
 type Rows struct {
 	// Store is the database. Required.
 	Store *store.Store
@@ -30,20 +32,20 @@ type Rows struct {
 }
 
 // Cluster is the storage view: config, the admin's requests and findings.
-func (r Rows) Cluster(ctx context.Context) (*model.ClusterStorage, error) {
+func Cluster(ctx context.Context, r Rows) (*model.ClusterStorage, error) {
 	cs, err := r.Store.Storage().Cluster(ctx, r.Config)
 	return &cs, err
 }
 
 // HomeIDs is the id of each home that keep accepts (all when nil).
-func (r Rows) HomeIDs(ctx context.Context, keep func(*model.Home) bool) ([]string, error) {
+func HomeIDs(ctx context.Context, r Rows, keep func(*model.Home) bool) ([]string, error) {
 	homes, err := r.Store.Homes().List(ctx)
 	return dbsource.IDs(homes, func(h *model.Home) string { return h.ID }, keep), err
 }
 
 // WriteHome stores h if it differs from base (the home as read) and returns
 // whether another writer got there first; the caller then reconciles again.
-func (r Rows) WriteHome(ctx context.Context, h, base *model.Home) (conflict bool, err error) {
+func WriteHome(ctx context.Context, r Rows, h, base *model.Home) (conflict bool, err error) {
 	if HomeEqual(h, base) {
 		return false, nil
 	}
@@ -59,7 +61,7 @@ func (r Rows) WriteHome(ctx context.Context, h, base *model.Home) (conflict bool
 }
 
 // FolderIDs is the id of each folder that keep accepts (all when nil).
-func (r Rows) FolderIDs(ctx context.Context, keep func(*model.SharedFolder) bool) ([]string, error) {
+func FolderIDs(ctx context.Context, r Rows, keep func(*model.SharedFolder) bool) ([]string, error) {
 	folders, err := r.Store.SharedFolders().List(ctx)
 	return dbsource.IDs(folders, func(f *model.SharedFolder) string { return f.ID }, keep), err
 }
@@ -70,7 +72,7 @@ var ErrRowChanged = errors.New("the row changed since it was read")
 
 // WriteFolder stores f if it differs from base (the folder as read); another
 // writer getting there first is ErrRowChanged.
-func (r Rows) WriteFolder(ctx context.Context, f, base *model.SharedFolder) error {
+func WriteFolder(ctx context.Context, r Rows, f, base *model.SharedFolder) error {
 	if equality.Semantic.DeepEqual(base.Status, f.Status) {
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -47,7 +48,7 @@ type QuotaReconciler struct {
 
 // Reconcile brings every team's quota to the current limits.
 func (r *QuotaReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	cs, err := r.Cluster(ctx)
+	cs, err := rows.Cluster(ctx, r.Rows)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

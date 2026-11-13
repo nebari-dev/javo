@@ -57,7 +57,7 @@ func (r *HostHomeReconciler) Reconcile(ctx context.Context, id string) (time.Dur
 	}
 	h.Status.SizeEnforced = false
 	meta.SetStatusCondition(&h.Status.Conditions, rows.ReadyCondition("The home is ready.", b))
-	if conflict, err := r.WriteHome(ctx, &h, base); conflict {
+	if conflict, err := rows.WriteHome(ctx, r.Rows, &h, base); conflict {
 		return rows.RetryConflict, nil
 	} else if err != nil {
 		return 0, err
@@ -75,6 +75,6 @@ func (r *HostHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Root.Dir() == "" {
 		return errors.New("onhost.HostHomeReconciler needs Store and Root")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return rows.HomeIDs(ctx, r.Rows, nil) }
 	return d.Reconcile("storage-host-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }

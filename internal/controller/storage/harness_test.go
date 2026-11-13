@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"os"
 	goruntime "runtime"
 	"strings"
@@ -213,7 +214,7 @@ func setRequests(t *testing.T, fn func(*model.StorageRequests)) {
 // storageNow is the storage view the reconcilers see.
 func storageNow(t *testing.T) *model.ClusterStorage {
 	t.Helper()
-	cs, err := testRows(t).Cluster(ctx)
+	cs, err := rows.Cluster(ctx, testRows(t))
 	must(t, err)
 	return cs
 }

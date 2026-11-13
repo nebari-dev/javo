@@ -90,7 +90,7 @@ func (r *HomeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// The write names the version this pass read: the migration reconciler
 	// writes the same row, and its Migrating=True (the hold on the owner's
 	// apps) must not be written over by a pass that read the home before.
-	if conflict, err := r.WriteHome(ctx, &h, base); conflict {
+	if conflict, err := rows.WriteHome(ctx, r.Rows, &h, base); conflict {
 		return ctrl.Result{RequeueAfter: retryConflict}, nil
 	} else if err != nil {
 		return ctrl.Result{}, err
@@ -110,7 +110,7 @@ func (r *HomeReconciler) setReady(h *model.Home, b *blocked) {
 // it. A returned *blocked is a state to report, not an error. base is the
 // home as stored, for a write in the middle of the pass.
 func (r *HomeReconciler) step(ctx context.Context, h, base *model.Home) (*blocked, error) {
-	cs, err := r.Cluster(ctx)
+	cs, err := rows.Cluster(ctx, r.Rows)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +369,7 @@ func homeJobOwner(rw Rows, h, base *model.Home) jobOwner {
 		Namespace: h.Namespace, Label: model.LabelHome, ID: h.ID, Attempts: h.Status.PrepareAttempts,
 		Count: func(ctx context.Context, n int) error {
 			h.Status.PrepareAttempts = n
-			if conflict, err := rw.WriteHome(ctx, h, base); conflict {
+			if conflict, err := rows.WriteHome(ctx, rw, h, base); conflict {
 				return errRowChanged
 			} else if err != nil {
 				return err
@@ -414,9 +414,9 @@ func (r *HomeReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed)
 	if r.Store == nil || r.Reader == nil || r.UIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" {
 		return errors.New("storage.HomeReconciler needs Store, Reader, UIDs, Backends and Image")
 	}
-	all := func(ctx context.Context) ([]string, error) { return r.HomeIDs(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return rows.HomeIDs(ctx, r.Rows, nil) }
 	notReady := func(ctx context.Context, _ string) ([]string, error) {
-		return r.HomeIDs(ctx, notReadyHome)
+		return rows.HomeIDs(ctx, r.Rows, notReadyHome)
 	}
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-home").
 		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).

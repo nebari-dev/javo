@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/nebari-dev/javo/internal/controller/storage/rows"
 	"slices"
 	"strings"
 	"time"
@@ -114,7 +115,7 @@ func ours(o client.Object, nonce string) bool {
 
 // Reconcile moves the probe named by the requested nonce one or more steps on.
 func (r *ProbeReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	cs, err := r.Cluster(ctx)
+	cs, err := rows.Cluster(ctx, r.Rows)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
