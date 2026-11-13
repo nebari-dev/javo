@@ -86,6 +86,10 @@ func TestMain(m *testing.M) {
 
 var ref = workload.Ref{Namespace: "alice", Name: "notes", ID: "a-1", Owner: "alice"}
 
+// quick is the tests' wait between two readiness checks and before a
+// restart, in place of the second an install waits.
+const quick = 50 * time.Millisecond
+
 // build makes an executor on a fresh state directory and closes it when
 // the test ends.
 func build(t *testing.T, o process.Options) (*process.Executor, *executortest.Secrets) {
@@ -96,6 +100,7 @@ func build(t *testing.T, o process.Options) (*process.Executor, *executortest.Se
 		o.Dir = filepath.Join(t.TempDir(), "state")
 	}
 	o.Secrets = secrets
+	o.Every, o.Backoff = quick, quick
 	x, err := process.New(o)
 	if err != nil {
 		t.Fatal(err)

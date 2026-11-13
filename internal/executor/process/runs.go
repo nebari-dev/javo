@@ -41,7 +41,9 @@ var _ executor.Executor = (*Runs)(nil)
 // one that is done stays to be observed, and one that was going has lost
 // that attempt, since no process outlives Javo. Close it before x.
 func (x *Executor) Runs(ctx context.Context) (*Runs, error) {
-	r := &Runs{Supervisor: supervise.New(supervise.Config{Engine: runEngine{x.eng}}), x: x}
+	c := x.timing
+	c.Engine = runEngine{x.eng}
+	r := &Runs{Supervisor: supervise.New(c), x: x}
 	if err := r.Supervisor.Adopt(ctx); err != nil {
 		return nil, err
 	}

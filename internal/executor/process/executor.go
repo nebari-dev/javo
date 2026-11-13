@@ -38,6 +38,10 @@ type Options struct {
 	// Grace is how long a unit has to exit once asked to, before it is
 	// killed; zero is ten seconds.
 	Grace time.Duration
+	// Every is how long to wait between two tries of a readiness check,
+	// and Backoff how long before a unit that exited is started again (it
+	// doubles each time); zero is a second for each.
+	Every, Backoff time.Duration
 }
 
 // ErrBatch is Start's answer to a job run: Runs runs those.
@@ -51,6 +55,8 @@ type UnsupportedError = executor.UnsupportedError
 type Executor struct {
 	*supervise.Supervisor
 	eng *engine
+	// timing is the supervisor's waits, for the runs' supervisor too.
+	timing supervise.Config
 	// starting lets one Start prepare a workload at a time.
 	starting sync.Mutex
 }
@@ -103,7 +109,10 @@ func New(o Options) (*Executor, error) {
 		eng.grace = 10 * time.Second
 	}
 	eng.sweep()
-	return &Executor{Supervisor: supervise.New(supervise.Config{Engine: eng}), eng: eng}, nil
+	timing := supervise.Config{Every: o.Every, Backoff: o.Backoff}
+	apps := timing
+	apps.Engine = eng
+	return &Executor{Supervisor: supervise.New(apps), eng: eng, timing: timing}, nil
 }
 
 // Start runs the app s, or refuses it: with an *UnsupportedError when it

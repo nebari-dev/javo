@@ -20,7 +20,7 @@ import (
 // the state directory dir. Both are closed when the test ends.
 func runs(t *testing.T, dir string, secrets *executortest.Secrets) (*process.Runs, *process.Executor) {
 	t.Helper()
-	x, err := process.New(process.Options{Dir: dir, Secrets: secrets, Grace: time.Second})
+	x, err := process.New(process.Options{Dir: dir, Secrets: secrets, Grace: time.Second, Every: quick, Backoff: quick})
 	if err != nil {
 		t.Fatal(err)
 	}
