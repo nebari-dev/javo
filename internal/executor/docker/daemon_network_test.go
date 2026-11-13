@@ -155,3 +155,26 @@ echo "addresses=$(ip -o -4 addr show | grep -c -v ' lo ')"
 		}
 	}
 }
+
+// A teardown cut short after the gateway was taken off a workload's
+// network (Javo stopped at that moment) is finished by the next one: the
+// network is removed although the gateway is no longer on it.
+func TestDaemonReleaseFinishesWhatAnEarlierOneLeft(t *testing.T) {
+	c, _ := daemon(t)
+	ctx := testContext(t)
+	s := testSpec("net-left")
+	gw := gateway(t, c, "net-left-gw", "true")
+	if err := Isolate(ctx, c, s.Ref, gw, testPool); err != nil {
+		t.Fatal(err)
+	}
+	name, _ := NetworkName(s.Ref)
+	if err := c.NetworkDisconnect(ctx, name, gw); err != nil {
+		t.Fatal(err)
+	}
+	if err := Release(ctx, c, s.Ref, gw); err != nil {
+		t.Fatalf("Release of a network the gateway is not on: %v", err)
+	}
+	if _, err := c.NetworkInspect(ctx, name); err == nil {
+		t.Error("the network stayed")
+	}
+}

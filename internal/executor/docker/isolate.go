@@ -81,8 +81,14 @@ func Release(ctx context.Context, c *Client, ref workload.Ref, gateway string) e
 	if !Ours(n.Labels) {
 		return foreign("network", name)
 	}
-	if err := c.NetworkDisconnect(ctx, name, gateway); err != nil {
-		return err
+	// A release cut short before took the gateway off and left the
+	// network: the daemon then refuses to take it off again.
+	for id, member := range n.Containers {
+		if id == gateway || member.Name == gateway {
+			if err := c.NetworkDisconnect(ctx, name, gateway); err != nil {
+				return err
+			}
+		}
 	}
 	return c.NetworkRemove(ctx, name)
 }
