@@ -140,11 +140,21 @@ func (m *machine) template(t *testing.T, name string) model.Template {
 	return tpl
 }
 
+// served is an app that serve started and has not stopped yet.
+type served struct {
+	spec workload.Spec
+	// addr is where it answers, and folder its folder in the state
+	// directory.
+	addr, folder string
+}
+
 // serve plans app for this machine, starts it, waits until it runs and
 // answers its template's ready check on loopback and on no other address
 // of this machine, then stops it and checks that nothing is left. It
-// returns the plan and what the units logged.
-func (m *machine) serve(t *testing.T, tpl model.Template, app *model.App, files *model.EnvironmentFiles) (workload.Spec, string) {
+// returns the plan and what the units logged. during, when there is one,
+// looks at the app while it runs, and what it returns looks at the
+// machine once the app is stopped.
+func (m *machine) serve(t *testing.T, tpl model.Template, app *model.App, files *model.EnvironmentFiles, during func(*testing.T, served) (after func())) (workload.Spec, string) {
 	t.Helper()
 	x := m.x
 	ref := workspace.RefOf(app)
@@ -232,15 +242,21 @@ func (m *machine) serve(t *testing.T, tpl model.Template, app *model.App, files 
 		t.Fatalf("after it answered the app is %+v (%v)\n%s", st, err, logs())
 	}
 	all := logs()
+	folder := filepath.Join(x.eng.dir, "w", ref.Namespace, ref.Name)
+	after := func() {}
+	if during != nil {
+		after = during(t, served{spec: spec, addr: addr, folder: folder})
+	}
 
 	if err := x.Stop(t.Context(), ref); err != nil {
 		t.Fatal(err)
 	}
+	after()
 	if conn, err := net.Dial("tcp", addr); err == nil {
 		_ = conn.Close()
 		t.Error("the app still answers after Stop")
 	}
-	if _, err := os.Stat(filepath.Join(x.eng.dir, "w", ref.Namespace, ref.Name)); !os.IsNotExist(err) {
+	if _, err := os.Stat(folder); !os.IsNotExist(err) {
 		t.Errorf("the workload's folder stayed: %v", err)
 	}
 	return spec, all
@@ -304,7 +320,7 @@ func TestAPickedEnvironmentRunsAsProcesses(t *testing.T) {
 		Command:     "python -m http.server {{.Port}} --bind 0.0.0.0",
 		Environment: &model.Environment{Source: "nebi", ID: "e-1", Name: "e2e"},
 	}
-	spec, logs := m.serve(t, tpl, app, &model.EnvironmentFiles{Manifest: manifest, Lock: string(lock)})
+	spec, logs := m.serve(t, tpl, app, &model.EnvironmentFiles{Manifest: manifest, Lock: string(lock)}, nil)
 	// The typed command asked for every address; it was told loopback, or
 	// the app would have been killed. The install went through the script.
 	if !strings.Contains(logs, "Installing the picked environment") {
@@ -326,10 +342,11 @@ var shippedOnAHost = []string{
 
 // notYetOnAHost are the templates that plan for a host but are not started
 // here, each with why.
-var notYetOnAHost = map[string]string{
-	"claude-code": "agent-serve.sh starts the agent in a tmux server, which tmux keeps in /tmp/tmux-UID (outside the executor's folders, and the person's own tmux server when they run one) and which is a daemon in a process group of its own, so Stop leaves it and the agent running",
-	"pi":          "agent-serve.sh starts the agent in a tmux server, which tmux keeps in /tmp/tmux-UID (outside the executor's folders, and the person's own tmux server when they run one) and which is a daemon in a process group of its own, so Stop leaves it and the agent running",
-}
+var notYetOnAHost = map[string]string{}
+
+// agents are the coding agent templates, each with the program that is
+// its agent.
+var agents = map[string]string{"claude-code": "claude", "pi": "pi"}
 
 // The shipped templates, for real: each is planned for this machine,
 // its own bundled environment (pod/files/envs) installed by the install
@@ -340,10 +357,13 @@ var notYetOnAHost = map[string]string{
 //
 // A template the planner refuses on this machine (an environment not
 // locked for it) is skipped with the planner's reason, and so is one of
-// notYetOnAHost. The terminal templates that are started answer with
-// ttyd's page; the program of a tab (bash, herdr) starts when a browser
-// opens one, which nothing here does. Each run logs how
-// long it took and how much its install added to the home.
+// notYetOnAHost. The terminal template answers with ttyd's page; its
+// program (bash) starts when a browser opens a tab, which nothing here
+// does. The coding agents and herdr are looked at closer (agents_test.go):
+// a tab is opened, what the app started is found, and none of it is left
+// once the app is stopped. The coding agents run a second time in a state
+// directory short enough to hold tmux's socket (shallow). Each run logs
+// how long it took and how much its install added to the home.
 func TestShippedTemplatesRunAsProcesses(t *testing.T) {
 	m := newMachine(t)
 	for _, name := range shippedOnAHost {
@@ -364,7 +384,14 @@ func TestShippedTemplatesRunAsProcesses(t *testing.T) {
 			envs, cache := filepath.Join(m.home, ".javo", "envs"), filepath.Join(m.home, ".javo", "pixi-cache")
 			envsBefore, cacheBefore := sizeOf(envs), sizeOf(cache)
 			start := time.Now()
-			spec, logs := m.serve(t, tpl, app, nil)
+			var during func(*testing.T, served) func()
+			switch {
+			case agents[name] != "":
+				during = m.agent(t, agents[name])
+			case name == "herdr":
+				during = m.herdr(t)
+			}
+			spec, logs := m.serve(t, tpl, app, nil, during)
 			t.Logf("%s: ran in %s; package cache +%d MB, installed environments +%d MB",
 				name, time.Since(start).Round(time.Second), (sizeOf(cache)-cacheBefore)>>20, (sizeOf(envs)-envsBefore)>>20)
 			if !strings.Contains(logs, "the template's environment") {
@@ -374,6 +401,11 @@ func TestShippedTemplatesRunAsProcesses(t *testing.T) {
 				if strings.Contains(w, "0.0.0.0") {
 					t.Errorf("the app runs %q", w)
 				}
+			}
+			if agents[name] != "" {
+				// Again where tmux's socket fits in the workload's folder.
+				short := m.shallow(t)
+				short.serve(t, tpl, app, nil, short.agent(t, agents[name]))
 			}
 		})
 	}
