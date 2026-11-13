@@ -20,6 +20,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
@@ -660,11 +661,17 @@ func (r *Reconciler) writeStatus(ctx context.Context, app *model.App, phase, url
 	return err
 }
 
-// SetupWithManager wires the controller: app rows (and the templates and
-// people they depend on) come from the database through feed; changes to
-// their workloads come from the executor. It also adds the orphan sweep.
-// The caller runs feed.
+// SetupWithManager is Setup on a controller-runtime manager: the
+// controller on Kubernetes.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
+	return r.Setup(loop.OnManager(mgr), feed)
+}
+
+// Setup wires the controller on d: app rows (and the templates and people
+// they depend on) come from the database through feed; changes to their
+// workloads come from the executor. It also adds the orphan sweep. The
+// caller runs feed.
+func (r *Reconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Exec == nil || r.Place == nil || r.Secrets == nil {
 		return errors.New("workspace.Reconciler: Exec, Place and Secrets are required")
 	}
@@ -674,16 +681,15 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 	if r.Storage.Homes == nil || r.Storage.Folders == nil {
 		return errors.New("workspace.Reconciler: Storage is required")
 	}
-	if err := mgr.Add(&sweep.Runner{What: "apps", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
+	if err := d.Add(&sweep.Runner{What: "apps", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
 		return err
 	}
-	return ctrl.NewControllerManagedBy(mgr).Named("app").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), "apps", r.ResyncEvery, r.allApps)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "templates", r.appsOfTemplate)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "people", r.appsOfPerson)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), store.TableHomes, r.appsOfHome)).
-		WatchesRawSource(r.workloads()).
-		Complete(r)
+	return d.Reconcile("app", r,
+		dbsource.For(feed.Subscribe(), "apps", r.ResyncEvery, r.allApps),
+		dbsource.Fan(feed.Subscribe(), "templates", r.appsOfTemplate),
+		dbsource.Fan(feed.Subscribe(), "people", r.appsOfPerson),
+		dbsource.Fan(feed.Subscribe(), store.TableHomes, r.appsOfHome),
+		r.workloads())
 }
 
 // workloads feeds the controller the app of every workload the executor

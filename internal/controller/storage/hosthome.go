@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/storage/hosthome"
 	"github.com/nebari-dev/javo/internal/store"
@@ -62,14 +63,18 @@ func (r *HostHomeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{RequeueAfter: b.retry}, nil
 }
 
-// SetupWithManager reconciles homes when their rows change, as
-// HomeReconciler is set up.
+// SetupWithManager is Setup on a controller-runtime manager.
 func (r *HostHomeReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
+	return r.Setup(loop.OnManager(mgr), feed)
+}
+
+// Setup reconciles homes on d when their rows change, as HomeReconciler
+// is set up. A machine that runs apps as processes has no manager: there
+// d is a loop.Loop.
+func (r *HostHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Root.Dir() == "" {
 		return errors.New("storage.HostHomeReconciler needs Store and Root")
 	}
 	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
-	return ctrl.NewControllerManagedBy(mgr).Named("storage-host-home").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all)).
-		Complete(r)
+	return d.Reconcile("storage-host-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }
