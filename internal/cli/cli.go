@@ -31,6 +31,7 @@ func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 	root.AddCommand(storagecmd.New(openStore))
 	root.AddCommand(backupcmd.New(openStore))
 	root.AddCommand(servercmd.NewServer())
+	root.AddCommand(servercmd.NewLocal())
 	root.AddCommand(servercmd.NewController())
 	root.AddCommand(servercmd.NewGateway())
 	root.AddCommand(openapicmd.New())

@@ -13,7 +13,7 @@ SETUP_ENVTEST_VERSION := v0.25.2
 SQLC_VERSION := 1.31.1
 ENVTEST_K8S_VERSION := 1.37.0
 
-.PHONY: generate generate-sql rbac test test-db test-postgres envtest-path db-packages openapi docs docs-serve up dev-up reload down dev-down e2e e2e-quick e2e-full e2e-ai e2e-github e2e-executors compose-up compose-down compose-e2e
+.PHONY: generate generate-sql rbac test test-db test-postgres envtest-path db-packages openapi local docs docs-serve up dev-up reload down dev-down e2e e2e-quick e2e-full e2e-ai e2e-github e2e-executors compose-up compose-down compose-e2e
 
 # Deep copies for internal/model.
 generate: $(CONTROLLER_GEN)
@@ -61,6 +61,24 @@ db-packages:
 # The UI client is generated from this file (cd ui && pnpm gen:api).
 openapi:
 	go run ./cmd/javo openapi > ui/openapi.json
+
+# The javo that runs `javo local`: one binary for one person's own machine
+# that carries the web UI, the templates and the platform's files
+# (internal/bundle), built with the tag local. The binary of the image and
+# of the releases is built without the tag and carries none of them.
+#   make local                                              bin/local/<os>_<arch>/javo for this machine
+#   make local LOCAL_PLATFORMS="darwin/arm64 linux/amd64"   for others: no cgo, so any is built from any
+# UI_DIST names a UI built already; without it the UI is built here as the
+# image builds it (Node and pnpm at the versions ui/package.json names).
+# TERMINAL_PAGE names the page of the terminal and the coding agents, built
+# as the Dockerfile's pod-files stage builds it; without it they show a
+# page that says it is missing.
+UI_DIST ?= ui/dist
+local: $(UI_DIST)/index.html
+	UI_DIST=$(UI_DIST) TERMINAL_PAGE=$(TERMINAL_PAGE) scripts/build/local-javo.sh $(LOCALBIN)/local $(LOCAL_PLATFORMS)
+
+ui/dist/index.html:
+	cd ui && pnpm install --frozen-lockfile && pnpm build
 
 # The documentation site (site/): build into site/dist, or serve it with live
 # reload at http://localhost:4321. Installs exactly site/pnpm-lock.yaml with
@@ -137,12 +155,14 @@ e2e-github:
 # The executors against the real things: a Docker daemon (containers, networks,
 # volumes, image pulls and builds), pixi installing the shipped templates'
 # environments (downloads several GB the first time) and the javo binary
-# compiled inside the tests. Needs a Docker daemon, pixi on PATH and the
+# compiled inside the tests (javo local among them: built by
+# scripts/build/local-javo.sh and started with no flags; JAVO_E2E_UI_DIST
+# names a built UI for it to carry). Needs a Docker daemon, pixi on PATH and the
 # network. Run on demand, not on every push: go test ./... proves Javo's own
 # logic with stand-ins.
 E2E_EXECUTOR_PKGS := ./internal/executor/... ./internal/netprobe/dockerprobe/ ./internal/egressproxy/ ./internal/cli/
 e2e-executors:
-	go test -tags e2e -count=1 -timeout 60m -run '^(TestDaemon|TestDockerProbe|TestSweep|TestServerStartsOnDocker|TestRunsRunAPlannedJob|TestAPickedEnvironmentRunsAsProcesses|TestShippedTemplatesRunAsProcesses)' $(E2E_EXECUTOR_PKGS)
+	go test -tags e2e -count=1 -timeout 60m -run '^(TestDaemon|TestDockerProbe|TestSweep|TestServerStartsOnDocker|TestRunsRunAPlannedJob|TestAPickedEnvironmentRunsAsProcesses|TestShippedTemplatesRunAsProcesses|TestJavoLocalStartsWithNothingPrepared)' $(E2E_EXECUTOR_PKGS)
 
 # Docker Compose install (deploy/compose), the way people install it: build
 # the images from this checkout, install, follow the installer and fail when

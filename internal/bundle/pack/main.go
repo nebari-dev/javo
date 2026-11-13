@@ -49,7 +49,7 @@ type sources struct {
 // and whoever opens one reads why there is no terminal in the browser.
 const noTerminalPage = `<!doctype html><meta charset="utf-8"><title>No terminal page</title>
 <p>This Javo was built without the terminal page, so the terminal cannot be shown here.
-Build it again with <code>make local TERMINAL_PAGE=&lt;terminal.html&gt;</code>; the README says how the page is made.</p>
+Build it again with <code>make local TERMINAL_PAGE=&lt;terminal.html&gt;</code>; the configuration page of the documentation says how the page is made.</p>
 `
 
 // file is one file of the archive.

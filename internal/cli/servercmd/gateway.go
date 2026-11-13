@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -28,6 +30,7 @@ import (
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/secretskey"
+	"github.com/nebari-dev/javo/internal/features/authlocal"
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/admin"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
@@ -87,6 +90,27 @@ type gatewayOptions struct {
 	// backups are the server's own SQLite backups, set by javo server; the
 	// gateway alone (Postgres) has none of its own.
 	backups store.BackupPlan
+	// carried is set by `javo local` and nil otherwise.
+	carried *carried
+}
+
+// carried is what the gateway is given in place of flags and folders by a
+// binary that carries its files and serves one person on their own
+// machine (`javo local`). It is the one thing the gateway does
+// differently there, and every field's zero value is what `javo server`
+// does.
+type carried struct {
+	// listener is the loopback port already listened on, in place of
+	// --listen.
+	listener net.Listener
+	// ui is the built UI in place of --ui-dir, and templates the built-in
+	// template files in place of --templates-dir.
+	ui, templates fs.FS
+	// link signs the one account in through a link.
+	link *authlocal.Link
+	// ready is called once, when everything is set up, with the handler
+	// about to be served, and returns the one to serve.
+	ready func(http.Handler) http.Handler
 }
 
 func (o *gatewayOptions) register(f *pflag.FlagSet) {
@@ -159,8 +183,16 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if err != nil {
 		return err
 	}
-	if o.templatesDir != "" {
-		if err := templates.Sync(ctx, db, os.DirFS(o.templatesDir)); err != nil {
+	var own carried
+	if o.carried != nil {
+		own = *o.carried
+	}
+	builtin := own.templates
+	if builtin == nil && o.templatesDir != "" {
+		builtin = os.DirFS(o.templatesDir)
+	}
+	if builtin != nil {
+		if err := templates.Sync(ctx, db, builtin); err != nil {
 			return fmt.Errorf("install built-in templates: %w", err)
 		}
 	}
@@ -192,7 +224,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go apps.TrustJanitor{DB: db, Policy: apps.TrustPolicy{Config: platform.Agents.TrustedAllowed(), DB: db}, Now: time.Now}.Run(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
 	workloads := on.apps
-	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()}, nil)
+	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()}, own.link)
 	people := on.people
 	revalidator := authn.NewRevalidator(providers, sessions, people, outageGrace, nil)
 	// One keeper for the API (create, start) and the app proxy, so they
@@ -219,6 +251,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		SecureCookies:     o.secure,
 		TrustedProxies:    trusted,
 		UIDir:             o.uiDir,
+		UI:                own.ui,
 		Branding:          look,
 		Homes:             on.homes,
 		Usage:             on.usage,
@@ -268,14 +301,18 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		// route cookie another one set.
 		Seal: sessionsKey,
 	}))
-	if o.proxySecretFile == "" {
-		return serve(ctx, o.listen, srv)
+	var handler http.Handler = srv
+	if o.proxySecretFile != "" {
+		secret, err := readProxySecret(o.proxySecretFile)
+		if err != nil {
+			return err
+		}
+		handler = gateway.RequireProxySecret(secret, srv)
 	}
-	secret, err := readProxySecret(o.proxySecretFile)
-	if err != nil {
-		return err
+	if own.ready != nil {
+		handler = own.ready(handler)
 	}
-	return serve(ctx, o.listen, gateway.RequireProxySecret(secret, srv))
+	return serve(ctx, o.listen, own.listener, handler)
 }
 
 // minProxySecret is the shortest proxy secret accepted: it must not be
@@ -318,11 +355,18 @@ func gatewayScheme() (*runtime.Scheme, error) {
 	return scheme, corev1.AddToScheme(scheme)
 }
 
-// serve runs h on addr until ctx ends, then drains for up to 10s.
-func serve(ctx context.Context, addr string, h http.Handler) error {
+// serve runs h on addr, or on l when it is already listened on, until ctx
+// ends, then drains for up to 10s.
+func serve(ctx context.Context, addr string, l net.Listener, h http.Handler) error {
 	hs := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 	errc := make(chan error, 1)
-	go func() { errc <- hs.ListenAndServe() }()
+	go func() {
+		if l != nil {
+			errc <- hs.Serve(l)
+			return
+		}
+		errc <- hs.ListenAndServe()
+	}()
 	select {
 	case err := <-errc:
 		return err

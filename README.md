@@ -70,6 +70,17 @@ docker compose -f docker.yaml exec javo /javo user add admin --group javo-admins
 
 The second command prints the password of `admin`; sign in at http://localhost:8080. Javo runs as uid 65532 and uses the Docker socket through the socket's group: when that is not group 0, set `JAVO_DOCKER_GID` first (on a Linux host, `stat -c %g /var/run/docker.sock`). Whoever holds the Docker socket is root on the host, so a remote code execution in Javo is root on that host; rootless Docker is recommended. Group folders, home backups, home sizes and pull request previews need Kubernetes.
 
+### On your own machine
+
+One binary, for one person, with no cluster, no Docker and no config file. It carries the web UI and the templates, and runs apps and jobs as your own processes (nothing is isolated from your account):
+
+```sh
+make local                     # builds bin/local/<os>_<arch>/javo (Linux and macOS)
+bin/local/darwin_arm64/javo local
+```
+
+`javo local` listens on http://127.0.0.1:8686 only (`--port`), prints a link that signs you in, and keeps everything in `~/.local/share/javo` (`--dir`). Environments are installed by [pixi](https://pixi.sh), found beside the binary or on `PATH`. See [configuration](site/src/content/docs/admin/configuration.md).
+
 ## Development
 
 Requires Go, Node with pnpm, Docker with Compose v2, kubectl and Helm.
