@@ -303,6 +303,32 @@ func TestStreamlitPlannedForAHost(t *testing.T) {
 	}
 }
 
+// The terminal program of the shell and coding agent templates is told
+// where to listen (ttyd --interface): every address in a container, where
+// the gateway reaches the pod at its own address, and loopback alone on a
+// host, where every address is the network the machine is on.
+func TestTheTerminalProgramListensOnLoopbackOnAHost(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"terminal", "claude-code", "herdr", "pi"} {
+		in := hostInputs(t, name)
+		onHost, err := Plan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Host, in.Port, in.Layout = nil, 0, testLayout(FixedUID)
+		inContainer, err := Plan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for want, s := range map[string]workload.Spec{"--interface=127.0.0.1": onHost, "--interface=0.0.0.0": inContainer} {
+			argv := slices.Concat(s.Main.Command, s.Main.Args)
+			if i := slices.Index(argv, "ttyd"); i < 0 || !slices.Contains(argv[i:], want) {
+				t.Errorf("%s runs %q, want ttyd with %s", name, argv, want)
+			}
+		}
+	}
+}
+
 // Only words of the template and of a typed command are changed, and only
 // where the whole word, or the whole value of a name=value word, is the
 // platform's folder or the address that means every address.
@@ -432,7 +458,10 @@ func TestLinuxOnlyEnvironmentsAreTheOnesNotLockedForMacOS(t *testing.T) {
 }
 
 // An upgrade restarts no app: the fingerprint of every shipped template is
-// the one recorded before apps could run as processes.
+// the one recorded before apps could run as processes. The four with a
+// terminal program (terminal, claude-code, herdr, pi) were recorded again
+// when they began to tell it where to listen, which restarts their apps
+// once.
 func TestShippedTemplatesKeepTheirFingerprint(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("testdata", "layout-fingerprints.txt"))

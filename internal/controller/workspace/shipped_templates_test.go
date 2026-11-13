@@ -277,7 +277,7 @@ func TestAgentTemplatesStartTheSessionBeforeTtyd(t *testing.T) {
 					t.Fatal(err)
 				}
 				session := " [-f] [/opt/javo/agents/tmux.conf] [new-session] %s [-s] [agent] [-c] [" + c.want + "] [" + tc.agent + "]"
-				ttyd := "ttyd [--port=7681] [--writable] [--check-origin] [--index=/opt/javo/agents/terminal.html] [tmux]"
+				ttyd := "ttyd [--port=7681] [--interface=0.0.0.0] [--writable] [--check-origin] [--index=/opt/javo/agents/terminal.html] [tmux]"
 				want := []string{
 					"tmux" + fmt.Sprintf(session, "[-d]"),
 					ttyd + fmt.Sprintf(session, "[-A]"),

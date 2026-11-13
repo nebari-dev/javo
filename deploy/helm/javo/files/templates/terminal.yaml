@@ -25,6 +25,10 @@ spec:
   args:
     - "ttyd"
     - "--port={{.Port}}"
+    # Every address of the pod, as ttyd does when told nothing: the gateway
+    # and the kubelet reach it at the pod's own. An app that runs as a
+    # process of someone's machine is told loopback in its place.
+    - "--interface=0.0.0.0"
     # ttyd is read-only unless told otherwise.
     - "--writable"
     # Refuse a websocket whose Origin is not the host the page came from.
