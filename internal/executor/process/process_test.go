@@ -42,10 +42,12 @@ const listenEnv = "JAVO_TEST_LISTEN"
 // unit's session and process group, prints its pid and stays, for no
 // longer than a failing test waits for it to go.
 // With the value daemonWithChild it first starts a process with an empty
-// environment and prints that one's pid too.
+// environment and prints that one's pid too. Once it has printed, it makes
+// the file daemonUpEnv names, if any.
 const (
 	daemonEnv       = "JAVO_TEST_DAEMON"
 	daemonWithChild = "with a child"
+	daemonUpEnv     = "JAVO_TEST_DAEMON_UP"
 )
 
 func TestMain(m *testing.M) {
@@ -64,6 +66,9 @@ func TestMain(m *testing.M) {
 				os.Exit(1)
 			}
 			fmt.Println(child.Process.Pid)
+		}
+		if up := os.Getenv(daemonUpEnv); up != "" {
+			_ = os.WriteFile(up, nil, 0o600)
 		}
 		time.Sleep(time.Minute)
 		os.Exit(0)
@@ -576,9 +581,10 @@ func TestStopEndsWhatADaemonStarted(t *testing.T) {
 // So does one whose unit exited by itself, and one of a step.
 func TestADaemonEndsWithTheUnitThatStartedIt(t *testing.T) {
 	x, _ := build(t, process.Options{})
-	script, args := daemon("sleep 1")
+	// The step ends as soon as its daemon is up.
+	script := daemonUpEnv + `="$2" ` + daemonEnv + `=1 "$1" & until [ -e "$2" ]; do sleep 0.01; done`
 	s := app("sleep 300")
-	s.Steps = []workload.Unit{sh("spawn", script, args...)}
+	s.Steps = []workload.Unit{sh("spawn", script, os.Args[0], filepath.Join(t.TempDir(), "up"))}
 	if err := x.Start(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
