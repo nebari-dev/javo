@@ -13,6 +13,14 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
+// killed is the exit code of a unit ended by SIGKILL (128 + 9). The
+// supervisor's own kills are never recorded as a failure, so a main unit
+// that ends this way is taken to have been ended by the kernel for going
+// over its memory limit. The exit code is the sign that always shows: not
+// every Docker daemon sets its OOMKilled flag for such a container
+// (docker.ContainerState). Someone else's SIGKILL reads the same.
+const killed = 137
+
 const factTime = "2006-01-02 15:04:05 UTC"
 
 // state is what w is doing, in the shapes the Kubernetes executor reports
@@ -22,7 +30,10 @@ func (w *work) state() *workload.State {
 	st := &workload.State{
 		Builds: startup.Builds(w.steps()), InstallsEnv: startup.InstallsEnv(w.steps()),
 		Created: w.created, Facts: w.facts(),
+		Fingerprint: w.spec.Fingerprint, Running: !w.mainSince.IsZero(),
 	}
+	// It describes the app and is never recorded on a workload.
+	st.Fingerprint.SizeUnpicked = false
 	main := w.spec.Main.Name
 	// A unit that failed explains the workload best, the earliest first.
 	for _, u := range append(slices.Clone(w.spec.Steps), w.spec.Main) {
@@ -68,7 +79,11 @@ func (w *work) stepOf(name string) string {
 // what happened, then the lines that say why.
 func (w *work) diagnose(name string, f *failure) (reasons.Code, []string) {
 	if name == w.spec.Main.Name {
-		return reasons.AppCrashed, append([]string{f.what}, f.output...)
+		code := reasons.AppCrashed
+		if f.exit == killed {
+			code = reasons.OutOfMemory
+		}
+		return code, append([]string{f.what}, f.output...)
 	}
 	code, lines := startup.Failed(name, f.exit, strings.Join(f.output, "\n"))
 	if lines == nil {

@@ -6,7 +6,7 @@
 // wait, and says what state the workload is in.
 //
 // What it knows is kept in memory: a workload it started is gone when it
-// is closed, and so is the fingerprint recorded for it.
+// is closed.
 package supervise
 
 import (
@@ -160,18 +160,6 @@ func (s *Supervisor) Observe(_ context.Context, ref workload.Ref) (*workload.Sta
 		return nil, nil
 	}
 	return w.state(), nil
-}
-
-// Fingerprint is what the workload was started from; false when it does
-// not run here.
-func (s *Supervisor) Fingerprint(ref workload.Ref) (workload.Fingerprint, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	w := s.work[key(ref)]
-	if w == nil {
-		return workload.Fingerprint{}, false
-	}
-	return w.spec.Fingerprint, true
 }
 
 // List names the workloads started and not stopped.

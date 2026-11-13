@@ -75,10 +75,10 @@ func TestFailingStepFailsWithEvidenceAndIsRetried(t *testing.T) {
 	if !slices.Equal(st.Evidence, want) {
 		t.Fatalf("evidence %q, want %q", st.Evidence, want)
 	}
-	if slices.Contains(e.starts(), workload.MainUnit) {
-		t.Fatal("the main unit started after a failed step")
+	if slices.Contains(e.starts(), workload.MainUnit) || st.Running {
+		t.Fatalf("the main unit started after a failed step (Running %v)", st.Running)
 	}
-	eventually(t, sup, "running after the step ended well", running)
+	eventually(t, sup, "running after the step ended well", func(st *workload.State) bool { return running(st) && st.Running })
 }
 
 // The steps of an app name the startup step they fail in: the code fetch
@@ -179,7 +179,7 @@ func TestMainIsUnansweredUntilItsCheckPasses(t *testing.T) {
 		before := time.Now()
 		sup := start(t, e, s)
 		st := eventually(t, sup, "unanswered", func(st *workload.State) bool { return st.Unanswered != nil })
-		if st.Phase != "Starting" || st.Step != model.ConditionReady || st.Code != reasons.Starting {
+		if st.Phase != "Starting" || st.Step != model.ConditionReady || st.Code != reasons.Starting || !st.Running {
 			t.Fatalf("%s: state %+v", c.want, st)
 		}
 		if u := st.Unanswered; u.Check != c.want || u.Since.Before(before) || u.Since.After(time.Now()) {
@@ -230,7 +230,7 @@ func TestCrashedMainIsRestarted(t *testing.T) {
 }
 
 // Starting a workload that runs changes nothing; List names it, and its
-// fingerprint is kept for as long as it runs.
+// state carries the fingerprint it was first started from.
 func TestStartIsIdempotentAndKeepsTheFingerprint(t *testing.T) {
 	e := &engine{}
 	s := spec()
@@ -245,16 +245,13 @@ func TestStartIsIdempotentAndKeepsTheFingerprint(t *testing.T) {
 	if got := e.starts(); len(got) != 1 {
 		t.Fatalf("started %v, want the main unit once", got)
 	}
-	if f, ok := sup.Fingerprint(ref); !ok || f.Run != "r1" {
-		t.Fatalf("fingerprint %+v, %v", f, ok)
+	if st, _ := sup.Observe(t.Context(), ref); st == nil || st.Fingerprint.Run != "r1" {
+		t.Fatalf("state %+v, want the fingerprint it was started from", st)
 	}
 	if refs, _ := sup.List(t.Context()); !slices.Equal(refs, []workload.Ref{ref}) {
 		t.Fatalf("List: %v", refs)
 	}
 	_ = sup.Stop(t.Context(), ref)
-	if _, ok := sup.Fingerprint(ref); ok {
-		t.Fatal("a stopped workload has a fingerprint")
-	}
 	if refs, _ := sup.List(t.Context()); len(refs) != 0 {
 		t.Fatalf("List after Stop: %v", refs)
 	}
@@ -268,5 +265,18 @@ func TestUnitThatDoesNotStartFails(t *testing.T) {
 	st := eventually(t, sup, "failed", failed)
 	if want := []string{"unit app did not start: no such program"}; !slices.Equal(st.Evidence, want) || st.Code != reasons.AppCrashed {
 		t.Fatalf("%q: evidence %q", st.Code, st.Evidence)
+	}
+}
+
+// A main unit that ends with exit code 137 was killed, and under a memory
+// limit that is the kernel ending it for memory: no platform below says
+// so more clearly.
+func TestMainKilledIsOutOfMemory(t *testing.T) {
+	e := &engine{}
+	e.plan(workload.MainUnit, slices.Repeat([]int{137}, 1000)...)
+	sup := start(t, e, spec())
+	st := eventually(t, sup, "failed", failed)
+	if st.Code != reasons.OutOfMemory || st.Step != model.ConditionStarted {
+		t.Fatalf("failed at %q with %q, want out of memory", st.Step, st.Code)
 	}
 }
