@@ -78,8 +78,8 @@
 // executor when it is given Host: the folders of this machine in place of
 // a container's paths, no image, the port Addr names and Javo's own uid
 // and gid. workspace.RunsAsProcesses says which templates can run this
-// way: the ones that name no image and take their program from a pixi
-// environment, which the install step (internal/pixienv) installs with
+// way on which platform: the ones that name no image and take their
+// program from a pixi environment locked for the machine, which the install step (internal/pixienv) installs with
 // the machine's sh and the tools of tools.go. A template that needs an
 // image (harf, rstudio, static-site, container), an app from a repository
 // and an app with Nebi access are refused, and the templates for job runs
@@ -87,9 +87,11 @@
 //
 // What the machine must have: sh and bash, the pixi binary of
 // Options.Pixi, the platform's files in Options.Files, and a bundled
-// environment locked for the machine's platform. Today every bundled
-// environment (pod/files/envs) is locked for Linux only, so on macOS an
-// app runs only in an environment picked for it.
+// environment locked for the machine's platform (Host names it). The
+// bundled environments (pod/files/envs) are locked for Linux and for
+// macOS on Apple silicon (osx-arm64), but for the two with Julia, which
+// conda-forge does not build for macOS: the planner refuses the pluto
+// template on a Mac and says so. None is locked for an Intel Mac.
 //
 // # Loopback
 //

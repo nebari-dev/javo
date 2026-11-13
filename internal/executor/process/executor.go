@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -151,7 +152,13 @@ func (x *Executor) Host(ref workload.Ref) workload.Host {
 		Files:       x.eng.files,
 		InstallPath: filepath.Join(x.eng.dir, toolsDir) + string(os.PathListSeparator) + os.Getenv("PATH"),
 		UID:         int64(os.Getuid()), GID: int64(os.Getgid()),
+		Platform: pixiPlatforms[runtime.GOOS+"/"+runtime.GOARCH],
 	}
+}
+
+// pixiPlatforms is what pixi calls the machines this executor runs on.
+var pixiPlatforms = map[string]string{
+	"darwin/arm64": "osx-arm64", "darwin/amd64": "osx-64", "linux/amd64": "linux-64", "linux/arm64": "linux-aarch64",
 }
 
 // VolumeDir is the folder that is the workload's volume called name, for

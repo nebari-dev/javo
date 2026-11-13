@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"path"
@@ -98,14 +99,43 @@ func (p places) value(v string) string {
 	return v
 }
 
+// linuxOnly are the bundled environments (pod/files/envs) that are locked
+// for Linux only, each with why: what they need has no build for macOS.
+var linuxOnly = map[string]string{
+	"jobs-julia": "conda-forge has no julia for macOS",
+	"pluto":      "conda-forge has no julia for macOS",
+}
+
 // RunsAsProcesses says whether apps of t can run as plain processes of a
-// machine, without containers: nil, or an *executor.UnsupportedError that
-// says why not. Such an app runs the program of the template's pixi
-// environment; a template that needs an image cannot.
-func RunsAsProcesses(t *model.Template) error {
-	no := func(format string, args ...any) error {
-		return &executor.UnsupportedError{Why: fmt.Sprintf("template %q ", t.Name) + fmt.Sprintf(format, args...)}
+// machine pixi calls platform (workload.Host.Platform), without
+// containers: nil, or an *executor.UnsupportedError that says why not.
+// Such an app runs the program of the template's pixi environment; a
+// template that needs an image cannot, and neither can one whose
+// environment is not locked for the platform.
+func RunsAsProcesses(t *model.Template, platform string) error {
+	if err := runsWithoutImage(t); err != nil {
+		return err
 	}
+	return lockedFor(t, platform)
+}
+
+func unsupported(t *model.Template, format string, args ...any) error {
+	return &executor.UnsupportedError{Why: fmt.Sprintf("template %q ", t.Name) + fmt.Sprintf(format, args...)}
+}
+
+// lockedFor says whether the environment t bundles installs on platform.
+func lockedFor(t *model.Template, platform string) error {
+	if why, only := linuxOnly[t.Spec.Environment]; only && !strings.HasPrefix(platform, "linux-") {
+		return unsupported(t, "runs in the environment %s, which is locked for Linux only (%s), and this machine is %s",
+			t.Spec.Environment, why, cmp.Or(platform, "not one pixi has a name for"))
+	}
+	return nil
+}
+
+// runsWithoutImage says whether t takes its program from a pixi
+// environment and from no image.
+func runsWithoutImage(t *model.Template) error {
+	no := func(format string, args ...any) error { return unsupported(t, format, args...) }
 	switch s := t.Spec; {
 	case s.JobOnly:
 		return no("only runs jobs, and job runs are not supported without containers")
@@ -124,8 +154,15 @@ func RunsAsProcesses(t *model.Template) error {
 // hostProblem is why the app of in cannot run as processes; nil when it
 // can.
 func hostProblem(in Inputs) error {
-	if err := RunsAsProcesses(in.Template); err != nil {
+	if err := runsWithoutImage(in.Template); err != nil {
 		return err
+	}
+	// A picked environment takes the template's place, unless the template
+	// serves kernels and keeps its own beside it (addEnvironment).
+	if in.App.Environment == nil || in.Template.Spec.ServesKernels {
+		if err := lockedFor(in.Template, in.Host.Platform); err != nil {
+			return err
+		}
 	}
 	switch {
 	case in.App.Source != nil:
@@ -174,9 +211,10 @@ const (
 
 // onHost finishes a plan for a host: the main unit starts in the home
 // and learns where the platform's files and its environment's activation
-// are, and the install step runs with the host's tools, writes its
-// temporary files in the workload's folder and its message for the person
-// beside the activation.
+// are, and the install step runs with the host's tools, tells the
+// environment's own install script (javo-post-install.sh) where the
+// platform's files are, writes its temporary files in the workload's
+// folder and its message for the person beside the activation.
 func (p places) onHost(s *workload.Spec) {
 	if p.host == nil {
 		return
@@ -190,6 +228,7 @@ func (p places) onHost(s *workload.Spec) {
 	if install := s.Step(pixienv.InstallContainer); install != nil {
 		s.Main.SetEnv(workload.Env{Name: envEnvDir, Value: env.Dir})
 		install.SetEnv(
+			workload.Env{Name: envFilesDir, Value: p.files},
 			workload.Env{Name: "PATH", Value: p.host.InstallPath},
 			workload.Env{Name: "TMPDIR", Value: env.Tmp},
 			workload.Env{Name: "JAVO_TERMINATION_LOG", Value: path.Join(env.Dir, "termination-log")},

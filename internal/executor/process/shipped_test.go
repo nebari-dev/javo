@@ -27,11 +27,6 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// pixiPlatforms is what pixi calls the machines this executor runs on.
-var pixiPlatforms = map[string]string{
-	"darwin/arm64": "osx-arm64", "darwin/amd64": "osx-64", "linux/amd64": "linux-64", "linux/arm64": "linux-aarch64",
-}
-
 // A shipped template, for real: the custom template is planned for this
 // machine, its environment installed by the install step with the real
 // pixi and Javo's own sha256sum and flock, its command started by

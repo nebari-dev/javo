@@ -231,4 +231,7 @@ type Host struct {
 	InstallPath string
 	// UID and GID are who everything on the machine runs as: Javo itself.
 	UID, GID int64
+	// Platform is what pixi calls the machine (osx-arm64, linux-64): an
+	// environment runs on it only when it is locked for that platform.
+	Platform string
 }

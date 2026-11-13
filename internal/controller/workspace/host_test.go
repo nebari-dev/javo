@@ -31,6 +31,7 @@ const (
 var testHost = workload.Host{
 	Volumes: "/Users/alice/javo/state/w/alice/demo/volumes", Files: hostFiles,
 	InstallPath: "/Users/alice/javo/state/bin:/usr/bin:/bin", UID: 501, GID: 20,
+	Platform: "osx-arm64",
 }
 
 // hostLayout is the storage of alice on that machine: her home is a folder.
@@ -68,11 +69,13 @@ func shippedNames(t *testing.T) []string {
 }
 
 // asProcesses is every shipped template and why its apps cannot run as
-// processes; "" for one whose apps can.
+// processes of testHost, a Mac; "" for one whose apps can.
 var asProcesses = map[string]string{
 	"backend-go": "", "backend-node": "", "bokeh": "", "claude-code": "", "custom": "", "dash": "",
 	"fastapi": "", "gradio": "", "herdr": "", "jupyterlab": "", "marimo": "", "panel": "", "pi": "",
-	"pluto": "", "streamlit": "", "terminal": "", "voila": "", "vscode": "", "whybook": "",
+	"streamlit": "", "terminal": "", "voila": "", "vscode": "", "whybook": "",
+
+	"pluto": "locked for Linux only",
 
 	"harf":         "needs its image",
 	"rstudio":      "needs its image",
@@ -99,7 +102,7 @@ func TestWhichShippedTemplatesRunAsProcesses(t *testing.T) {
 		}
 		tpl := shippedTemplate(t, name)
 		tpl.Spec.ApplyDefaults()
-		err := RunsAsProcesses(tpl)
+		err := RunsAsProcesses(tpl, testHost.Platform)
 		var no *executor.UnsupportedError
 		switch {
 		case want == "" && err != nil:
@@ -147,14 +150,20 @@ var hostVariants = map[string]func(*Inputs){
 // listens on every address is open to the network the machine is on.
 func TestAPlanForAHostNamesNoContainerPathAndNoOpenAddress(t *testing.T) {
 	t.Parallel()
-	for name, why := range asProcesses {
-		if why != "" {
-			continue
+	for name := range asProcesses {
+		// A template whose environment has no macOS build is planned for a
+		// Linux machine.
+		platform := testHost.Platform
+		if tpl := shippedTemplate(t, name); RunsAsProcesses(tpl, platform) != nil {
+			if platform = "linux-aarch64"; RunsAsProcesses(tpl, platform) != nil {
+				continue
+			}
 		}
 		for variant, edit := range hostVariants {
 			t.Run(name+"/"+variant, func(t *testing.T) {
 				t.Parallel()
 				in := hostInputs(t, name)
+				in.Host.Platform = platform
 				edit(&in)
 				s, err := Plan(in)
 				if err != nil {
@@ -282,6 +291,8 @@ func TestStreamlitPlannedForAHost(t *testing.T) {
 		"JAVO_ENV_ROOT": hostHome + "/.javo/envs", "PIXI_CACHE_DIR": hostHome + "/.javo/pixi-cache",
 		"JAVO_ENV_DIR": envDir, "JAVO_TOOL": envDir + "/javo", "JAVO_ENV_DEFAULT": hostFiles + "/envs/streamlit",
 		"JAVO_TERMINATION_LOG": envDir + "/termination-log",
+		// An environment's own install script finds the platform's files.
+		"JAVO_FILES_DIR": hostFiles,
 	} {
 		if install[name] != want {
 			t.Errorf("install step: %s = %q, want %q", name, install[name], want)
@@ -348,6 +359,74 @@ func TestWhatAHostCannotRunIsRefused(t *testing.T) {
 		var no *executor.UnsupportedError
 		if !errors.As(err, &no) || !strings.Contains(no.Why, c.why) {
 			t.Errorf("%s: %v, want it refused because %q", name, err, c.why)
+		}
+	}
+}
+
+// An environment that conda-forge cannot build for macOS stays locked for
+// Linux, and its template is refused on a Mac with that reason, before
+// anything is installed. On a Linux machine it runs, and so does an app
+// with an environment picked in the template's place, which brings its own
+// program.
+func TestATemplateLockedForLinuxOnlyIsRefusedOnAMac(t *testing.T) {
+	t.Parallel()
+	for _, platform := range []string{"osx-arm64", "osx-64", ""} {
+		in := hostInputs(t, "pluto")
+		in.Host.Platform = platform
+		var no *executor.UnsupportedError
+		for what, err := range map[string]error{"RunsAsProcesses": RunsAsProcesses(in.Template, platform), "Plan": planError(in)} {
+			if !errors.As(err, &no) || !strings.Contains(no.Why, "locked for Linux only") || !strings.Contains(no.Why, "julia") {
+				t.Errorf("%s on %q: %v, want it refused for its Linux-only environment", what, platform, err)
+			}
+		}
+		in.App.Environment = &model.Environment{Source: "nebi", ID: "e1", Name: "julia"}
+		in.EnvFiles = &model.EnvironmentFiles{Manifest: "[workspace]\n", Lock: "version: 6\n"}
+		if err := planError(in); err != nil {
+			t.Errorf("Plan on %q with a picked environment: %v", platform, err)
+		}
+	}
+	for _, platform := range []string{"linux-64", "linux-aarch64"} {
+		in := hostInputs(t, "pluto")
+		in.Host.Platform = platform
+		if err := RunsAsProcesses(in.Template, platform); err != nil {
+			t.Errorf("RunsAsProcesses on %s: %v", platform, err)
+		}
+		if err := planError(in); err != nil {
+			t.Errorf("Plan on %s: %v", platform, err)
+		}
+	}
+}
+
+func planError(in Inputs) error {
+	_, err := Plan(in)
+	return err
+}
+
+var manifestPlatforms = regexp.MustCompile(`(?m)^platforms = \[(.*)\]$`)
+
+// What the planner refuses on a Mac is what the bundled environments are
+// not locked for: every environment of the pod files names macOS among
+// its platforms, or is listed as Linux-only with the reason.
+func TestLinuxOnlyEnvironmentsAreTheOnesNotLockedForMacOS(t *testing.T) {
+	t.Parallel()
+	manifests, err := filepath.Glob(filepath.Join("..", "..", "..", "pod", "files", "envs", "*", "pixi.toml"))
+	if err != nil || len(manifests) == 0 {
+		t.Fatalf("no bundled environments: %v", err)
+	}
+	for _, file := range manifests {
+		name := filepath.Base(filepath.Dir(file))
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := manifestPlatforms.FindSubmatch(data)
+		if m == nil {
+			t.Errorf("%s names no platforms", file)
+			continue
+		}
+		mac := strings.Contains(string(m[1]), `"osx-arm64"`)
+		if _, listed := linuxOnly[name]; listed == mac {
+			t.Errorf("environment %s: locked for macOS: %v, listed as Linux-only: %v", name, mac, listed)
 		}
 	}
 }
