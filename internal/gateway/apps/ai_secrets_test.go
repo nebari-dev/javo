@@ -8,6 +8,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/ai/aitest"
 	"github.com/nebari-dev/javo/internal/ai/redact"
+	"github.com/nebari-dev/javo/internal/ai/redact/scanner"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 )
@@ -18,7 +19,7 @@ const alicePassword = "Vx9-kQ2pLr7mWz4s"
 // one of them her stored secret DB_PASSWORD, with AI on.
 func secretsFixture(t *testing.T, replies ...aitest.Reply) (*apitest.Fixture, *aitest.Scripted) {
 	t.Helper()
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ai/aitest"
 	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/ai/redact"
+	"github.com/nebari-dev/javo/internal/ai/redact/scanner"
 	"github.com/nebari-dev/javo/internal/diagnose"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -155,7 +156,7 @@ func TestTheBundleSentIsTheOneShown(t *testing.T) {
 // With the secret scanner wired, log lines are sent, and a key or token in
 // one never reaches the model.
 func TestBundleNeverCarriesSecrets(t *testing.T) {
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestBundleNeverCarriesSecrets(t *testing.T) {
 // the caller knows where it is (by its fingerprint) and it is hidden by name,
 // with typed values of variables named like credentials.
 func TestKnownSecretValuesNeverReachTheModel(t *testing.T) {
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestKnownSecretValuesNeverReachTheModel(t *testing.T) {
 // When some of the owner's secret values cannot be looked for (no
 // fingerprint yet), log lines are not sent; the rest is still redacted.
 func TestUncheckedSecretsWithholdLogLines(t *testing.T) {
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +279,7 @@ func failedWithLogs(lines ...string) diagnose.Diagnosis {
 // A log line longer than an excerpt is redacted whole before it is cut, so a
 // secret value straddling the cut leaks no part of itself.
 func TestSecretStraddlingTheExcerptCutIsHidden(t *testing.T) {
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +300,7 @@ func TestSecretStraddlingTheExcerptCutIsHidden(t *testing.T) {
 // A stored secret of several lines (a key file) printed to the log is found
 // across the lines it spans, and every line keeps its ref.
 func TestMultiLineSecretAcrossLogLinesIsHidden(t *testing.T) {
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}

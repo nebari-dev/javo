@@ -1,3 +1,7 @@
+// Package redact hides secrets in text before it is sent to a model: first
+// the values the platform knows are secret (Known), then whatever a
+// Redactor finds by pattern (redact/scanner, the rules of gitleaks). It
+// does not look for personal data.
 package redact
 
 import (
@@ -16,7 +20,7 @@ type Span struct {
 type Value struct{ Name, Value string }
 
 // Redactor is what Known runs after hiding what it knows: the patterns of
-// Scanner.
+// scanner.Scanner.
 type Redactor interface {
 	Redact(text string) (string, int)
 }
@@ -95,7 +99,7 @@ func replace(text string, spans []Span) (string, int) {
 		if s.Name != "" {
 			mark = "[redacted:" + s.Name + "]"
 		}
-		sb.WriteString(marker(mark, text[s.Start:s.End]))
+		sb.WriteString(Marker(mark, text[s.Start:s.End]))
 		at, n = s.End, n+1
 	}
 	sb.WriteString(text[at:])
@@ -132,4 +136,10 @@ func SensitiveName(name string) bool {
 	}
 	return slices.ContainsFunc(strings.FieldsFunc(up, func(r rune) bool { return r == '_' || r == '-' || r == '.' }),
 		func(p string) bool { return slices.Contains(sensitiveParts, p) })
+}
+
+// Marker is what replaces secret: mark, once per line secret spans, so the
+// text keeps its line breaks.
+func Marker(mark, secret string) string {
+	return mark + strings.Repeat("\n"+mark, strings.Count(secret, "\n"))
 }

@@ -1,4 +1,4 @@
-package redact
+package scanner
 
 import (
 	"strings"
@@ -13,7 +13,7 @@ const (
 
 func scanner(t *testing.T) *Scanner {
 	t.Helper()
-	s, err := NewScanner()
+	s, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}

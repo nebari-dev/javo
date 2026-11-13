@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/nebari-dev/javo/internal/ai/aitest"
-	"github.com/nebari-dev/javo/internal/ai/redact"
+	"github.com/nebari-dev/javo/internal/ai/redact/scanner"
 	"github.com/nebari-dev/javo/internal/diagnose"
 )
 
@@ -62,7 +62,7 @@ func TestActionsBackedOnlyByLogLinesAreDropped(t *testing.T) {
 // withLogs is service(p) with the secret scanner, so log lines are sent.
 func withLogs(t *testing.T, p *aitest.Scripted) *Service {
 	t.Helper()
-	scan, err := redact.NewScanner()
+	scan, err := scanner.New()
 	if err != nil {
 		t.Fatal(err)
 	}

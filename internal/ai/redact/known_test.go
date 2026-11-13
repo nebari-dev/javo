@@ -1,9 +1,24 @@
-package redact
+package redact_test
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/nebari-dev/javo/internal/ai/redact"
+	"github.com/nebari-dev/javo/internal/ai/redact/scanner"
 )
+
+// A fake credential in a shape the scanner knows; it is not real.
+const fakeAWSKey = "AKIAZ7QW3RTY5UXO6PLK"
+
+func patterns(t *testing.T) redact.Redactor {
+	t.Helper()
+	s, err := scanner.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
 
 // The value of a person's secret printed in free text matches no pattern;
 // the platform knows the value (here by its place in the text), so it is
@@ -11,19 +26,19 @@ import (
 func TestKnownSecretValuesInFreeTextAreHiddenByName(t *testing.T) {
 	const pw = "Vx9-kQ2pLr7mWz4s"
 	line := "connecting to postgres as app with password " + pw + ", retrying with " + pw
-	k := Known{
-		Spans: func(text string) []Span {
-			var out []Span
+	k := redact.Known{
+		Spans: func(text string) []redact.Span {
+			var out []redact.Span
 			for i := 0; ; {
 				j := strings.Index(text[i:], pw)
 				if j < 0 {
 					return out
 				}
-				out = append(out, Span{Start: i + j, End: i + j + len(pw), Name: "DB_PASSWORD"})
+				out = append(out, redact.Span{Start: i + j, End: i + j + len(pw), Name: "DB_PASSWORD"})
 				i += j + len(pw)
 			}
 		},
-		Next: scanner(t),
+		Next: patterns(t),
 	}
 	out, n := k.Redact(line)
 	if strings.Contains(out, pw) || n != 2 {
@@ -37,12 +52,12 @@ func TestKnownSecretValuesInFreeTextAreHiddenByName(t *testing.T) {
 // Typed values of variables named like credentials are hidden too, and the
 // patterns still run on what is left.
 func TestValuesOfSensitiveVariablesAreHiddenAndPatternsStillRun(t *testing.T) {
-	k := Known{Values: SensitiveEnv(map[string]string{
+	k := redact.Known{Values: redact.SensitiveEnv(map[string]string{
 		"API_TOKEN":   "tok-31415926535",
 		"db_password": "hunter2-but-longer",
 		"LOG_LEVEL":   "debug",
 		"PORT":        "8080",
-	}), Next: scanner(t)}
+	}), Next: patterns(t)}
 	out, n := k.Redact("token tok-31415926535 pw hunter2-but-longer level debug port 8080 key " + fakeAWSKey)
 	for _, leaked := range []string{"tok-31415926535", "hunter2-but-longer", fakeAWSKey} {
 		if strings.Contains(out, leaked) {
@@ -64,8 +79,8 @@ func TestSensitiveNames(t *testing.T) {
 		"private_key": true, "AUTH_HEADER": true, "CREDENTIALS": true,
 		"PORT": false, "LOG_LEVEL": false, "MONKEY_COUNT": false, "KEYBOARD": false, "PATH": false, "HOME": false,
 	} {
-		if got := SensitiveName(name); got != want {
-			t.Errorf("SensitiveName(%q) = %v, want %v", name, got, want)
+		if got := redact.SensitiveName(name); got != want {
+			t.Errorf("redact.SensitiveName(%q) = %v, want %v", name, got, want)
 		}
 	}
 }

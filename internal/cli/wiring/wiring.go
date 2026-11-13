@@ -242,7 +242,7 @@ func AIService(ctx context.Context, c config.AICfg, live *aisettings.Live, db *s
 		slog.Error("the AI settings saved in Settings > AI do not build a provider; AI calls fail until they are fixed", "err", err)
 	}
 	// Secrets in log lines are hidden before anything is sent (gitleaks rules).
-	scan, err := redact.NewScanner()
+	scan, err := secretScanner()
 	if err != nil {
 		return nil, fmt.Errorf("load the secret scanner: %w", err)
 	}

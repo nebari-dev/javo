@@ -1,8 +1,9 @@
-// Package redact hides secrets in text before it is sent to a model: first
-// the values the platform knows are secret (Known), then whatever matches
-// the rules of gitleaks (its detect package, used as a library). It does not
-// look for personal data.
-package redact
+// Package scanner hides whatever matches the rules of gitleaks (its detect
+// package, used as a library) in text before it is sent to a model, after
+// redact.Known hid the values the platform knows are secret. It does not
+// look for personal data. It is a package of its own because gitleaks is
+// large: only what builds an AI service imports it.
+package scanner
 
 import (
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/zricethezav/gitleaks/v8/detect"
 
+	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/auth/token"
 )
 
@@ -24,9 +26,9 @@ type Scanner struct {
 	d  *detect.Detector
 }
 
-// NewScanner loads gitleaks' default rules. Call it once at start-up: the
+// New loads gitleaks' default rules. Call it once at start-up: the
 // rules are parsed through viper's global instance.
-func NewScanner() (*Scanner, error) {
+func New() (*Scanner, error) {
 	d, err := detect.NewDetectorDefaultConfig()
 	if err != nil {
 		return nil, err
@@ -59,13 +61,7 @@ func (s *Scanner) Redact(text string) (string, int) {
 	// Longest first, so a secret that contains another is hidden whole.
 	slices.SortFunc(secrets, func(a, b string) int { return len(b) - len(a) })
 	for _, v := range secrets {
-		text = strings.ReplaceAll(text, v, marker(Hidden, v))
+		text = strings.ReplaceAll(text, v, redact.Marker(Hidden, v))
 	}
 	return text, len(secrets)
-}
-
-// marker is what replaces secret: mark, once per line secret spans, so the
-// text keeps its line breaks.
-func marker(mark, secret string) string {
-	return mark + strings.Repeat("\n"+mark, strings.Count(secret, "\n"))
 }
