@@ -28,6 +28,34 @@ type SealedBundle struct {
 	Sealed            []byte
 }
 
+// StoredBundle is a stored bundle's sealed values with the row they are
+// sealed for, for rotation.
+type StoredBundle struct {
+	Namespace, Name, WorkloadID string
+	Sealed                      []byte
+}
+
+// AllSealed returns every stored bundle's sealed values, for rotation.
+func (b *Bundles) AllSealed(ctx context.Context) ([]StoredBundle, error) {
+	rows, err := b.s.q.ListSealedBundles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StoredBundle, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, StoredBundle{Namespace: r.Namespace, Name: r.Name, WorkloadID: r.WorkloadID, Sealed: r.Sealed})
+	}
+	return out, nil
+}
+
+// Reseal stores the same values sealed again (rotation) if the bundle name
+// of the namespace still holds old; false when it was replaced or deleted
+// since. Nothing else in the row changes.
+func (b *Bundles) Reseal(ctx context.Context, namespace, name string, old, resealed []byte) (bool, error) {
+	n, err := b.s.q.ResealBundle(ctx, sqlcgen.ResealBundleParams{Sealed: resealed, Namespace: namespace, Name: name, Sealed_2: old})
+	return n == 1, err
+}
+
 // Get returns the bundle name of the namespace, whichever workload it is
 // kept for; found is false when there is none.
 func (b *Bundles) Get(ctx context.Context, namespace, name string) (sb SealedBundle, found bool, err error) {

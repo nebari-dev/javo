@@ -54,6 +54,72 @@ func (q *Queries) GetBundle(ctx context.Context, arg GetBundleParams) (GetBundle
 	return i, err
 }
 
+const listSealedBundles = `-- name: ListSealedBundles :many
+SELECT namespace, name, workload_id, sealed FROM workload_bundles ORDER BY namespace, name
+`
+
+type ListSealedBundlesRow struct {
+	Namespace  string
+	Name       string
+	WorkloadID string
+	Sealed     []byte
+}
+
+// Every bundle, for rotation.
+func (q *Queries) ListSealedBundles(ctx context.Context) ([]ListSealedBundlesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSealedBundles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSealedBundlesRow
+	for rows.Next() {
+		var i ListSealedBundlesRow
+		if err := rows.Scan(
+			&i.Namespace,
+			&i.Name,
+			&i.WorkloadID,
+			&i.Sealed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resealBundle = `-- name: ResealBundle :execrows
+UPDATE workload_bundles SET sealed = $1 WHERE namespace = $2 AND name = $3 AND sealed = $4
+`
+
+type ResealBundleParams struct {
+	Sealed    []byte
+	Namespace string
+	Name      string
+	Sealed_2  []byte
+}
+
+// The same values sealed again (rotation): a bundle replaced since it was
+// read is left alone.
+func (q *Queries) ResealBundle(ctx context.Context, arg ResealBundleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resealBundle,
+		arg.Sealed,
+		arg.Namespace,
+		arg.Name,
+		arg.Sealed_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const upsertBundle = `-- name: UpsertBundle :execrows
 INSERT INTO workload_bundles (namespace, name, workload_id, owner, meta, sealed, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

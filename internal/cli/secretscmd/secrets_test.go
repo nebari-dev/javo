@@ -30,12 +30,27 @@ func TestSecretsRotateResealsEveryValue(t *testing.T) {
 	}
 	sec := clitest.StoreSecret(t, db, "alice", "API_KEY", "v")
 	before, _ := db.Secrets().Sealed(context.Background(), sec.ID)
+	// Two bundles of a workload, the way the vault keeps them.
+	ks, _, _ := db.SecretKeys().Get(context.Background())
+	sealer, err := secrets.NewSealer(ks.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"alice-sales.app-api", "alice-sales.app-git"} {
+		sealed, err := sealer.Seal([]byte("v"), secrets.BundleAD("javo", name, "app-1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := db.Bundles().Put(context.Background(), "javo", name, store.SealedBundle{WorkloadID: "app-1", Owner: "alice", Sealed: sealed}); !ok || err != nil {
+			t.Fatalf("Put = %v, %v", ok, err)
+		}
+	}
 
 	out, err := runSecrets(t, db, "rotate", "--key-file", path)
 	if err != nil {
 		t.Fatalf("rotate: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "1 secret") {
+	if !strings.Contains(out, "1 secret and 2 workload bundles encrypted again") {
 		t.Fatalf("output %q", out)
 	}
 	after, _ := db.Secrets().Sealed(context.Background(), sec.ID)

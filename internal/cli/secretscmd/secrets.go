@@ -29,7 +29,8 @@ func New(openStore dbflag.Opener) *cobra.Command {
 		Use:   "rotate",
 		Short: "Add a new data key and encrypt every stored secret value again with it",
 		Long: "Adds a key to the data keyset and makes it the one new values use, then encrypts every stored value " +
-			"again under it. No value changes and no app restarts. Values encrypted before keep working while it " +
+			"again under it: people's secrets and the bundles of values kept for workloads. It prints how many of " +
+			"each. No value changes and no app restarts. Values encrypted before keep working while it " +
 			"runs; running it again is safe. A key file that does not open the stored keyset changes nothing.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -42,15 +43,12 @@ func New(openStore dbflag.Opener) *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			n, err := (&secrets.Keys{Store: db, KEK: kek}).Rotate(cmd.Context())
+			n, bundles, err := (&secrets.Keys{Store: db, KEK: kek}).Rotate(cmd.Context())
+			done := fmt.Sprintf("%s and %s", count(n, "secret"), count(bundles, "workload bundle"))
 			if err != nil {
-				return fmt.Errorf("rotate the secrets keys (%d values done; rerun to finish): %w", n, err)
+				return fmt.Errorf("rotate the secrets keys (%s done; rerun to finish): %w", done, err)
 			}
-			noun := "secrets"
-			if n == 1 {
-				noun = "secret"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "new data key in use; %d %s encrypted again\n", n, noun)
+			fmt.Fprintf(cmd.OutOrStdout(), "new data key in use; %s encrypted again\n", done)
 			return nil
 		},
 	}
@@ -61,6 +59,14 @@ func New(openStore dbflag.Opener) *cobra.Command {
 	rotate.MarkFlagsMutuallyExclusive("key-file", "key-secret")
 	cmd.AddCommand(rotate)
 	return cmd
+}
+
+// count is n things, in words: "1 secret", "2 secrets".
+func count(n int, noun string) string {
+	if n != 1 {
+		noun += "s"
+	}
+	return fmt.Sprintf("%d %s", n, noun)
 }
 
 // loadKEK reads the key-encryption key from keyFile, or else from the Secret

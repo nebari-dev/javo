@@ -601,7 +601,7 @@ Use "javo secrets [command] --help" for more information about a command.
 ## javo secrets rotate
 
 ```text
-Adds a key to the data keyset and makes it the one new values use, then encrypts every stored value again under it. No value changes and no app restarts. Values encrypted before keep working while it runs; running it again is safe. A key file that does not open the stored keyset changes nothing.
+Adds a key to the data keyset and makes it the one new values use, then encrypts every stored value again under it: people's secrets and the bundles of values kept for workloads. It prints how many of each. No value changes and no app restarts. Values encrypted before keep working while it runs; running it again is safe. A key file that does not open the stored keyset changes nothing.
 
 Usage:
   javo secrets rotate [flags]

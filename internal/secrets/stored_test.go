@@ -89,9 +89,9 @@ func TestRotateResealsEveryValueUnderTheNewKey(t *testing.T) {
 	before, _ := keys.Opener(ctx)
 	oldA, _ := db.Secrets().Sealed(ctx, a.ID)
 
-	n, err := keys.Rotate(ctx)
-	if err != nil || n != 2 {
-		t.Fatalf("Rotate = %d, %v", n, err)
+	n, bundles, err := keys.Rotate(ctx)
+	if err != nil || n != 2 || bundles != 0 {
+		t.Fatalf("Rotate = %d, %d, %v", n, bundles, err)
 	}
 	newA, _ := db.Secrets().Sealed(ctx, a.ID)
 	if bytes.Equal(oldA, newA) {
@@ -116,6 +116,64 @@ func TestRotateResealsEveryValueUnderTheNewKey(t *testing.T) {
 	}
 	if open(t, keys, c) != "gamma" {
 		t.Fatal("new value")
+	}
+}
+
+// A workload's bundle sealed before a rotation is sealed again too: after
+// it, the keyset from before no longer opens the row, and its values and
+// notes are the same.
+func TestRotateResealsEveryBundleUnderTheNewKey(t *testing.T) {
+	db := storetest.New(t)
+	keys := &Keys{Store: db, KEK: testKEK(t)}
+	if err := keys.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	seal(t, keys, "alice", "A_KEY", "alpha")
+	ks, _, _ := db.SecretKeys().Get(ctx)
+	sealer, err := NewSealer(ks.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ad := BundleAD("javo", "alice-sales.app-git", "app-1")
+	sealed, err := sealer.Seal([]byte("clear-value-one"), ad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := store.SealedBundle{WorkloadID: "app-1", Owner: "alice", Meta: map[string]string{"generation": "3"}, Sealed: sealed}
+	if ok, err := db.Bundles().Put(ctx, "javo", "alice-sales.app-git", row); !ok || err != nil {
+		t.Fatalf("Put = %v, %v", ok, err)
+	}
+	before, _ := keys.Opener(ctx)
+
+	nSecrets, nBundles, err := keys.Rotate(ctx)
+	if err != nil || nSecrets != 1 || nBundles != 1 {
+		t.Fatalf("Rotate = %d, %d, %v", nSecrets, nBundles, err)
+	}
+	got, _, err := db.Bundles().Get(ctx, "javo", "alice-sales.app-git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(got.Sealed, sealed) {
+		t.Fatal("the bundle was not sealed again")
+	}
+	if _, err := before.Open(got.Sealed, ad); err == nil {
+		t.Fatal("the pre-rotation keyset opened a bundle sealed after rotation")
+	}
+	after, _ := keys.Opener(ctx)
+	if v, err := after.Open(got.Sealed, ad); err != nil || string(v) != "clear-value-one" {
+		t.Fatalf("the bundle's values changed: %v", err)
+	}
+	if got.WorkloadID != "app-1" || got.Owner != "alice" || got.Meta["generation"] != "3" || len(got.Meta) != 1 {
+		t.Fatalf("the row is now kept for %s of %s, meta %v", got.WorkloadID, got.Owner, got.Meta)
+	}
+	// Running it again is safe: the same values under one more key.
+	if _, n, err := keys.Rotate(ctx); err != nil || n != 1 {
+		t.Fatalf("second Rotate = %d, %v", n, err)
+	}
+	again, _ := keys.Opener(ctx)
+	got, _, _ = db.Bundles().Get(ctx, "javo", "alice-sales.app-git")
+	if v, err := again.Open(got.Sealed, ad); err != nil || string(v) != "clear-value-one" {
+		t.Fatalf("after a second rotation: %v", err)
 	}
 }
 

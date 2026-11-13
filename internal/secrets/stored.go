@@ -67,48 +67,66 @@ func (k *Keys) Opener(ctx context.Context) (*Opener, error) {
 }
 
 // Rotate adds a new primary key to the data keyset and seals every stored
-// value again under it, without changing any value (no app restarts). It
-// returns how many values it sealed again. Values sealed before the rotation
-// keep opening until then; running it again is safe.
-func (k *Keys) Rotate(ctx context.Context) (int, error) {
+// value again under it (people's secrets, then workloads' bundles), without
+// changing any value (no app restarts). It returns how many secrets and how
+// many bundles it sealed again. Values sealed before the rotation keep
+// opening until then; running it again is safe.
+func (k *Keys) Rotate(ctx context.Context) (nSecrets, nBundles int, err error) {
 	ks, found, err := k.Store.SecretKeys().Get(ctx)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if !found {
-		return 0, errors.New("no secrets keyset is stored yet")
+		return 0, 0, errors.New("no secrets keyset is stored yet")
 	}
 	rotated, err := Rotate(Keyset{Wrapped: ks.Wrapped, Public: ks.Public}, k.KEK)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if err := k.Store.SecretKeys().Replace(ctx, store.SecretKeyset{Wrapped: rotated.Wrapped, Public: rotated.Public}, ks.Version); err != nil {
-		return 0, fmt.Errorf("store the rotated keyset: %w", err)
+		return 0, 0, fmt.Errorf("store the rotated keyset: %w", err)
 	}
 	o, err := k.Opener(ctx)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	all, err := k.Store.Secrets().AllSealed(ctx)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	n := 0
 	for _, s := range all {
 		resealed, err := o.Reseal(s.Ciphertext, AD{ID: s.ID, Owner: s.Owner, Name: s.Name})
 		if err != nil {
-			return n, fmt.Errorf("secret %s of %s: %w", s.Name, s.Owner, err)
+			return nSecrets, 0, fmt.Errorf("secret %s of %s: %w", s.Name, s.Owner, err)
 		}
 		ok, err := k.Store.Secrets().Reseal(ctx, s.ID, s.Ciphertext, resealed)
 		if err != nil {
-			return n, err
+			return nSecrets, 0, err
 		}
 		// A value replaced meanwhile was sealed under the new key already.
 		if ok {
-			n++
+			nSecrets++
 		}
 	}
-	return n, nil
+	bundles, err := k.Store.Bundles().AllSealed(ctx)
+	if err != nil {
+		return nSecrets, 0, err
+	}
+	for _, b := range bundles {
+		resealed, err := o.Reseal(b.Sealed, BundleAD(b.Namespace, b.Name, b.WorkloadID))
+		if err != nil {
+			return nSecrets, nBundles, fmt.Errorf("bundle %s/%s: %w", b.Namespace, b.Name, err)
+		}
+		ok, err := k.Store.Bundles().Reseal(ctx, b.Namespace, b.Name, b.Sealed, resealed)
+		if err != nil {
+			return nSecrets, nBundles, err
+		}
+		// A bundle replaced meanwhile was sealed under the new key already.
+		if ok {
+			nBundles++
+		}
+	}
+	return nSecrets, nBundles, nil
 }
 
 // FingerprintStored fingerprints with f every stored value that has no

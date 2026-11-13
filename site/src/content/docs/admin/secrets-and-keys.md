@@ -73,7 +73,7 @@ kubectl -n javo-system exec deploy/javo-controller -- /javo secrets rotate --key
   --database-engine=postgres --database-dsn-file=/etc/javo-db/dsn
 ```
 
-It adds a new data key, makes new values use it, and encrypts every stored value again under it. No value changes and no app restarts. Values encrypted before keep working while it runs; running it again is safe.
+It adds a new data key, makes new values use it, and encrypts every stored value again under it: people's secrets and the bundles of values kept for workloads. It prints how many of each. No value changes and no app restarts. Values encrypted before keep working while it runs; running it again is safe.
 
 ## Sessions
 
