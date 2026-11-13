@@ -71,6 +71,8 @@ esac
 	in.config = write(t, filepath.Join(dir, "config.yaml"), `auth:
   local:
     enabled: true
+roles:
+  platformAdmin: {groups: [`+adminGroup+`]}
 urls:
   scheme: http
 executor: process
@@ -157,10 +159,13 @@ func TestServerRunsAnAppAsAProcess(t *testing.T) {
 	if err != nil || len(homes) != 1 {
 		t.Errorf("what the job wrote in the home: %v, %v", homes, err)
 	}
-	// A group folder asked for says it is not offered here, and nothing
-	// fails for it.
 	if code := s.call(http.MethodGet, "/api/storage", nil, nil); code != http.StatusOK {
 		t.Errorf("the storage page: %d", code)
+	}
+	// Homes are never backed up or restored here: an admin who asks is
+	// told so, not that a bucket is missing.
+	if code := s.call(http.MethodPost, "/api/admin/backups/now", nil, nil); code != http.StatusNotImplemented {
+		t.Errorf("back up every home now: %d, want 501", code)
 	}
 
 	// Stopping Javo stops the app: nothing serves on its port any more.

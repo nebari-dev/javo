@@ -6,7 +6,9 @@ package wiring
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"sync"
@@ -72,6 +74,25 @@ func ConfigFlag(f *pflag.FlagSet) ConfigLoader {
 	var path string
 	f.StringVar(&path, "config", config.DefaultPath, "platform config file (rendered by Helm into ConfigMap javo-config)")
 	return func() (config.Platform, error) { return config.Load(path) }
+}
+
+// ClusterFlag registers --config on f and returns what says which
+// executor the install that file describes runs apps with, and whether
+// that is Kubernetes. The admin commands that read or change a cluster's
+// objects (claims, Jobs, storage classes) ask it before they touch
+// anything: with another executor there is no cluster, and a kubeconfig
+// that happens to be there is some other cluster's. A config file that
+// does not exist is taken for Kubernetes, where these commands are also
+// run from a machine that has a kubeconfig and no config file.
+func ClusterFlag(f *pflag.FlagSet) func() (executor string, onCluster bool, err error) {
+	load := ConfigFlag(f)
+	return func() (string, bool, error) {
+		p, err := load()
+		if errors.Is(err, fs.ErrNotExist) {
+			return config.ExecutorKubernetes, true, nil
+		}
+		return p.Executor, p.OnKubernetes(), err
+	}
 }
 
 // AuthProviders registers the sign-in providers the config enables.

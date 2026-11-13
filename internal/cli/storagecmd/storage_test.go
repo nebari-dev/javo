@@ -345,3 +345,22 @@ func TestHomeSizeSetsTheSizeTheHomeAsksFor(t *testing.T) {
 		t.Fatalf("home = %+v, %v", h.Spec, err)
 	}
 }
+
+// Where apps do not run on Kubernetes there are no storage classes,
+// claims or group folders: a folder asked for on such an install is
+// refused, and no row is made that nothing could ever serve.
+func TestStorageCommandsNeedACluster(t *testing.T) {
+	db := storetest.New(t)
+	config := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "auth:\n  local:\n    enabled: true\nexecutor: docker\nkeysDir: /k\ndocker:\n  gateway: javo\n"
+	if err := os.WriteFile(config, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runStorage(t, db, "folder", "add", "/org/data-science", "--config", config)
+	if err == nil || !strings.Contains(err.Error(), "needs executor kubernetes") || !strings.Contains(err.Error(), "executor docker") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if folders, _ := db.SharedFolders().List(context.Background()); len(folders) != 0 {
+		t.Fatalf("a folder was made: %+v", folders)
+	}
+}

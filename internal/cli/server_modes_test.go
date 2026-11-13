@@ -87,8 +87,12 @@ func freePort(t *testing.T) string {
 	return port
 }
 
+// adminGroup is the group of the test's accounts; a config that names it
+// under roles.platformAdmin makes them platform admins.
+const adminGroup = "javo-admins"
+
 // seedAccount makes the local account people sign in with, as `javo user
-// add` does, in the SQLite file at path before the server opens it.
+// add --group` does, in the SQLite file at path before the server opens it.
 func seedAccount(t *testing.T, path string, names ...string) {
 	t.Helper()
 	ctx := context.Background()
@@ -105,7 +109,7 @@ func seedAccount(t *testing.T, path string, names ...string) {
 		t.Fatal(err)
 	}
 	for _, name := range names {
-		if err := (&local.DBUsers{Accounts: db.LocalAccounts()}).Add(ctx, name, hash, nil, false); err != nil {
+		if err := (&local.DBUsers{Accounts: db.LocalAccounts()}).Add(ctx, name, hash, []string{adminGroup}, false); err != nil {
 			t.Fatal(err)
 		}
 	}

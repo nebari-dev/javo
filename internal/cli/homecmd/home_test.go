@@ -2,6 +2,8 @@ package homecmd
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,4 +71,28 @@ func TestHomePruneRemovesOnlyOrphans(t *testing.T) {
 func run(t *testing.T, db *store.Store, c client.Client, args ...string) (string, error) {
 	t.Helper()
 	return clitest.Run(New(func() (client.Client, error) { return c, nil }, clitest.Opener(t, db)), args...)
+}
+
+// Where apps do not run on Kubernetes there are no claims to tell an
+// orphan by, and a kubeconfig that happens to be there is some other
+// cluster's: the command refuses and touches neither.
+func TestHomePruneNeedsACluster(t *testing.T) {
+	db := storetest.New(t)
+	if _, err := db.Homes().Ensure(context.Background(), "javo-apps", local.UserID("e2e-x1"), nil); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "auth:\n  local:\n    enabled: true\nexecutor: process\nkeysDir: /k\nprocess:\n  stateDir: /s\n  homesDir: /h\n"
+	if err := os.WriteFile(config, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asked := false
+	cluster := func() (client.Client, error) { asked = true; return nil, nil }
+	out, err := clitest.Run(New(cluster, clitest.Opener(t, db)), "home", "prune", "--orphans", "--yes", "--config", config)
+	if err == nil || !strings.Contains(err.Error(), "needs executor kubernetes") || !strings.Contains(err.Error(), "executor process") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if all, _ := db.Homes().List(context.Background()); len(all) != 1 || asked {
+		t.Fatalf("homes left %d, cluster asked %v", len(all), asked)
+	}
 }

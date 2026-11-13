@@ -826,7 +826,14 @@ type runRequestOutput struct {
 }
 
 func (a *API) registerBucket(api huma.API) {
-	noBucket := func() error { return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgNoBackupBucket)) }
+	// Without a cluster no home is ever backed up or restored: that is
+	// said as it is, not as a bucket still to be set up.
+	noBucket := func() error {
+		if a.Client == nil {
+			return problem.Unavailable()
+		}
+		return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgNoBackupBucket))
+	}
 	authn.RegisterAdmin(api, a.Roles, huma.Operation{
 		OperationID: "adminStartBackupRun", Method: http.MethodPost, Path: "/api/admin/backups/runs",
 		Summary: "Start a full backup as part of a run of the backup job (its run calls this)",

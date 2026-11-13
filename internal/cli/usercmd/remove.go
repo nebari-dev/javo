@@ -18,6 +18,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/kubeclient"
+	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -28,6 +29,7 @@ var cliActor = model.Actor{System: model.SystemCLI}
 func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 	var namespace string
 	var deleteHome, deleteWork bool
+	var cluster func() (executor string, onCluster bool, err error)
 	cmd := &cobra.Command{
 		Use:   "remove <identity name | username | email>",
 		Short: "Remove a person (local account or single sign-on): end their sessions, revoke their API tokens, delete their secrets and forget their home",
@@ -51,6 +53,11 @@ func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *co
 			}
 			defer db.Close()
 			r := remover{db: db, newClient: newClient, deleteWork: deleteWork, deleteHome: deleteHome}
+			if executor, onCluster, err := cluster(); err != nil {
+				return err
+			} else if !onCluster {
+				r.noCluster = executor
+			}
 			summary, err := r.remove(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -59,6 +66,7 @@ func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *co
 			return nil
 		},
 	}
+	cluster = wiring.ClusterFlag(cmd.Flags())
 	cmd.Flags().StringVar(&namespace, "namespace", "", "")
 	_ = cmd.Flags().MarkDeprecated("namespace", "API tokens live in the database; the flag is ignored")
 	cmd.Flags().BoolVar(&deleteWork, "delete-apps-and-jobs", false, "also delete the person's apps (with their previews) and jobs; without it the command refuses while they have any")
@@ -83,6 +91,10 @@ type remover struct {
 	db                     *store.Store
 	newClient              kubeclient.Factory
 	deleteWork, deleteHome bool
+	// noCluster is the executor's name where apps do not run on
+	// Kubernetes: a home there is a Docker volume or a folder, not claims.
+	// It is forgotten and never deleted.
+	noCluster string
 }
 
 // find resolves who to one person. An identity name is unique and wins;
@@ -141,6 +153,9 @@ func removalOf(p model.Person) removal {
 // remove removes the person who names and returns what was done. A step that
 // fails after the first change says so; rerunning finishes the rest.
 func (r remover) remove(ctx context.Context, who string) (string, error) {
+	if r.deleteHome && r.noCluster != "" {
+		return "", fmt.Errorf("--delete-home is not available with executor %s: a home there is a Docker volume or a folder, which this command never removes; remove it yourself once the person is removed (nothing was removed)", r.noCluster)
+	}
 	m, err := r.find(ctx, who)
 	if err != nil {
 		return "", err
@@ -190,7 +205,10 @@ func (r remover) remove(ctx context.Context, who string) (string, error) {
 	if err != nil {
 		return "", failed("reading their home", err)
 	}
-	if r.deleteHome && len(homes) > 0 {
+	if r.noCluster != "" {
+		// No claims to mark: the volume or folder stays as it is, and the
+		// same person coming back finds it by its name.
+	} else if r.deleteHome && len(homes) > 0 {
 		if err := deleteHomeClaims(ctx, r.newClient, homes); err != nil {
 			return "", failed("deleting their home's files (rerun with --delete-home)", err)
 		}

@@ -13,6 +13,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/kubeclient"
+	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -22,6 +23,7 @@ import (
 func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 	home := &cobra.Command{Use: "home", Short: "Home folders whose owners are gone"}
 	openStore = dbflag.OrRegister(openStore, home.PersistentFlags())
+	cluster := wiring.ClusterFlag(home.PersistentFlags())
 	var orphans, yes bool
 	prune := &cobra.Command{
 		Use:   "prune --orphans [--yes]",
@@ -34,6 +36,12 @@ func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !orphans {
 				return errors.New("say what to prune: --orphans")
+			}
+			// An orphan is told by its claim, which only a cluster has.
+			if executor, onCluster, err := cluster(); err != nil {
+				return err
+			} else if !onCluster {
+				return fmt.Errorf("javo home prune needs executor kubernetes: with executor %s a home is a Docker volume or a folder, which this command cannot see (nothing was changed)", executor)
 			}
 			c, err := kubeclient.New(newClient)
 			if err != nil {

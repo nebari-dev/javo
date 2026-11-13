@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
+	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/storage/prepare"
@@ -43,6 +44,17 @@ var storageActor = model.Actor{System: model.SystemCLI}
 func New(openStore dbflag.Opener) *cobra.Command {
 	storage := &cobra.Command{Use: "storage", Short: "Check and test cluster storage"}
 	openStore = dbflag.OrRegister(openStore, storage.PersistentFlags())
+	// Every command here reads or asks for a cluster's storage: classes,
+	// claims, their sizes and the Jobs that move and probe them.
+	cluster := wiring.ClusterFlag(storage.PersistentFlags())
+	storage.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		if executor, onCluster, err := cluster(); err != nil {
+			return err
+		} else if !onCluster {
+			return fmt.Errorf("javo storage %s needs executor kubernetes: with executor %s homes are Docker volumes or folders, with no size, no group folders and no move to other storage (nothing was changed)", cmd.Name(), executor)
+		}
+		return nil
+	}
 	storage.AddCommand(newProbeStepCmd())
 	storage.AddCommand(newPrepareCmd())
 	storage.AddCommand(newCopyCmd())

@@ -3,6 +3,7 @@ package usercmd
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -319,5 +320,52 @@ func TestUserRemoveDeletesTheirSecrets(t *testing.T) {
 	}
 	if list, _ := e.db.Secrets().List(context.Background(), local.UserID("alice")); len(list) != 0 {
 		t.Fatalf("left %+v", list)
+	}
+}
+
+// dockerInstall is the config file of an install that runs apps on
+// Docker, for the --config of a command.
+func dockerInstall(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "auth:\n  local:\n    enabled: true\nexecutor: docker\nkeysDir: /var/lib/javo/keys\ndocker:\n  gateway: javo\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// Where apps do not run on Kubernetes a home is a Docker volume or a
+// folder, and there is no cluster to ask: removing a person forgets
+// their home without one, and --delete-home is refused before anything
+// is removed, since this command never removes a volume or a folder.
+func TestUserRemoveWithoutAClusterForgetsTheHomeAndNeverDeletesIt(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	config := dockerInstall(t)
+	if _, _, err := runUserAdd(t, e, "alice", "--password-file", filepath.Join(t.TempDir(), "alice")); err != nil {
+		t.Fatal(err)
+	}
+	owner := local.UserID("alice")
+	if _, err := e.db.Homes().Ensure(ctx, "javo-apps", owner, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Any use of a cluster fails the command.
+	noCluster := func() (client.Client, error) { return nil, errors.New("there is no cluster here") }
+	run := func(args ...string) (string, error) {
+		return clitest.Run(New(noCluster, clitest.Opener(t, e.db)), append([]string{"user", "remove", "alice", "--config", config}, args...)...)
+	}
+	out, err := run("--delete-home")
+	if err == nil || !strings.Contains(err.Error(), "--delete-home is not available with executor docker") {
+		t.Fatalf("--delete-home: %v\n%s", err, out)
+	}
+	if _, err := e.users().Lookup(ctx, "alice"); err != nil {
+		t.Fatalf("the refused command removed the account: %v", err)
+	}
+	if out, err := run(); err != nil || !strings.Contains(out, "home forgotten (its files are kept)") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if left, _ := e.db.Homes().ListByOwner(ctx, owner); len(left) != 0 {
+		t.Fatalf("home rows left: %+v", left)
 	}
 }
