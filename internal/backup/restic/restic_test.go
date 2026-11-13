@@ -217,7 +217,7 @@ func TestFailuresNameTheirReason(t *testing.T) {
 	// restic keeps retrying an address that does not answer; the caller's
 	// deadline ends it, and that is the bucket being unreachable.
 	gone := restic.Target{Endpoint: "http://127.0.0.1:1", Bucket: "b", AccessKeyID: "a", SecretAccessKey: "s", Password: "p"}.Repo(restictest.Bin(t), "x")
-	short, cancel := context.WithTimeout(ctx, 3*time.Second)
+	short, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if _, err := gone.Snapshots(short); !errors.As(err, &re) || re.Code != reasons.BackupUnreachable {
 		t.Fatalf("unreachable bucket: %v", err)
@@ -306,6 +306,9 @@ func TestChangePasswordKeepsTheDataUnderTheNewPasswordOnly(t *testing.T) {
 	if err := old.ChangePassword(ctx, "new-password"); err != nil {
 		t.Fatal(err)
 	}
+	// The key restic made for the new password costs what a real one
+	// does on every command; the checks below need only its password.
+	restictest.Cheapen(t, old.URL, "new-password")
 	var re *restic.Error
 	if err := old.Opens(ctx); !errors.As(err, &re) || re.Code != reasons.BackupWrongPassword {
 		t.Fatalf("the old password still opens it: %v", err)

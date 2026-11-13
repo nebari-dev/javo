@@ -57,6 +57,10 @@ func TestRekeyMovesARepositoryToItsNamespacesPassword(t *testing.T) {
 		if err := backup.Rekey(ctx, master, pw); err != nil {
 			t.Fatal(err)
 		}
+		// The key restic made for the namespace's password costs what a
+		// real one does on every command; what follows needs only its
+		// password.
+		restictest.Cheapen(t, master.URL, pw)
 	}
 	if err := master.Opens(ctx); !wrongPassword(err) {
 		t.Fatalf("the backup password still opens the repository: %v", err)
