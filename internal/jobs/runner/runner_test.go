@@ -16,9 +16,6 @@ import (
 	"testing"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/nebari-dev/javo/internal/core/registry"
@@ -27,6 +24,7 @@ import (
 	"github.com/nebari-dev/javo/internal/jobs/engines/papermill"
 	"github.com/nebari-dev/javo/internal/jobs/runner"
 	jobstatus "github.com/nebari-dev/javo/internal/jobs/status"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 type call struct {
@@ -459,11 +457,7 @@ func TestTerminationMessageReadsBackAsTheRunsFailure(t *testing.T) {
 	runner.Run(t.Context(), h.cfg(t, "r"), runner.Spec{Definition: "d", Engine: "command", Command: []string{"x"}})
 	_, raw := h.termination(t)
 
-	job := &batchv1.Job{Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{
-		{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"}}}}
-	pod := corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "app",
-		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 3, Message: string(raw)}}}}}}
-	run := jobstatus.DeriveRun(job, []corev1.Pod{pod}, nil, metav1.Now().Time)
+	run := jobstatus.DeriveRun(&workload.State{Run: &workload.RunState{Done: true, Attempts: 1, Message: string(raw)}})
 	if run.Outcome != "Failed" || run.Reason != "CommandFailed" {
 		t.Errorf("run = %+v, want Failed/CommandFailed", run)
 	}

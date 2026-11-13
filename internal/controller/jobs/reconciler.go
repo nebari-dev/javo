@@ -33,6 +33,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/jobs/schedule"
 	jobstatus "github.com/nebari-dev/javo/internal/jobs/status"
@@ -557,7 +558,7 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, now time.Ti
 				return nil, err
 			}
 		}
-		run, err := r.deriveRun(ctx, k, now)
+		run, err := r.deriveRun(ctx, k)
 		if err != nil {
 			return nil, err
 		}
@@ -631,9 +632,10 @@ func sameRun(old, next model.Run) bool {
 		old.StartTime.Equal(next.StartTime) && old.FinishTime.Equal(next.FinishTime)
 }
 
-// deriveRun is DeriveRun with the Job's pods and (while it runs) their events.
+// deriveRun is DeriveRun of what the cluster shows of the Job: its pods and
+// (while it runs) their events.
 // A Job that is being deleted while still active was cancelled.
-func (r *Reconciler) deriveRun(ctx context.Context, job *batchv1.Job, now time.Time) (model.Run, error) {
+func (r *Reconciler) deriveRun(ctx context.Context, job *batchv1.Job) (model.Run, error) {
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods, client.InNamespace(job.Namespace), client.MatchingLabels{LabelJobName: job.Name}); err != nil {
 		return model.Run{}, err
@@ -648,7 +650,7 @@ func (r *Reconciler) deriveRun(ctx context.Context, job *batchv1.Job, now time.T
 			evs = append(evs, e...)
 		}
 	}
-	run := jobstatus.DeriveRun(job, pods.Items, evs, now)
+	run := jobstatus.DeriveRun(kube.ObserveRun(kube.SeenRun{Job: job, Pods: pods.Items, Events: evs}))
 	if !job.DeletionTimestamp.IsZero() && run.Outcome == model.RunOutcomeRunning {
 		run.Outcome, run.Reason, run.Message = model.RunOutcomeCancelled, string(reasons.RunCancelled), ""
 		run.FinishTime = job.DeletionTimestamp.Time
