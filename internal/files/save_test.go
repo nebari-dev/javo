@@ -9,8 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -82,7 +80,7 @@ func (s stubRemote) UploadStream(ctx context.Context, addr, dir, name string, r 
 	return s.Upload(ctx, addr, dir, name, data)
 }
 
-// The tree holds no folder moves; memRemote (unpack_test.go) does.
+// The tree holds no folder moves; memRemote (homes_test.go) does.
 func (stubRemote) MoveDir(context.Context, string, string, string) error {
 	return errors.New("stubRemote: no MoveDir")
 }
@@ -93,15 +91,20 @@ func (stubRemote) Purge(context.Context, string, string) error {
 
 var mod = time.Date(2026, 10, 30, 19, 22, 27, 123, time.UTC)
 
-// editTree is a home with notes/a.py (a real file), a symlink "link.py" in
-// notes (rclone lists it nowhere, stat reports it as a non-folder) and a
-// symlinked folder "out" (stat reports a non-folder).
+// editTree is editHome as a stubRemote, without the links.
 func editTree() stubRemote {
 	return stubRemote{
-		"":          {{Name: "notes", IsDir: true}, {Name: "out", Size: 4, ModTime: mod}},
+		"":          {{Name: "notes", IsDir: true}},
 		"notes":     {{Name: "a.py", Size: 3, ModTime: mod}, {Name: "sub", IsDir: true}},
 		"notes/sub": {},
 	}
+}
+
+// editHome is a home with notes/a.py (a real file) and the folder
+// notes/sub. Tests add notes/link.py, a symlink in place of a file, and
+// out, one in place of a folder.
+func editHome() map[string][]byte {
+	return map[string][]byte{"notes/a.py": []byte("abc"), "notes/sub/keep.txt": []byte("keep")}
 }
 
 func versionOf(t *testing.T, l *files.Lister, rel string) string {
@@ -115,152 +118,138 @@ func versionOf(t *testing.T, l *files.Lister, rel string) string {
 }
 
 func TestSaveWritesTheFileWhenItIsTheVersionTheEditorRead(t *testing.T) {
-	tree := editTree()
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	v := versionOf(t, l, "notes/a.py")
-	info, err := l.Save(context.Background(), owner, "notes/a.py", []byte("print(2)\n"), v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Size != 9 || !info.ModTime.Equal(uploadedAt) || info.Version() == v || info.Version() != versionOf(t, l, "notes/a.py") {
-		t.Fatalf("info = %+v (version %q, was %q)", info, info.Version(), v)
-	}
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		l := listerOf(h)
+		v := versionOf(t, l, "notes/a.py")
+		info, err := l.Save(context.Background(), owner, "notes/a.py", []byte("print(2)\n"), v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Name != "a.py" || info.Size != 9 || info.Version() == v || info.Version() != versionOf(t, l, "notes/a.py") {
+			t.Fatalf("info = %+v (version %q, was %q)", info, info.Version(), v)
+		}
+		if got := h.tree()["notes/a.py"]; string(got) != "print(2)\n" {
+			t.Fatalf("a.py = %q", got)
+		}
+	})
 }
 
 func TestSaveRefusesAFileThatChangedSinceItWasRead(t *testing.T) {
-	tree := editTree()
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	v := versionOf(t, l, "notes/a.py")
-	if _, err := l.Save(context.Background(), owner, "notes/a.py", []byte("first\n"), v); err != nil {
-		t.Fatal(err)
-	}
-	_, err := l.Save(context.Background(), owner, "notes/a.py", []byte("second\n"), v)
-	if !errors.Is(err, files.ErrChanged) {
-		t.Fatalf("err = %v, want ErrChanged", err)
-	}
-	if tree["notes"][0].Size != int64(len("first\n")) {
-		t.Fatalf("the second save was written: %+v", tree["notes"][0])
-	}
-}
-
-// linkRemote adds symlinks to a tree as rclone sees them: no listing shows
-// them, stat reports them as non-folders.
-type linkRemote struct {
-	stubRemote
-	links []string
-}
-
-func (r linkRemote) Stat(ctx context.Context, addr, fs, remote string) (files.Entry, error) {
-	if slices.Contains(r.links, remote) {
-		return files.Entry{Name: path.Base(remote), Size: 12}, nil
-	}
-	return r.stubRemote.Stat(ctx, addr, fs, remote)
-}
-
-// The home holds notes/link.py, a symlink to a file, and out, a symlink to
-// a folder: a save through either would write outside the home.
-func TestSaveNeverWritesThroughASymlinkOrIntoAFolder(t *testing.T) {
-	tree := editTree()
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, linkRemote{tree, []string{"notes/link.py", "out"}})
-	for _, tc := range []struct{ rel, version string }{
-		{"notes/link.py", "12-0"},
-		{"notes/link.py", ""},
-		{"out/x.py", ""},
-		{"out/x.py", "3-0"},
-		{"notes/sub", ""},
-		{"notes/sub", "0-0"},
-		{"notes/nope/x.py", ""},
-		{"", ""},
-	} {
-		if _, err := l.Save(context.Background(), owner, tc.rel, []byte("x"), tc.version); err == nil {
-			t.Errorf("Save(%q, %q) wrote", tc.rel, tc.version)
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		l := listerOf(h)
+		v := versionOf(t, l, "notes/a.py")
+		if _, err := l.Save(context.Background(), owner, "notes/a.py", []byte("first\n"), v); err != nil {
+			t.Fatal(err)
 		}
-	}
-	if !reflect.DeepEqual(tree, editTree()) {
-		t.Fatalf("tree changed: %v", tree)
-	}
+		_, err := l.Save(context.Background(), owner, "notes/a.py", []byte("second\n"), v)
+		if !errors.Is(err, files.ErrChanged) {
+			t.Fatalf("err = %v, want ErrChanged", err)
+		}
+		if got := h.tree()["notes/a.py"]; string(got) != "first\n" {
+			t.Fatalf("the second save was written: %q", got)
+		}
+	})
+}
+
+// The home holds notes/link.py, a symlink in place of a file, and out, a
+// symlink in place of a folder: a save through either would write outside
+// the home.
+func TestSaveNeverWritesThroughASymlinkOrIntoAFolder(t *testing.T) {
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		h.link("notes/link.py")
+		h.link("out")
+		l := listerOf(h)
+		for _, tc := range []struct{ rel, version string }{
+			{"notes/link.py", "12-0"},
+			{"notes/link.py", ""},
+			{"out/x.py", ""},
+			{"out/x.py", "3-0"},
+			{"notes/sub", ""},
+			{"notes/sub", "0-0"},
+			{"notes/nope/x.py", ""},
+			{"", ""},
+		} {
+			if _, err := l.Save(context.Background(), owner, tc.rel, []byte("x"), tc.version); err == nil {
+				t.Errorf("Save(%q, %q) wrote", tc.rel, tc.version)
+			}
+		}
+		assertNothingWritten(t, h, editHome())
+	})
 }
 
 func TestSaveCreatesANewFileOnlyWhereNothingIs(t *testing.T) {
-	tree := editTree()
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, linkRemote{tree, []string{"notes/link.py"}})
-	info, err := l.Save(context.Background(), owner, "notes/sub/new.md", nil, "")
-	if err != nil || info.Name != "new.md" || info.Size != 0 {
-		t.Fatalf("create = %+v, %v", info, err)
-	}
-	for _, rel := range []string{"notes/sub/new.md", "notes/a.py", "notes/link.py", "notes/sub"} {
-		if _, err := l.Save(context.Background(), owner, rel, []byte("x"), ""); !errors.Is(err, files.ErrExists) {
-			t.Errorf("create over %q: err = %v, want ErrExists", rel, err)
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		h.link("notes/link.py")
+		l := listerOf(h)
+		info, err := l.Save(context.Background(), owner, "notes/sub/new.md", nil, "")
+		if err != nil || info.Name != "new.md" || info.Size != 0 {
+			t.Fatalf("create = %+v, %v", info, err)
 		}
-	}
+		for _, rel := range []string{"notes/sub/new.md", "notes/a.py", "notes/link.py", "notes/sub"} {
+			if _, err := l.Save(context.Background(), owner, rel, []byte("x"), ""); !errors.Is(err, files.ErrExists) {
+				t.Errorf("create over %q: err = %v, want ErrExists", rel, err)
+			}
+		}
+		if h.escaped() {
+			t.Error("went through a link")
+		}
+	})
 }
 
 func TestSaveRefusesWhatIsNotTextOrTooLong(t *testing.T) {
-	tree := editTree()
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	v := versionOf(t, l, "notes/a.py")
-	for name, data := range map[string][]byte{
-		"NUL byte":      []byte("a\x00b"),
-		"invalid UTF-8": {0xff, 0xfe, 'a'},
-	} {
-		if _, err := l.Save(context.Background(), owner, "notes/a.py", data, v); !errors.Is(err, files.ErrNotText) {
-			t.Errorf("%s: err = %v, want ErrNotText", name, err)
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		l := listerOf(h)
+		v := versionOf(t, l, "notes/a.py")
+		for name, data := range map[string][]byte{
+			"NUL byte":      []byte("a\x00b"),
+			"invalid UTF-8": {0xff, 0xfe, 'a'},
+		} {
+			if _, err := l.Save(context.Background(), owner, "notes/a.py", data, v); !errors.Is(err, files.ErrNotText) {
+				t.Errorf("%s: err = %v, want ErrNotText", name, err)
+			}
 		}
-	}
-	if _, err := l.Save(context.Background(), owner, "notes/a.py", bytes.Repeat([]byte("a"), files.MaxEditBytes+1), v); !errors.Is(err, files.ErrTooLarge) {
-		t.Errorf("too long: err = %v, want ErrTooLarge", err)
-	}
-	if !reflect.DeepEqual(tree, editTree()) {
-		t.Fatalf("tree changed: %v", tree)
-	}
-	if _, err := l.Save(context.Background(), owner, "notes/a.py", []byte("héllo ✓\n"), v); err != nil {
-		t.Fatalf("UTF-8 text: %v", err)
-	}
-}
-
-// gatedRemote holds every upload until release is closed.
-type gatedRemote struct {
-	stubRemote
-	entered chan struct{}
-	release chan struct{}
-}
-
-func (g gatedRemote) Upload(ctx context.Context, addr, dir, name string, data []byte) error {
-	g.entered <- struct{}{}
-	<-g.release
-	return g.stubRemote.Upload(ctx, addr, dir, name, data)
+		if _, err := l.Save(context.Background(), owner, "notes/a.py", bytes.Repeat([]byte("a"), files.MaxEditBytes+1), v); !errors.Is(err, files.ErrTooLarge) {
+			t.Errorf("too long: err = %v, want ErrTooLarge", err)
+		}
+		assertNothingWritten(t, h, editHome())
+		if _, err := l.Save(context.Background(), owner, "notes/a.py", []byte("héllo ✓\n"), v); err != nil {
+			t.Fatalf("UTF-8 text: %v", err)
+		}
+	})
 }
 
 // Two saves of the same version at once (two tabs): one is written, the
 // other is told the file changed, never both written.
 func TestSaveOfTheSameVersionAtOnceWritesOnlyOne(t *testing.T) {
-	g := gatedRemote{editTree(), make(chan struct{}, 2), make(chan struct{})}
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, g)
-	v := versionOf(t, l, "notes/a.py")
-	errs := make(chan error, 2)
-	save := func(text string) {
-		_, err := l.Save(context.Background(), owner, "notes/a.py", []byte(text), v)
-		errs <- err
-	}
-	go save("first\n")
-	<-g.entered
-	go save("second\n")
-	time.Sleep(50 * time.Millisecond) // the second save gets as far as it can
-	close(g.release)
-	var changed, ok int
-	for range 2 {
-		switch err := <-errs; {
-		case err == nil:
-			ok++
-		case errors.Is(err, files.ErrChanged):
-			changed++
-		default:
-			t.Fatal(err)
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		g := gate(h)
+		l := files.NewLister(stubEnsurer{addr: h.addr()}, g)
+		v := versionOf(t, l, "notes/a.py")
+		errs := make(chan error, 2)
+		save := func(text string) {
+			_, err := l.Save(context.Background(), owner, "notes/a.py", []byte(text), v)
+			errs <- err
 		}
-	}
-	if ok != 1 || changed != 1 {
-		t.Fatalf("%d written, %d refused; want one each", ok, changed)
-	}
+		go save("first\n")
+		<-g.entered
+		go save("second\n")
+		time.Sleep(50 * time.Millisecond) // the second save gets as far as it can
+		close(g.release)
+		var changed, ok int
+		for range 2 {
+			switch err := <-errs; {
+			case err == nil:
+				ok++
+			case errors.Is(err, files.ErrChanged):
+				changed++
+			default:
+				t.Fatal(err)
+			}
+		}
+		if ok != 1 || changed != 1 {
+			t.Fatalf("%d written, %d refused; want one each", ok, changed)
+		}
+	})
 }
 
 // ownerUID is the uid the owner's apps run as, and so their file pod.
@@ -382,24 +371,26 @@ func TestSaveOfOnePersonNeverWaitsForAnothersSlowSave(t *testing.T) {
 // A save waiting behind another save of the same file gives up when its
 // request ends, instead of holding the request open until the first is done.
 func TestSaveWaitingForTheSameFileStopsWhenTheRequestEnds(t *testing.T) {
-	g := gatedRemote{editTree(), make(chan struct{}, 2), make(chan struct{})}
-	defer close(g.release)
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, g)
-	go func() { _, _ = l.Save(context.Background(), owner, "notes/new.md", []byte("a"), "") }()
-	<-g.entered
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		_, err := l.Save(ctx, owner, "notes/new.md", []byte("b"), "")
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	eachHome(t, editHome(), func(t *testing.T, h testHome) {
+		g := gate(h)
+		defer close(g.release)
+		l := files.NewLister(stubEnsurer{addr: h.addr()}, g)
+		go func() { _, _ = l.Save(context.Background(), owner, "notes/new.md", []byte("a"), "") }()
+		<-g.entered
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			_, err := l.Save(ctx, owner, "notes/new.md", []byte("b"), "")
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("the waiting save ignored its ended request")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("the waiting save ignored its ended request")
-	}
+	})
 }

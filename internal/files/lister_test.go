@@ -894,33 +894,37 @@ func TestUsageOfAnEnforcedHomeCarriesTheNumbers(t *testing.T) {
 }
 
 func TestListerListsFolder(t *testing.T) {
-	tree := stubRemote{
-		"":         {{Name: "Data", IsDir: true}},
-		"Data":     {{Name: "sub", IsDir: true}},
-		"Data/sub": {{Name: "x.csv", Size: 3}},
-	}
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	got, err := l.List(context.Background(), owner, "Data/sub")
-	if err != nil || len(got.Entries) != 1 || got.Entries[0].Name != "x.csv" {
-		t.Fatalf("List = %+v, %v", got, err)
-	}
+	eachHome(t, map[string][]byte{"Data/sub/x.csv": []byte("abc")}, func(t *testing.T, h testHome) {
+		got, err := listerOf(h).List(context.Background(), owner, "Data/sub")
+		if err != nil || got.Truncated || len(got.Entries) != 1 || got.Entries[0].Name != "x.csv" || got.Entries[0].Size != 3 || got.Entries[0].IsDir {
+			t.Fatalf("List = %+v, %v", got, err)
+		}
+		got, err = listerOf(h).List(context.Background(), owner, "")
+		if err != nil || len(got.Entries) != 1 || got.Entries[0].Name != "Data" || !got.Entries[0].IsDir {
+			t.Fatalf("List of the home = %+v, %v", got, err)
+		}
+	})
 }
 
 // rclone skips symlinks in listings but follows one named directly, so every
-// folder on the path must appear as a real folder in its parent's listing.
+// folder on the path must be a real folder.
 func TestListerRefusesFoldersNotListedInParent(t *testing.T) {
-	tree := stubRemote{
-		"":          {{Name: "Data", IsDir: true}, {Name: "notes.txt"}},
-		"link":      {{Name: "etc", IsDir: true}},
-		"link/etc":  {{Name: "passwd"}},
-		"notes.txt": {},
-	}
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	for _, p := range []string{"link", "link/etc", "notes.txt"} {
-		if _, err := l.List(context.Background(), owner, p); !errors.Is(err, files.ErrNotFound) {
-			t.Errorf("List(%q) err = %v, want ErrNotFound", p, err)
+	eachHome(t, map[string][]byte{"Data/x.csv": []byte("abc"), "notes.txt": []byte("n")}, func(t *testing.T, h testHome) {
+		h.link("link")
+		l := listerOf(h)
+		for _, p := range []string{"link", "link/etc", "notes.txt", "nope"} {
+			if _, err := l.List(context.Background(), owner, p); !errors.Is(err, files.ErrNotFound) {
+				t.Errorf("List(%q) err = %v, want ErrNotFound", p, err)
+			}
 		}
-	}
+		got, err := l.List(context.Background(), owner, "")
+		if err != nil || len(got.Entries) != 2 {
+			t.Errorf("List of the home = %+v, %v; want Data and notes.txt, no link", got, err)
+		}
+		if h.escaped() {
+			t.Error("went through a link")
+		}
+	})
 }
 
 func TestListerPassesPodErrors(t *testing.T) {
@@ -1327,36 +1331,43 @@ func TestRcloneOpenMissingObjectIsNotFound(t *testing.T) {
 }
 
 func TestListerOpensAFileInTheHome(t *testing.T) {
-	mod := time.Date(2026, 10, 30, 19, 22, 27, 0, time.UTC)
-	tree := stubRemote{
-		"":     {{Name: "jobs", IsDir: true}},
-		"jobs": {{Name: "out.html", Size: 12, ModTime: mod}},
-	}
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	rc, info, err := l.Open(context.Background(), owner, "jobs/out.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rc.Close()
-	body, _ := io.ReadAll(rc)
-	if string(body) != "content of jobs/out.html" || info.Name != "out.html" || info.Size != 12 || !info.ModTime.Equal(mod) {
-		t.Fatalf("got %q, %+v", body, info)
-	}
+	eachHome(t, map[string][]byte{"jobs/out.html": []byte("hello, world")}, func(t *testing.T, h testHome) {
+		l := listerOf(h)
+		rc, info, err := l.Open(context.Background(), owner, "jobs/out.html")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rc.Close()
+		body, _ := io.ReadAll(rc)
+		listed, err := l.List(context.Background(), owner, "jobs")
+		if err != nil || len(listed.Entries) != 1 {
+			t.Fatalf("List = %+v, %v", listed, err)
+		}
+		if string(body) != "hello, world" || info.Name != "out.html" || info.Size != 12 || !info.ModTime.Equal(listed.Entries[0].ModTime) {
+			t.Fatalf("got %q, %+v; listed %+v", body, info, listed.Entries[0])
+		}
+	})
 }
 
 // rclone skips symlinks in listings but serves one named directly, so only a
-// name the parent's listing shows as a file may be opened.
+// name that is a real file may be opened.
 func TestListerOpenRefusesWhatTheListingDoesNotShowAsAFile(t *testing.T) {
-	tree := stubRemote{
-		"":     {{Name: "jobs", IsDir: true}},
-		"jobs": {{Name: "sub", IsDir: true}, {Name: "ok.txt", Size: 1}},
-	}
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	for _, rel := range []string{"jobs/link", "jobs/sub", "jobs/nope/x.txt", "", "jobs"} {
-		if _, _, err := l.Open(context.Background(), owner, rel); !errors.Is(err, files.ErrNotFound) {
-			t.Errorf("Open(%q) err = %v, want ErrNotFound", rel, err)
+	eachHome(t, map[string][]byte{"jobs/sub/x.txt": []byte("x"), "jobs/ok.txt": []byte("1")}, func(t *testing.T, h testHome) {
+		h.link("jobs/link")
+		h.link("out")
+		l := listerOf(h)
+		for _, rel := range []string{"jobs/link", "jobs/link/secret.txt", "out/secret.txt", "jobs/sub", "jobs/nope/x.txt", "jobs/nope.txt", "", "jobs"} {
+			if rc, _, err := l.Open(context.Background(), owner, rel); !errors.Is(err, files.ErrNotFound) {
+				t.Errorf("Open(%q) err = %v, want ErrNotFound", rel, err)
+				if err == nil {
+					rc.Close()
+				}
+			}
 		}
-	}
+		if h.escaped() {
+			t.Error("went through a link")
+		}
+	})
 }
 
 func TestListerOpenRefusesFilesOverTheCap(t *testing.T) {
@@ -1372,43 +1383,28 @@ func TestListerOpenRefusesFilesOverTheCap(t *testing.T) {
 	rc.Close()
 }
 
-// cutRemote lists only the first entry of every folder and says so, like a
-// folder past files.MaxEntries; every other call sees the whole tree.
-type cutRemote struct{ stubRemote }
-
-func (c cutRemote) List(ctx context.Context, addr, fs, remote string) (files.Listing, error) {
-	l, err := c.stubRemote.List(ctx, addr, fs, remote)
-	if err == nil && len(l.Entries) > 1 {
-		l.Entries, l.Truncated = l.Entries[:1], true
-	}
-	return l, err
-}
-
 // A job on a short cron fills its runs folder past the listing cap; a file or
 // folder beyond the cut still exists.
 func TestListerFindsNamesBeyondATruncatedListing(t *testing.T) {
-	tree := cutRemote{stubRemote{
-		"":              {{Name: "jobs", IsDir: true}},
-		"jobs":          {{Name: "run-1", IsDir: true}, {Name: "run-2", IsDir: true}},
-		"jobs/run-2":    {{Name: "a.log"}, {Name: "output.html", Size: 7}},
-		"jobs/run-2/sx": {},
-	}}
-	l := files.NewLister(stubEnsurer{addr: "10.0.0.5:5572"}, tree)
-	rc, info, err := l.Open(context.Background(), owner, "jobs/run-2/output.html")
-	if err != nil {
-		t.Fatalf("Open beyond the cut: %v", err)
-	}
-	rc.Close()
-	if info.Name != "output.html" || info.Size != 7 {
-		t.Fatalf("info = %+v", info)
-	}
-	got, err := l.List(context.Background(), owner, "jobs/run-2")
-	if err != nil || !got.Truncated || len(got.Entries) != 1 {
-		t.Fatalf("List of a folder beyond the cut = %+v, %v", got, err)
-	}
-	if _, _, err := l.Open(context.Background(), owner, "jobs/run-2/missing.html"); !errors.Is(err, files.ErrNotFound) {
-		t.Fatalf("missing file err = %v, want ErrNotFound", err)
-	}
+	home := map[string][]byte{"jobs/run-1/a.log": nil, "jobs/run-2/a.log": nil, "jobs/run-2/output.html": []byte("1234567")}
+	eachHome(t, home, func(t *testing.T, h testHome) {
+		l := files.NewLister(stubEnsurer{addr: h.addr()}, cut{h})
+		rc, info, err := l.Open(context.Background(), owner, "jobs/run-2/output.html")
+		if err != nil {
+			t.Fatalf("Open beyond the cut: %v", err)
+		}
+		rc.Close()
+		if info.Name != "output.html" || info.Size != 7 {
+			t.Fatalf("info = %+v", info)
+		}
+		got, err := l.List(context.Background(), owner, "jobs/run-2")
+		if err != nil || !got.Truncated || len(got.Entries) != 1 {
+			t.Fatalf("List of a folder beyond the cut = %+v, %v", got, err)
+		}
+		if _, _, err := l.Open(context.Background(), owner, "jobs/run-2/missing.html"); !errors.Is(err, files.ErrNotFound) {
+			t.Fatalf("missing file err = %v, want ErrNotFound", err)
+		}
+	})
 }
 
 func TestRcloneStatReportsAnEntryOrNotFound(t *testing.T) {
