@@ -145,6 +145,11 @@ func failure(seen *workload.RunState, term *Termination) (outcome, reason, messa
 	if seen.Attempts == 0 {
 		return "Lost", string(reasons.RunLost), "The run's machine went away before it reported a result."
 	}
+	if seen.Why != "" {
+		// What the executor saw of it: a unit that did not start, a step
+		// that failed before the runner ran.
+		return "Lost", string(reasons.RunLost), "The run stopped without reporting a result: " + seen.Why + "."
+	}
 	return "Lost", string(reasons.RunLost), "The run stopped without reporting a result."
 }
 

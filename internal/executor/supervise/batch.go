@@ -30,9 +30,11 @@ type record struct {
 
 	Done, Succeeded, Stopped, TimedOut bool
 	Finished                           time.Time
-	// OutOfMemory and Message are about the newest attempt that ended.
+	// OutOfMemory, Message and Why are about the newest attempt that
+	// ended: Why is how it failed, in one line.
 	OutOfMemory bool
 	Message     string
+	Why         string
 }
 
 // keepTime is how long keeping a record or reading a message may take
@@ -132,8 +134,13 @@ func (s *Supervisor) batch(ctx context.Context, w *work, found *Found) {
 			a = s.attempt(limited, w, nil)
 		}
 		found = nil
-		s.update(w, func() { w.run.Message = a.message })
 		f := a.failure
+		s.update(w, func() {
+			w.run.Message, w.run.Why = a.message, ""
+			if f != nil {
+				w.run.Why = f.what
+			}
+		})
 		if f == nil {
 			// It ended well before anything could end it.
 			end(func(r *record) { r.Succeeded = true })
@@ -323,7 +330,7 @@ func (w *work) runState() *workload.State {
 		Handle: w.spec.Ref.Name, Manual: b.Slot.IsZero(), Slot: b.Slot,
 		Started: r.Started, Done: r.Done, Succeeded: r.Succeeded, Finished: r.Finished,
 		Stopped: r.Stopped, TimedOut: r.TimedOut,
-		Attempts: r.Attempts, OutOfMemory: r.OutOfMemory, Message: r.Message,
+		Attempts: r.Attempts, OutOfMemory: r.OutOfMemory, Message: r.Message, Why: r.Why,
 	}
 	for _, e := range w.spec.Main.Env {
 		if e.From != nil || e.RunID {

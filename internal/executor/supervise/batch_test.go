@@ -3,6 +3,7 @@ package supervise_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -396,5 +397,16 @@ func TestAdoptKeepsTheTimeLimitCounting(t *testing.T) {
 	}
 	if e.running(workload.MainUnit) != 0 {
 		t.Fatal("the main unit runs on")
+	}
+}
+
+// A run whose attempts ended before its runner could leave a message
+// (a step that fails) says how its newest attempt failed.
+func TestRunThatFailsWithoutAMessageSaysWhy(t *testing.T) {
+	e := &engine{}
+	e.plan("first", 12)
+	st := eventually(t, start(t, e, run(0, workload.Unit{Name: "first"})), "done", done)
+	if r := st.Run; r.Succeeded || r.Message != "" || !strings.Contains(r.Why, "unit first exited with code 12") {
+		t.Fatalf("run %+v, want it to say that its step failed", r)
 	}
 }

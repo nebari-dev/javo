@@ -85,6 +85,11 @@ type RunState struct {
 	Attempts    int
 	OutOfMemory bool
 	Message     string
+	// Why says in one line how the newest attempt failed, where the
+	// executor itself saw it (a unit that did not start, a step that
+	// exited with a code). Empty where the platform says nothing more
+	// than the above.
+	Why string
 }
 
 // Unanswered is a readiness check that has not passed yet.
