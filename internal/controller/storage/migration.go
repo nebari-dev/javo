@@ -17,9 +17,9 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/ext/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -622,11 +622,11 @@ func (r *MigrationReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.
 	if r.Store == nil || r.Reader == nil || r.UIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" || r.Storage.Folders == nil {
 		return errors.New("storage.MigrationReconciler needs Store, Reader, UIDs, Backends, Image and Storage")
 	}
-	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
-	everyHome := func(ctx context.Context, _ string) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
+	everyHome := func(ctx context.Context, _ string) ([]string, error) { return r.homeRequests(ctx, nil) }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-migration").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, everyHome)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), store.TableStorageSettings, everyHome)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).
+		WatchesRawSource(managed.Source(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, everyHome))).
+		WatchesRawSource(managed.Source(dbsource.Fan(feed.Subscribe(), store.TableStorageSettings, everyHome))).
 		Complete(r)
 }

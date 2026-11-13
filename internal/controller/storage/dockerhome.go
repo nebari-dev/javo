@@ -3,10 +3,9 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/loop"
@@ -44,29 +43,29 @@ type DockerHomeReconciler struct {
 // Reconcile makes the home's volume, hands it to its owner once, and
 // records it. A volume that is not labelled as this person's home leaves
 // the home not Ready with HomeClaimForeign and is never used.
-func (r *DockerHomeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	h, err := r.Store.Homes().Get(ctx, req.Name)
+func (r *DockerHomeReconciler) Reconcile(ctx context.Context, id string) (time.Duration, error) {
+	h, err := r.Store.Homes().Get(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return ctrl.Result{}, nil
+		return 0, nil
 	} else if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	base := h.DeepCopy()
 	b, err := r.step(ctx, &h)
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	h.Status.SizeEnforced = false
 	meta.SetStatusCondition(&h.Status.Conditions, readyCondition("The home is ready.", b))
 	if conflict, err := r.writeHome(ctx, &h, base); conflict {
-		return ctrl.Result{RequeueAfter: retryConflict}, nil
+		return retryConflict, nil
 	} else if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if b == nil {
-		return ctrl.Result{}, nil
+		return 0, nil
 	}
-	return ctrl.Result{RequeueAfter: b.retry}, nil
+	return b.retry, nil
 }
 
 // step does the work of one pass. It changes h in memory; Reconcile
@@ -104,18 +103,13 @@ func (r *DockerHomeReconciler) step(ctx context.Context, h *model.Home) (*blocke
 	return nil, nil
 }
 
-// SetupWithManager is Setup on a controller-runtime manager.
-func (r *DockerHomeReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	return r.Setup(loop.OnManager(mgr), feed)
-}
-
 // Setup reconciles homes on d when their rows change, as HomeReconciler
 // is set up. A Docker host has no manager: there d is a loop.Loop.
 func (r *DockerHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Volumes.Client == nil || r.Volumes.Image == "" || r.UIDs == nil {
 		return errors.New("storage.DockerHomeReconciler needs Store, Volumes and UIDs")
 	}
-	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
 	return d.Reconcile("storage-docker-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }
 
@@ -132,28 +126,23 @@ type NoFolderReconciler struct {
 }
 
 // Reconcile records that the folder is not offered.
-func (r *NoFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	got, err := r.Store.SharedFolders().Get(ctx, req.Name)
+func (r *NoFolderReconciler) Reconcile(ctx context.Context, id string) (time.Duration, error) {
+	got, err := r.Store.SharedFolders().Get(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return ctrl.Result{}, nil
+		return 0, nil
 	} else if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	f, base := &got, got.DeepCopy()
 	meta.SetStatusCondition(&f.Status.Conditions, readyCondition("", &blocked{
 		code: reasons.SharedFoldersUnavailable, evidence: []string{r.Why},
 	}))
 	if err := r.writeFolder(ctx, f, base); errors.Is(err, errRowChanged) {
-		return ctrl.Result{RequeueAfter: retryConflict}, nil
+		return retryConflict, nil
 	} else if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
-	return ctrl.Result{}, nil
-}
-
-// SetupWithManager is Setup on a controller-runtime manager.
-func (r *NoFolderReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	return r.Setup(loop.OnManager(mgr), feed)
+	return 0, nil
 }
 
 // Setup reconciles folders on d when their rows change.
@@ -161,6 +150,6 @@ func (r *NoFolderReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Why == "" {
 		return errors.New("storage.NoFolderReconciler needs Store and Why")
 	}
-	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.folderRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.folderRequests(ctx, nil) }
 	return d.Reconcile("storage-no-folder", r, dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all))
 }

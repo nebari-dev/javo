@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/executor/docker"
@@ -237,9 +236,7 @@ func (r *rig) reconcile(t *testing.T, who string) model.Home {
 	ctx := homesContext(t)
 	h, err := r.db.Homes().ByOwner(ctx, r.ns, who)
 	must(t, err)
-	req := reconcile.Request{}
-	req.Name = h.ID
-	_, err = r.rec.Reconcile(ctx, req)
+	_, err = r.rec.Reconcile(ctx, h.ID)
 	must(t, err)
 	h, err = r.db.Homes().Get(ctx, h.ID)
 	must(t, err)

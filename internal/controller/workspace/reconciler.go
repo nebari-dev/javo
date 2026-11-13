@@ -14,11 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/workqueue"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
@@ -211,26 +207,26 @@ type verdict struct {
 // Reconcile makes the app's workload match one app row (the request names
 // its id) and records derived status. The steps decide; the workload is
 // stopped and the status written here and nowhere else.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	app, err := r.Store.Apps().Get(ctx, req.Name)
+func (r *Reconciler) Reconcile(ctx context.Context, id string) (time.Duration, error) {
+	app, err := r.Store.Apps().Get(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		// Gone: what it left, if anything, is the sweep's.
-		return ctrl.Result{}, nil
+		return 0, nil
 	}
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if !app.DeletedAt.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &app)
+		return 0, r.finalize(ctx, &app)
 	}
 	ref := RefOf(&app)
 	have, err := r.Exec.Observe(ctx, ref)
 	if errors.Is(err, executor.ErrUnmanaged) {
 		log.FromContext(ctx).Info("ignoring app in a namespace the controller does not manage", "namespace", app.Namespace)
-		return ctrl.Result{RequeueAfter: unmanagedRetry}, nil
+		return unmanagedRetry, nil
 	}
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	appURL := r.Exposure.URLFor(app.Owner, app.Name, app.ObjectName())
 	p := &pass{app: &app, now: time.Now(), have: have, url: appURL.String()}
@@ -239,11 +235,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	var v verdict
 	for _, step := range []func(context.Context, *pass) (verdict, error){r.admit, r.house, r.run} {
 		if v, err = step(ctx, p); err != nil {
-			return ctrl.Result{}, err
+			return 0, err
 		}
 		if v.stop && p.have != nil {
 			if err := r.Exec.Stop(ctx, ref); err != nil {
-				return ctrl.Result{}, err
+				return 0, err
 			}
 			p.have = nil
 		}
@@ -264,15 +260,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	phase, conds, evidence := status.Derive(&app, p.obs)
 	if err := r.writeStatus(ctx, &app, phase, p.url, status.WithEvidence(conds, evidence), commit); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	switch {
 	case v.done:
-		return ctrl.Result{RequeueAfter: v.after}, nil
+		return v.after, nil
 	case p.blocked:
-		return ctrl.Result{RequeueAfter: r.policyRecheck()}, nil
+		return r.policyRecheck(), nil
 	}
-	return ctrl.Result{RequeueAfter: r.readyRecheck(p.have, phase, p.now)}, nil
+	return r.readyRecheck(p.have, phase, p.now), nil
 }
 
 // admit decides whether the app may run at all: not while it is held or
@@ -681,12 +677,6 @@ func (r *Reconciler) writeStatus(ctx context.Context, app *model.App, phase, url
 	return err
 }
 
-// SetupWithManager is Setup on a controller-runtime manager: the
-// controller on Kubernetes.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	return r.Setup(loop.OnManager(mgr), feed)
-}
-
 // Setup wires the controller on d: app rows (and the templates and people
 // they depend on) come from the database through feed; changes to their
 // workloads come from the executor. It also adds the orphan sweep. The
@@ -714,12 +704,13 @@ func (r *Reconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 
 // workloads feeds the controller the app of every workload the executor
 // saw change.
-func (r *Reconciler) workloads() source.TypedSource[reconcile.Request] {
-	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+func (r *Reconciler) workloads() loop.Source {
+	return loop.SourceFunc(func(ctx context.Context, enqueue func(id string)) error {
 		go func() {
 			err := r.Exec.Watch(ctx, func(ref workload.Ref) {
-				for _, req := range dbsource.Request(ref.ID) {
-					q.Add(req)
+				// A workload that lacks the row label names no row.
+				if ref.ID != "" {
+					enqueue(ref.ID)
 				}
 			})
 			if err != nil && ctx.Err() == nil {
@@ -734,20 +725,20 @@ func appID(a *model.App) string { return a.ID }
 
 // allApps lists every app row, also those marked deleted: they still have
 // objects to remove.
-func (r *Reconciler) allApps(ctx context.Context) ([]reconcile.Request, error) {
+func (r *Reconciler) allApps(ctx context.Context) ([]string, error) {
 	apps, err := r.Store.Apps().ListAll(ctx)
-	return dbsource.Requests(apps, appID, nil), err
+	return dbsource.IDs(apps, appID, nil), err
 }
 
 // appsOfTemplate is every app that runs the template, which just changed.
-func (r *Reconciler) appsOfTemplate(ctx context.Context, name string) ([]reconcile.Request, error) {
+func (r *Reconciler) appsOfTemplate(ctx context.Context, name string) ([]string, error) {
 	apps, err := r.Store.Apps().ListAll(ctx)
-	return dbsource.Requests(apps, appID, func(a *model.App) bool { return a.Template == name }), err
+	return dbsource.IDs(apps, appID, func(a *model.App) bool { return a.Template == name }), err
 }
 
 // appsOfHome is the apps of the home's owner in the home's namespace: a home
 // that becomes usable (or stops being) is news for them.
-func (r *Reconciler) appsOfHome(ctx context.Context, id string) ([]reconcile.Request, error) {
+func (r *Reconciler) appsOfHome(ctx context.Context, id string) ([]string, error) {
 	home, err := r.Store.Homes().Get(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
@@ -756,13 +747,13 @@ func (r *Reconciler) appsOfHome(ctx context.Context, id string) ([]reconcile.Req
 		return nil, err
 	}
 	apps, err := r.Store.Apps().List(ctx, home.Spec.Owner, true)
-	return dbsource.Requests(apps, appID, func(a *model.App) bool { return a.Namespace == home.Namespace }), err
+	return dbsource.IDs(apps, appID, func(a *model.App) bool { return a.Namespace == home.Namespace }), err
 }
 
 // appsOfPerson is the apps of the person whose row just changed: a new uid
 
 // releases the ones waiting for it.
-func (r *Reconciler) appsOfPerson(ctx context.Context, id string) ([]reconcile.Request, error) {
+func (r *Reconciler) appsOfPerson(ctx context.Context, id string) ([]string, error) {
 	person, err := r.Store.People(store.IDRange{}).ByID(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
@@ -771,5 +762,5 @@ func (r *Reconciler) appsOfPerson(ctx context.Context, id string) ([]reconcile.R
 		return nil, err
 	}
 	apps, err := r.Store.Apps().List(ctx, person.Name, false)
-	return dbsource.Requests(apps, appID, nil), err
+	return dbsource.IDs(apps, appID, nil), err
 }

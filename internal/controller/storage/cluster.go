@@ -19,9 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/storage/capability"
@@ -199,11 +199,11 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Fe
 	if r.Store == nil {
 		return errors.New("storage.ClusterReconciler: Store is required")
 	}
-	all := func(context.Context) ([]reconcile.Request, error) { return singleton, nil }
-	toSingletonRow := func(context.Context, string) ([]reconcile.Request, error) { return singleton, nil }
+	all := func(context.Context) ([]string, error) { return singletonID, nil }
+	toSingletonRow := func(context.Context, string) ([]string, error) { return singletonID, nil }
 	return ctrl.NewControllerManagedBy(mgr).Named("cluster-storage").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, toSingletonRow)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).
+		WatchesRawSource(managed.Source(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, toSingletonRow))).
 		Watches(&storagev1.StorageClass{}, toSingleton).
 		Watches(&storagev1.CSIDriver{}, toSingleton).
 		Watches(&storagev1.CSINode{}, toSingleton).

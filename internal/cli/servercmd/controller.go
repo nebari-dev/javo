@@ -31,6 +31,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/idle"
 	"github.com/nebari-dev/javo/internal/controller/jobs"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/controller/manager"
 	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/preview"
@@ -285,7 +286,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	appRec.Exec, appRec.Place, appRec.Storage, appRec.NetworkPolicy = apps, apps, appStorage, policy
 	appRec.Secrets = kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}
 	appRec.APIInternalURL, appRec.SecretKeys = gatewayBase(o.probe.controlURL), keys
-	if err := appRec.SetupWithManager(mgr, feed); err != nil {
+	if err := appRec.Setup(managed.Driver(mgr), feed); err != nil {
 		return err
 	}
 	// Always run: with the platform switch off it removes the previews that
@@ -304,7 +305,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	jobRec.Exec, jobRec.Legacy = runs, runs
 	jobRec.Secrets = kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), Runs: true}
 	jobRec.APIInternalURL, jobRec.SecretKeys = gatewayBase(o.probe.controlURL), keys
-	if err := jobRec.SetupWithManager(mgr, feed); err != nil {
+	if err := jobRec.Setup(managed.Driver(mgr), feed); err != nil {
 		return err
 	}
 	if err := o.setupStorage(mgr, feed, db, platform, probeNS, watched); err != nil {

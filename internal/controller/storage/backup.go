@@ -19,11 +19,11 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -744,9 +744,9 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Fee
 	if r.Store == nil || r.Reader == nil || r.UIDs == nil || r.Image.Ref == "" || r.Backups == nil || r.Backups.Rekey == nil || r.Storage.Homes == nil {
 		return errors.New("storage.BackupReconciler needs Store, Reader, UIDs, Image, Backups (with Rekey) and Storage")
 	}
-	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
+	all := func(ctx context.Context) ([]string, error) { return r.homeRequests(ctx, nil) }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-backup").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).
 		Complete(r)
 }
 
@@ -813,12 +813,12 @@ func (r *FolderBackupReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsour
 	if r.Store == nil || r.Reader == nil || r.Image.Ref == "" || r.Backups == nil || r.Backups.Rekey == nil {
 		return errors.New("storage.FolderBackupReconciler needs Store, Reader, Image and Backups (with Rekey)")
 	}
-	all := func(ctx context.Context) ([]reconcile.Request, error) {
+	all := func(ctx context.Context) ([]string, error) {
 		fs, err := r.Store.SharedFolders().List(ctx)
-		return dbsource.Requests(fs, func(f *model.SharedFolder) string { return f.ID }, nil), err
+		return dbsource.IDs(fs, func(f *model.SharedFolder) string { return f.ID }, nil), err
 	}
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-folder-backup").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all))).
 		Complete(r)
 }
 
@@ -930,8 +930,8 @@ func (f VolumeFinder) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) er
 	if f.Reader == nil || f.Store == nil {
 		return errors.New("storage.VolumeFinder needs Reader and Store")
 	}
-	one := func(context.Context) ([]reconcile.Request, error) { return singleton, nil }
+	one := func(context.Context) ([]string, error) { return singletonID, nil }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-volume-finder").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, one)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, one))).
 		Complete(f)
 }

@@ -7,8 +7,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 
@@ -80,7 +78,7 @@ func TestJobRefusesASecretLabelledForAnotherJob(t *testing.T) {
 	}
 	r := h.direct()
 	r.SecretKeys = h.rec.SecretKeys
-	if _, err := r.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: d.ID}}); err == nil || !strings.Contains(err.Error(), "does not belong") {
+	if _, err := r.Reconcile(bg, d.ID); err == nil || !strings.Contains(err.Error(), "does not belong") {
 		t.Fatalf("the reconcile used another job's Secret: %v", err)
 	}
 	got := h.k8sSecret(foreign.Name)

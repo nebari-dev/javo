@@ -1,6 +1,5 @@
-// Package dbsource turns the store's change feed into controller-runtime
-// sources, one per table. It is built on source.TypedChannel and has no work
-// queue of its own.
+// Package dbsource turns the store's change feed into sources of rows to
+// reconcile (loop.Source), one per table. It has no work queue of its own.
 package dbsource
 
 import (
@@ -9,13 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
+	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -23,25 +16,15 @@ import (
 // announcements, which covers a missed or dropped one.
 const DefaultResync = 5 * time.Minute
 
-// Request is the request for the row with this id (the requests of this
-// package name rows by id); none for an empty id, such as an object that
-// lacks the row label.
-func Request(id string) []reconcile.Request {
-	if id == "" {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: id}}}
-}
-
-// Requests is the requests for the rows keep accepts (all when keep is nil).
-func Requests[T any](rows []T, id func(*T) string, keep func(*T) bool) []reconcile.Request {
-	var reqs []reconcile.Request
+// IDs is the ids of the rows keep accepts (all when keep is nil).
+func IDs[T any](rows []T, id func(*T) string, keep func(*T) bool) []string {
+	var ids []string
 	for i := range rows {
 		if keep == nil || keep(&rows[i]) {
-			reqs = append(reqs, Request(id(&rows[i]))...)
+			ids = append(ids, id(&rows[i]))
 		}
 	}
-	return reqs
+	return ids
 }
 
 // subscriberBuffer is how many changes wait for one subscriber. A full buffer
@@ -89,68 +72,48 @@ func (f *Feed) Run(ctx context.Context) {
 	}
 }
 
-// For returns a source that enqueues a request named by the row id for each
-// change to table, and every request all lists on a Resync change and every
-// `every` (DefaultResync when zero or negative). A failing all is logged and
+// For returns a source that asks for the row a change to table names by
+// its id, and for every row all lists on a Resync change and every `every`
+// (DefaultResync when zero or negative). A failing all is logged and
 // retried at the next resync.
-func For(feed <-chan store.Change, table string, every time.Duration, all func(context.Context) ([]reconcile.Request, error)) source.TypedSource[reconcile.Request] {
+func For(feed <-chan store.Change, table string, every time.Duration, all func(context.Context) ([]string, error)) loop.Source {
 	if every <= 0 {
 		every = DefaultResync
 	}
-	return newSource(feed, table, every, all, func(_ context.Context, id string) ([]reconcile.Request, error) {
-		return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: id}}}, nil
-	})
+	return &tableSource{feed: feed, table: table, every: every, all: all,
+		expand: func(_ context.Context, id string) ([]string, error) { return []string{id}, nil }}
 }
 
 // Fan returns a source for a table other rows depend on (templates, people):
-// each change to it enqueues the requests expand names for the changed row's
+// each change to it asks for the rows expand names for the changed row's
 // id. It lists nothing on its own; the source of the dependent table already
 // resyncs those rows. A failing expand is logged and the change dropped, which
 // that resync covers.
-func Fan(feed <-chan store.Change, table string, expand func(ctx context.Context, id string) ([]reconcile.Request, error)) source.TypedSource[reconcile.Request] {
-	return newSource(feed, table, 0, nil, expand)
-}
-
-func newSource(feed <-chan store.Change, table string, every time.Duration, all func(context.Context) ([]reconcile.Request, error),
-	expand func(context.Context, string) ([]reconcile.Request, error)) source.TypedSource[reconcile.Request] {
-	events := make(chan event.TypedGenericEvent[reconcile.Request])
-	enqueue := handler.TypedFuncs[reconcile.Request, reconcile.Request]{
-		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[reconcile.Request], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.Add(e.Object)
-		},
-	}
-	return &tableSource{
-		inner: source.TypedChannel[reconcile.Request, reconcile.Request](events, enqueue),
-		feed:  feed, events: events, table: table, every: every, all: all, expand: expand,
-	}
+func Fan(feed <-chan store.Change, table string, expand func(ctx context.Context, id string) ([]string, error)) loop.Source {
+	return &tableSource{feed: feed, table: table, expand: expand}
 }
 
 type tableSource struct {
-	inner  source.TypedSource[reconcile.Request]
-	feed   <-chan store.Change
-	events chan event.TypedGenericEvent[reconcile.Request]
-	table  string
-	every  time.Duration
-	// all lists every request on a resync; nil means the source never resyncs.
-	all    func(context.Context) ([]reconcile.Request, error)
-	expand func(context.Context, string) ([]reconcile.Request, error)
+	feed  <-chan store.Change
+	table string
+	every time.Duration
+	// all lists every row on a resync; nil means the source never resyncs.
+	all    func(context.Context) ([]string, error)
+	expand func(context.Context, string) ([]string, error)
 }
 
 func (s *tableSource) String() string { return "database changes for " + s.table }
 
-func (s *tableSource) Start(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	if err := s.inner.Start(ctx, q); err != nil {
-		return err
-	}
-	go s.pump(ctx)
+func (s *tableSource) Start(ctx context.Context, enqueue func(id string)) error {
+	go s.pump(ctx, enqueue)
 	return nil
 }
 
-func (s *tableSource) pump(ctx context.Context) {
+func (s *tableSource) pump(ctx context.Context, enqueue func(id string)) {
 	// List everything once up front: rows changed while no controller was
 	// running, or announcements dropped before this one took over, are only
 	// in the table.
-	s.resync(ctx)
+	s.resync(ctx, enqueue)
 	var ticks <-chan time.Time
 	if s.all != nil {
 		tick := time.NewTicker(s.every)
@@ -164,44 +127,37 @@ func (s *tableSource) pump(ctx context.Context) {
 		case c := <-s.feed:
 			switch c.Table {
 			case s.table:
-				s.change(ctx, c.ID)
+				s.change(ctx, c.ID, enqueue)
 			case store.TableResync:
-				s.resync(ctx)
+				s.resync(ctx, enqueue)
 			}
 		case <-ticks:
-			s.resync(ctx)
+			s.resync(ctx, enqueue)
 		}
 	}
 }
 
-func (s *tableSource) change(ctx context.Context, id string) {
-	reqs, err := s.expand(ctx, id)
+func (s *tableSource) change(ctx context.Context, id string, enqueue func(id string)) {
+	ids, err := s.expand(ctx, id)
 	if err != nil {
 		slog.Warn("change: expanding failed, relying on the next resync", "table", s.table, "id", id, "error", err)
 		return
 	}
-	for _, r := range reqs {
-		s.send(ctx, r)
+	for _, id := range ids {
+		enqueue(id)
 	}
 }
 
-func (s *tableSource) resync(ctx context.Context) {
+func (s *tableSource) resync(ctx context.Context, enqueue func(id string)) {
 	if s.all == nil {
 		return
 	}
-	reqs, err := s.all(ctx)
+	ids, err := s.all(ctx)
 	if err != nil {
 		slog.Warn("resync: listing failed, retrying at the next resync", "table", s.table, "error", err)
 		return
 	}
-	for _, r := range reqs {
-		s.send(ctx, r)
-	}
-}
-
-func (s *tableSource) send(ctx context.Context, r reconcile.Request) {
-	select {
-	case s.events <- event.TypedGenericEvent[reconcile.Request]{Object: r}:
-	case <-ctx.Done():
+	for _, id := range ids {
+		enqueue(id)
 	}
 }

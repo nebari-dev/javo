@@ -547,18 +547,18 @@ func TestAPokeTriggersASyncBeforeTheInterval(t *testing.T) {
 	}
 	feed := dbsource.NewFeed(f.db.Changes())
 	srcs := f.rec.sources(feed)
-	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
 	t.Cleanup(q.ShutDown)
 	for _, s := range srcs {
-		if err := s.Start(ctx, q); err != nil {
+		if err := s.Start(ctx, q.Add); err != nil {
 			t.Fatal(err)
 		}
 	}
 	go feed.Run(ctx)
 
-	next := func(what string) reconcile.Request {
+	next := func(what string) string {
 		t.Helper()
-		got := make(chan reconcile.Request, 1)
+		got := make(chan string, 1)
 		go func() {
 			if r, down := q.Get(); !down {
 				q.Done(r)
@@ -570,10 +570,10 @@ func TestAPokeTriggersASyncBeforeTheInterval(t *testing.T) {
 			return r
 		case <-time.After(5 * time.Second):
 			t.Fatalf("no request for %s", what)
-			return reconcile.Request{}
+			return ""
 		}
 	}
-	if r := next("the start-up listing"); r.Name != f.app.ID {
+	if r := next("the start-up listing"); r != f.app.ID {
 		t.Fatalf("start-up request = %v", r)
 	}
 	f.host.set(pr(1, "a"))
@@ -595,7 +595,7 @@ func TestAPokeTriggersASyncBeforeTheInterval(t *testing.T) {
 	if err := f.db.Previews().Poke(bg, hook, t0); err != nil {
 		t.Fatal(err)
 	}
-	if r := next("the poke"); r.Name != f.app.ID {
+	if r := next("the poke"); r != f.app.ID {
 		t.Fatalf("poke request = %v", r)
 	}
 	f.host.set(pr(1, "a"), pr(2, "b"))
@@ -612,7 +612,7 @@ func TestOnlyAppsWithPreviewsAreListedForResync(t *testing.T) {
 		t.Fatal(err)
 	}
 	reqs, err := f.rec.allParents(bg)
-	if err != nil || len(reqs) != 1 || reqs[0].Name != f.app.ID {
+	if err != nil || len(reqs) != 1 || reqs[0] != f.app.ID {
 		t.Fatalf("resync lists %v, %v; want only the app with previews", reqs, err)
 	}
 }
@@ -633,10 +633,10 @@ func TestResyncStopsPreviewsOfAParentWhoseSettingsWereRemovedWithoutAnEvent(t *t
 		t.Fatal(err)
 	}
 	reqs, err := f.rec.allParents(bg)
-	if err != nil || len(reqs) != 1 || reqs[0].Name != f.app.ID {
+	if err != nil || len(reqs) != 1 || reqs[0] != f.app.ID {
 		t.Fatalf("resync lists %v, %v; want the parent that still has previews", reqs, err)
 	}
-	f.syncApp(reqs[0].Name)
+	f.syncApp(reqs[0])
 	if len(f.live()) != 0 {
 		t.Fatalf("previews still live after the resync: %v", f.live())
 	}

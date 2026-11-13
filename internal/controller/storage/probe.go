@@ -19,9 +19,9 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/storage/probestep"
@@ -586,8 +586,8 @@ func (r *ProbeReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed
 	if r.Store == nil || r.Reader == nil || r.Namespace == "" || r.Image.Ref == "" {
 		return errors.New("storage.ProbeReconciler needs Store, Reader, Namespace and Image")
 	}
-	all := func(context.Context) ([]reconcile.Request, error) { return singleton, nil }
+	all := func(context.Context) ([]string, error) { return singletonID, nil }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-probe").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableStorageSettings, 0, all)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableStorageSettings, 0, all))).
 		Complete(r)
 }

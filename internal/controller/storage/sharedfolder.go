@@ -13,9 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/ext/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -296,14 +296,14 @@ func (r *SharedFolderReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsour
 	if r.Store == nil || r.Reader == nil || r.GIDs == nil || len(r.Backends) == 0 || r.Image.Ref == "" {
 		return errors.New("storage.SharedFolderReconciler needs Store, Reader, GIDs, Backends and Image")
 	}
-	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.folderRequests(ctx, nil) }
-	notReady := func(ctx context.Context, _ string) ([]reconcile.Request, error) {
+	all := func(ctx context.Context) ([]string, error) { return r.folderRequests(ctx, nil) }
+	notReady := func(ctx context.Context, _ string) ([]string, error) {
 		return r.folderRequests(ctx, func(f *model.SharedFolder) bool {
 			return !meta.IsStatusConditionTrue(f.Status.Conditions, model.ConditionReady)
 		})
 	}
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-shared-folder").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all)).
-		WatchesRawSource(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, notReady)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all))).
+		WatchesRawSource(managed.Source(dbsource.Fan(feed.Subscribe(), store.TableStorageStatus, notReady))).
 		Complete(r)
 }

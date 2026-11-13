@@ -7,38 +7,34 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
 
-func req(id string) reconcile.Request {
-	return reconcile.Request{NamespacedName: types.NamespacedName{Name: id}}
-}
+func req(id string) string { return id }
 
-func start(t *testing.T, src source.TypedSource[reconcile.Request]) workqueue.TypedRateLimitingInterface[reconcile.Request] {
+func start(t *testing.T, src loop.Source) workqueue.TypedRateLimitingInterface[string] {
 	t.Helper()
-	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); q.ShutDown() })
-	if err := src.Start(ctx, q); err != nil {
+	if err := src.Start(ctx, q.Add); err != nil {
 		t.Fatal(err)
 	}
 	return q
 }
 
-func got(t *testing.T, q workqueue.TypedRateLimitingInterface[reconcile.Request], n int) map[reconcile.Request]bool {
+func got(t *testing.T, q workqueue.TypedRateLimitingInterface[string], n int) map[string]bool {
 	t.Helper()
-	out := map[reconcile.Request]bool{}
+	out := map[string]bool{}
 	deadline := time.After(2 * time.Second)
 	for len(out) < n {
-		done := make(chan reconcile.Request, 1)
+		done := make(chan string, 1)
 		go func() {
 			r, shutdown := q.Get()
 			if !shutdown {
@@ -56,7 +52,7 @@ func got(t *testing.T, q workqueue.TypedRateLimitingInterface[reconcile.Request]
 	return out
 }
 
-func none(t *testing.T, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func none(t *testing.T, q workqueue.TypedRateLimitingInterface[string]) {
 	t.Helper()
 	time.Sleep(200 * time.Millisecond)
 	if q.Len() != 0 {
@@ -64,7 +60,7 @@ func none(t *testing.T, q workqueue.TypedRateLimitingInterface[reconcile.Request
 	}
 }
 
-func noAll(context.Context) ([]reconcile.Request, error) { return nil, nil }
+func noAll(context.Context) ([]string, error) { return nil, nil }
 
 func TestChangeForTheTableIsEnqueued(t *testing.T) {
 	feed := make(chan store.Change, 4)
@@ -79,8 +75,8 @@ func TestChangeForTheTableIsEnqueued(t *testing.T) {
 
 // afterStartup returns an all func that lists nothing on the start-up call
 // (the first), then returns reqs, and counts its calls.
-func afterStartup(calls *atomic.Int32, reqs ...reconcile.Request) func(context.Context) ([]reconcile.Request, error) {
-	return func(context.Context) ([]reconcile.Request, error) {
+func afterStartup(calls *atomic.Int32, reqs ...string) func(context.Context) ([]string, error) {
+	return func(context.Context) ([]string, error) {
 		if calls.Add(1) == 1 {
 			return nil, nil
 		}
@@ -104,9 +100,9 @@ func TestResyncEnqueuesAll(t *testing.T) {
 func TestPeriodicResyncEnqueuesAll(t *testing.T) {
 	feed := make(chan store.Change)
 	var calls atomic.Int32
-	all := func(context.Context) ([]reconcile.Request, error) {
+	all := func(context.Context) ([]string, error) {
 		calls.Add(1)
-		return []reconcile.Request{req("a1")}, nil
+		return []string{req("a1")}, nil
 	}
 	q := start(t, dbsource.For(feed, "apps", 50*time.Millisecond, all))
 	got(t, q, 1) // start-up listing
@@ -123,11 +119,11 @@ func TestPeriodicResyncEnqueuesAll(t *testing.T) {
 func TestResyncListErrorIsSurvived(t *testing.T) {
 	feed := make(chan store.Change, 4)
 	var calls atomic.Int32
-	all := func(context.Context) ([]reconcile.Request, error) {
+	all := func(context.Context) ([]string, error) {
 		if calls.Add(1) == 1 {
 			return nil, errors.New("db down")
 		}
-		return []reconcile.Request{req("a1")}, nil
+		return []string{req("a1")}, nil
 	}
 	q := start(t, dbsource.For(feed, "apps", time.Hour, all))
 	none(t, q)
@@ -188,7 +184,7 @@ func TestLocalFeedFanOut(t *testing.T) {
 // at the first periodic resync.
 func TestStartListsEverythingOnce(t *testing.T) {
 	feed := make(chan store.Change)
-	all := func(context.Context) ([]reconcile.Request, error) { return []reconcile.Request{req("a1")}, nil }
+	all := func(context.Context) ([]string, error) { return []string{req("a1")}, nil }
 	q := start(t, dbsource.For(feed, "apps", time.Hour, all))
 	if r := got(t, q, 1); !r[req("a1")] {
 		t.Fatalf("got %v", r)
@@ -199,11 +195,11 @@ func TestStartListsEverythingOnce(t *testing.T) {
 // requests expand names, not the changed row.
 func TestFanEnqueuesWhatTheChangeAffects(t *testing.T) {
 	feed := make(chan store.Change, 4)
-	expand := func(_ context.Context, id string) ([]reconcile.Request, error) {
+	expand := func(_ context.Context, id string) ([]string, error) {
 		if id != "lab" {
 			return nil, nil
 		}
-		return []reconcile.Request{req("a1"), req("a2")}, nil
+		return []string{req("a1"), req("a2")}, nil
 	}
 	q := start(t, dbsource.Fan(feed, "templates", expand))
 	feed <- store.Change{Table: "apps", ID: "lab"}
@@ -218,11 +214,11 @@ func TestFanEnqueuesWhatTheChangeAffects(t *testing.T) {
 func TestFanSurvivesAFailingExpand(t *testing.T) {
 	feed := make(chan store.Change, 4)
 	var calls atomic.Int32
-	expand := func(context.Context, string) ([]reconcile.Request, error) {
+	expand := func(context.Context, string) ([]string, error) {
 		if calls.Add(1) == 1 {
 			return nil, errors.New("db down")
 		}
-		return []reconcile.Request{req("a1")}, nil
+		return []string{req("a1")}, nil
 	}
 	q := start(t, dbsource.Fan(feed, "templates", expand))
 	feed <- store.Change{Table: "templates", ID: "lab"}

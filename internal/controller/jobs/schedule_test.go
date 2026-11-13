@@ -11,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/jobs/schedule"
@@ -58,10 +57,10 @@ func hourly(t *testing.T, concurrency string, mutate func(*model.Job)) *timed {
 }
 
 // look reconciles the job at the time now.
-func (c *timed) look(now time.Time) ctrl.Result {
+func (c *timed) look(now time.Time) time.Duration {
 	c.h.t.Helper()
 	c.now = now
-	res, err := c.r.Reconcile(bg, ctrl.Request{NamespacedName: client.ObjectKey{Name: c.job.ID}})
+	res, err := c.r.Reconcile(bg, c.job.ID)
 	if err != nil {
 		c.h.t.Fatalf("reconcile at %s: %v", now.Format(time.TimeOnly), err)
 	}
@@ -156,8 +155,8 @@ func TestADueSlotStartsOneRunForIt(t *testing.T) {
 		t.Errorf("status = %+v", got.Status)
 	}
 	// The job is looked at again when the next slot comes.
-	if res.RequeueAfter <= 0 || res.RequeueAfter > time.Hour+time.Second {
-		t.Errorf("looked at again after %s", res.RequeueAfter)
+	if res <= 0 || res > time.Hour+time.Second {
+		t.Errorf("looked at again after %s", res)
 	}
 }
 
@@ -175,7 +174,7 @@ func TestASlotIsNeverStartedTwice(t *testing.T) {
 	}
 	other := c.h.direct()
 	other.Now = func() time.Time { return hour(13).Add(2 * time.Second) }
-	if _, err := other.Reconcile(bg, ctrl.Request{NamespacedName: client.ObjectKey{Name: c.job.ID}}); err != nil {
+	if _, err := other.Reconcile(bg, c.job.ID); err != nil {
 		t.Fatal(err)
 	}
 	if run := c.only(); run.ID != first.ID || run.Handle != first.Handle {
@@ -684,7 +683,7 @@ func TestAnOldCronJobGoesWithItsJob(t *testing.T) {
 		}
 	}
 	r := h.sweeper()
-	if _, err := r.Reconcile(bg, ctrl.Request{NamespacedName: client.ObjectKey{Name: deleted.job.ID}}); err != nil {
+	if _, err := r.Reconcile(bg, deleted.job.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Sweep(bg); err != nil {

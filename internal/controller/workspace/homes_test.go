@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/ext/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
@@ -68,12 +69,12 @@ func (f fakeHomes) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 
 // setupFakeHomes runs the stand-in on mgr, fed by the homes table.
 func setupFakeHomes(mgr ctrl.Manager, s *store.Store, feed *dbsource.Feed) error {
-	all := func(ctx context.Context) ([]reconcile.Request, error) {
+	all := func(ctx context.Context) ([]string, error) {
 		homes, err := s.Homes().List(ctx)
-		return dbsource.Requests(homes, func(h *model.Home) string { return h.ID }, nil), err
+		return dbsource.IDs(homes, func(h *model.Home) string { return h.ID }, nil), err
 	}
 	return ctrl.NewControllerManagedBy(mgr).Named("fake-homes").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))).
 		Complete(fakeHomes{Client: mgr.GetClient(), Store: s})
 }
 

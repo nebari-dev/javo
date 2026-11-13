@@ -8,9 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/executor/kube"
@@ -336,7 +334,7 @@ func TestAppTokenNotStoredIsRevoked(t *testing.T) {
 	if _, err := fx.db.Tokens().DeleteFor(bg, model.Actor{System: model.SystemCLI}, alice); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := failing.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: app.ID}}); err == nil {
+	if _, err := failing.Reconcile(bg, app.ID); err == nil {
 		t.Fatal("the reconcile whose Secret write failed reported no error")
 	}
 	// Every token alice has is the one her app's Secret holds.

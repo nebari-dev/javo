@@ -28,13 +28,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
@@ -167,7 +167,7 @@ func newManager(s *store.Store, namespaces []string, tune func(*Reconciler), mtu
 		return nil, nil, nil, err
 	}
 	feed := dbsource.NewFeed(s.Changes())
-	if err := r.SetupWithManager(mgr, feed); err != nil {
+	if err := r.Setup(managed.Driver(mgr), feed); err != nil {
 		return nil, nil, nil, err
 	}
 	if err := setupFakeHomes(mgr, s, feed); err != nil {
@@ -319,9 +319,9 @@ func (fx *env) exists(obj client.Object, name string) bool {
 
 // reconcileNow runs one reconcile of the app on r, which reads the API
 // server through its own client.
-func reconcileNow(t *testing.T, r *Reconciler, id string) reconcile.Result {
+func reconcileNow(t *testing.T, r *Reconciler, id string) time.Duration {
 	t.Helper()
-	res, err := r.Reconcile(bg, reconcile.Request{NamespacedName: types.NamespacedName{Name: id}})
+	res, err := r.Reconcile(bg, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1272,7 +1272,7 @@ func TestManagedOnlyRetriesUntilTheNamespaceIsLabelled(t *testing.T) {
 	r := newRec(s, func(r *Reconciler) { onKube(r).ManagedOnly = true })
 	podKey := types.NamespacedName{Namespace: ns.Name, Name: app.ObjectName()}
 
-	if res := reconcileNow(t, r, app.ID); res.RequeueAfter <= 0 {
+	if res := reconcileNow(t, r, app.ID); res <= 0 {
 		t.Fatalf("unmanaged namespace: result %+v; want a requeue", res)
 	}
 	if err := k8s.Get(bg, podKey, &corev1.Pod{}); !apierrors.IsNotFound(err) {

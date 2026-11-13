@@ -24,6 +24,9 @@ const SingletonName = "cluster"
 // singleton is the one request those reconcilers take.
 var singleton = []reconcile.Request{{NamespacedName: types.NamespacedName{Name: SingletonName}}}
 
+// singletonID is that request for a source of row ids.
+var singletonID = []string{SingletonName}
+
 // toSingleton maps any object to the singleton request.
 var toSingleton = handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request { return singleton })
 
@@ -43,9 +46,9 @@ func (r Rows) cluster(ctx context.Context) (*model.ClusterStorage, error) {
 }
 
 // homeRequests is a request per home that keep accepts (all when nil).
-func (r Rows) homeRequests(ctx context.Context, keep func(*model.Home) bool) ([]reconcile.Request, error) {
+func (r Rows) homeRequests(ctx context.Context, keep func(*model.Home) bool) ([]string, error) {
 	homes, err := r.Store.Homes().List(ctx)
-	return dbsource.Requests(homes, func(h *model.Home) string { return h.ID }, keep), err
+	return dbsource.IDs(homes, func(h *model.Home) string { return h.ID }, keep), err
 }
 
 // notReadyHome keeps homes whose Ready condition is not True: a change of the
@@ -72,9 +75,9 @@ func (r Rows) writeHome(ctx context.Context, h, base *model.Home) (conflict bool
 }
 
 // folderRequests is a request per folder that keep accepts (all when nil).
-func (r Rows) folderRequests(ctx context.Context, keep func(*model.SharedFolder) bool) ([]reconcile.Request, error) {
+func (r Rows) folderRequests(ctx context.Context, keep func(*model.SharedFolder) bool) ([]string, error) {
 	folders, err := r.Store.SharedFolders().List(ctx)
-	return dbsource.Requests(folders, func(f *model.SharedFolder) string { return f.ID }, keep), err
+	return dbsource.IDs(folders, func(f *model.SharedFolder) string { return f.ID }, keep), err
 }
 
 // writeFolder stores f if it differs from base (the folder as read); another

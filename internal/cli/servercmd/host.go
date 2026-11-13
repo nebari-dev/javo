@@ -13,7 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/capacity"
@@ -291,7 +290,7 @@ func (o *controllerOptions) runOnHost(ctx context.Context, common *commonFlags, 
 		return err
 	}
 	// The feed has every subscriber now.
-	if err := l.Add(ctrlmanager.RunnableFunc(func(ctx context.Context) error { feed.Run(ctx); return nil })); err != nil {
+	if err := l.Add(loop.PartFunc(func(ctx context.Context) error { feed.Run(ctx); return nil })); err != nil {
 		return err
 	}
 	return l.Start(ctx)

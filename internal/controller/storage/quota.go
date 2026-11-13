@@ -14,9 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -108,9 +108,9 @@ func (r *QuotaReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed
 	ours := predicate.NewPredicateFuncs(func(o client.Object) bool {
 		return o.GetName() == storageQuotaName && o.GetLabels()[model.LabelRole] == model.RoleStorageQuota
 	})
-	all := func(context.Context) ([]reconcile.Request, error) { return singleton, nil }
+	all := func(context.Context) ([]string, error) { return singletonID, nil }
 	return ctrl.NewControllerManagedBy(mgr).Named("storage-quota").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableStorageStatus, 0, all)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), store.TableStorageStatus, 0, all))).
 		Watches(&corev1.ResourceQuota{}, toSingleton, builder.WithPredicates(ours)).
 		Complete(r)
 }

@@ -29,6 +29,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/ext/placement"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
@@ -191,19 +192,14 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 		}
 	}
 	return ctrl.NewControllerManagedBy(mgr).Named("namespace").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), "people", r.ResyncEvery, r.allPeople)).
+		WatchesRawSource(managed.Source(dbsource.For(feed.Subscribe(), "people", r.ResyncEvery, r.allPeople))).
 		Complete(r)
 }
 
 // allPeople lists every person, so a restart or a missed announcement still
 // gets each one a namespace.
-func (r *Reconciler) allPeople(ctx context.Context) ([]reconcile.Request, error) {
-	ids, err := r.Store.People(store.IDRange{}).IDs(ctx)
-	reqs := make([]reconcile.Request, len(ids))
-	for i, id := range ids {
-		reqs[i] = reconcile.Request{NamespacedName: types.NamespacedName{Name: id}}
-	}
-	return reqs, err
+func (r *Reconciler) allPeople(ctx context.Context) ([]string, error) {
+	return r.Store.People(store.IDRange{}).IDs(ctx)
 }
 
 type startFunc func(context.Context) error

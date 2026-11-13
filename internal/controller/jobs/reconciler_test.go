@@ -31,6 +31,7 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/controller/manager"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
@@ -149,7 +150,7 @@ func (h *harness) start() {
 	}
 	r := h.newReconciler(exec)
 	feed := dbsource.NewFeed(h.db.Changes())
-	if err := r.SetupWithManager(mgr, feed); err != nil {
+	if err := r.Setup(managed.Driver(mgr), feed); err != nil {
 		h.t.Fatal(err)
 	}
 	h.rec = r
@@ -844,7 +845,7 @@ func TestReconcilingTwiceWritesNothing(t *testing.T) {
 		}
 		return string(raw)
 	}
-	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: d.ID}}
+	req := d.ID
 	// The first call may meet a cache that is a moment behind the server.
 	eventually(t, "a clean reconcile", func() bool {
 		_, err := h.rec.Reconcile(bg, req)
@@ -1191,14 +1192,14 @@ func TestJobsOnlyInManagedNamespaces(t *testing.T) {
 	t.Cleanup(func() { h.stop() })
 	h.template(nil)
 	d := h.definition("nightly", nil)
-	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: d.ID}}
+	req := d.ID
 	run, err := h.db.Jobs().RequestRun(bg, actor, d.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	res, err := h.rec.Reconcile(bg, req)
-	if err != nil || res.RequeueAfter == 0 {
+	if err != nil || res == 0 {
 		t.Fatalf("unmanaged namespace: result %+v, err %v; want a later look", res, err)
 	}
 	if got, _ := h.db.Jobs().Run(bg, run.ID); got.Outcome != "" || got.Handle != "" || h.job(d.ID).Status.Phase != "" {

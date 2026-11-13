@@ -50,8 +50,8 @@ func TestHeldAppRequeuesAtItsReleaseTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := reconcileNow(t, newRec(fx.db), app.ID)
-	if res.RequeueAfter < 59*time.Minute || res.RequeueAfter > time.Hour {
-		t.Errorf("RequeueAfter = %v, want about an hour", res.RequeueAfter)
+	if res < 59*time.Minute || res > time.Hour {
+		t.Errorf("RequeueAfter = %v, want about an hour", res)
 	}
 	if fx.exists(&corev1.Pod{}, app.ObjectName()) {
 		t.Fatal("an app released for later already has a pod")

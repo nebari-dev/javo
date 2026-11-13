@@ -11,11 +11,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/workqueue"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
@@ -175,14 +171,14 @@ type verdict struct {
 // Reconcile records what the executor shows of one job's runs (the request
 // names the job's id), decides the slot of its schedule that has come due
 // and starts the runs that are to start.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	job, err := r.Store.Jobs().Get(ctx, req.Name)
+func (r *Reconciler) Reconcile(ctx context.Context, id string) (time.Duration, error) {
+	job, err := r.Store.Jobs().Get(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		// Gone: what it left, if anything, is the sweep's.
-		return ctrl.Result{}, nil
+		return 0, nil
 	}
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if !job.DeletedAt.IsZero() {
 		return r.finalize(ctx, &job)
@@ -191,54 +187,54 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// executor runs anything where the job is.
 	if _, err := r.Exec.Observe(ctx, jobRef(&job)); errors.Is(err, executor.ErrUnmanaged) {
 		log.FromContext(ctx).Info("ignoring job in a namespace the controller does not manage", "namespace", job.Namespace)
-		return ctrl.Result{RequeueAfter: unmanagedRetry}, nil
+		return unmanagedRetry, nil
 	} else if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	now := r.Now()
 
 	v, err := r.assess(ctx, &job, now)
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	seen, err := r.look(ctx, &job)
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if err := r.runCaps(ctx, &job, &v, seen); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	release, err := r.recordRuns(ctx, &job, seen, now)
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	// Read last, so a run started now gets the values as they are now.
 	if err := r.prepareSecrets(ctx, &job, &v); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if err := r.fire(ctx, &job, &v, now); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if err := r.startRequested(ctx, &job, &v, now); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if err := r.dropLegacySecrets(ctx, &job, seen); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if err := r.writeStatus(ctx, &job, v, now); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	// Only now is every finished run recorded, so the executor may let go
 	// of it.
 	for _, ref := range release {
 		if err := r.Exec.Stop(ctx, ref); err != nil {
-			return ctrl.Result{}, err
+			return 0, err
 		}
 	}
 	if len(v.next) > 0 {
-		return ctrl.Result{RequeueAfter: v.next[0].Sub(now)}, nil
+		return v.next[0].Sub(now), nil
 	}
-	return ctrl.Result{}, nil
+	return 0, nil
 }
 
 // assess decides the phase from the template, the owner's access and the job
@@ -780,44 +776,44 @@ func (r *Reconciler) drop(ctx context.Context, ref workload.Ref) (wasGoing bool,
 // row. Its runs go with the row, so a run the executor holds has nowhere to
 // be recorded: each is ended and let go of first, and the row stays until
 // none is still going.
-func (r *Reconciler) finalize(ctx context.Context, job *model.Job) (ctrl.Result, error) {
+func (r *Reconciler) finalize(ctx context.Context, job *model.Job) (time.Duration, error) {
 	if r.Legacy != nil {
 		// One not looked at since the upgrade may still have its old schedule.
 		if err := r.Legacy.Retire(ctx, jobRef(job), func(time.Time) error { return nil }); err != nil {
-			return ctrl.Result{}, err
+			return 0, err
 		}
 	}
 	refs, err := r.runsOf(ctx, job)
 	if err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	held := false
 	for _, ref := range refs {
 		wasGoing, err := r.drop(ctx, ref)
 		if err != nil {
-			return ctrl.Result{}, err
+			return 0, err
 		}
 		held = held || wasGoing
 		// It goes with the run too; deleting it here does not wait for that.
 		if err := r.deleteRunSecret(ctx, job, ref); err != nil {
-			return ctrl.Result{}, err
+			return 0, err
 		}
 	}
 	if held {
-		return ctrl.Result{RequeueAfter: finalizeRetry}, nil
+		return finalizeRetry, nil
 	}
 	if err := r.dropToken(ctx, job); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	if err := r.tidy(ctx, job, jobRef(job)); err != nil {
-		return ctrl.Result{}, err
+		return 0, err
 	}
 	r.readable.Delete(job.ID)
 	err = r.Store.Jobs().Purge(ctx, system, job.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		return ctrl.Result{}, nil
+		return 0, nil
 	}
-	return ctrl.Result{}, err
+	return 0, err
 }
 
 // writeStatus updates the status columns only when they differ. Conditions
@@ -934,12 +930,6 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	return failed
 }
 
-// SetupWithManager is Setup on a controller-runtime manager: the
-// controller on Kubernetes.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	return r.Setup(loop.OnManager(mgr), feed)
-}
-
 // Setup wires the controller on d: job rows (and the run requests,
 // templates and people they depend on) come from the database through feed;
 // changes to their runs come from the executor. A job with a schedule is
@@ -962,12 +952,13 @@ func (r *Reconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 }
 
 // runs feeds the controller the job of every run the executor saw change.
-func (r *Reconciler) runs() source.TypedSource[reconcile.Request] {
-	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+func (r *Reconciler) runs() loop.Source {
+	return loop.SourceFunc(func(ctx context.Context, enqueue func(id string)) error {
 		go func() {
 			err := r.Exec.Watch(ctx, func(ref workload.Ref) {
-				for _, req := range dbsource.Request(ref.ID) {
-					q.Add(req)
+				// A run that lacks the row label names no row.
+				if ref.ID != "" {
+					enqueue(ref.ID)
 				}
 			})
 			if err != nil && ctx.Err() == nil {
@@ -982,30 +973,30 @@ func jobID(j *model.Job) string { return j.ID }
 
 // allJobs lists every job row, also those marked deleted: they still have
 // objects to remove.
-func (r *Reconciler) allJobs(ctx context.Context) ([]reconcile.Request, error) {
+func (r *Reconciler) allJobs(ctx context.Context) ([]string, error) {
 	jobs, err := r.Store.Jobs().ListAll(ctx)
-	return dbsource.Requests(jobs, jobID, nil), err
+	return dbsource.IDs(jobs, jobID, nil), err
 }
 
 // jobOfRun is the job a changed run row belongs to: a new request or cancel
 // wakes it.
-func (r *Reconciler) jobOfRun(ctx context.Context, runID string) ([]reconcile.Request, error) {
+func (r *Reconciler) jobOfRun(ctx context.Context, runID string) ([]string, error) {
 	run, err := r.Store.Jobs().Run(ctx, runID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
-	return dbsource.Request(run.JobID), err
+	return []string{run.JobID}, err
 }
 
 // jobsOfTemplate is every job that runs on the template, which just changed.
-func (r *Reconciler) jobsOfTemplate(ctx context.Context, name string) ([]reconcile.Request, error) {
+func (r *Reconciler) jobsOfTemplate(ctx context.Context, name string) ([]string, error) {
 	jobs, err := r.Store.Jobs().ListAll(ctx)
-	return dbsource.Requests(jobs, jobID, func(j *model.Job) bool { return j.Spec.Template == name }), err
+	return dbsource.IDs(jobs, jobID, func(j *model.Job) bool { return j.Spec.Template == name }), err
 }
 
 // jobsOfPerson is the jobs of the person whose row just changed: a new uid or
 // a new groups snapshot can unblock, or block, them.
-func (r *Reconciler) jobsOfPerson(ctx context.Context, id string) ([]reconcile.Request, error) {
+func (r *Reconciler) jobsOfPerson(ctx context.Context, id string) ([]string, error) {
 	person, err := r.Store.People(store.IDRange{}).ByID(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
@@ -1014,7 +1005,7 @@ func (r *Reconciler) jobsOfPerson(ctx context.Context, id string) ([]reconcile.R
 		return nil, err
 	}
 	jobs, err := r.Store.Jobs().List(ctx, person.Name)
-	return dbsource.Requests(jobs, jobID, nil), err
+	return dbsource.IDs(jobs, jobID, nil), err
 }
 
 // apiSecretName is the bundle holding the API token of job (see

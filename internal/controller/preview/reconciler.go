@@ -17,9 +17,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop"
+	"github.com/nebari-dev/javo/internal/controller/loop/managed"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/model"
@@ -85,18 +86,18 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 	}
 	b := ctrl.NewControllerManagedBy(mgr).Named("preview")
 	for _, s := range r.sources(feed) {
-		b = b.WatchesRawSource(s)
+		b = b.WatchesRawSource(managed.Source(s))
 	}
 	return b.Complete(r)
 }
 
 // sources are the rows that wake the reconciler: every app change (a parent's
 // settings, or a parent that stopped being one) and a poke of an app.
-func (r *Reconciler) sources(feed *dbsource.Feed) []source.TypedSource[reconcile.Request] {
-	return []source.TypedSource[reconcile.Request]{
+func (r *Reconciler) sources(feed *dbsource.Feed) []loop.Source {
+	return []loop.Source{
 		dbsource.For(feed.Subscribe(), "apps", 0, r.allParents),
-		dbsource.Fan(feed.Subscribe(), "app_previews", func(_ context.Context, id string) ([]reconcile.Request, error) {
-			return dbsource.Request(id), nil
+		dbsource.Fan(feed.Subscribe(), "app_previews", func(_ context.Context, id string) ([]string, error) {
+			return []string{id}, nil
 		}),
 	}
 }
@@ -105,7 +106,7 @@ func (r *Reconciler) sources(feed *dbsource.Feed) []source.TypedSource[reconcile
 // and those that still have a live preview whatever their settings now say, so
 // a switched-off or removed setting whose change event was lost still gets its
 // previews stopped.
-func (r *Reconciler) allParents(ctx context.Context) ([]reconcile.Request, error) {
+func (r *Reconciler) allParents(ctx context.Context) ([]string, error) {
 	apps, err := r.Store.Apps().ListAll(ctx)
 	if err != nil {
 		return nil, err
@@ -116,7 +117,7 @@ func (r *Reconciler) allParents(ctx context.Context) ([]reconcile.Request, error
 			withLiveChild[apps[i].ParentID] = true
 		}
 	}
-	return dbsource.Requests(apps, func(a *model.App) string { return a.ID }, func(a *model.App) bool {
+	return dbsource.IDs(apps, func(a *model.App) string { return a.ID }, func(a *model.App) bool {
 		return a.ParentID == "" && (a.Source != nil && a.Source.Previews != nil || withLiveChild[a.ID])
 	}), nil
 }

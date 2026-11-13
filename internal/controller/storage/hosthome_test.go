@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
@@ -29,9 +27,7 @@ func hostHomes(t *testing.T) (*HostHomeReconciler, *store.Store) {
 	return &HostHomeReconciler{Rows: Rows{Store: db}, Root: root}, db
 }
 
-func requestFor(h model.Home) reconcile.Request {
-	return reconcile.Request{NamespacedName: types.NamespacedName{Name: h.ID}}
-}
+func requestFor(h model.Home) string { return h.ID }
 
 // A home asked for (by an app's start, or the first look at the files)
 // becomes a folder of this machine, recorded where a claim's name is on
@@ -41,7 +37,7 @@ func TestHostHomeBecomesAFolderRecordedOnItsRow(t *testing.T) {
 	asked, err := db.Homes().Ensure(ctx, "javo-apps", hostOwner, nil)
 	must(t, err)
 	res, err := r.Reconcile(ctx, requestFor(asked))
-	if err != nil || res != (reconcile.Result{}) {
+	if err != nil || res != 0 {
 		t.Fatalf("Reconcile = %+v, %v", res, err)
 	}
 	home, err := db.Homes().Get(ctx, asked.ID)
@@ -80,7 +76,7 @@ func TestHostHomeBecomesAFolderRecordedOnItsRow(t *testing.T) {
 	}
 	// Nor does a home that is gone trouble it.
 	must(t, db.Homes().Delete(ctx, model.Actor{System: "test"}, home.ID))
-	if res, err := r.Reconcile(ctx, requestFor(home)); err != nil || res != (reconcile.Result{}) {
+	if res, err := r.Reconcile(ctx, requestFor(home)); err != nil || res != 0 {
 		t.Errorf("Reconcile of a deleted home = %+v, %v", res, err)
 	}
 }
@@ -95,7 +91,7 @@ func TestHostHomeThatCannotBeMadeSaysWhy(t *testing.T) {
 	asked, err := db.Homes().Ensure(ctx, "javo-apps", hostOwner, nil)
 	must(t, err)
 	res, err := r.Reconcile(ctx, requestFor(asked))
-	if err != nil || res.RequeueAfter <= 0 {
+	if err != nil || res <= 0 {
 		t.Fatalf("Reconcile = %+v, %v; want another look later", res, err)
 	}
 	home, err := db.Homes().Get(ctx, asked.ID)
@@ -110,7 +106,7 @@ func TestHostHomeThatCannotBeMadeSaysWhy(t *testing.T) {
 
 	// Once the link is gone the next look makes the home.
 	must(t, os.Remove(dir))
-	if res, err := r.Reconcile(ctx, requestFor(home)); err != nil || res != (reconcile.Result{}) {
+	if res, err := r.Reconcile(ctx, requestFor(home)); err != nil || res != 0 {
 		t.Fatalf("Reconcile = %+v, %v", res, err)
 	}
 	home, err = db.Homes().Get(ctx, asked.ID)

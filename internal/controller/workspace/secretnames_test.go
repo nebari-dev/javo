@@ -8,8 +8,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/model"
@@ -75,7 +73,7 @@ func TestAppRefusesASecretLabelledForAnotherApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newRec(fx.db, func(r *Reconciler) { r.Tokens = fx.records() })
-	if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: app.ID}}); err == nil {
+	if _, err := r.Reconcile(ctx, app.ID); err == nil {
 		t.Fatal("the reconcile used another app's Secret")
 	}
 	got := &corev1.Secret{}

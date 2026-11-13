@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/executor/docker"
 	"github.com/nebari-dev/javo/internal/executor/docker/dockertest"
@@ -44,7 +44,7 @@ func dockerHomes(t *testing.T, uids uidOf) (*DockerHomeReconciler, *store.Store,
 
 // askedHome is a home asked for, as an app's start asks for one, and
 // reconciled once.
-func askedHome(t *testing.T, r *DockerHomeReconciler, db *store.Store) (model.Home, reconcile.Result) {
+func askedHome(t *testing.T, r *DockerHomeReconciler, db *store.Store) (model.Home, time.Duration) {
 	t.Helper()
 	asked, err := db.Homes().Ensure(ctx, "javo-apps", hostOwner, nil)
 	must(t, err)
@@ -68,7 +68,7 @@ func reasonOf(h model.Home) string {
 func TestDockerHomeBecomesAVolumeRecordedOnItsRow(t *testing.T) {
 	r, db, d := dockerHomes(t, uidOf{hostOwner: 1234})
 	home, res := askedHome(t, r, db)
-	if res != (reconcile.Result{}) {
+	if res != 0 {
 		t.Fatalf("Reconcile = %+v", res)
 	}
 	st := home.Status
@@ -124,7 +124,7 @@ func TestDockerHomeWaitsForTheOwnersUID(t *testing.T) {
 	uids := uidOf{}
 	r, db, d := dockerHomes(t, uids)
 	home, res := askedHome(t, r, db)
-	if home.Status.Prepared || reasonOf(home) != string(reasons.IdentityPending) || res.RequeueAfter <= 0 {
+	if home.Status.Prepared || reasonOf(home) != string(reasons.IdentityPending) || res <= 0 {
 		t.Fatalf("status = %+v, result %+v; want IdentityPending and another look", home.Status, res)
 	}
 	if vol, _ := d.Volume(dockerVolume); vol.Handed != 0 {
@@ -143,7 +143,7 @@ func TestDockerHomeSaysWhyWhenTheDaemonFails(t *testing.T) {
 	r, db, d := dockerHomes(t, uidOf{hostOwner: 1234})
 	d.Down(true)
 	home, res := askedHome(t, r, db)
-	if home.Status.Prepared || home.Status.ClaimName != "" || reasonOf(home) != string(reasons.HomePending) || res.RequeueAfter <= 0 {
+	if home.Status.Prepared || home.Status.ClaimName != "" || reasonOf(home) != string(reasons.HomePending) || res <= 0 {
 		t.Fatalf("status = %+v, result %+v; want HomePending and another look", home.Status, res)
 	}
 	d.Down(false)
@@ -170,7 +170,7 @@ func TestDockerHomeVolumeOutlivesItsRow(t *testing.T) {
 	r, db, d := dockerHomes(t, uidOf{hostOwner: 1234})
 	home, _ := askedHome(t, r, db)
 	must(t, db.Homes().Delete(ctx, model.Actor{System: "test"}, home.ID))
-	if res, err := r.Reconcile(ctx, requestFor(home)); err != nil || res != (reconcile.Result{}) {
+	if res, err := r.Reconcile(ctx, requestFor(home)); err != nil || res != 0 {
 		t.Fatalf("Reconcile of a deleted home = %+v, %v", res, err)
 	}
 	if _, ok := d.Volume(dockerVolume); !ok {
@@ -192,9 +192,8 @@ func TestAFolderWhereNoneIsOfferedSaysSo(t *testing.T) {
 		Name: "team", Namespace: "javo-apps", Spec: model.SharedFolderSpec{Group: "team"},
 	})
 	must(t, err)
-	req := reconcile.Request{}
-	req.Name = f.ID
-	if res, err := r.Reconcile(ctx, req); err != nil || res != (reconcile.Result{}) {
+	req := f.ID
+	if res, err := r.Reconcile(ctx, req); err != nil || res != 0 {
 		t.Fatalf("Reconcile = %+v, %v", res, err)
 	}
 	got, err := db.SharedFolders().Get(ctx, f.ID)
