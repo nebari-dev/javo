@@ -17,6 +17,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/ext/envsource"
@@ -140,10 +141,12 @@ type Config struct {
 	// when printing the OpenAPI document or in tests) answers GET /api/files
 	// with a server error and frees nothing.
 	Homes storage.Homes
-	// Logs reads app logs. The gateway command always sets it; nil (only
-	// when printing the OpenAPI document or in tests) answers the log
+	// Executor is what runs the apps: their logs are read through it. Logs
+	// reads the logs of job runs. The gateway command always sets both; nil
+	// (only when printing the OpenAPI document or in tests) answers the log
 	// routes with a server error.
-	Logs podlogs.Source
+	Executor executor.Executor
+	Logs     podlogs.Source
 	// Sizes are the admin-defined app sizes; empty offers none and keeps
 	// template resources.
 	Sizes sizes.Catalog
@@ -297,7 +300,7 @@ func NewServer(cfg Config) *Server {
 	ws := apps.New(apps.Config{
 		Run:   run,
 		Store: cfg.Store, Client: cfg.Client, Namespaces: nss, Homes: cfg.Homes, Sizing: sz, Exposure: cfg.Exposure,
-		Logs: cfg.Logs, NetworkPolicy: cfg.NetworkPolicy, Images: cfg.ContainerImages, Tokens: cfg.Tokens,
+		Logs: cfg.Executor, NetworkPolicy: cfg.NetworkPolicy, Images: cfg.ContainerImages, Tokens: cfg.Tokens,
 		IdleStop: cfg.IdleStop, Diagnose: cfg.Diagnose, Environments: envs,
 		NebiTokens: cfg.NebiTokens, IDToken: a.IDToken,
 		PreviewsEnabled: cfg.PreviewsEnabled, Thumbnails: cfg.Thumbnails, PreviewsMaxPerApp: cfg.PreviewsMaxPerApp,
@@ -308,7 +311,7 @@ func NewServer(cfg Config) *Server {
 	})
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
-	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Logs, AI: cfg.AISettings, Trust: trust}).Register(api)
+	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Executor, AI: cfg.AISettings, Trust: trust}).Register(api)
 	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
 		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,

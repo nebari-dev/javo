@@ -28,12 +28,14 @@ import (
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // Config configures New.
@@ -57,8 +59,8 @@ type Config struct {
 	// required when apps have their own host.
 	Revalidator *authn.Revalidator
 	// Resolve returns where and how to reach an app, given its template (nil
-	// when the template is gone). Nil means the template's service address
-	// (see defaultResolve).
+	// when the template is gone): ResolveAt with the address the executor
+	// gives. Nil means the app's Service in the cluster (see defaultResolve).
 	Resolve func(ctx context.Context, app *model.App, tpl *model.Template) (Backend, error)
 	// DialWait is how long to keep retrying a connection to an app that
 	// cannot be reached yet (an app can turn Ready a moment before its
@@ -186,8 +188,16 @@ func retryDial(wait time.Duration) func(ctx context.Context, network, addr strin
 	}
 }
 
+// defaultResolve reaches an app by its Service's name in the cluster.
 func defaultResolve(exp exposure.Backend) func(context.Context, *model.App, *model.Template) (Backend, error) {
-	return func(_ context.Context, app *model.App, t *model.Template) (Backend, error) {
+	return ResolveAt(exp, (&kube.Executor{}).Addr)
+}
+
+// ResolveAt reaches an app at the address addr gives for its workload and
+// port (an executor's Addr), as its template says to: under which path,
+// with which headers.
+func ResolveAt(exp exposure.Backend, addr func(ctx context.Context, ref workload.Ref, port int32) (string, error)) func(context.Context, *model.App, *model.Template) (Backend, error) {
+	return func(ctx context.Context, app *model.App, t *model.Template) (Backend, error) {
 		if t == nil {
 			return Backend{}, fmt.Errorf("template %q is gone", app.Template)
 		}
@@ -199,12 +209,16 @@ func defaultResolve(exp exposure.Backend) func(context.Context, *model.App, *mod
 		if err != nil {
 			return Backend{}, err
 		}
+		host, err := addr(ctx, workspace.RefOf(app), workspace.AppPortOf(app, t))
+		if err != nil {
+			return Backend{}, err
+		}
 		hdr := http.Header{}
 		for k, v := range rendered {
 			hdr.Set(k, v)
 		}
 		return Backend{
-			URL:         &url.URL{Scheme: "http", Host: net.JoinHostPort(fmt.Sprintf("%s.%s.svc", app.ObjectName(), app.Namespace), fmt.Sprint(workspace.AppPortOf(app, t)))},
+			URL:         &url.URL{Scheme: "http", Host: host},
 			Prefix:      strings.TrimSuffix(base, "/"),
 			StripPrefix: t.Spec.BasePath == "Strip",
 			Headers:     hdr,

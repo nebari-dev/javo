@@ -32,6 +32,7 @@ import (
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/secretskey"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/admin"
@@ -238,6 +239,9 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go proposals.RunJanitor(ctx, time.Minute)
 	go apps.TrustJanitor{DB: db, Policy: apps.TrustPolicy{Config: platform.Agents.TrustedAllowed(), DB: db}, Now: time.Now}.Run(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
+	// What runs the apps: the gateway asks it where an app listens and for
+	// its logs, and nothing else.
+	workloads := &kube.Executor{PodLogs: podlogs.Clientset{Clientset: clientset}}
 	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()})
 	people := db.People(uidRange(platform.Identity))
 	revalidator := authn.NewRevalidator(providers, sessions, people, outageGrace, nil)
@@ -270,6 +274,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Usage:             lister,
 		Groups:            ids.PersonGroups{People: db.People(store.IDRange{})},
 		Storage:           platform.Storage.Spec(),
+		Executor:          workloads,
 		Logs:              podlogs.Clientset{Clientset: clientset},
 		PreviewsEnabled:   platform.Source.Previews.Enabled,
 		Thumbnails:        platform.Thumbnails.Enabled,
@@ -308,6 +313,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Store: db, Sessions: sessions, Activity: used,
 		Exposure: exp, Roles: platform.Roles, URLs: platform.URLs, Sharing: platform.Sharing, Revalidator: revalidator,
 		NebiTokens: nebi, SecureCookies: o.secure,
+		Resolve: proxy.ResolveAt(exp, workloads.Addr),
 		// Every replica has the sessions key, so any of them reads the
 		// route cookie another one set.
 		Seal: sessionsKey,

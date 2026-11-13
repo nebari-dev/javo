@@ -37,6 +37,8 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
+	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/authprovider"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/ext/envsource"
@@ -277,6 +279,12 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	if o.Urls.Mode == "subdomain" {
 		exp = exposuresubdomain.New(o.Urls)
 	}
+	// Apps' logs are read through the executor, from the same fake as the
+	// job runs'.
+	var apps executor.Executor
+	if o.Logs != nil {
+		apps = &kube.Executor{PodLogs: o.Logs}
+	}
 	srv := gateway.NewServer(gateway.Config{
 		NebiTokens: nebiTokens, Revalidator: rv,
 		Tokens: tokens, API: api, IdleStop: o.Idle,
@@ -285,7 +293,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Client: c, Store: db, Sessions: sessions, Providers: providers,
 		People: people, Roles: roles, Now: o.Now,
 		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, Branding: o.Branding,
-		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Logs: o.Logs, Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
+		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Logs: o.Logs, Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
 		URLs: o.Urls, Exposure: exp, Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
 		AI:       o.Ai, AgentModel: o.AgentModel, AISettings: live, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp, PublicURL: o.PublicURL}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},

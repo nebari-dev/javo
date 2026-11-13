@@ -11,9 +11,9 @@ import (
 
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -29,7 +29,7 @@ type API struct {
 	Backups BackupConfig
 	// Client and Logs read the backup Jobs' pods and their logs.
 	Client client.Client
-	Logs   podlogs.Source
+	Logs   executor.Executor
 	// AI is the AI settings in force; nil while AI is off.
 	AI *aisettings.Live
 	// Trust is whether owners may let their coding agents act without asking.

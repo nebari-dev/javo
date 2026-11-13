@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"errors"
 	"html"
 	"io"
 	"net"
@@ -28,6 +29,7 @@ import (
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 type fixture struct {
@@ -402,6 +404,30 @@ func TestDefaultResolveUsesTemplatePort(t *testing.T) {
 	}
 	if _, err := defaultResolve(gatewaytest.OneHostExposure)(context.Background(), app, nil); err == nil {
 		t.Fatal("a missing template must be an error")
+	}
+}
+
+// The gateway dials where the executor says the app's workload listens, on
+// the app's port.
+func TestResolveAtDialsTheAddressTheExecutorGives(t *testing.T) {
+	t.Parallel()
+	app := &model.App{ID: "app-1", Namespace: gatewaytest.Namespace, Name: "nb1", Owner: "alice-aaaaaaaa", Template: "t"}
+	tpl := &model.Template{Name: "t", Spec: model.TemplateSpec{Port: 8888}}
+	var asked workload.Ref
+	var port int32
+	b, err := ResolveAt(gatewaytest.OneHostExposure, func(_ context.Context, ref workload.Ref, p int32) (string, error) {
+		asked, port = ref, p
+		return "127.0.0.1:4000", nil
+	})(context.Background(), app, tpl)
+	if err != nil || b.URL.String() != "http://127.0.0.1:4000" {
+		t.Fatalf("got %+v %v", b, err)
+	}
+	if want := (workload.Ref{Namespace: gatewaytest.Namespace, Name: "alice-aaaaaaaa-nb1", ID: "app-1", Owner: "alice-aaaaaaaa"}); asked != want || port != 8888 {
+		t.Errorf("asked for %+v port %d", asked, port)
+	}
+	nowhere := func(context.Context, workload.Ref, int32) (string, error) { return "", io.EOF }
+	if _, err := ResolveAt(gatewaytest.OneHostExposure, nowhere)(context.Background(), app, tpl); !errors.Is(err, io.EOF) {
+		t.Errorf("an app with no address: %v", err)
 	}
 }
 

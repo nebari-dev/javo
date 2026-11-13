@@ -26,6 +26,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/files"
@@ -34,7 +35,6 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/envvars"
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
 	"github.com/nebari-dev/javo/internal/gateway/nebi"
-	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/gateway/ratelimit"
 	"github.com/nebari-dev/javo/internal/gateway/sizing"
@@ -147,8 +147,9 @@ type Workspaces struct {
 	homes storage.Homes
 	// sizing holds the roles every route checks, with the sizes and machines.
 	sizing.Rules
-	exp  exposure.Backend
-	logs podlogs.Source
+	exp exposure.Backend
+	// logs reads what the apps print, through the executor that runs them.
+	logs executor.Executor
 	// policy is the NetworkPolicy probe result (see gateway.Config.NetworkPolicy).
 	policy netprobe.Reader
 	// images governs apps on userImage templates (see gateway.Config.ContainerImages).
@@ -893,7 +894,7 @@ type Config struct {
 	Homes         storage.Homes
 	Sizing        sizing.Rules
 	Exposure      exposure.Backend
-	Logs          podlogs.Source
+	Logs          executor.Executor
 	NetworkPolicy netprobe.Reader
 	Images        config.ContainerImagesCfg
 	Tokens        *token.DBStore

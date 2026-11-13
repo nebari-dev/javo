@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
@@ -210,8 +211,9 @@ func (s *Workspaces) openLog(ctx context.Context, in *logsInput, previous, follo
 	if err != nil {
 		return nil, pod, err
 	}
-	opts := &corev1.PodLogOptions{Container: stepContainer(pod, in.Step), Timestamps: true, TailLines: &in.Tail, Previous: previous, Follow: follow}
-	rc, err := podlogs.Open(ctx, s.logs, pod, opts)
+	rc, err := podlogs.Read(ctx, s.logs, pod, executor.LogOptions{
+		Unit: stepContainer(pod, in.Step), Timestamps: true, Tail: in.Tail, Previous: previous, Follow: follow,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

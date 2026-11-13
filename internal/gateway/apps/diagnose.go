@@ -10,6 +10,7 @@ import (
 	"github.com/nebari-dev/javo/internal/actions"
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/diagnose"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/model"
@@ -99,9 +100,8 @@ func (s *Workspaces) diagnose(ctx context.Context, app *model.App) (diagnose.Dia
 // logLines reads one run of the app container's log. A log that cannot be
 // read (the pod went away meanwhile) gives no lines, not an error.
 func (s *Workspaces) logLines(ctx context.Context, pod *corev1.Pod, previous bool) []diagnose.LogLine {
-	tail := int64(diagnoseTailLines)
-	rc, err := podlogs.Open(ctx, s.logs, pod, &corev1.PodLogOptions{
-		Timestamps: true, TailLines: &tail, Previous: previous, LimitBytes: new(int64(diagnoseMaxBytes)),
+	rc, err := podlogs.Read(ctx, s.logs, pod, executor.LogOptions{
+		Timestamps: true, Tail: diagnoseTailLines, Previous: previous, MaxBytes: diagnoseMaxBytes,
 	})
 	if err != nil || rc == nil {
 		return nil

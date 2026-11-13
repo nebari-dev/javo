@@ -15,11 +15,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// Source reads a pod container's log; Clientset implements it.
+// Source reads a pod container's log; Clientset implements it. Job logs are
+// read through it (Open), app logs through the executor (Read).
 type Source interface {
 	Stream(ctx context.Context, namespace, pod string, opts *corev1.PodLogOptions) (io.ReadCloser, error)
 }
@@ -85,7 +89,32 @@ func Open(ctx context.Context, logs Source, pod *corev1.Pod, opts *corev1.PodLog
 	if !opts.Follow && opts.LimitBytes == nil {
 		opts.LimitBytes = new(int64(maxLogBytes))
 	}
-	rc, err := logs.Stream(ctx, pod.Namespace, pod.Name, opts)
+	return opened(logs.Stream(ctx, pod.Namespace, pod.Name, opts))
+}
+
+// Read opens the log of the unit o.Unit (the app's own when empty) of the
+// app's pod through exec, or returns nil when there is none to read. Unless
+// following or set by the caller, it sets the size cap.
+func Read(ctx context.Context, exec executor.Executor, pod *corev1.Pod, o executor.LogOptions) (io.ReadCloser, error) {
+	if o.Unit == "" {
+		o.Unit = podspec.ContainerName
+	}
+	if pod == nil || !hasLog(ContainerStatus(pod, o.Unit), o.Previous) {
+		return nil, nil
+	}
+	if exec == nil {
+		return nil, problem.Internal("read pod log", errors.New("no pod log reader configured"))
+	}
+	if !o.Follow && o.MaxBytes == 0 {
+		o.MaxBytes = maxLogBytes
+	}
+	ref := workload.Ref{Namespace: pod.Namespace, Name: pod.Name, ID: pod.Labels[model.LabelApp], Owner: pod.Labels[model.LabelOwner]}
+	return opened(exec.Logs(ctx, ref, o))
+}
+
+// opened is a log that was asked for, or nil when there turned out to be
+// none.
+func opened(rc io.ReadCloser, err error) (io.ReadCloser, error) {
 	switch {
 	case apierrors.IsBadRequest(err) || apierrors.IsNotFound(err):
 		// The container changed state between the read and the request.

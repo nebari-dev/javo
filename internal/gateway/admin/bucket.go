@@ -23,7 +23,9 @@ import (
 
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -605,9 +607,10 @@ func (a *API) jobLog(ctx context.Context, ns, name string) ([]string, string) {
 	if err := a.Client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"batch.kubernetes.io/job-name": name}); err != nil || len(pods.Items) == 0 {
 		return out, ""
 	}
-	node := pods.Items[0].Spec.NodeName
-	rc, err := a.Logs.Stream(ctx, ns, pods.Items[0].Name, &corev1.PodLogOptions{TailLines: ptrInt64(stepLogLines)})
-	if err != nil {
+	pod := &pods.Items[0]
+	node := pod.Spec.NodeName
+	rc, err := podlogs.Read(ctx, a.Logs, pod, executor.LogOptions{Unit: pod.Spec.Containers[0].Name, Tail: stepLogLines})
+	if err != nil || rc == nil {
 		return out, node
 	}
 	defer rc.Close()
@@ -617,8 +620,6 @@ func (a *API) jobLog(ctx context.Context, ns, name string) ([]string, string) {
 	}
 	return out, node
 }
-
-func ptrInt64(n int64) *int64 { return &n }
 
 // startBackup starts the full backup run run: the database is backed up and
 // copied now, and every home and shared folder is asked to follow.

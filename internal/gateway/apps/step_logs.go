@@ -13,11 +13,11 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
@@ -350,11 +350,11 @@ func exitRecord(container string, t *corev1.ContainerStateTerminated) StepLogRec
 // last restart (previous), or the current one, followed while it runs. Lines
 // up to rs.last were sent already.
 func (f *stepFollower) copyLog(ctx context.Context, src logSource, rs *runState, previous, follow bool) error {
-	opts := &corev1.PodLogOptions{Container: src.container, Timestamps: true, Previous: previous, Follow: follow}
+	opts := executor.LogOptions{Unit: src.container, Timestamps: true, Previous: previous, Follow: follow}
 	if !rs.last.IsZero() {
-		opts.SinceTime = &metav1.Time{Time: rs.last.Truncate(time.Second)}
+		opts.Since = rs.last.Truncate(time.Second)
 	}
-	rc, err := podlogs.Open(ctx, f.s.logs, src.pod, opts)
+	rc, err := podlogs.Read(ctx, f.s.logs, src.pod, opts)
 	if err != nil || rc == nil {
 		return ctx.Err()
 	}
