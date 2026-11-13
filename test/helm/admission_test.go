@@ -3,10 +3,13 @@ package helm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -92,7 +96,8 @@ func admissionEnv(t *testing.T, engine string) (admin, ctl client.Client) {
 
 // admissionCluster is admissionEnv returning, besides the admin client, a
 // client for each component's service account (javo-gateway or
-// javo-controller) and the render applied.
+// javo-controller) and the render applied. The API server is one for all
+// the tests of an engine: a test makes namespaces no other test names.
 func admissionCluster(t *testing.T, engine string) (admin client.Client, as func(sa string) client.Client, out string) {
 	t.Helper()
 	if testing.Short() || os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -102,48 +107,109 @@ func admissionCluster(t *testing.T, engine string) (admin client.Client, as func
 	if err != nil {
 		t.Fatalf("render: %v\n%s", err, out)
 	}
-	env := &envtest.Environment{}
-	cfg, err := env.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = env.Stop() })
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	if admin, err = client.New(cfg, client.Options{Scheme: scheme}); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-system"}}); err != nil {
-		t.Fatal(err)
-	}
-	apply := map[string]bool{
-		"Role": true, "RoleBinding": true, "ClusterRole": true, "ClusterRoleBinding": true,
-		"ValidatingAdmissionPolicy": true, "ValidatingAdmissionPolicyBinding": true,
-	}
-	for _, u := range manifests(t, out) {
-		if !apply[u.GetKind()] {
-			continue
-		}
-		if err := admin.Create(ctx, &u); err != nil {
-			t.Fatalf("create %s %s: %v", u.GetKind(), u.GetName(), err)
-		}
+	v, _ := clusters.LoadOrStore(engine, &cluster{})
+	c := v.(*cluster)
+	objects := manifests(t, out)
+	c.once.Do(func() { c.err = c.start(objects) })
+	if c.err != nil {
+		t.Fatal(c.err)
 	}
 	as = func(sa string) client.Client {
-		ic := rest.CopyConfig(cfg)
+		ic := rest.CopyConfig(c.cfg)
 		ic.Impersonate = rest.ImpersonationConfig{
 			UserName: "system:serviceaccount:javo-system:" + serviceAccount(engine, sa),
 			Groups:   []string{"system:serviceaccounts", "system:serviceaccounts:javo-system", "system:authenticated"},
 		}
-		c, err := client.New(ic, client.Options{Scheme: scheme})
+		c, err := client.New(ic, client.Options{Scheme: c.admin.Scheme()})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return c
 	}
-	return admin, as, out
+	return c.admin, as, out
+}
+
+// own is name with an ending no other test, and no earlier run of this
+// one (-count), has: the tests share an API server, where a namespace once
+// made stays.
+func own(name string) string {
+	return name + "-" + strconv.FormatInt(names.Add(1), 10)
+}
+
+var names atomic.Int64
+
+// removeNamespace removes the empty namespace name for good. No controller
+// runs here that would end a deleted namespace, so its last finalizer is
+// taken off by hand.
+func removeNamespace(admin client.Client, name string) {
+	ctx := context.Background()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	_ = admin.Delete(ctx, ns)
+	if err := admin.Get(ctx, client.ObjectKeyFromObject(ns), ns); err != nil {
+		return
+	}
+	ns.Spec.Finalizers = nil
+	_ = admin.SubResource("finalize").Update(ctx, ns)
+}
+
+// clusters holds, by engine, the API server the tests of the admission
+// policies share: one takes seconds to start. TestMain stops them.
+var clusters sync.Map // string -> *cluster
+
+type cluster struct {
+	once  sync.Once
+	env   *envtest.Environment
+	cfg   *rest.Config
+	admin client.Client
+	err   error
+}
+
+// start runs an API server with the release namespace and the RBAC and
+// admission policies of objects, a render of the chart.
+func (c *cluster) start(objects []unstructured.Unstructured) error {
+	c.env = &envtest.Environment{}
+	cfg, err := c.env.Start()
+	if err != nil {
+		return err
+	}
+	c.cfg = cfg
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return err
+	}
+	if c.admin, err = client.New(cfg, client.Options{Scheme: scheme}); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := c.admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-system"}}); err != nil {
+		return err
+	}
+	apply := map[string]bool{
+		"Role": true, "RoleBinding": true, "ClusterRole": true, "ClusterRoleBinding": true,
+		"ValidatingAdmissionPolicy": true, "ValidatingAdmissionPolicyBinding": true,
+	}
+	for _, u := range objects {
+		if !apply[u.GetKind()] {
+			continue
+		}
+		if err := c.admin.Create(ctx, &u); err != nil {
+			return fmt.Errorf("create %s %s: %w", u.GetKind(), u.GetName(), err)
+		}
+	}
+	return nil
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	var stopping sync.WaitGroup
+	clusters.Range(func(_, v any) bool {
+		if c := v.(*cluster); c.env != nil {
+			stopping.Go(func() { _ = c.env.Stop() })
+		}
+		return true
+	})
+	stopping.Wait()
+	os.Exit(code)
 }
 
 // deniedByPolicy is true when err is a ValidatingAdmissionPolicy's denial.
@@ -192,15 +258,16 @@ func TestControllerBindsOnlyItsAppRolesInManagedNamespaces(t *testing.T) {
 	t.Parallel()
 	admin, ctl := admissionEnv(t, "postgres")
 	ctx := context.Background()
+	nsName := own("javo-frank")
 	appRole := "javo-javo-system-javo-gateway-apps"
 
 	waitForPolicy(t, func() error { return ctl.Create(ctx, appRoleBinding("kube-system", appRole)) })
 
-	managed := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-alice", Labels: restrictedLabels()}}
+	managed := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName, Labels: restrictedLabels()}}
 	if err := ctl.Create(ctx, managed); err != nil {
 		t.Fatalf("create managed namespace: %v", err)
 	}
-	if err := ctl.Create(ctx, appRoleBinding("javo-alice", appRole)); err != nil {
+	if err := ctl.Create(ctx, appRoleBinding(nsName, appRole)); err != nil {
 		t.Errorf("app role binding in a managed namespace: %v", err)
 	}
 
@@ -213,7 +280,8 @@ func TestControllerBindsOnlyItsAppRolesInManagedNamespaces(t *testing.T) {
 	if err := admin.Create(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	if err := ctl.Create(ctx, appRoleBinding("javo-alice", other.Name)); !deniedByPolicy(err) {
+	t.Cleanup(func() { _ = admin.Delete(context.Background(), other) })
+	if err := ctl.Create(ctx, appRoleBinding(nsName, other.Name)); !deniedByPolicy(err) {
 		t.Errorf("binding another ClusterRole in a managed namespace: %v, want a policy denial", err)
 	}
 
@@ -235,6 +303,7 @@ func TestControllerBindsAppRolesOnlyToTheChartsAccounts(t *testing.T) {
 	t.Parallel()
 	admin, ctl := admissionEnv(t, "postgres")
 	ctx := context.Background()
+	nsName, looseNS := own("javo-grace"), own("javo-loose")
 	gwRole, ctlRole := "javo-javo-system-javo-gateway-apps", "javo-javo-system-javo-controller-apps"
 	sa := func(name string) rbacv1.Subject {
 		return rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Namespace: "javo-system", Name: name}
@@ -246,12 +315,12 @@ func TestControllerBindsAppRolesOnlyToTheChartsAccounts(t *testing.T) {
 	}
 
 	waitForPolicy(t, func() error { return ctl.Create(ctx, appRoleBinding("kube-system", gwRole)) })
-	if err := ctl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-alice", Labels: restrictedLabels()}}); err != nil {
+	if err := ctl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName, Labels: restrictedLabels()}}); err != nil {
 		t.Fatal(err)
 	}
 	loose := restrictedLabels()
 	loose["pod-security.kubernetes.io/enforce"] = "privileged"
-	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-loose", Labels: loose}}); err != nil {
+	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: looseNS, Labels: loose}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -259,14 +328,14 @@ func TestControllerBindsAppRolesOnlyToTheChartsAccounts(t *testing.T) {
 		b     *rbacv1.RoleBinding
 		allow bool
 	}{
-		{"gateway role to the gateway", with("javo-alice", gwRole, sa("javo-gateway")), true},
-		{"controller role to the controller", with("javo-alice", ctlRole, sa("javo-controller")), true},
-		{"gateway role to every account", with("javo-alice", gwRole, rbacv1.Subject{Kind: rbacv1.GroupKind, APIGroup: rbacv1.GroupName, Name: "system:authenticated"}), false},
-		{"controller role to the gateway", with("javo-alice", ctlRole, sa("javo-gateway")), false},
-		{"gateway role to another account", with("javo-alice", gwRole, sa("default")), false},
-		{"gateway role to a second account too", with("javo-alice", gwRole, sa("javo-gateway"), sa("default")), false},
-		{"gateway role to a user", with("javo-alice", gwRole, rbacv1.Subject{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "mallory"}), false},
-		{"in a managed namespace that is not restricted", with("javo-loose", gwRole, sa("javo-gateway")), false},
+		{"gateway role to the gateway", with(nsName, gwRole, sa("javo-gateway")), true},
+		{"controller role to the controller", with(nsName, ctlRole, sa("javo-controller")), true},
+		{"gateway role to every account", with(nsName, gwRole, rbacv1.Subject{Kind: rbacv1.GroupKind, APIGroup: rbacv1.GroupName, Name: "system:authenticated"}), false},
+		{"controller role to the gateway", with(nsName, ctlRole, sa("javo-gateway")), false},
+		{"gateway role to another account", with(nsName, gwRole, sa("default")), false},
+		{"gateway role to a second account too", with(nsName, gwRole, sa("javo-gateway"), sa("default")), false},
+		{"gateway role to a user", with(nsName, gwRole, rbacv1.Subject{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "mallory"}), false},
+		{"in a managed namespace that is not restricted", with(looseNS, gwRole, sa("javo-gateway")), false},
 	} {
 		err := ctl.Create(ctx, c.b)
 		if c.allow && err != nil {
@@ -285,8 +354,10 @@ func TestControllerBindsAppRolesOnlyToTheChartsAccounts(t *testing.T) {
 // on a node.
 func TestControllerCreatesOnlyRestrictedJavoNamespaces(t *testing.T) {
 	t.Parallel()
-	_, ctl := admissionEnv(t, "postgres")
+	admin, ctl := admissionEnv(t, "postgres")
 	ctx := context.Background()
+	// The one name that is not a test's own: it goes when the test ends.
+	t.Cleanup(func() { removeNamespace(admin, "javo-system-netprobe") })
 	ns := func(name string, change func(labels, annotations map[string]string)) *corev1.Namespace {
 		labels, annotations := restrictedLabels(), map[string]string{}
 		if change != nil {
@@ -306,8 +377,8 @@ func TestControllerCreatesOnlyRestrictedJavoNamespaces(t *testing.T) {
 		ns    *corev1.Namespace
 		allow bool
 	}{
-		{"a person's namespace", ns("javo-carol", nil), true},
-		{"with a Javo label and annotation", ns("javo-dave", func(l, a map[string]string) {
+		{"a person's namespace", ns(own("javo-carol"), nil), true},
+		{"with a Javo label and annotation", ns(own("javo-dave"), func(l, a map[string]string) {
 			l["javo.nebari.dev/team"] = "blue"
 			a["javo.nebari.dev/x"] = "y"
 		}), true},
@@ -342,10 +413,11 @@ func TestComponentsCannotMintServiceAccountTokens(t *testing.T) {
 	t.Parallel()
 	admin, as, _ := admissionCluster(t, "postgres")
 	ctx := context.Background()
-	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-alice", Labels: restrictedLabels()}}); err != nil {
+	nsName := own("javo-heidi")
+	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName, Labels: restrictedLabels()}}); err != nil {
 		t.Fatal(err)
 	}
-	bind := appRoleBinding("javo-alice", "javo-javo-system-javo-controller-apps")
+	bind := appRoleBinding(nsName, "javo-javo-system-javo-controller-apps")
 	bind.Subjects[0].Name = "javo-controller"
 	if err := admin.Create(ctx, bind); err != nil {
 		t.Fatal(err)
@@ -365,14 +437,14 @@ func TestComponentsCannotMintServiceAccountTokens(t *testing.T) {
 		name, sa, ns string
 	}{
 		{"controller, release namespace", "javo-controller", "javo-system"},
-		{"controller, app namespace", "javo-controller", "javo-alice"},
+		{"controller, app namespace", "javo-controller", nsName},
 		{"gateway, release namespace", "javo-gateway", "javo-system"},
 	} {
 		if err := as(c.sa).Create(ctx, token(c.ns, "javo-notifications")); !deniedByPolicy(err) {
 			t.Errorf("%s: %v, want a policy denial", c.name, err)
 		}
 	}
-	plain := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "javo-alice", Name: "alice-x-javo-secrets"}}
+	plain := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: nsName, Name: "alice-x-javo-secrets"}}
 	if err := as("javo-controller").Create(ctx, plain); err != nil {
 		t.Errorf("an ordinary Secret: %v", err)
 	}
@@ -421,6 +493,7 @@ func TestControllerPatchesOnlyJavoKeysOnItsNamespaces(t *testing.T) {
 			t.Parallel()
 			admin, ctl := admissionEnv(t, engine)
 			ctx := context.Background()
+			mine, theirs, other := own("javo-alice"), own("javo-bob"), own("other")
 
 			// Each try sets a new value, so a try made before the policy
 			// loaded leaves nothing a later case depends on.
@@ -430,13 +503,13 @@ func TestControllerPatchesOnlyJavoKeysOnItsNamespaces(t *testing.T) {
 				return patchLabels(ctl, "kube-system", map[string]string{"example.com/probe": strconv.Itoa(try)})
 			})
 
-			if err := ctl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-alice", Labels: restrictedLabels()}}); err != nil {
+			if err := ctl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: mine, Labels: restrictedLabels()}}); err != nil {
 				t.Fatal(err)
 			}
-			if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "javo-bob", Labels: map[string]string{"team": "blue"}}}); err != nil {
+			if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: theirs, Labels: map[string]string{"team": "blue"}}}); err != nil {
 				t.Fatal(err)
 			}
-			if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "other"}}); err != nil {
+			if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: other}}); err != nil {
 				t.Fatal(err)
 			}
 			restricted := restrictedLabels()
@@ -445,16 +518,16 @@ func TestControllerPatchesOnlyJavoKeysOnItsNamespaces(t *testing.T) {
 				err   error
 				allow bool
 			}{
-				{"harden a managed namespace", patchLabels(ctl, "javo-alice", restricted), true},
-				{"Javo label on a managed namespace", patchLabels(ctl, "javo-alice", map[string]string{"javo.nebari.dev/x": "y"}), true},
-				{"Javo annotation on a managed namespace", patchAnnotation(ctl, "javo-alice", "javo.nebari.dev/x", "y"), true},
+				{"harden a managed namespace", patchLabels(ctl, mine, restricted), true},
+				{"Javo label on a managed namespace", patchLabels(ctl, mine, map[string]string{"javo.nebari.dev/x": "y"}), true},
+				{"Javo annotation on a managed namespace", patchAnnotation(ctl, mine, "javo.nebari.dev/x", "y"), true},
 				// A namespace someone else made is never taken over, even
 				// one named like Javo's: it may hold their Secrets.
-				{"adopt a namespace named for Javo", patchLabels(ctl, "javo-bob", restricted), false},
-				{"loosen Pod Security", patchLabels(ctl, "javo-alice", map[string]string{"pod-security.kubernetes.io/enforce": "privileged"}), false},
-				{"foreign label on a managed namespace", patchLabels(ctl, "javo-alice", map[string]string{"team": "red"}), false},
-				{"foreign annotation on a managed namespace", patchAnnotation(ctl, "javo-alice", "example.com/x", "y"), false},
-				{"adopt a namespace not named for Javo", patchLabels(ctl, "other", restricted), false},
+				{"adopt a namespace named for Javo", patchLabels(ctl, theirs, restricted), false},
+				{"loosen Pod Security", patchLabels(ctl, mine, map[string]string{"pod-security.kubernetes.io/enforce": "privileged"}), false},
+				{"foreign label on a managed namespace", patchLabels(ctl, mine, map[string]string{"team": "red"}), false},
+				{"foreign annotation on a managed namespace", patchAnnotation(ctl, mine, "example.com/x", "y"), false},
+				{"adopt a namespace not named for Javo", patchLabels(ctl, other, restricted), false},
 				// javo-system is named like a Javo namespace but is the
 				// release's own: adopting it would let the controller bind
 				// app roles next to the components' Secrets.
@@ -503,7 +576,7 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 	gw := as("javo-gateway")
 	ctx := context.Background()
 	image := controllerArg(deploymentOf(t, out, "postgres", "gateway"), "files-image")
-	nsName, owner := "javo-alice", "alice"
+	nsName, owner := own("javo-ivan"), "alice"
 
 	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName, Labels: map[string]string{"javo.nebari.dev/managed": "true"}}}); err != nil {
 		t.Fatal(err)
@@ -599,12 +672,16 @@ func TestGatewayCreatesOnlyFilePods(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("a file pod with group folders: %v", err)
 	}
-	if err := admin.Create(ctx, &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: "javo-test-high"}, Value: 1000000}); err != nil {
+	high := &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: "javo-test-high"}, Value: 1000000}
+	if err := admin.Create(ctx, high); err != nil {
 		t.Fatal(err)
 	}
-	if err := admin.Create(ctx, &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "javo-test-runtime"}, Handler: "other"}); err != nil {
+	t.Cleanup(func() { _ = admin.Delete(context.Background(), high) })
+	runtimeClass := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "javo-test-runtime"}, Handler: "other"}
+	if err := admin.Create(ctx, runtimeClass); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = admin.Delete(context.Background(), runtimeClass) })
 	for _, c := range []struct {
 		name   string
 		change func(*corev1.Pod)
