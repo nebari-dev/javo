@@ -561,3 +561,8 @@ func TestHelpersEndStopsEveryHelperAndNothingElse(t *testing.T) {
 		t.Fatalf("after End a helper was started again: %+v", st)
 	}
 }
+
+// clock is a time a test sets.
+type clock struct{ t time.Time }
+
+func (c *clock) Now() time.Time { return c.t }

@@ -1,3 +1,5 @@
+//go:build !local
+
 package files_test
 
 import (
@@ -18,7 +20,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/nebari-dev/javo/internal/files"
-	"github.com/nebari-dev/javo/internal/storage/ids"
 )
 
 // Upload sends the bytes as one multipart file to operations/uploadfile,
@@ -88,8 +89,6 @@ func (stubRemote) MoveDir(context.Context, string, string, string) error {
 func (stubRemote) Purge(context.Context, string, string) error {
 	return errors.New("stubRemote: no Purge")
 }
-
-var mod = time.Date(2026, 10, 30, 19, 22, 27, 123, time.UTC)
 
 // editTree is editHome as a stubRemote, without the links.
 func editTree() stubRemote {
@@ -251,17 +250,6 @@ func TestSaveOfTheSameVersionAtOnceWritesOnlyOne(t *testing.T) {
 		}
 	})
 }
-
-// ownerUID is the uid the owner's apps run as, and so their file pod.
-const ownerUID = 20001
-
-type fixedUID int64
-
-func (u fixedUID) UID(context.Context, string) (int64, int64, error) { return int64(u), 100, nil }
-
-type noUID struct{}
-
-func (noUID) UID(context.Context, string) (int64, int64, error) { return 0, 0, ids.ErrNoUID }
 
 // A file pod made before saves existed mounts the home read-only and runs as
 // the fixed uid; one made before the owner's uid changed runs as the old
