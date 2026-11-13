@@ -11,5 +11,15 @@
 // ports or a path of the host. Whoever holds the Docker socket is root on
 // that host, so nothing but this package should use it.
 //
+// A workload is a sandbox container on a network of its own (Isolate,
+// SandboxBody) and one container per unit in the sandbox's network
+// namespace (ContainerBody), over volumes made ready first (Prepare,
+// SecretFiles). Teardown removes all of it.
+//
+// What the design rests on is checked against a real daemon by the
+// TestDaemon tests, which are skipped when none answers. Not checked,
+// for want of such a daemon: rootless Docker, the nftables firewall
+// backend and a sandbox runtime such as runsc.
+//
 // Nothing here logs: a request can hold secret values.
 package docker
