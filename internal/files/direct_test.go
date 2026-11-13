@@ -575,9 +575,9 @@ func TestDirectListsFilesAndFoldersUpToTheCap(t *testing.T) {
 	}
 }
 
-// Upload writes over a file in place (its mode stays) and makes the
-// folders a new file needs.
-func TestDirectUploadWritesInPlaceAndMakesFolders(t *testing.T) {
+// Upload replaces a file (its mode stays) and makes the folders a new
+// file needs.
+func TestDirectUploadReplacesAFileAndMakesFolders(t *testing.T) {
 	ctx := context.Background()
 	home, _ := newDiskHome(t, map[string][]byte{"notes/a.py": []byte("a long first version")})
 	must(t, os.Chmod(filepath.Join(home, "notes/a.py"), 0o600))
@@ -602,6 +602,69 @@ func TestDirectUploadWritesInPlaceAndMakesFolders(t *testing.T) {
 	if err := d.UploadStream(ctx, home, "", "half.bin", broken); !errors.Is(err, files.ErrTooLarge) {
 		t.Errorf("err = %v, want the reader's", err)
 	}
+}
+
+// cancelling is a reader that ends its request after the first read, and
+// still has more to give: the write must stop on its own.
+type cancelling struct {
+	cancel func()
+	reads  int
+}
+
+func (c *cancelling) Read(p []byte) (int, error) {
+	c.reads++
+	switch {
+	case c.reads == 1:
+		c.cancel()
+		return copy(p, "half"), nil
+	case c.reads < 100:
+		return copy(p, "more"), nil
+	}
+	return 0, io.EOF
+}
+
+// A write that does not finish (its reader fails, or its request ends
+// part way) changes nothing: the file that was there keeps its content,
+// no new file appears, and nothing is left beside it.
+func TestDirectUploadThatDoesNotFinishChangesNothing(t *testing.T) {
+	for name, upload := range map[string]func(d files.Direct, home, file string) error{
+		"the reader fails": func(d files.Direct, home, file string) error {
+			broken := io.MultiReader(strings.NewReader("half"), &failingReader{err: files.ErrTooLarge})
+			return d.UploadStream(context.Background(), home, "notes", file, broken)
+		},
+		"the request ends": func(d files.Direct, home, file string) error {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			return d.UploadStream(ctx, home, "notes", file, &cancelling{cancel: cancel})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, _ := newDiskHome(t, map[string][]byte{"notes/a.py": []byte("first version")})
+			before := snapshot(t, home)
+			var d files.Direct
+			for _, file := range []string{"a.py", "new.py"} {
+				if err := upload(d, home, file); err == nil {
+					t.Errorf("upload of %s: no error", file)
+				}
+			}
+			if after := snapshot(t, home); after != before {
+				t.Errorf("the home changed:\n%s\nwas:\n%s", after, before)
+			}
+		})
+	}
+}
+
+// A file that has a second name elsewhere on the disk (a hard link) is
+// replaced, not written into: what the other name holds stays.
+func TestDirectUploadDoesNotWriteIntoAFileLinkedElsewhere(t *testing.T) {
+	home, outside := newDiskHome(t, nil)
+	must(t, os.Link(filepath.Join(outside, "secret.txt"), filepath.Join(home, "linked.txt")))
+	var d files.Direct
+	must(t, d.Upload(context.Background(), home, "", "linked.txt", []byte("written")))
+	if got, err := readAll(d, home, "linked.txt"); err != nil || got != "written" {
+		t.Errorf("linked.txt = %q, %v", got, err)
+	}
+	untouched(t, outside)
 }
 
 func TestDirectMoveDirNeedsARealFolderAndAFreeName(t *testing.T) {

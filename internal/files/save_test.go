@@ -373,9 +373,23 @@ func TestSaveOfOnePersonNeverWaitsForAnothersSlowSave(t *testing.T) {
 func TestSaveWaitingForTheSameFileStopsWhenTheRequestEnds(t *testing.T) {
 	eachHome(t, editHome(), func(t *testing.T, h testHome) {
 		g := gate(h)
-		defer close(g.release)
 		l := files.NewLister(stubEnsurer{addr: h.addr()}, g)
-		go func() { _, _ = l.Save(context.Background(), owner, "notes/new.md", []byte("a"), "") }()
+		first := make(chan error, 1)
+		go func() {
+			_, err := l.Save(context.Background(), owner, "notes/new.md", []byte("a"), "")
+			first <- err
+		}()
+		// The first save is let go and waited for before the test ends: it
+		// is still writing to the home until then. Only it was written.
+		defer func() {
+			close(g.release)
+			if err := <-first; err != nil {
+				t.Errorf("the first save: %v", err)
+			}
+			if got := h.tree()["notes/new.md"]; string(got) != "a" {
+				t.Errorf("new.md = %q, want the first save's content only", got)
+			}
+		}()
 		<-g.entered
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()

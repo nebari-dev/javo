@@ -257,9 +257,9 @@ func (m *memRemote) leftovers() []string {
 }
 
 // isLeftover reports whether p is, or is inside, a staging or old folder
-// of an upload.
+// of an upload, or is a file a write was not finished into.
 func isLeftover(p string) bool {
-	return strings.Contains(p, ".upload-") || strings.Contains(p, ".old-")
+	return strings.Contains(p, ".upload-") || strings.Contains(p, ".old-") || strings.Contains(p, ".part-")
 }
 
 // diskRemote is a home that is a folder of this machine, served by

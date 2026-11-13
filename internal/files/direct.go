@@ -114,11 +114,11 @@ func enter(dir *os.Root, name string) (*os.Root, error) {
 	return sub, nil
 }
 
-// plainFile opens the plain file name of dir with flag. Anything else
+// plainFile opens the plain file name of dir to be read. Anything else
 // under that name (a link, a folder, a pipe, a device) is ErrNotFound,
 // also when it was put there after the look, as for enter. The open never
 // waits for the other end of a pipe swapped in.
-func plainFile(dir *os.Root, name string, flag int) (*os.File, error) {
+func plainFile(dir *os.Root, name string) (*os.File, error) {
 	seen, err := dir.Lstat(name)
 	if err != nil {
 		return nil, notFound(err)
@@ -126,7 +126,7 @@ func plainFile(dir *os.Root, name string, flag int) (*os.File, error) {
 	if !seen.Mode().IsRegular() {
 		return nil, ErrNotFound
 	}
-	f, err := dir.OpenFile(name, flag|syscall.O_NONBLOCK, 0)
+	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -255,7 +255,7 @@ func (d Direct) Open(ctx context.Context, addr, remote string) (io.ReadCloser, e
 	}
 	var f *os.File
 	err = d.in(ctx, addr, dataDir, dir, false, func(at *os.Root) error {
-		f, err = plainFile(at, name, os.O_RDONLY)
+		f, err = plainFile(at, name)
 		return err
 	})
 	if err != nil {
@@ -270,31 +270,62 @@ func (d Direct) Upload(ctx context.Context, addr, dir, name string, data []byte)
 }
 
 // UploadStream writes what r holds as the file name in folder dir, making
-// the folders that do not exist. A plain file of that name is written over
-// in place (its mode stays), as rclone does; anything else of that name is
-// refused. A write that fails part way leaves the part written.
+// the folders that do not exist. Only a plain file of that name is
+// replaced (its mode stays); anything else of that name is refused.
+//
+// The bytes go to a new file beside it, which takes the name only once
+// all of them are written. So a write that does not finish (r fails, or
+// ctx ends part way: the copy stops at its next read) changes nothing and
+// leaves nothing, and nothing is ever written into the file that had the
+// name: a file with a second name elsewhere on the disk (a hard link)
+// keeps its content there. Taking the name does not follow a link put
+// there since the look; the link itself is replaced.
 func (d Direct) UploadStream(ctx context.Context, addr, dir, name string, r io.Reader) error {
 	dir, name, err := split(path.Join(dir, name))
 	if err != nil {
 		return err
 	}
 	return d.in(ctx, addr, dataDir, dir, true, func(at *os.Root) error {
-		// Creating a file that must not exist never follows a link.
-		f, err := at.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if errors.Is(err, os.ErrExist) {
-			// Emptied only once it is known to be the plain file seen.
-			if f, err = plainFile(at, name, os.O_WRONLY); err == nil {
-				if err = f.Truncate(0); err != nil {
-					f.Close()
-				}
-			}
+		seen, err := at.Lstat(name)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			seen = nil
+		case err != nil:
+			return err
+		case !seen.Mode().IsRegular():
+			return ErrNotFound
 		}
+		// A new name, made only if nothing has it: never a link.
+		part := ".part-" + randomSuffix()
+		f, err := at.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(f, r)
-		return errors.Join(err, f.Close())
+		_, err = io.Copy(f, &whileLive{ctx: ctx, r: r})
+		if err == nil && seen != nil {
+			err = f.Chmod(seen.Mode().Perm())
+		}
+		if err = errors.Join(err, f.Close()); err == nil {
+			err = at.Rename(part, name)
+		}
+		if err != nil {
+			return errors.Join(err, at.Remove(part))
+		}
+		return nil
 	})
+}
+
+// whileLive reads r until ctx ends.
+type whileLive struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (w *whileLive) Read(p []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return w.r.Read(p)
 }
 
 // MoveDir renames the folder src to dst, a name in the same folder that
