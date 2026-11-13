@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	batchv1 "k8s.io/api/batch/v1"
-
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/executor"
@@ -16,61 +14,33 @@ import (
 )
 
 // A job's runs get the owner's secrets as variables read by reference from
-// a bundle (executor.Secrets), never from the run's Spec. Scheduled runs
-// share one bundle that goes with the CronJob, rewritten when a value or
-// binding changes, so the next run gets the change; a run started by hand
-// gets one of its own, written with the values at its start, that goes with
-// the run.
+// a bundle (executor.Secrets), never from the run's Spec. Each run gets a
+// bundle of its own, written with the values at its start, that goes with
+// the run: a new value or binding reaches the next run.
 
 // prepareSecrets puts the secrets the job's runs get in v. For a schedule
-// that may run, it opens the values when the bundle its runs read is missing
-// or out of date; values that cannot be opened block the job
-// (SecretsUnreadable) rather than run it without them.
+// that may run it opens the values once per change of them: values that
+// cannot be opened block the job (SecretsUnreadable) rather than let its
+// slots come due and fail one by one.
 func (r *Reconciler) prepareSecrets(ctx context.Context, job *model.Job, v *verdict) error {
 	all, err := r.Store.Secrets().ForJob(ctx, job.ID)
 	if err != nil {
 		return err
 	}
 	v.secrets = secretenv.For(ctx, all, authz.Object{Job: job})
-	if job.Spec.Schedule == nil {
-		return nil
-	}
-	if v.scheduled, err = r.Secrets.Get(ctx, jobRef(job), ScheduledSecretName(job)); err != nil {
-		return err
-	}
 	fp := v.secrets.Fingerprint
-	if v.code != "" || fp == "" || (v.scheduled != nil && v.scheduled.Meta[model.AnnotationSecrets] == fp) {
+	if job.Spec.Schedule == nil || v.code != "" || fp == "" {
 		return nil
 	}
-	data, unreadable := v.secrets.Open(ctx, r.SecretKeys)
-	if unreadable != "" {
-		*v = verdict{phase: model.JobPhaseBlocked, code: reasons.SecretsUnreadable, secrets: v.secrets, scheduled: v.scheduled}
+	if opened, _ := r.readable.Load(job.ID); opened == fp {
 		return nil
 	}
-	v.scheduledData = data
+	if _, unreadable := v.secrets.Open(ctx, r.SecretKeys); unreadable != "" {
+		*v = verdict{phase: model.JobPhaseBlocked, code: reasons.SecretsUnreadable, secrets: v.secrets}
+		return nil
+	}
+	r.readable.Store(job.ID, fp)
 	return nil
-}
-
-// syncScheduledSecret makes the bundle the CronJob's runs read match v: the
-// values prepareSecrets opened, going with cj; none when the runs get no
-// secret. A blocked job's bundle is left as it is.
-func (r *Reconciler) syncScheduledSecret(ctx context.Context, job *model.Job, v verdict, cj *batchv1.CronJob) error {
-	name := ScheduledSecretName(job)
-	switch {
-	case job.Spec.Schedule == nil:
-		return nil
-	case v.secrets.Fingerprint == "":
-		if v.scheduled == nil {
-			return nil
-		}
-		return r.Secrets.Delete(ctx, jobRef(job), name)
-	case v.code != "" || cj == nil || cj.UID == "":
-		return nil
-	case v.scheduledData != nil:
-		return r.putSecrets(ctx, jobRef(job), name, v.secrets.Fingerprint, v.scheduledData)
-	}
-	// Up to date; a CronJob made again since needs to own it.
-	return r.putSecrets(ctx, jobRef(job), name, v.secrets.Fingerprint, v.scheduled.Data)
 }
 
 // startSecret writes the bundle the run ref reads, with the values now.

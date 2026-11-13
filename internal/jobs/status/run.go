@@ -61,7 +61,7 @@ type Termination struct {
 // some outcome, with Lost when it shows nothing usable.
 func DeriveRun(st *workload.State) model.Run {
 	seen := st.Run
-	run := model.Run{Handle: seen.Handle, Trigger: "schedule", StartTime: seen.Started, ScheduledTime: seen.Slot}
+	run := model.Run{Handle: seen.Handle, Trigger: "schedule", StartTime: seen.Started, ScheduledTime: seen.Slot, Slot: seen.Slot}
 	if seen.Manual {
 		run.Trigger = "manual"
 	}

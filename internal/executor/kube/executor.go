@@ -60,7 +60,8 @@ type Executor struct {
 	// workspace namespace.
 	ManagedOnly bool
 
-	// started are the Pods Start made that the cache has not shown yet.
+	// started are the Pods, and for runs the Jobs, Start made that the
+	// cache has not shown yet.
 	started sync.Map
 }
 
@@ -95,19 +96,19 @@ func key(ref workload.Ref) client.ObjectKey {
 }
 
 // own reads the object called after ref into obj and reports whether it is
-// there and is the app's. One that carries another app's id (or none) is
-// not, and is never touched.
-func (e *Executor) own(ctx context.Context, ref workload.Ref, obj client.Object) (bool, error) {
+// there and carries the ref's id under label. One that carries another id
+// (or none) is not the workload's, and is never touched.
+func (e *Executor) own(ctx context.Context, label string, ref workload.Ref, obj client.Object) (bool, error) {
 	if err := e.Client.Get(ctx, key(ref), obj); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
-	return obj.GetLabels()[model.LabelApp] == ref.ID, nil
+	return obj.GetLabels()[label] == ref.ID, nil
 }
 
 // drop deletes the object called after ref, read into obj, when it is the
 // app's.
 func (e *Executor) drop(ctx context.Context, ref workload.Ref, obj client.Object) error {
-	if mine, err := e.own(ctx, ref, obj); err != nil || !mine {
+	if mine, err := e.own(ctx, model.LabelApp, ref, obj); err != nil || !mine {
 		return err
 	}
 	return client.IgnoreNotFound(e.Client.Delete(ctx, obj))
@@ -242,11 +243,8 @@ func commitOf(pod *corev1.Pod) string {
 	return ""
 }
 
-// refOf names the app an object is labelled for; its ID is empty when the
-// object is no app's.
-func refOf(o client.Object) workload.Ref { return refBy(o, model.LabelApp) }
-
-// refBy names the workload an object carries the id of under label.
+// refBy names the workload an object carries the id of under label; its ID
+// is empty when the object carries none.
 func refBy(o client.Object, label string) workload.Ref {
 	l := o.GetLabels()
 	return workload.Ref{Namespace: o.GetNamespace(), Name: o.GetName(), ID: l[label], Owner: l[model.LabelOwner]}

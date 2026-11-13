@@ -541,11 +541,17 @@ func TestUpgradeKeepsRunsReadable(t *testing.T) {
 			id, k8sJob, t0.UnixMilli(), outcome)
 	}
 	insert("run-1", "alice-nightly-29384756", model.RunOutcomeSucceeded)
+	insert("run-2", "skipped-1793253600", model.RunOutcomeSkipped)
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	run, err := s.Jobs().Run(ctx, "run-1")
 	if err != nil || run.Handle != "alice-nightly-29384756" || !run.Slot.IsZero() || !run.ScheduledTime.Equal(t0) {
 		t.Fatalf("run = %+v, %v", run, err)
+	}
+	// A skipped start never had a Kubernetes Job: its key is no handle.
+	skipped, err := s.Jobs().Run(ctx, "run-2")
+	if err != nil || skipped.Handle != "" || skipped.Outcome != model.RunOutcomeSkipped || !skipped.ScheduledTime.Equal(t0) {
+		t.Fatalf("skipped = %+v, %v", skipped, err)
 	}
 }

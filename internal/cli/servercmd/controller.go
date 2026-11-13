@@ -299,26 +299,17 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}
-	cronJobEvents, err := manager.CronJobEvents(mgr.GetConfig(), scheme, watched)
-	if err != nil {
-		return err
-	}
-	if err := mgr.Add(cronJobEvents); err != nil {
-		return err
-	}
 	// Runs are Jobs of the same cluster the apps run on, with the same
-	// isolation.
+	// isolation. The controller fires the schedules itself.
 	runs := apps.Runs()
 	if err := (&jobs.Reconciler{
 		Exec: runs, Legacy: runs, Secrets: kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), Runs: true},
-		Kube: mgr.GetClient(), Store: db, RunnerImage: o.platformImage(), PixiImage: platform.Environments.PixiImage,
+		Store: db, RunnerImage: o.platformImage(), PixiImage: platform.Environments.PixiImage,
 		Access: wiring.JobAccess(db.People(store.IDRange{}), platform.Roles), Now: time.Now,
-		UIDMode: platform.Identity.UIDMode, ManagedNamespacesOnly: !shared,
-		CronJobEvents: cronJobEvents, Storage: wiring.StorageResolver(db, platform),
+		UIDMode: platform.Identity.UIDMode, Storage: wiring.StorageResolver(db, platform),
 		SecretKeys: keys, Sizes: appSizes,
 		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
 		APIInternalURL: gatewayBase(o.probe.controlURL), MaxTimeout: platform.Limits.JobMaxTimeout.Duration,
-		Isolation: platform.Workloads.Isolation(),
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}

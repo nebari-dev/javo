@@ -1,14 +1,3 @@
-// Event reasons the Kubernetes CronJob controller emits (read from
-// pkg/controller/cronjob/cronjob_controllerv2.go at v1.37.0, the version envtest
-// and kind use):
-//
-//	"JobAlreadyActive" (Normal): a start was skipped because the previous run is
-//	  still active and concurrencyPolicy is Forbid. The message names no time.
-//	"MissSchedule" (Warning): a start was later than startingDeadlineSeconds.
-//	  The message ends with the scheduled time in RFC1123Z.
-//
-// Both go through a core/v1 recorder, so repeats of an identical message are
-// folded into one Event with a higher count and a newer lastTimestamp.
 package jobs
 
 import (
@@ -33,7 +22,6 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -103,6 +91,8 @@ type harness struct {
 	stop   func()
 	// configure changes the reconciler before it starts.
 	configure func(*Reconciler)
+	// managedOnly makes the executor keep to managed namespaces.
+	managedOnly bool
 }
 
 func newHarness(t *testing.T) *harness { return newHarnessWith(t, nil) }
@@ -128,7 +118,7 @@ func newHarnessWith(t *testing.T, configure func(*Reconciler)) *harness {
 func (h *harness) newReconciler(e *kube.Executor) *Reconciler {
 	r := &Reconciler{
 		Exec: e.Runs(), Legacy: e.Runs(), Secrets: kube.Secrets{Reader: k8s, Client: k8s, Runs: true},
-		Kube: e.Client, Store: h.db, RunnerImage: podspec.Image{Ref: "example.com/javo:9"},
+		Store: h.db, RunnerImage: podspec.Image{Ref: "example.com/javo:9"},
 		Storage: podstorage.Resolver{Homes: h.db.Homes(), Folders: h.db.SharedFolders()},
 		Access:  h.access, Now: func() time.Time { return fixedNow },
 		// A short resync stands in for announcements the tests make by
@@ -153,19 +143,11 @@ func (h *harness) start() {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	events, err := manager.CronJobEvents(restConfig, scheme, []string{h.ns})
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	if err := mgr.Add(events); err != nil {
-		h.t.Fatal(err)
-	}
-	exec := &kube.Executor{Machines: capacity.Nodes{Reader: mgr.GetClient()}}
+	exec := &kube.Executor{Machines: capacity.Nodes{Reader: mgr.GetClient()}, ManagedOnly: h.managedOnly}
 	if err := exec.SetupWithManager(mgr); err != nil {
 		h.t.Fatal(err)
 	}
 	r := h.newReconciler(exec)
-	r.CronJobEvents = events
 	feed := dbsource.NewFeed(h.db.Changes())
 	if err := r.SetupWithManager(mgr, feed); err != nil {
 		h.t.Fatal(err)
@@ -174,14 +156,9 @@ func (h *harness) start() {
 	// The informers the controller watches start with the caches, not when
 	// the controller starts, so they are synced before the wait below ends
 	// and the controller's first reconcile does not wait for them.
-	for c, objs := range map[cache.Cache][]client.Object{
-		mgr.GetCache(): {&batchv1.Job{}, &batchv1.CronJob{}, &corev1.Event{}},
-		events:         {&corev1.Event{}},
-	} {
-		for _, o := range objs {
-			if _, err := c.GetInformer(bg, o); err != nil {
-				h.t.Fatal(err)
-			}
+	for _, o := range []client.Object{&batchv1.Job{}, &batchv1.CronJob{}, &corev1.Event{}} {
+		if _, err := mgr.GetCache().GetInformer(bg, o); err != nil {
+			h.t.Fatal(err)
 		}
 	}
 	ctx, cancel := context.WithCancel(bg)
@@ -199,7 +176,7 @@ func (h *harness) start() {
 	}()
 	h.stop = func() { cancel(); wg.Wait() }
 	// Tests call Reconcile at once: wait until the cache it reads is filled.
-	if !mgr.GetCache().WaitForCacheSync(ctx) || !events.WaitForCacheSync(ctx) {
+	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		h.t.Fatal("the controller's caches did not sync")
 	}
 }
@@ -244,7 +221,7 @@ func (h *harness) definition(name string, mutate func(*model.Job)) model.Job {
 }
 
 func (h *harness) cronJob(j model.Job) *batchv1.CronJob {
-	return &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: cronJobName(&j), Namespace: h.ns}}
+	return &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: jobName(&j), Namespace: h.ns}}
 }
 
 func (h *harness) job(id string) model.Job {
@@ -286,14 +263,6 @@ func condReason(j model.Job, typ string) string {
 	return ""
 }
 
-func (h *harness) suspended(j model.Job) bool {
-	cj := h.cronJob(j)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		return false
-	}
-	return ptr.Deref(cj.Spec.Suspend, false)
-}
-
 func (h *harness) cronJobExists(j model.Job) bool {
 	cj := h.cronJob(j)
 	err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj)
@@ -310,19 +279,25 @@ func (h *harness) scheduledJob(j model.Job, tpl model.Template, name string) *ba
 // scheduledJobAt is scheduledJob for the slot at.
 func (h *harness) scheduledJobAt(j model.Job, tpl model.Template, name string, at time.Time) *batchv1.Job {
 	h.t.Helper()
-	jt, err := BuildJobTemplate(Inputs{Job: &j, Template: &tpl, RunnerImage: podspec.Image{Ref: "example.com/javo:9"}}, nil)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	k := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns, Labels: jt.Labels, Annotations: map[string]string{
-			"batch.kubernetes.io/cronjob-scheduled-timestamp": at.Format(time.RFC3339),
-		}},
-		Spec: jt.Spec,
-	}
+	k := h.cronJobsJob(j, tpl, name, at)
 	if err := k8s.Create(bg, k); err != nil {
 		h.t.Fatal(err)
 	}
+	return k
+}
+
+// cronJobsJob is a Job called name as the CronJob of an earlier version
+// made them for the job's slot at: a scheduled run with no finalizer and
+// no time to live, reading the secrets its CronJob owned.
+func (h *harness) cronJobsJob(j model.Job, tpl model.Template, name string, at time.Time) *batchv1.Job {
+	h.t.Helper()
+	run, err := plan(Inputs{Job: &j, Template: &tpl, RunnerImage: podspec.Image{Ref: "example.com/javo:9"}}, name, nil, jobName(&j)+".job-secrets")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	run.Batch.Slot = at
+	k := kube.RenderRun(run, podspec.Isolation{})
+	k.Finalizers, k.Spec.TTLSecondsAfterFinished = nil, nil
 	return k
 }
 
@@ -348,7 +323,7 @@ func (h *harness) requestRun(j model.Job, params map[string]string) (model.Run, 
 func (h *harness) failJob(j *batchv1.Job, message string) {
 	h.t.Helper()
 	// The Job controller gives a pod the Job template's labels plus job-name.
-	podLabels := map[string]string{LabelJobName: j.Name}
+	podLabels := map[string]string{kube.LabelJobName: j.Name}
 	maps.Copy(podLabels, j.Spec.Template.Labels)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: j.Name + "-pod", Namespace: h.ns, Labels: podLabels},
@@ -389,7 +364,7 @@ func (h *harness) hasFinalizer(name string) (found, exists bool) {
 		return false, false
 	}
 	for _, f := range j.Finalizers {
-		if f == FinalizerRecordRun {
+		if f == kube.FinalizerRecordRun {
 			return true, true
 		}
 	}
@@ -453,44 +428,36 @@ func (h *harness) waitRunWhere(j model.Job, runID, what string, ok func(model.Ru
 
 const cellErrorMessage = `{"reason":"CellError","message":"Cell 7 raised KeyError: 'region'","outputPath":"jobs/nightly/run"}`
 
-func TestScheduledJobCreatesLabelledCronJob(t *testing.T) {
+func TestAScheduledJobIsReadyAndShowsItsNextRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", nil)
 
 	got := h.waitPhase(d, model.JobPhaseReady)
-	cj := h.cronJob(d)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		t.Fatal(err)
-	}
-	if cj.Labels[model.LabelJob] != d.ID || len(cj.OwnerReferences) != 0 {
-		t.Fatalf("cronjob labels = %v, owner refs = %+v; want the job label and no owner reference", cj.Labels, cj.OwnerReferences)
-	}
-	if cj.Spec.Schedule != "0 6 * * 1-5" || ptr.Deref(cj.Spec.Suspend, false) {
-		t.Fatalf("cronjob spec = %+v", cj.Spec)
-	}
 	if len(got.Status.NextRunTimes) != 3 {
 		t.Fatalf("nextRunTimes = %v, want 3", got.Status.NextRunTimes)
 	}
-	if condReason(got, model.ConditionValid) != string(reasons.Ready) {
+	if condReason(got, model.ConditionValid) != string(reasons.Ready) || condReason(got, model.ConditionScheduled) != string(reasons.Ready) {
 		t.Fatalf("conditions = %+v", got.Status.Conditions)
 	}
 	if got.Status.ObservedVersion != got.Version {
 		t.Fatalf("observed version %d, want %d", got.Status.ObservedVersion, got.Version)
 	}
+	// The controller fires the schedule itself: nothing is made for it
+	// where the runs run.
+	if h.cronJobExists(d) {
+		t.Fatal("a CronJob was made for the schedule")
+	}
 }
 
-func TestPausedJobSuspendsCronJob(t *testing.T) {
+func TestAPausedJobShowsNoNextRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Spec.Schedule.Paused = true })
 
 	got := h.waitPhase(d, model.JobPhasePaused)
-	if !h.suspended(d) {
-		t.Fatal("cronjob is not suspended")
-	}
 	if len(got.Status.NextRunTimes) != 0 {
 		t.Fatalf("paused job shows next runs %v", got.Status.NextRunTimes)
 	}
@@ -499,19 +466,19 @@ func TestPausedJobSuspendsCronJob(t *testing.T) {
 	}
 }
 
-func TestJobWithoutScheduleHasNoCronJob(t *testing.T) {
+func TestAJobWithoutScheduleShowsNoNextRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
 	d := h.definition("once", func(j *model.Job) { j.Spec.Schedule = nil })
 
-	h.waitPhase(d, model.JobPhaseReady)
-	if h.cronJobExists(d) {
-		t.Fatal("cronjob for an on-demand job")
+	got := h.waitPhase(d, model.JobPhaseReady)
+	if len(got.Status.NextRunTimes) != 0 || condReason(got, model.ConditionScheduled) != "" {
+		t.Fatalf("status of an on-demand job = %+v", got.Status)
 	}
 }
 
-func TestRemovingScheduleDeletesCronJob(t *testing.T) {
+func TestRemovingTheScheduleEndsTheNextRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
@@ -524,10 +491,13 @@ func TestRemovingScheduleDeletesCronJob(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "cronjob deleted", func() bool { return !h.cronJobExists(d) })
+	eventually(t, "no next runs", func() bool {
+		st := h.job(d.ID).Status
+		return len(st.NextRunTimes) == 0 && st.FiredThrough.IsZero()
+	})
 }
 
-func TestTemplateMissingBlocksAndSuspendsThenRecovers(t *testing.T) {
+func TestTemplateMissingBlocksThenRecovers(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
@@ -541,14 +511,18 @@ func TestTemplateMissingBlocksAndSuspendsThenRecovers(t *testing.T) {
 	if condReason(got, model.ConditionValid) != string(reasons.TemplateMissing) {
 		t.Fatalf("conditions = %+v", got.Status.Conditions)
 	}
-	eventually(t, "cronjob suspended", func() bool { return h.suspended(d) })
+	if condReason(got, model.ConditionScheduled) != string(reasons.TemplateMissing) {
+		t.Fatalf("conditions = %+v", got.Status.Conditions)
+	}
 
 	h.template(nil)
-	h.waitPhase(d, model.JobPhaseReady)
-	eventually(t, "cronjob resumed", func() bool { return !h.suspended(d) })
+	got = h.waitPhase(d, model.JobPhaseReady)
+	if condReason(got, model.ConditionScheduled) != string(reasons.Ready) {
+		t.Fatalf("conditions = %+v", got.Status.Conditions)
+	}
 }
 
-func TestOwnerLosingAccessBlocksAndSuspends(t *testing.T) {
+func TestOwnerLosingAccessBlocks(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.template(nil)
@@ -559,8 +533,8 @@ func TestOwnerLosingAccessBlocksAndSuspends(t *testing.T) {
 	if condReason(got, model.ConditionValid) != string(reasons.OwnerLostAccess) {
 		t.Fatalf("conditions = %+v", got.Status.Conditions)
 	}
-	if h.cronJobExists(d) {
-		t.Fatal("a blocked job that never ran must not get a cronjob")
+	if !got.Status.FiredThrough.IsZero() || len(got.Status.NextRunTimes) != 0 {
+		t.Fatalf("a blocked job that never could run has a schedule going: %+v", got.Status)
 	}
 }
 
@@ -611,8 +585,8 @@ func TestInvalidScheduleMakesJobInvalid(t *testing.T) {
 	if condReason(got, model.ConditionValid) != string(reasons.ScheduleInvalid) {
 		t.Fatalf("conditions = %+v", got.Status.Conditions)
 	}
-	if h.cronJobExists(d) {
-		t.Fatal("cronjob created for an invalid schedule")
+	if len(got.Status.NextRunTimes) != 0 {
+		t.Fatalf("an invalid schedule shows next runs %v", got.Status.NextRunTimes)
 	}
 }
 
@@ -731,7 +705,6 @@ func TestDeletingAJobRemovesItsObjectsAndRow(t *testing.T) {
 	d := h.definition("nightly", nil)
 	h.waitPhase(d, model.JobPhaseReady)
 	_, k := h.requestRun(d, nil)
-	eventually(t, "the cronjob", func() bool { return h.cronJobExists(d) })
 
 	if err := h.db.Jobs().MarkDeleted(bg, actor, d.ID); err != nil {
 		t.Fatal(err)
@@ -740,9 +713,6 @@ func TestDeletingAJobRemovesItsObjectsAndRow(t *testing.T) {
 		_, err := h.db.Jobs().Get(bg, d.ID)
 		return err == store.ErrNotFound
 	})
-	if h.cronJobExists(d) {
-		t.Fatal("cronjob left behind")
-	}
 	if _, exists := h.hasFinalizer(k.Name); exists {
 		t.Fatal("Job left behind")
 	}
@@ -770,6 +740,13 @@ func TestAJobFromATokenTemplateGetsItsOwnersToken(t *testing.T) {
 	// It is the job's own, kept from its owner's secrets like an app's.
 	if err != nil || got.Owner != d.Owner || got.Scope != token.ScopeReadWrite || got.Job != d.ID || !got.Workload() {
 		t.Fatalf("token = %+v, %v", got, err)
+	}
+	// A run reads it from that Secret.
+	_, k := h.requestRun(d, nil)
+	env := k.Spec.Template.Spec.Containers[0].Env
+	i := slices.IndexFunc(env, func(e corev1.EnvVar) bool { return e.Name == "JAVO_TOKEN" })
+	if i < 0 || env[i].ValueFrom == nil || env[i].ValueFrom.SecretKeyRef == nil || env[i].ValueFrom.SecretKeyRef.Name != sec.Name {
+		t.Fatalf("env = %+v", env)
 	}
 
 	if err := h.db.Jobs().MarkDeleted(bg, actor, d.ID); err != nil {
@@ -828,39 +805,11 @@ func tokenJob(t *testing.T) (*harness, *token.DBStore, model.Job, *corev1.Secret
 	}
 	d := h.definition("nightly", func(j *model.Job) { j.Owner = p.Name })
 	h.waitPhase(d, model.JobPhaseReady)
-	cj := h.cronJob(d)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		t.Fatal(err)
-	}
-	env := cj.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Env
-	i := slices.IndexFunc(env, func(e corev1.EnvVar) bool { return e.Name == "JAVO_TOKEN" })
-	if i < 0 || env[i].ValueFrom == nil || env[i].ValueFrom.SecretKeyRef == nil {
-		t.Fatalf("env = %+v", env)
-	}
 	sec := &corev1.Secret{}
-	if err := k8s.Get(bg, client.ObjectKey{Namespace: h.ns, Name: env[i].ValueFrom.SecretKeyRef.Name}, sec); err != nil {
+	if err := k8s.Get(bg, client.ObjectKey{Namespace: h.ns, Name: apiSecretName(&d)}, sec); err != nil {
 		t.Fatal(err)
 	}
 	return h, tokens, d, sec
-}
-
-func (h *harness) cronJobEvent(d model.Job, name, reason, message string, at time.Time) {
-	h.t.Helper()
-	cj := h.cronJob(d)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		h.t.Fatal(err)
-	}
-	ev := &corev1.Event{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns},
-		InvolvedObject: corev1.ObjectReference{
-			Kind: "CronJob", APIVersion: "batch/v1", Name: cj.Name, Namespace: h.ns, UID: cj.UID,
-		},
-		Reason: reason, Message: message, Type: corev1.EventTypeNormal,
-		FirstTimestamp: metav1.NewTime(at), LastTimestamp: metav1.NewTime(at), Count: 1,
-	}
-	if err := k8s.Create(bg, ev); err != nil {
-		h.t.Fatal(err)
-	}
 }
 
 func (h *harness) runsWith(j model.Job, outcome string) []model.Run {
@@ -871,70 +820,6 @@ func (h *harness) runsWith(j model.Job, outcome string) []model.Run {
 		}
 	}
 	return out
-}
-
-// A skip is recorded at the slot that was skipped (the latest cron time at or
-// before the event), not at the time the event happened.
-func TestJobAlreadyActiveEventIsASkippedRunAtTheSkippedSlot(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	h.template(nil)
-	d := h.definition("nightly", nil)
-	h.waitPhase(d, model.JobPhaseReady)
-	h.cronJobEvent(d, "skip-1", "JobAlreadyActive", "Not starting job because prior execution is running and concurrency policy is Forbid", fixedNow.Add(-time.Hour))
-
-	eventually(t, "skipped run", func() bool { return len(h.runsWith(d, model.RunOutcomeSkipped)) > 0 })
-	run := h.runsWith(d, model.RunOutcomeSkipped)[0]
-	slot := time.Date(2026, 10, 29, 5, 0, 0, 0, time.UTC) // 06:00 Berlin, Thursday
-	if run.Reason != string(reasons.RunSkipped) || run.Trigger != "schedule" || !run.ScheduledTime.Equal(slot) {
-		t.Fatalf("run = %+v, want scheduled %v", run, slot)
-	}
-}
-
-// The recorder folds repeats of one skip into one Event with a newer
-// lastTimestamp; that must stay one run.
-func TestRepeatedJobAlreadyActiveEventIsOneSkippedRun(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	h.template(nil)
-	d := h.definition("nightly", nil)
-	h.waitPhase(d, model.JobPhaseReady)
-	h.cronJobEvent(d, "skip-1", "JobAlreadyActive", "Not starting job because prior execution is running and concurrency policy is Forbid", fixedNow.Add(-time.Hour))
-	eventually(t, "skipped run", func() bool { return len(h.runsWith(d, model.RunOutcomeSkipped)) == 1 })
-
-	ev := &corev1.Event{}
-	if err := k8s.Get(bg, client.ObjectKey{Namespace: h.ns, Name: "skip-1"}, ev); err != nil {
-		t.Fatal(err)
-	}
-	ev.Count, ev.LastTimestamp = 2, metav1.NewTime(fixedNow.Add(-10*time.Minute))
-	if err := k8s.Update(bg, ev); err != nil {
-		t.Fatal(err)
-	}
-	// Events reach the reconciler in order, so once this later one is recorded
-	// the update above has been handled too.
-	scheduled := time.Date(2026, 10, 28, 4, 0, 0, 0, time.UTC)
-	h.cronJobEvent(d, "miss-1", "MissSchedule", "Missed scheduled time to start a job: "+scheduled.Format(time.RFC1123Z), fixedNow)
-	h.waitRun(d, fmt.Sprintf("missed-%d", scheduled.Unix()))
-
-	if n := len(h.runsWith(d, model.RunOutcomeSkipped)); n != 1 {
-		t.Fatalf("skipped runs = %d, want 1: %+v", n, h.runs(d))
-	}
-}
-
-func TestMissScheduleEventIsAMissedRunAtTheScheduledTime(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	h.template(nil)
-	d := h.definition("nightly", nil)
-	h.waitPhase(d, model.JobPhaseReady)
-	scheduled := time.Date(2026, 10, 29, 4, 0, 0, 0, time.UTC)
-	h.cronJobEvent(d, "miss-1", "MissSchedule", "Missed scheduled time to start a job: "+scheduled.Format(time.RFC1123Z), fixedNow)
-
-	eventually(t, "missed run", func() bool { return len(h.runsWith(d, model.RunOutcomeMissed)) > 0 })
-	run := h.runsWith(d, model.RunOutcomeMissed)[0]
-	if run.Reason != string(reasons.RunMissed) || !run.ScheduledTime.Equal(scheduled) {
-		t.Fatalf("run = %+v", run)
-	}
 }
 
 func TestReconcilingTwiceWritesNothing(t *testing.T) {
@@ -949,15 +834,11 @@ func TestReconcilingTwiceWritesNothing(t *testing.T) {
 	eventually(t, "finalizer removed", func() bool { f, _ := h.hasFinalizer(k.Name); return !f })
 
 	state := func() string {
-		cj := h.cronJob(d)
-		if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-			t.Fatal(err)
-		}
 		job := &batchv1.Job{}
 		if err := k8s.Get(bg, client.ObjectKeyFromObject(k), job); err != nil {
 			t.Fatal(err)
 		}
-		raw, err := json.Marshal([]any{h.job(d.ID), h.runs(d), cj.ResourceVersion, job.ResourceVersion})
+		raw, err := json.Marshal([]any{h.job(d.ID), h.runs(d), job.ResourceVersion})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1061,6 +942,13 @@ func (h *harness) direct() *Reconciler {
 	return h.newReconciler(&kube.Executor{Client: k8s, Reader: k8s})
 }
 
+// sweeper is a reconciler that sees this test's namespace only: other
+// tests' jobs have rows in other databases, so what they left would be
+// orphans here.
+func (h *harness) sweeper() *Reconciler {
+	return h.newReconciler(&kube.Executor{Client: client.NewNamespacedClient(k8s, h.ns), Reader: k8s})
+}
+
 func (h *harness) readyVerdict(j model.Job) verdict {
 	h.t.Helper()
 	tpl := h.template(nil)
@@ -1081,7 +969,7 @@ func TestCancelBeforeTheStartEndsTheRunWithoutAJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.direct().startRequested(bg, &d, v, fixedNow); err != nil {
+	if err := h.direct().startRequested(bg, &d, &v, fixedNow); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := h.db.Jobs().Run(bg, run.ID)
@@ -1105,7 +993,7 @@ func TestRequestOnABlockedJobFailsWithTheBlockingReason(t *testing.T) {
 	}
 
 	blocked := verdict{phase: model.JobPhaseBlocked, code: reasons.OwnerLostAccess}
-	if err := h.direct().startRequested(bg, &d, blocked, fixedNow); err != nil {
+	if err := h.direct().startRequested(bg, &d, &blocked, fixedNow); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := h.db.Jobs().Run(bg, run.ID)
@@ -1127,7 +1015,7 @@ func TestRequestWithAnUndeclaredParameterFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.direct().startRequested(bg, &d, v, fixedNow); err != nil {
+	if err := h.direct().startRequested(bg, &d, &v, fixedNow); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := h.db.Jobs().Run(bg, run.ID)
@@ -1150,12 +1038,12 @@ func TestRunRequestCreatesOneJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := h.direct()
-	if err := r.startRequested(bg, &d, v, fixedNow); err != nil {
+	if err := r.startRequested(bg, &d, &v, fixedNow); err != nil {
 		t.Fatal(err)
 	}
 	// The crash: the Job exists, the row forgot it.
 	storetest.Exec(t, h.db, "UPDATE job_runs SET handle = '', outcome = '', reason = '' WHERE id = ?", run.ID)
-	if err := r.startRequested(bg, &d, v, fixedNow); err != nil {
+	if err := r.startRequested(bg, &d, &v, fixedNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1231,66 +1119,6 @@ func TestPruneKeepsRunsOfJobsThatStillExist(t *testing.T) {
 	}
 }
 
-// A skipped start older than the kept runs stays while its CronJob Event is
-// listed: pruning it would make every reconcile record it again from the
-// Event under a new id, and audit a prune nobody asked for each time.
-func TestPruneKeepsSkippedRunWhileItsEventIsListed(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	tpl := h.template(nil)
-	d := h.definition("nightly", func(j *model.Job) { j.Spec.History.KeepRuns = 1 })
-	h.waitPhase(d, model.JobPhaseReady)
-	h.cronJobEvent(d, "skip-1", "JobAlreadyActive", "Not starting job because prior execution is running and concurrency policy is Forbid", fixedNow.Add(-time.Hour))
-	eventually(t, "skipped run", func() bool { return len(h.runsWith(d, model.RunOutcomeSkipped)) == 1 })
-	var newer []*batchv1.Job
-	for _, name := range []string{"nightly-1", "nightly-2"} {
-		k := h.scheduledJobAt(d, tpl, name, fixedNow)
-		h.failJob(k, cellErrorMessage)
-		newer = append(newer, k)
-	}
-	eventually(t, "both newer runs final", func() bool { return len(h.runsWith(d, model.RunOutcomeFailed)) == 2 })
-	skipped := h.runsWith(d, model.RunOutcomeSkipped)
-
-	prunes := func() int {
-		events, err := h.db.Audit().List(bg, 1000)
-		if err != nil {
-			t.Fatal(err)
-		}
-		n := 0
-		for _, e := range events {
-			if e.Action == "job.prune_runs" && e.ObjectID == d.ID {
-				n++
-			}
-		}
-		return n
-	}
-	before := prunes()
-	// Each touch of a Job is another reconcile.
-	for i := range 5 {
-		for _, k := range newer {
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				got := &batchv1.Job{}
-				if err := k8s.Get(bg, client.ObjectKeyFromObject(k), got); err != nil {
-					return err
-				}
-				metav1.SetMetaDataAnnotation(&got.ObjectMeta, "example.com/touch", fmt.Sprint(i))
-				return k8s.Update(bg, got)
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	got := h.runsWith(d, model.RunOutcomeSkipped)
-	if len(got) != 1 || len(skipped) != 1 || got[0].ID != skipped[0].ID {
-		t.Fatalf("skipped run changed from %+v to %+v: it was pruned and recorded again", skipped, got)
-	}
-	if after := prunes(); after != before {
-		t.Fatalf("prune audit rows went from %d to %d", before, after)
-	}
-}
-
 // The controller writes status and never the spec: an edit made through the
 // store keeps its version, and the status catches up with it.
 func TestStatusWriteKeepsSpecEdit(t *testing.T) {
@@ -1314,17 +1142,9 @@ func TestStatusWriteKeepsSpecEdit(t *testing.T) {
 	}
 }
 
-func (h *harness) runAsUser(j model.Job) int64 {
-	cj := h.cronJob(j)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		return 0
-	}
-	return ptr.Deref(cj.Spec.JobTemplate.Spec.Template.Spec.SecurityContext.RunAsUser, 0)
-}
-
 // With allocated uids, a job runs as its owner, as the owner's apps do; until
-// the owner has a uid it is Blocked with nothing scheduled, and it is
-// scheduled as soon as the uid is allocated.
+// the owner has a uid it is Blocked and a run asked for fails, and it runs
+// as soon as the uid is allocated.
 func TestJobsRunAsTheOwnersAllocatedUID(t *testing.T) {
 	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.UIDMode = config.UIDModeAllocated })
@@ -1339,32 +1159,50 @@ func TestJobsRunAsTheOwnersAllocatedUID(t *testing.T) {
 	if condReason(got, model.ConditionValid) != string(reasons.IdentityPending) {
 		t.Fatalf("conditions = %+v", got.Status.Conditions)
 	}
-	if h.runAsUser(d) != 0 {
-		t.Fatal("a job whose owner has no uid must not be scheduled")
+	run, err := h.db.Jobs().RequestRun(bg, actor, d.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run = h.waitRunWhere(d, run.ID, " to fail", func(r model.Run) bool { return r.Outcome != "" })
+	if run.Outcome != model.RunOutcomeFailed || run.Reason != string(reasons.IdentityPending) || run.Handle != "" {
+		t.Fatalf("a job whose owner has no uid ran: %+v", run)
 	}
 
 	storetest.Exec(t, h.db, "UPDATE people SET uid = ? WHERE id = ?", 70001, person.ID)
-	eventually(t, "cronjob runs as the owner's uid", func() bool { return h.runAsUser(d) == 70001 })
 	h.waitPhase(d, model.JobPhaseReady)
+	_, k := h.requestRun(d, nil)
+	if uid := ptr.Deref(k.Spec.Template.Spec.SecurityContext.RunAsUser, 0); uid != 70001 {
+		t.Fatalf("the run is uid %d, want the owner's 70001", uid)
+	}
 }
 
-// Where the controller sees more than the one workspace namespace, it builds
+// Where the controller sees more than the one workspace namespace, it runs
 // jobs only in namespaces it manages: elsewhere there are no Pod Security
 // labels and no gateway-only policy. It looks again later, so a namespace
 // labelled after the job was made is picked up.
 func TestJobsOnlyInManagedNamespaces(t *testing.T) {
 	t.Parallel()
-	h := newHarnessWith(t, func(r *Reconciler) { r.ManagedNamespacesOnly = true })
+	h := &harness{t: t, ns: fmt.Sprintf("jobs-%d", nsCount.Add(1)), db: storetest.New(t), access: &access{}, managedOnly: true}
+	h.access.allow.Store(true)
+	if err := k8s.Create(bg, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: h.ns}}); err != nil {
+		t.Fatal(err)
+	}
+	h.start()
+	t.Cleanup(func() { h.stop() })
 	h.template(nil)
 	d := h.definition("nightly", nil)
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: d.ID}}
+	run, err := h.db.Jobs().RequestRun(bg, actor, d.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := h.rec.Reconcile(bg, req)
 	if err != nil || res.RequeueAfter == 0 {
 		t.Fatalf("unmanaged namespace: result %+v, err %v; want a later look", res, err)
 	}
-	if h.runAsUser(d) != 0 || h.job(d.ID).Status.Phase != "" {
-		t.Fatal("a job in an unmanaged namespace must be left alone")
+	if got, _ := h.db.Jobs().Run(bg, run.ID); got.Outcome != "" || got.Handle != "" || h.job(d.ID).Status.Phase != "" {
+		t.Fatalf("a job in an unmanaged namespace must be left alone: run %+v", got)
 	}
 
 	ns := &corev1.Namespace{}
@@ -1375,15 +1213,16 @@ func TestJobsOnlyInManagedNamespaces(t *testing.T) {
 	if err := k8s.Update(bg, ns); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "cronjob once the namespace is managed", func() bool {
+	eventually(t, "the run once the namespace is managed", func() bool {
 		_, _ = h.rec.Reconcile(bg, req)
-		return h.runAsUser(d) == podspec.FixedUID
+		got, _ := h.db.Jobs().Run(bg, run.ID)
+		return got.Outcome == model.RunOutcomeRunning && h.job(d.ID).Status.Phase == model.JobPhaseReady
 	})
 }
 
-// A CronJob or Job whose job row is gone is deleted; one of a live row is
-// kept (a row removed while the controller was down must not
-// leave its CronJob firing).
+// A run whose job row is gone is removed, and so is the CronJob an earlier
+// version left for such a job; those of a live row are kept (a row removed
+// while the controller was down must not leave its CronJob firing).
 func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -1392,14 +1231,7 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 	live := h.definition("live", nil)
 	gone := h.definition("gone", nil)
 	cronJobOf := func(j model.Job) *batchv1.CronJob {
-		cj, err := BuildCronJob(Inputs{Job: &j, Template: &tpl, RunnerImage: podspec.Image{Ref: "example.com/javo:9"}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := k8s.Create(bg, cj); err != nil {
-			t.Fatal(err)
-		}
-		return cj
+		return (&timed{h: h, job: j}).oldCronJob(fixedNow)
 	}
 	jobOf := func(j model.Job, name string) *batchv1.Job {
 		return h.scheduledJob(j, tpl, name)
@@ -1408,7 +1240,7 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 	keepJob, dropJob := jobOf(live, "live-1"), jobOf(gone, "gone-1")
 	// A running run's Job carries the finalizer; with the row gone nothing
 	// else would ever release it.
-	controllerutil.AddFinalizer(dropJob, FinalizerRecordRun)
+	controllerutil.AddFinalizer(dropJob, kube.FinalizerRecordRun)
 	if err := k8s.Update(bg, dropJob); err != nil {
 		t.Fatal(err)
 	}
@@ -1427,8 +1259,7 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 
 	// The sweep sees this test's namespace only: other tests' jobs have rows
 	// in other databases, so their objects would be orphans here.
-	sweeper := h.newReconciler(&kube.Executor{Client: client.NewNamespacedClient(k8s, h.ns), Reader: k8s})
-	if err := sweeper.Sweep(bg); err != nil {
+	if err := h.sweeper().Sweep(bg); err != nil {
 		t.Fatal(err)
 	}
 	// Gone, not merely deleting: the finalizer is released and the pods go
@@ -1445,27 +1276,27 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 	}
 }
 
-// At limits.activeRunsPerJob the job's CronJob is suspended, so the
-// Kubernetes CronJob controller starts no more runs (also with concurrency
-// Allow); when a run ends, the schedule goes on.
+// At limits.activeRunsPerJob the job's schedule is held, so no more runs
+// start (also with concurrency Allow); when a run ends, the schedule goes
+// on.
 func TestScheduleIsHeldWhileTheJobIsAtItsRunCap(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	h.db.SetLimits(store.Limits{RunsPerJob: 1})
 	tpl := h.template(nil)
 	d := h.definition("nightly", func(j *model.Job) { j.Spec.Schedule.Concurrency = "Allow" })
-	h.waitPhase(d, model.JobPhaseReady)
-	if h.suspended(d) {
-		t.Fatal("suspended before any run")
+	if got := h.waitPhase(d, model.JobPhaseReady); condReason(got, model.ConditionScheduled) != string(reasons.Ready) {
+		t.Fatalf("held before any run: %+v", got.Status.Conditions)
 	}
 	k := h.scheduledJob(d, tpl, "nightly-1")
 	h.waitRun(d, k.Name)
-	eventually(t, "the CronJob held at the cap", func() bool { return h.suspended(d) })
-	eventually(t, "the Scheduled condition says why", func() bool {
+	eventually(t, "the schedule held at the cap, and the Scheduled condition says why", func() bool {
 		return condReason(h.job(d.ID), model.ConditionScheduled) == string(reasons.RunLimitReached)
 	})
 	h.failJob(k, cellErrorMessage)
-	eventually(t, "the CronJob resumed after the run ended", func() bool { return !h.suspended(d) })
+	eventually(t, "the schedule going again after the run ended", func() bool {
+		return condReason(h.job(d.ID), model.ConditionScheduled) == string(reasons.Ready)
+	})
 }
 
 // The person's cap (limits.activeRunsPerPerson) holds the schedules of all
@@ -1494,5 +1325,7 @@ func TestThePersonsRunCapHoldsSchedulesAndFailsRequests(t *testing.T) {
 	if got.Outcome != model.RunOutcomeFailed || got.Reason != string(reasons.RunLimitReached) || got.Handle != "" {
 		t.Fatalf("run = %+v, want failed as RunLimitReached without a Job", got)
 	}
-	eventually(t, "the other job's schedule held", func() bool { return h.suspended(other) })
+	eventually(t, "the other job's schedule held", func() bool {
+		return condReason(h.job(other.ID), model.ConditionScheduled) == string(reasons.RunLimitReached)
+	})
 }

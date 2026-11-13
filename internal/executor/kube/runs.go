@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -99,23 +101,38 @@ func RenderRun(s workload.Spec, iso podspec.Isolation) *batchv1.Job {
 	return job
 }
 
+// runKey keys the Jobs Start made that the cache has not shown yet, apart
+// from the Pods of apps.
+type runKey client.ObjectKey
+
 // Start creates the Job that runs s.
 func (r Runs) Start(ctx context.Context, s workload.Spec) error {
 	if s.Batch == nil {
 		return fmt.Errorf("%s/%s is not a run", s.Ref.Namespace, s.Ref.Name)
 	}
-	return client.IgnoreAlreadyExists(r.e.Client.Create(ctx, RenderRun(s, r.e.Isolation)))
+	if err := r.e.Client.Create(ctx, RenderRun(s, r.e.Isolation)); client.IgnoreAlreadyExists(err) != nil {
+		return err
+	}
+	// Made now, or by an earlier Start the cache lagged behind.
+	r.e.started.Store(runKey(key(s.Ref)), struct{}{})
+	return nil
 }
 
-// job returns the run's Job, or nil. The cache may not show one just
-// made, so the cluster has the last word on a Job that is not there. A
-// Job of that name that carries another job's id (or none) is an error
-// wrapping executor.ErrForeign.
+// job returns the run's Job, or nil. The cache may not show one Start
+// just made, so the cluster has the last word on it. A Job of that name
+// that carries another job's id (or none) is an error wrapping
+// executor.ErrForeign.
 func (r Runs) job(ctx context.Context, ref workload.Ref) (*batchv1.Job, error) {
 	job := &batchv1.Job{}
 	err := r.e.Client.Get(ctx, key(ref), job)
-	if apierrors.IsNotFound(err) && r.e.Reader != nil {
-		err = r.e.Reader.Get(ctx, key(ref), job)
+	if _, made := r.e.started.Load(runKey(key(ref))); made {
+		if apierrors.IsNotFound(err) {
+			err = r.e.Reader.Get(ctx, key(ref), job)
+		}
+		if err == nil || apierrors.IsNotFound(err) {
+			// The cache shows it now, or it is gone again.
+			r.e.started.Delete(runKey(key(ref)))
+		}
 	}
 	switch {
 	case apierrors.IsNotFound(err):
@@ -244,19 +261,21 @@ func (r Runs) Logs(ctx context.Context, ref workload.Ref, o executor.LogOptions)
 	return r.e.PodLogs.Stream(ctx, pod.Namespace, pod.Name, logOptions(o))
 }
 
-// legacySecretsSuffix ended the name of the Secret a job's scheduled runs,
-// and each run started by hand, read their secrets from; "-api" that of
-// the job's token.
+// What earlier versions kept for a job in Secrets called after it: the
+// secrets its scheduled runs read (scheduledSecretsSuffix, and
+// legacySecretsSuffix before that, which also ended the name of the Secret
+// of a run started by hand), and its API token (legacyAPISuffix).
 const (
-	legacySecretsSuffix = "-" + model.ProductName + "-secrets"
-	legacyAPISuffix     = "-api"
+	scheduledSecretsSuffix = ".job-secrets"
+	legacySecretsSuffix    = "-" + model.ProductName + "-secrets"
+	legacyAPISuffix        = "-api"
 )
 
 // Tidy deletes the Secrets a job, or one of its runs, had under those
 // names; the caller makes sure no run of the job reads them any more.
 // The id of the API token the old token Secret names goes to revoke first.
 func (r Runs) Tidy(ctx context.Context, ref workload.Ref, revoke func(ctx context.Context, tokenID string) error) error {
-	for _, suffix := range []string{legacySecretsSuffix, legacyAPISuffix} {
+	for _, suffix := range []string{scheduledSecretsSuffix, legacySecretsSuffix, legacyAPISuffix} {
 		sec, err := ownedSecret(ctx, r.e.Reader, model.LabelJob, ref, ref.Name+suffix)
 		if errors.Is(err, executor.ErrForeign) || (err == nil && sec == nil) {
 			continue
@@ -274,6 +293,83 @@ func (r Runs) Tidy(ctx context.Context, ref workload.Ref, revoke func(ctx contex
 		}
 	}
 	return nil
+}
+
+// Schedules names the jobs whose schedule a CronJob of an earlier version
+// still fires.
+func (r Runs) Schedules(ctx context.Context) ([]workload.Ref, error) {
+	return r.e.list(ctx, model.LabelJob, &batchv1.CronJobList{})
+}
+
+// Retire removes the CronJob that fired the job's schedule in earlier
+// versions, without ending a run it started. It stops the CronJob firing,
+// takes it away as owner of its Jobs (which then go at the end of their
+// time to live, like the runs Start makes) and of the Secret their pods
+// read, hands keep the time up to which it started the schedule's slots
+// (the last one it fired, or else when it was made) and only then deletes
+// it. A job with no CronJob is left as it is and keep is not called.
+func (r Runs) Retire(ctx context.Context, ref workload.Ref, keep func(through time.Time) error) error {
+	cj := &batchv1.CronJob{}
+	if mine, err := r.e.own(ctx, model.LabelJob, ref, cj); err != nil || !mine {
+		return err
+	}
+	if !ptr.Deref(cj.Spec.Suspend, false) {
+		base := cj.DeepCopy()
+		cj.Spec.Suspend = ptr.To(true)
+		if err := r.e.Client.Patch(ctx, cj, client.MergeFrom(base)); err != nil {
+			return err
+		}
+	}
+	through := cj.CreationTimestamp.Time
+	if last := cj.Status.LastScheduleTime; last != nil {
+		through = last.Time
+	}
+	var jobs batchv1.JobList
+	if err := r.e.Client.List(ctx, &jobs, client.InNamespace(ref.Namespace), client.MatchingLabels{model.LabelJob: ref.ID}); err != nil {
+		return err
+	}
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		base := job.DeepCopy()
+		if !disown(job, cj.UID) {
+			continue
+		}
+		// One it made a moment ago may not be in its status yet.
+		if slot, err := time.Parse(time.RFC3339, job.Annotations[annotationScheduled]); err == nil && slot.After(through) {
+			through = slot
+		}
+		if job.Spec.TTLSecondsAfterFinished == nil {
+			job.Spec.TTLSecondsAfterFinished = ptr.To(int32(runTTL.Seconds()))
+		}
+		if err := r.e.Client.Patch(ctx, job, client.MergeFrom(base)); err != nil {
+			return err
+		}
+	}
+	sec, err := ownedSecret(ctx, r.e.Reader, model.LabelJob, ref, ref.Name+scheduledSecretsSuffix)
+	if err != nil && !errors.Is(err, executor.ErrForeign) {
+		return err
+	}
+	if err == nil && sec != nil {
+		base := sec.DeepCopy()
+		if disown(sec, cj.UID) {
+			if err := r.e.Client.Patch(ctx, sec, client.MergeFrom(base)); err != nil {
+				return err
+			}
+		}
+	}
+	if err := keep(through); err != nil {
+		return err
+	}
+	return client.IgnoreNotFound(r.e.Client.Delete(ctx, cj, client.Preconditions{UID: &cj.UID},
+		client.PropagationPolicy(metav1.DeletePropagationBackground)))
+}
+
+// disown takes the owner uid off obj and reports whether it was one.
+func disown(obj client.Object, uid apitypes.UID) bool {
+	refs := obj.GetOwnerReferences()
+	kept := slices.DeleteFunc(slices.Clone(refs), func(o metav1.OwnerReference) bool { return o.UID == uid })
+	obj.SetOwnerReferences(kept)
+	return len(kept) != len(refs)
 }
 
 // ContainerStatus returns the status of the pod's container or init

@@ -10,6 +10,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/executor"
@@ -277,6 +278,7 @@ func TestTidyDropsAJobsSecretsUnderTheirOldNames(t *testing.T) {
 	}
 	runs, c := runsOn(
 		secret("alice-nightly-javo-secrets", "job-1", nil),
+		secret("alice-nightly.job-secrets", "job-1", nil),
 		secret("alice-nightly-api", "job-1", map[string]string{model.AnnotationTokenID: "tok-1"}),
 		secret("alice-nightly.job-api", "job-1", nil),
 		secret("alice-other-api", "job-2", nil),
@@ -300,5 +302,87 @@ func TestTidyDropsAJobsSecretsUnderTheirOldNames(t *testing.T) {
 	slices.Sort(names)
 	if !slices.Equal(names, []string{"alice-nightly.job-api", "alice-other-api"}) {
 		t.Errorf("left %v", names)
+	}
+}
+
+// An earlier version fired a job's schedule with a CronJob. Retiring it
+// stops it firing and removes it without ending a run it started: its
+// Jobs and the Secret its runs read lose it as owner first, and the last
+// slot it fired is handed over before it goes.
+func TestRetireRemovesTheCronJobAndKeepsItsRuns(t *testing.T) {
+	job := workload.Ref{Namespace: "javo", Name: "alice-nightly", ID: "job-1", Owner: "alice"}
+	made := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	last := time.Date(2026, 11, 13, 6, 0, 0, 0, time.UTC)
+	labels := map[string]string{model.LabelJob: "job-1", model.LabelOwner: "alice"}
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "javo", Name: "alice-nightly", UID: "cj-uid", Labels: labels, CreationTimestamp: metav1.NewTime(made)},
+		Status:     batchv1.CronJobStatus{LastScheduleTime: ptr.To(metav1.NewTime(last))},
+	}
+	owner := []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "CronJob", Name: cj.Name, UID: cj.UID, Controller: ptr.To(true)}}
+	// The CronJob made this run for a later slot and has not said so yet.
+	later := last.Add(24 * time.Hour)
+	run := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Namespace: "javo", Name: "alice-nightly-29384756", Labels: labels, OwnerReferences: owner,
+		Annotations: map[string]string{annotationScheduled: later.Format(time.RFC3339)}}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "javo", Name: "alice-nightly.job-secrets", Labels: labels, OwnerReferences: owner}}
+	runs, c := runsOn(cj, run, secret)
+
+	if got, err := runs.Schedules(ctx); err != nil || !sameRefs(got, []workload.Ref{job}) {
+		t.Fatalf("Schedules = %v, %v", got, err)
+	}
+	var through time.Time
+	keep := func(at time.Time) error {
+		// Still there, and no longer firing, when the time is handed over.
+		got := &batchv1.CronJob{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(cj), got); err != nil || !ptr.Deref(got.Spec.Suspend, false) {
+			t.Errorf("the CronJob when its time is kept: suspended %v, %v", got.Spec.Suspend, err)
+		}
+		through = at
+		return nil
+	}
+	if err := runs.Retire(ctx, job, keep); err != nil {
+		t.Fatal(err)
+	}
+	if !through.Equal(later) {
+		t.Errorf("handed over %s, want %s", through, later)
+	}
+	if !gone(c, &batchv1.CronJob{}, job) {
+		t.Error("the CronJob is still there")
+	}
+	left := jobOf(t, c, workload.Ref{Namespace: "javo", Name: run.Name})
+	if len(left.OwnerReferences) != 0 || left.Spec.TTLSecondsAfterFinished == nil {
+		t.Errorf("the run's owners %v, time to live %v", left.OwnerReferences, left.Spec.TTLSecondsAfterFinished)
+	}
+	if sec := stored(t, c, secret.Name); len(sec.OwnerReferences) != 0 {
+		t.Errorf("the Secret's owners %v", sec.OwnerReferences)
+	}
+	if got, err := runs.Schedules(ctx); err != nil || len(got) != 0 {
+		t.Errorf("Schedules after = %v, %v", got, err)
+	}
+
+	// With no CronJob there is nothing to hand over, and one of another
+	// job is left alone.
+	called := false
+	if err := runs.Retire(ctx, job, func(time.Time) error { called = true; return nil }); err != nil || called {
+		t.Errorf("Retire with no CronJob: %v, kept %v", err, called)
+	}
+	other := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Namespace: "javo", Name: "alice-nightly", Labels: map[string]string{model.LabelJob: "job-2"}}}
+	if err := c.Create(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := runs.Retire(ctx, job, keep); err != nil || gone(c, &batchv1.CronJob{}, job) {
+		t.Errorf("another job's CronJob: %v", err)
+	}
+}
+
+// A CronJob that never fired hands over when it was made: the schedule
+// counts from there.
+func TestRetireOfACronJobThatNeverFiredHandsOverWhenItWasMade(t *testing.T) {
+	job := workload.Ref{Namespace: "javo", Name: "alice-nightly", ID: "job-1", Owner: "alice"}
+	made := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	runs, _ := runsOn(&batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Namespace: "javo", Name: "alice-nightly",
+		Labels: map[string]string{model.LabelJob: "job-1"}, CreationTimestamp: metav1.NewTime(made)}})
+	var through time.Time
+	if err := runs.Retire(ctx, job, func(at time.Time) error { through = at; return nil }); err != nil || !through.Equal(made) {
+		t.Errorf("handed over %s, %v", through, err)
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,26 +74,4 @@ func Options(scheme *runtime.Scheme, namespaces []string, metricsAddr, probeAddr
 			},
 		},
 	}
-}
-
-// CronJobEvents is a cache of the Events about CronJobs in namespaces (none
-// means every namespace). The manager's own cache keeps only pod events; the
-// job reconciler reads the CronJob controller's skipped and missed starts
-// from this one. Add it to the manager so it starts with it.
-func CronJobEvents(cfg *rest.Config, scheme *runtime.Scheme, namespaces []string) (cache.Cache, error) {
-	var watched map[string]cache.Config
-	if len(namespaces) > 0 {
-		watched = make(map[string]cache.Config, len(namespaces))
-		for _, ns := range namespaces {
-			watched[ns] = cache.Config{}
-		}
-	}
-	return cache.New(cfg, cache.Options{
-		Scheme:            scheme,
-		DefaultNamespaces: watched,
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Event{}: {Field: fields.OneTermEqualSelector("involvedObject.kind", "CronJob")},
-		},
-		ReaderFailOnMissingInformer: true,
-	})
 }

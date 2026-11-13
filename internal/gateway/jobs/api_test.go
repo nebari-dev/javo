@@ -22,7 +22,7 @@ import (
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/cmdline"
 	"github.com/nebari-dev/javo/internal/config"
-	"github.com/nebari-dev/javo/internal/controller/jobs"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/features/placementperuser"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway"
@@ -337,7 +337,7 @@ func TestLogStreamsTheRunPodAsPlainText(t *testing.T) {
 		{Handle: "nightly-sales-30", Trigger: "schedule", Outcome: model.RunOutcomeRunning}}}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "nightly-sales-30-abc", Namespace: gatewaytest.Namespace, Labels: map[string]string{
-			jobs.LabelJobName: "nightly-sales-30", model.LabelOwner: apitest.AliceID}},
+			kube.LabelJobName: "nightly-sales-30", model.LabelOwner: apitest.AliceID}},
 		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "app", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}},
 	}
 	logs := apitest.NewPipeLogs()
@@ -665,7 +665,7 @@ func TestLogOfAnActiveRunWhoseContainerHasNotStartedIs409WithRetryAfter(t *testi
 	t.Parallel()
 	pending := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "nightly-sales-31-abc", Namespace: gatewaytest.Namespace, Labels: map[string]string{
-			jobs.LabelJobName: "nightly-sales-31", model.LabelOwner: apitest.AliceID}},
+			kube.LabelJobName: "nightly-sales-31", model.LabelOwner: apitest.AliceID}},
 		Status: corev1.PodStatus{Phase: corev1.PodPending, ContainerStatuses: []corev1.ContainerStatus{{
 			Name: "app", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}}}},
 	}

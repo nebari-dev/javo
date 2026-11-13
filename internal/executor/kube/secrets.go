@@ -7,7 +7,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,19 +58,17 @@ func (s Secrets) Put(ctx context.Context, of workload.Ref, name string, b execut
 	// The app's Service owns a Secret that can be made again: Kubernetes
 	// deletes it with the Service, also when the sweep removes an orphaned
 	// one.
-	// A run's goes with the run's Job instead, once that is there (it is
-	// written before the run starts), and a job's with its CronJob.
-	before := sec.DeepCopy()
+	// A run's goes with the run's Job instead, once that is there: it is
+	// written before the run starts.
 	switch {
 	case b.Rebuildable && s.Runs:
-		for kind, owner := range map[string]client.Object{"Job": &batchv1.Job{}, "CronJob": &batchv1.CronJob{}} {
-			err := s.Reader.Get(ctx, client.ObjectKey{Namespace: of.Namespace, Name: of.Name}, owner)
-			if client.IgnoreNotFound(err) != nil {
-				return err
-			}
-			if err == nil {
-				sec.OwnerReferences = []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: kind, Name: owner.GetName(), UID: owner.GetUID()}}
-			}
+		job := &batchv1.Job{}
+		err := s.Reader.Get(ctx, client.ObjectKey{Namespace: of.Namespace, Name: of.Name}, job)
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		if err == nil {
+			sec.OwnerReferences = []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID}}
 		}
 	case b.Rebuildable:
 		svc := &corev1.Service{}
@@ -86,11 +83,8 @@ func (s Secrets) Put(ctx context.Context, of workload.Ref, name string, b execut
 	}
 	sec.Type = corev1.SecretTypeOpaque
 	sec.Data = b.Data
-	switch {
-	case create:
+	if create {
 		return s.Client.Create(ctx, sec)
-	case equality.Semantic.DeepEqual(before, sec):
-		return nil
 	}
 	return s.Client.Update(ctx, sec)
 }

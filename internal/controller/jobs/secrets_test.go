@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -101,14 +101,6 @@ func (h *harness) k8sSecret(name string) *corev1.Secret {
 	return sec
 }
 
-func (h *harness) getCronJob(j model.Job) *batchv1.CronJob {
-	cj := h.cronJob(j)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		return nil
-	}
-	return cj
-}
-
 // runEnv is the env entry called name of a run's app container, or nil.
 func runEnv(spec *corev1.PodSpec, name string) *corev1.EnvVar {
 	for i, e := range spec.Containers[0].Env {
@@ -130,54 +122,65 @@ func ownedBy(sec *corev1.Secret, kind, name string, uid string) bool {
 		sec.OwnerReferences[0].Name == name && string(sec.OwnerReferences[0].UID) == uid
 }
 
-// A scheduled job's runs read the values from one Secret the CronJob owns,
-// so Kubernetes deletes it with the CronJob. The values are never in the
-// CronJob, its Jobs or the job's status.
-func TestScheduledRunsGetSecretsFromASecretTheCronJobOwns(t *testing.T) {
+// A scheduled run gets a Secret of its own like a run started by hand,
+// holding the values at its start and owned by its Job, so Kubernetes
+// deletes it with the run. The values are never in the Job or the job's
+// status, and a new value or binding reaches the next run.
+func TestAScheduledRunGetsASecretOfItsOwn(t *testing.T) {
 	t.Parallel()
 	h := newSecretsHarness(t)
+	keys := h.rec.SecretKeys
+	h.stop()
 	h.template(nil)
 	h.putSecret("WAREHOUSE_PASSWORD", testValue)
-	d := h.definition("nightly", nil)
-	h.bind(d, model.SecretBinding{Env: "PGPASSWORD", Secret: "WAREHOUSE_PASSWORD"})
-
-	name := ScheduledSecretName(&d)
-	var cj *batchv1.CronJob
-	eventually(t, "the CronJob takes PGPASSWORD from the job's Secret", func() bool {
-		cj = h.getCronJob(d)
-		return cj != nil && refersTo(runEnv(&cj.Spec.JobTemplate.Spec.Template.Spec, "PGPASSWORD"), name, "PGPASSWORD")
+	c := &timed{h: h, now: noon}
+	c.job = h.definition("hourly", func(j *model.Job) {
+		j.Spec.Schedule = &model.JobSchedule{Cron: "0 * * * *", TimeZone: "UTC", Concurrency: "Allow"}
 	})
-	var sec *corev1.Secret
-	eventually(t, "the job's Secret", func() bool { sec = h.k8sSecret(name); return sec != nil })
-	if string(sec.Data["PGPASSWORD"]) != testValue || len(sec.Data) != 1 || sec.Labels[model.LabelJob] != d.ID {
-		t.Fatalf("Secret labels %v, keys %d", sec.Labels, len(sec.Data))
+	h.bind(c.job, model.SecretBinding{Env: "PGPASSWORD", Secret: "WAREHOUSE_PASSWORD"})
+	c.r = h.direct()
+	c.r.SecretKeys = keys
+	c.r.Now = func() time.Time { return c.now }
+	c.look(noon)
+
+	c.look(hour(13))
+	first := c.only()
+	k := c.k8sJob(first)
+	name := RunSecretName(k.Name)
+	if !refersTo(runEnv(&k.Spec.Template.Spec, "PGPASSWORD"), name, "PGPASSWORD") {
+		t.Fatalf("env %+v", k.Spec.Template.Spec.Containers[0].Env)
 	}
-	if !ownedBy(sec, "CronJob", cj.Name, string(cj.UID)) {
+	sec := h.k8sSecret(name)
+	if sec == nil || string(sec.Data["PGPASSWORD"]) != testValue || len(sec.Data) != 1 || sec.Labels[model.LabelJob] != c.job.ID {
+		t.Fatalf("the run's Secret: %+v", sec)
+	}
+	if !ownedBy(sec, "Job", k.Name, string(k.UID)) {
 		t.Fatalf("owner references %+v", sec.OwnerReferences)
 	}
-	raw, _ := json.Marshal(cj)
-	st, _ := json.Marshal(h.job(d.ID).Status)
+	raw, _ := json.Marshal(k)
+	st, _ := json.Marshal(h.job(c.job.ID).Status)
 	if strings.Contains(string(raw), testValue) || strings.Contains(string(st), testValue) {
-		t.Fatal("the value is in the CronJob or the job status")
+		t.Fatal("the value is in the Job or the job status")
 	}
 
-	// A new value reaches the Secret, so the next run gets it; the CronJob
-	// does not change.
+	// A new value reaches the next run; the first keeps what it started with.
 	h.putSecret("WAREHOUSE_PASSWORD", "second")
-	eventually(t, "the new value in the Secret", func() bool {
-		s := h.k8sSecret(name)
-		return s != nil && string(s.Data["PGPASSWORD"]) == "second"
-	})
-	if now := h.getCronJob(d); now.Annotations[annotationSpecHash] != cj.Annotations[annotationSpecHash] {
-		t.Fatal("a new value changed the CronJob")
+	c.look(hour(14))
+	second := c.k8sJob(c.slots()[1])
+	if s := h.k8sSecret(RunSecretName(second.Name)); s == nil || string(s.Data["PGPASSWORD"]) != "second" {
+		t.Fatalf("the second run's Secret: %+v", s)
+	}
+	if s := h.k8sSecret(name); s == nil || string(s.Data["PGPASSWORD"]) != testValue {
+		t.Fatal("a new value changed a run already started")
 	}
 
-	// Taking the secret off removes the variable and the Secret.
-	h.bind(d)
-	eventually(t, "no variable and no Secret", func() bool {
-		cj := h.getCronJob(d)
-		return cj != nil && runEnv(&cj.Spec.JobTemplate.Spec.Template.Spec, "PGPASSWORD") == nil && h.k8sSecret(name) == nil
-	})
+	// Taking the secret off: the next run has no variable and no Secret.
+	h.bind(c.job)
+	c.look(hour(15))
+	third := c.k8sJob(c.slots()[2])
+	if runEnv(&third.Spec.Template.Spec, "PGPASSWORD") != nil || h.k8sSecret(RunSecretName(third.Name)) != nil {
+		t.Fatal("a run of a job with no secret has a variable or a Secret")
+	}
 }
 
 // A run started by hand gets a Secret of its own, holding the values at its
@@ -207,9 +210,6 @@ func TestManualRunGetsASecretOfItsOwn(t *testing.T) {
 	if raw, _ := json.Marshal(k); strings.Contains(string(raw), testValue) {
 		t.Fatal("the value is in the Job")
 	}
-	if h.k8sSecret(ScheduledSecretName(&d)) != nil {
-		t.Fatal("a job without a schedule has a scheduled Secret")
-	}
 
 	// The next run gets the new value; the first keeps what it started with.
 	h.putSecret("API_KEY", "second")
@@ -224,8 +224,8 @@ func TestManualRunGetsASecretOfItsOwn(t *testing.T) {
 }
 
 // A controller that cannot open the values runs nothing without them: the
-// job is blocked, its schedule suspended and a run asked for fails, each with
-// SecretsUnreadable; no Secret is made.
+// job is blocked, so its schedule starts nothing, and a run asked for fails,
+// each with SecretsUnreadable; no Secret is made.
 func TestUnreadableSecretsBlockTheJob(t *testing.T) {
 	t.Parallel()
 	kek := newKEK(t)
@@ -246,8 +246,8 @@ func TestUnreadableSecretsBlockTheJob(t *testing.T) {
 	if condReason(got, model.ConditionValid) != string(reasons.SecretsUnreadable) {
 		t.Fatalf("conditions %+v", got.Status.Conditions)
 	}
-	if h.cronJobExists(d) && !h.suspended(d) {
-		t.Fatal("the schedule runs without the secrets")
+	if condReason(got, model.ConditionScheduled) != string(reasons.SecretsUnreadable) {
+		t.Fatalf("the schedule runs without the secrets: %+v", got.Status.Conditions)
 	}
 	run, err := h.db.Jobs().RequestRun(bg, actor, d.ID, nil)
 	if err != nil {
@@ -257,8 +257,9 @@ func TestUnreadableSecretsBlockTheJob(t *testing.T) {
 	if run.Outcome != model.RunOutcomeFailed || run.Reason != string(reasons.SecretsUnreadable) || run.Handle != "" {
 		t.Fatalf("run %+v", run)
 	}
-	if h.k8sSecret(ScheduledSecretName(&d)) != nil {
-		t.Fatal("a Secret was made")
+	var made corev1.SecretList
+	if err := k8s.List(bg, &made, client.InNamespace(h.ns)); err != nil || len(made.Items) != 0 {
+		t.Fatalf("%d Secrets were made, %v", len(made.Items), err)
 	}
 }
 
@@ -272,15 +273,11 @@ func TestDeletingAJobRemovesItsSecrets(t *testing.T) {
 	d := h.definition("nightly", nil)
 	h.bind(d, model.SecretBinding{Env: "KEY", Secret: "API_KEY"})
 	_, k := h.requestRun(d, nil)
-	eventually(t, "both Secrets", func() bool {
-		return h.k8sSecret(ScheduledSecretName(&d)) != nil && h.k8sSecret(RunSecretName(k.Name)) != nil
-	})
+	eventually(t, "the run's Secret", func() bool { return h.k8sSecret(RunSecretName(k.Name)) != nil })
 	if err := h.db.Jobs().MarkDeleted(bg, actor, d.ID); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "no Secret left", func() bool {
-		return h.k8sSecret(ScheduledSecretName(&d)) == nil && h.k8sSecret(RunSecretName(k.Name)) == nil
-	})
+	eventually(t, "no Secret left", func() bool { return h.k8sSecret(RunSecretName(k.Name)) == nil })
 }
 
 // Every variable the platform sets in a run's container is one a secret may

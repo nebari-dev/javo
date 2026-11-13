@@ -24,9 +24,9 @@ import (
 func TestAppAndJobSecretNamesNeverMeet(t *testing.T) {
 	const owner = "alice-1a2b3c4d"
 	picks := []string{"x", "x-javo", "x-javo-api", "x-javo-secrets", "x-javo-git", "x-javo-nebi", "x-api", "report"}
-	// A manual run's Job is "<cronjob>-<10 hex>", which an app named
+	// A run is called "<job's name>-<10 hex>", which an app named
 	// "<job>-<10 hex>" also produces.
-	run := ManualJobName(&model.Job{Owner: owner, Name: "x"}, "run-1")
+	run := RunName(&model.Job{Owner: owner, Name: "x"}, "run-1")
 	picks = append(picks, run[len(owner)+1:])
 
 	appOf := map[string]string{}
@@ -38,7 +38,7 @@ func TestAppAndJobSecretNamesNeverMeet(t *testing.T) {
 	}
 	for _, n := range picks {
 		j := &model.Job{Owner: owner, Name: n}
-		for _, s := range []string{ScheduledSecretName(j), apiSecretName(j), RunSecretName(ManualJobName(j, "run-1"))} {
+		for _, s := range []string{apiSecretName(j), RunSecretName(RunName(j, "run-1"))} {
 			if a, ok := appOf[s]; ok {
 				t.Errorf("job %s and %s share the Secret %s", n, a, s)
 			}
@@ -48,7 +48,7 @@ func TestAppAndJobSecretNamesNeverMeet(t *testing.T) {
 	seen := map[string]string{}
 	for _, n := range picks {
 		j := &model.Job{Owner: owner, Name: n}
-		for kind, s := range map[string]string{"scheduled": ScheduledSecretName(j), "api": apiSecretName(j), "run": RunSecretName(ManualJobName(j, "run-1"))} {
+		for kind, s := range map[string]string{"api": apiSecretName(j), "run": RunSecretName(RunName(j, "run-1"))} {
 			if other, ok := seen[s]; ok {
 				t.Errorf("%s Secret of job %s is also the %s", kind, n, other)
 			}
@@ -69,7 +69,11 @@ func TestJobRefusesASecretLabelledForAnotherJob(t *testing.T) {
 	if _, err := h.db.Jobs().SetEnv(bg, actor, d.ID, d.Version, nil, []model.SecretBinding{{Env: "PGPASSWORD", Secret: "WAREHOUSE_PASSWORD"}}); err != nil {
 		t.Fatal(err)
 	}
-	foreign := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: ScheduledSecretName(&d),
+	run, err := h.db.Jobs().RequestRun(bg, actor, d.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: RunSecretName(RunName(&d, run.ID)),
 		Labels: map[string]string{model.LabelJob: "another-job"}}, Data: map[string][]byte{"keep": []byte("x")}}
 	if err := k8s.Create(bg, foreign); err != nil {
 		t.Fatal(err)
@@ -99,8 +103,8 @@ func TestUpgradeMovesAJobToItsNewSecretNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	mine := map[string]string{model.LabelJob: d.ID, model.LabelOwner: d.Owner}
-	oldAPI := cronJobName(&d) + "-api"
-	oldScheduled := cronJobName(&d) + "-javo-secrets"
+	oldAPI := jobName(&d) + "-api"
+	oldScheduled := jobName(&d) + "-javo-secrets"
 	for _, s := range []*corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: oldAPI, Labels: mine, Annotations: map[string]string{
 			model.AnnotationTokenID: oldTok.ID, model.AnnotationTokenScope: string(token.ScopeReadWrite)}},

@@ -2,34 +2,23 @@ package jobs
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
+	"sync"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
-	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
 	"github.com/nebari-dev/javo/internal/executor"
@@ -47,8 +36,9 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// Reconciler renders job rows into CronJobs, turns run requests into Jobs,
-// and records every run of those Jobs in the database. It never writes spec
+// Reconciler starts the runs of job rows: the ones a person asked for and
+// the ones their schedule comes due for, which it fires itself on every
+// platform. It records every run in the database and never writes spec
 // columns.
 type Reconciler struct {
 	// Exec runs the jobs' runs and Secrets keeps the bundles they read.
@@ -58,33 +48,21 @@ type Reconciler struct {
 	// Legacy removes what earlier versions left where the runs run; nil
 	// where there is nothing to remove.
 	Legacy Legacy
-	// Kube is the cluster, for the CronJobs that fire the schedules and for
-	// nothing else. Required.
-	Kube client.Client
 	// Store is the database jobs, runs, templates and people are read from.
 	// Required.
 	Store       *store.Store
 	RunnerImage podspec.Image
-	// Isolation is applied to the pods of the runs a CronJob starts (config
-	// workloads); the executor applies its own to the runs it starts.
-	Isolation podspec.Isolation
 	// PixiImage installs the environment of a job that runs in one
 	// (internal/pixienv). Without it such a job is Blocked.
 	PixiImage string
 	// Access and Now are required: SetupWithManager refuses a Reconciler
-	// without them.
+	// without them. Now is the clock schedules are fired by.
 	Access Access
 	Now    func() time.Time
 	// UIDMode is identity.uidMode: runs use the owner's uid (identity.PodUIDOf).
 	UIDMode string
 	// Storage reads what a run mounts, as for the owner's apps. Required.
 	Storage podstorage.Resolver
-	// ManagedNamespacesOnly builds jobs only in namespaces labelled
-	// javo.nebari.dev/managed=true, as for apps.
-	ManagedNamespacesOnly bool
-	// CronJobEvents caches the Events about CronJobs (manager.CronJobEvents);
-	// the manager's cache keeps only pod events. Required.
-	CronJobEvents cache.Cache
 	// ResyncEvery is how often every job row is looked at again regardless of
 	// announcements, and every orphan swept. Zero means dbsource.DefaultResync.
 	ResyncEvery time.Duration
@@ -105,14 +83,26 @@ type Reconciler struct {
 	// MaxTimeout is limits.jobMaxTimeout: no run takes longer. Zero is no
 	// platform limit.
 	MaxTimeout time.Duration
+
+	// readable is, per job with a schedule, the fingerprint of the secrets
+	// its runs get that were last opened without trouble, so they are not
+	// opened again on every look.
+	readable sync.Map
 }
 
-// Legacy removes what earlier versions kept for a job, or for one of its
-// runs, under names no longer used. No run of the job reads it any more
-// when it is called. An API token found there is handed to revoke first,
-// by its id.
+// Legacy removes what earlier versions kept for a job where its runs run.
 type Legacy interface {
+	// Tidy removes what was kept for a job, or for one of its runs, under
+	// names no longer used. No run of the job reads it any more when it is
+	// called. An API token found there is handed to revoke first, by its id.
 	Tidy(ctx context.Context, ref workload.Ref, revoke func(ctx context.Context, tokenID string) error) error
+	// Retire removes the schedule the platform itself fired for the job (a
+	// Kubernetes CronJob), without ending a run it started. When there is
+	// one, keep is handed the time up to which it started the schedule's
+	// slots, before it is removed.
+	Retire(ctx context.Context, ref workload.Ref, keep func(through time.Time) error) error
+	// Schedules names the jobs that still have such a schedule.
+	Schedules(ctx context.Context) ([]workload.Ref, error)
 }
 
 // JobTokens makes, checks and revokes the API tokens of jobs.
@@ -123,39 +113,26 @@ type JobTokens interface {
 }
 
 // RBAC for the controller (make rbac renders config/rbac/controller; the
-// Helm chart's Roles must grant the same rules, test/helm checks it).
-// The Jobs, pods, events and Secrets are the Kubernetes executor's
+// Helm chart's Roles must grant the same rules, test/helm checks it). The
+// Jobs, pods, events and Secrets are the Kubernetes executor's
 // (internal/executor/kube); its rules are kept here, where make rbac looks.
-// +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
+// CronJobs are only read and removed: an earlier version fired schedules
+// with them.
+// +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch;delete
 
 const (
-	indexEventObject = "involvedObject.kindName"
-
 	// unmanagedRetry is how often a job in a not-yet-managed namespace is
 	// looked at again.
 	unmanagedRetry = 10 * time.Second
 	// finalizeRetry is how soon a deleted job whose runs were still going
 	// is looked at again.
 	finalizeRetry = time.Second
-
-	// annotationSpecHash records the CronJob spec the reconciler last wrote, so
-	// an unchanged job costs no write. A suspended-by-block CronJob carries
-	// hashBlocked, which no real spec hashes to.
-	annotationSpecHash = model.Group + "/spec-hash"
-	hashBlocked        = "blocked"
-
-	// The reasons the Kubernetes CronJob controller gives its events (see the
-	// header of reconciler_test.go).
-	eventJobAlreadyActive = "JobAlreadyActive"
-	eventMissSchedule     = "MissSchedule"
-	eventMissPrefix       = "Missed scheduled time to start a job: "
 )
 
 // system is who the controller's audited writes are made as.
@@ -174,10 +151,6 @@ type verdict struct {
 	secrets secretenv.Set
 	// size is what each run gets as CPU and memory.
 	size sizes.Size
-	// scheduled is the bundle scheduled runs read, as it is now (nil: none),
-	// and scheduledData the values to write to it when it is out of date.
-	scheduled     *executor.Bundle
-	scheduledData map[string][]byte
 	// api is the owner's API token of a job whose template gives one.
 	api API
 	// env is the files of the job's environment; nil when it names none.
@@ -187,14 +160,19 @@ type verdict struct {
 	// is at its cap (store.Limits), which holds the schedule (runCaps).
 	active, running int64
 	held            reasons.Code
+	// through is the time up to which the schedule's slots are decided
+	// (JobStatus.FiredThrough) and last the newest slot a run was started
+	// for (JobStatus.LastScheduleTime), as they are after this look.
+	through, last time.Time
 }
 
-// Reconcile makes the cluster match one job row (the request names its id)
-// and records its runs.
+// Reconcile records what the executor shows of one job's runs (the request
+// names the job's id), decides the slot of its schedule that has come due
+// and starts the runs that are to start.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	job, err := r.Store.Jobs().Get(ctx, req.Name)
 	if errors.Is(err, store.ErrNotFound) {
-		// Gone: its objects, if any are left, are the sweep's.
+		// Gone: what it left, if anything, is the sweep's.
 		return ctrl.Result{}, nil
 	}
 	if err != nil {
@@ -203,21 +181,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !job.DeletedAt.IsZero() {
 		return r.finalize(ctx, &job)
 	}
-	if r.ManagedNamespacesOnly {
-		if managed, err := namespace.IsManaged(ctx, r.Kube, job.Namespace); err != nil {
-			return ctrl.Result{}, err
-		} else if !managed {
-			log.FromContext(ctx).Info("ignoring job in a namespace the controller does not manage", "namespace", job.Namespace)
-			return ctrl.Result{RequeueAfter: unmanagedRetry}, nil
-		}
+	// No run is called after the job alone, so this only asks whether the
+	// executor runs anything where the job is.
+	if _, err := r.Exec.Observe(ctx, jobRef(&job)); errors.Is(err, executor.ErrUnmanaged) {
+		log.FromContext(ctx).Info("ignoring job in a namespace the controller does not manage", "namespace", job.Namespace)
+		return ctrl.Result{RequeueAfter: unmanagedRetry}, nil
+	} else if err != nil {
+		return ctrl.Result{}, err
 	}
 	now := r.Now()
 
 	v, err := r.assess(ctx, &job, now)
 	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.prepareSecrets(ctx, &job, &v); err != nil {
 		return ctrl.Result{}, err
 	}
 	seen, err := r.look(ctx, &job)
@@ -227,24 +202,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.runCaps(ctx, &job, &v, seen); err != nil {
 		return ctrl.Result{}, err
 	}
-	cj, err := r.syncCronJob(ctx, &job, v)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.syncScheduledSecret(ctx, &job, v, cj); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.startRequested(ctx, &job, v, now); err != nil {
-		return ctrl.Result{}, err
-	}
 	release, err := r.recordRuns(ctx, &job, seen, now)
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// Read last, so a run started now gets the values as they are now.
+	if err := r.prepareSecrets(ctx, &job, &v); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.fire(ctx, &job, &v, now); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.startRequested(ctx, &job, &v, now); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.dropLegacySecrets(ctx, &job, seen); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.writeStatus(ctx, &job, v, cj, now); err != nil {
+	if err := r.writeStatus(ctx, &job, v, now); err != nil {
 		return ctrl.Result{}, err
 	}
 	// Only now is every finished run recorded, so the executor may let go
@@ -255,7 +230,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 	if len(v.next) > 0 {
-		return ctrl.Result{RequeueAfter: v.next[0].Sub(now) + time.Second}, nil
+		return ctrl.Result{RequeueAfter: v.next[0].Sub(now)}, nil
 	}
 	return ctrl.Result{}, nil
 }
@@ -334,9 +309,9 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 }
 
 // runCaps counts what the per-person run caps (store.Limits) are checked
-// against and holds the schedule when one is reached: the Kubernetes CronJob
-// controller would otherwise start a run at every slot whatever the
-// concurrency (Allow) or the owner's other jobs.
+// against and holds the schedule when one is reached: a run would otherwise
+// start at every slot whatever the concurrency (Allow) or the owner's other
+// jobs.
 func (r *Reconciler) runCaps(ctx context.Context, job *model.Job, v *verdict, seen []seenRun) error {
 	l := r.Store.Limits()
 	if l.RunsPerJob <= 0 && l.RunsPerPerson <= 0 {
@@ -366,7 +341,7 @@ func atRunCap(l store.Limits, active, running int64) bool {
 // inputs is what renders the job's runs under verdict v.
 func (r *Reconciler) inputs(job *model.Job, v verdict) Inputs {
 	return Inputs{Job: job, Template: v.tpl, RunnerImage: r.RunnerImage, Layout: v.layout, Secrets: v.secrets, Size: v.size, API: v.api,
-		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout, Isolation: r.Isolation}
+		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout}
 }
 
 func invalidCode(err error) reasons.Code {
@@ -379,92 +354,133 @@ func invalidCode(err error) reasons.Code {
 	return reasons.JobsNotAllowed
 }
 
-// syncCronJob makes the CronJob match the verdict and returns it (nil when
-// there is none). Ready and Paused jobs with a schedule own an up to date
-// CronJob; Blocked and Invalid ones suspend the one they have, so its history
-// survives; a job without a schedule has none.
-func (r *Reconciler) syncCronJob(ctx context.Context, job *model.Job, v verdict) (*batchv1.CronJob, error) {
-	got := &batchv1.CronJob{}
-	err := r.Kube.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: cronJobName(job)}, got)
-	exists := err == nil
-	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, err
+// fire decides the slot of the job's schedule that has come due, at most
+// one a look: the newest at or before now that is after the last one
+// decided. The slot becomes a run row, claimed once whoever asks
+// (store.Jobs.ClaimSlot): one startRequested is to start, or one already
+// Missed when now is past the slot's starting deadline. Older slots that
+// passed meanwhile are gone, and a slot still waiting to start is Skipped
+// for the newer one.
+//
+// These are the rules of the Kubernetes CronJob controller, which fired
+// schedules before (syncCronJob and mostRecentScheduleTime in
+// pkg/controller/cronjob at v1.37.0): it looked at the most recent
+// unstarted time only, counted from its last schedule time or else from
+// when it was made, started nothing while suspended and took up the most
+// recent time again once it no longer was. A paused or blocked job, and one
+// at a run cap, is that suspended CronJob.
+func (r *Reconciler) fire(ctx context.Context, job *model.Job, v *verdict, now time.Time) error {
+	s := job.Spec.Schedule
+	v.through, v.last = job.Status.FiredThrough, job.Status.LastScheduleTime
+	if s == nil {
+		v.through, v.last = time.Time{}, time.Time{}
 	}
-	if exists && got.Labels[model.LabelJob] != job.ID {
-		return nil, fmt.Errorf("cronjob %s/%s exists and belongs to another job than %s", got.Namespace, got.Name, job.ID)
-	}
-	switch {
-	case job.Spec.Schedule == nil:
-		if exists {
-			return nil, client.IgnoreNotFound(r.Kube.Delete(ctx, got))
+	if v.through.IsZero() {
+		if err := r.takeOver(ctx, job, v); err != nil {
+			return err
 		}
-		return nil, nil
-	case v.phase == model.JobPhaseBlocked || v.phase == model.JobPhaseInvalid:
-		if !exists || (ptr.Deref(got.Spec.Suspend, false) && got.Annotations[annotationSpecHash] == hashBlocked) {
-			return got, nil
+	}
+	if s == nil {
+		v.through = time.Time{}
+		return nil
+	}
+	if v.through.IsZero() {
+		if v.code != "" {
+			return nil
 		}
-		base := got.DeepCopy()
-		got.Spec.Suspend = ptr.To(true)
-		metav1.SetMetaDataAnnotation(&got.ObjectMeta, annotationSpecHash, hashBlocked)
-		return got, r.Kube.Patch(ctx, got, client.MergeFrom(base))
+		// A schedule counts from when it can first run.
+		v.through = now
 	}
-
-	want, err := BuildCronJob(r.inputs(job, v))
+	if v.code != "" || s.Paused || v.held != "" {
+		return nil
+	}
+	slot, err := schedule.Previous(s.Cron, s.TimeZone, now)
+	if err != nil || !slot.After(v.through) {
+		return err
+	}
+	run := model.Run{JobID: job.ID, Trigger: TriggerSchedule, Slot: slot, ScheduledTime: slot}
+	if d := s.StartingDeadline; d != nil && slot.Add(d.Duration).Before(now) {
+		run.Outcome, run.Reason, run.FinishTime = model.RunOutcomeMissed, string(reasons.RunMissed), slot
+	}
+	if _, _, err := r.Store.Jobs().ClaimSlot(ctx, run); err != nil {
+		return err
+	}
+	v.through = slot
+	// A slot that waited until now has waited too long.
+	runs, err := r.Store.Jobs().Runs(ctx, job.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if v.held != "" {
-		want.Spec.Suspend = ptr.To(true)
+	for _, old := range runs {
+		if waiting(old) && old.Slot.Before(slot) {
+			if err := r.endRequest(ctx, old, model.RunOutcomeSkipped, reasons.RunSkipped, old.Slot); err != nil {
+				return err
+			}
+		}
 	}
-	hash, err := specHash(want)
-	if err != nil {
-		return nil, err
-	}
-	metav1.SetMetaDataAnnotation(&want.ObjectMeta, annotationSpecHash, hash)
-	if !exists {
-		return want, r.Kube.Create(ctx, want)
-	}
-	if got.Annotations[annotationSpecHash] == hash {
-		return got, nil
-	}
-	got.Labels, got.Spec = want.Labels, want.Spec
-	metav1.SetMetaDataAnnotation(&got.ObjectMeta, annotationSpecHash, hash)
-	return got, r.Kube.Update(ctx, got)
+	return nil
 }
 
-func specHash(cj *batchv1.CronJob) (string, error) {
-	raw, err := json.Marshal(struct {
-		Labels map[string]string
-		Spec   batchv1.CronJobSpec
-	}{cj.Labels, cj.Spec})
-	if err != nil {
-		return "", err
+// takeOver retires the schedule an earlier version had the platform fire
+// for the job, if there is one, and goes on from where that stopped. The
+// time is stored before the old schedule is removed, so a slot is neither
+// started by both nor by none.
+func (r *Reconciler) takeOver(ctx context.Context, job *model.Job, v *verdict) error {
+	if r.Legacy == nil {
+		return nil
 	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:8]), nil
+	return r.Legacy.Retire(ctx, jobRef(job), func(through time.Time) error {
+		st := job.Status
+		st.FiredThrough = through
+		if err := r.Store.Jobs().SetStatus(ctx, job.ID, job.Status.ObservedVersion, st); err != nil {
+			return err
+		}
+		job.Status.FiredThrough, v.through = through, through
+		return nil
+	})
+}
+
+// waiting is true for the run of a schedule's slot that has not started.
+func waiting(run model.Run) bool {
+	return run.Outcome == "" && run.Handle == "" && !run.Slot.IsZero()
 }
 
 // final reports whether a run's outcome can no longer change: it has one and
 // it is not Running.
 func final(outcome string) bool { return outcome != "" && outcome != model.RunOutcomeRunning }
 
-// startRequested starts each run a person requested (a row with no
-// outcome). The run's name comes from the row id, so a resync or restart
-// between starting the run and recording it finds the same run again. A
-// cancel asked for before the start ends the run without starting it; a job
-// that cannot run now (blocked, invalid) fails the request with the reason.
-func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdict, now time.Time) error {
+// startRequested starts each run that is to start (a row with no outcome):
+// the ones a person asked for and the slots fire claimed. The run's name
+// comes from the row id, so a resync or restart between starting the run
+// and recording it finds the same run again. A cancel asked for before the
+// start ends the run without starting it. A job that cannot run now
+// (blocked, invalid, at a run cap) fails a person's request with the
+// reason; a slot waits.
+func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v *verdict, now time.Time) error {
 	runs, err := r.Store.Jobs().Runs(ctx, job.ID)
 	if err != nil {
 		return err
+	}
+	// scheduled are the job's scheduled runs that are going, which the
+	// overlap rule is about; a run started by hand is not.
+	var scheduled []workload.Ref
+	for _, run := range runs {
+		if run.Trigger == TriggerSchedule && run.Outcome == model.RunOutcomeRunning && run.Handle != "" {
+			scheduled = append(scheduled, runRef(job, run.Handle))
+		}
 	}
 	for _, run := range runs {
 		if run.Outcome != "" || run.Handle != "" {
 			continue
 		}
-		ref := runRef(job, ManualJobName(job, run.ID))
-		if run.CancelRequested {
-			// A start cut short after its bundle was written leaves it with no run to go with.
+		ref := runRef(job, RunName(job, run.ID))
+		slot := !run.Slot.IsZero()
+		if run.CancelRequested || (slot && job.Spec.Schedule == nil) {
+			// A start cut short may have left the run, or the bundle written
+			// for it with no run to go with.
+			if _, err := r.drop(ctx, ref); err != nil {
+				return err
+			}
 			if err := r.deleteRunSecret(ctx, job, ref); err != nil {
 				return err
 			}
@@ -472,6 +488,29 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 				return err
 			}
 			continue
+		}
+		atCap := atRunCap(r.Store.Limits(), v.active, v.running)
+		if slot {
+			s := job.Spec.Schedule
+			if d := s.StartingDeadline; d != nil && run.Slot.Add(d.Duration).Before(now) {
+				if err := r.endRequest(ctx, run, model.RunOutcomeMissed, reasons.RunMissed, run.Slot); err != nil {
+					return err
+				}
+				continue
+			}
+			// Held as its CronJob was suspended, or by the overlap rule: it
+			// starts at a later look, unless a newer slot comes due first.
+			if v.code != "" || s.Paused || atCap || (s.Concurrency == concurrencyForbid && len(scheduled) > 0) {
+				continue
+			}
+			if s.Concurrency == concurrencyReplace {
+				// Each is recorded as cancelled once the executor shows it stopped.
+				for _, old := range scheduled {
+					if err := r.Exec.Stop(ctx, old); err != nil {
+						return err
+					}
+				}
+			}
 		}
 		if v.code != "" {
 			if err := r.endRequest(ctx, run, model.RunOutcomeFailed, v.code, now); err != nil {
@@ -481,13 +520,13 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 		}
 		// The gateway counted this request against the caps; scheduled runs
 		// may have taken the room since.
-		if atRunCap(r.Store.Limits(), v.active, v.running) {
+		if atCap {
 			if err := r.endRequest(ctx, run, model.RunOutcomeFailed, reasons.RunLimitReached, now); err != nil {
 				return err
 			}
 			continue
 		}
-		spec, err := PlanManualRun(r.inputs(job, v), run.ID, run.Parameters)
+		spec, err := PlanRun(r.inputs(job, *v), run.ID, run.Parameters, run.Slot)
 		if errors.Is(err, ErrParameterNotDeclared) {
 			if err := r.endRequest(ctx, run, model.RunOutcomeFailed, reasons.ParametersInvalid, now); err != nil {
 				return err
@@ -498,7 +537,7 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 			return err
 		}
 		// The bundle comes first, so the run never starts without it.
-		unreadable, err := r.startSecret(ctx, v, ref)
+		unreadable, err := r.startSecret(ctx, *v, ref)
 		if err != nil {
 			return err
 		}
@@ -513,10 +552,16 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 			return err
 		}
 		// Again, now that the run is there for the bundle to go with.
-		if _, err := r.startSecret(ctx, v, ref); err != nil {
+		if _, err := r.startSecret(ctx, *v, ref); err != nil {
 			return err
 		}
 		v.active, v.running = v.active+1, v.running+1
+		if slot {
+			scheduled = append(scheduled, ref)
+			if run.Slot.After(v.last) {
+				v.last = run.Slot
+			}
+		}
 		run.Handle, run.Outcome, run.Reason = ref.Name, model.RunOutcomeRunning, string(reasons.Running)
 		if _, err := r.Store.Jobs().RecordRun(ctx, run); err != nil {
 			return err
@@ -524,6 +569,15 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 	}
 	return nil
 }
+
+// The overlap rules of a schedule (JobSchedule.Concurrency), under the
+// names the Kubernetes CronJob gave them. Forbid makes a slot wait for the
+// scheduled run before it, Replace stops that run, and Allow, or any other
+// value, starts the slot beside it.
+const (
+	concurrencyForbid  = "Forbid"
+	concurrencyReplace = "Replace"
+)
 
 // deleteRunSecret removes the bundle of the run ref, under its name and the
 // one it had before RunSecretName.
@@ -534,9 +588,9 @@ func (r *Reconciler) deleteRunSecret(ctx context.Context, job *model.Job, ref wo
 	return r.tidy(ctx, job, ref)
 }
 
-// endRequest records a requested run that never got a Job.
-func (r *Reconciler) endRequest(ctx context.Context, run model.Run, outcome string, code reasons.Code, now time.Time) error {
-	run.Outcome, run.Reason, run.FinishTime = outcome, string(code), now
+// endRequest records a run that was never started, as over at the time at.
+func (r *Reconciler) endRequest(ctx context.Context, run model.Run, outcome string, code reasons.Code, at time.Time) error {
+	run.Outcome, run.Reason, run.FinishTime = outcome, string(code), at
 	_, err := r.Store.Jobs().RecordRun(ctx, run)
 	return err
 }
@@ -591,21 +645,28 @@ func (r *Reconciler) look(ctx context.Context, job *model.Job) ([]seenRun, error
 	return seen, nil
 }
 
-// recordRuns writes every run the executor has of the job, and the
-// CronJob's skipped and missed starts, to job_runs; stops a run that was
-// asked to be cancelled; calls a run lost when the executor no longer has
-// it; and keeps only the newest keepRuns finished runs (plus those the
-// executor still has). It returns the runs whose record is final: the
-// executor may let go of them.
+// recordRuns writes every run the executor has of the job to job_runs;
+// stops a run that was asked to be cancelled; calls a run lost when the
+// executor no longer has it; and keeps only the newest keepRuns finished
+// runs (plus those the executor still has). It returns the runs whose
+// record is final: the executor may let go of them. A run the controller
+// did not start (one a CronJob of an earlier version made) is recorded all
+// the same, for the slot it was made for.
 func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seenRun, now time.Time) ([]workload.Ref, error) {
 	stored, err := r.Store.Jobs().Runs(ctx, job.ID)
 	if err != nil {
 		return nil, err
 	}
 	byHandle := make(map[string]model.Run, len(stored))
+	// starting are the runs whose start was cut short before it was
+	// recorded: startRequested finishes it, and records them.
+	starting := map[string]bool{}
 	for _, run := range stored {
-		if run.Handle != "" {
+		switch {
+		case run.Handle != "":
 			byHandle[run.Handle] = run
+		case run.Outcome == "":
+			starting[RunName(job, run.ID)] = true
 		}
 	}
 
@@ -613,6 +674,9 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seen
 	var release []workload.Ref
 	for _, s := range seen {
 		had[s.ref.Name] = true
+		if starting[s.ref.Name] {
+			continue
+		}
 		old, known := byHandle[s.ref.Name]
 		if s.st == nil {
 			release = append(release, s.ref)
@@ -636,8 +700,7 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seen
 	}
 	// A run recorded as Running that the executor no longer has (removed
 	// behind its back, for example while the controller was not installed)
-	// cannot finish any more. One started since the look above is still
-	// there.
+	// cannot finish any more.
 	for _, old := range stored {
 		if old.Outcome != model.RunOutcomeRunning || old.Handle == "" || had[old.Handle] {
 			continue
@@ -655,30 +718,11 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seen
 		}
 	}
 
-	evs, err := r.cronJobEvents(ctx, job)
-	if err != nil {
-		return nil, err
-	}
-	// A run the executor still has, or whose CronJob Event is still listed,
-	// stays: the next reconcile would record it again as a new run (and
-	// notify a failure again, or audit another prune of the same skip).
-	live := make([]string, 0, len(seen)+len(evs))
+	// A run the executor still has stays: the next reconcile would record
+	// it again as a new run (and notify a failure again).
+	live := make([]string, 0, len(seen))
 	for _, s := range seen {
 		live = append(live, s.ref.Name)
-	}
-	for _, e := range evs {
-		run, ok := runFromEvent(job, e)
-		if !ok {
-			continue
-		}
-		live = append(live, run.Handle)
-		if _, known := byHandle[run.Handle]; known {
-			continue
-		}
-		run.JobID = job.ID
-		if _, err := r.Store.Jobs().RecordRun(ctx, run); err != nil {
-			return nil, err
-		}
 	}
 
 	if _, err := r.Store.Jobs().PruneRuns(ctx, system, job.ID, int(job.Spec.History.KeepRuns), live); err != nil {
@@ -692,73 +736,6 @@ func sameRun(old, next model.Run) bool {
 	return old.Outcome == next.Outcome && old.Reason == next.Reason && old.Message == next.Message &&
 		old.OutputPath == next.OutputPath && slices.Equal(old.Outputs, next.Outputs) &&
 		old.StartTime.Equal(next.StartTime) && old.FinishTime.Equal(next.FinishTime)
-}
-
-func (r *Reconciler) cronJobEvents(ctx context.Context, job *model.Job) ([]corev1.Event, error) {
-	var list corev1.EventList
-	if err := r.CronJobEvents.List(ctx, &list, client.InNamespace(job.Namespace),
-		client.MatchingFields{indexEventObject: "CronJob/" + cronJobName(job)}); err != nil {
-		return nil, err
-	}
-	return list.Items, nil
-}
-
-// runFromEvent maps the CronJob controller's overlap and missed-start events
-// to runs. Such a run has no Kubernetes Job, so its Handle is a key derived
-// from what the event says, and the same event always names the same run.
-//
-// The CronJob controller does not advance lastScheduleTime on a skip, so it
-// emits JobAlreadyActive again on every later sync, and the recorder folds the
-// repeats into one Event with a newer lastTimestamp. The skip is therefore
-// keyed by the slot that was skipped: the latest cron time at or before the
-// event's firstTimestamp.
-func runFromEvent(job *model.Job, e corev1.Event) (model.Run, bool) {
-	at := eventTime(e)
-	switch e.Reason {
-	case eventJobAlreadyActive:
-		at = skippedSlot(job, e, at)
-		return model.Run{
-			Handle: fmt.Sprintf("skipped-%d", at.Unix()), Trigger: TriggerSchedule, ScheduledTime: at, FinishTime: at,
-			Outcome: model.RunOutcomeSkipped, Reason: string(reasons.RunSkipped),
-		}, true
-	case eventMissSchedule:
-		if sched, err := time.Parse(time.RFC1123Z, strings.TrimPrefix(e.Message, eventMissPrefix)); err == nil {
-			at = sched
-		}
-		at = at.UTC()
-		return model.Run{
-			Handle: fmt.Sprintf("missed-%d", at.Unix()), Trigger: TriggerSchedule, ScheduledTime: at, FinishTime: at,
-			Outcome: model.RunOutcomeMissed, Reason: string(reasons.RunMissed),
-		}, true
-	}
-	return model.Run{}, false
-}
-
-// skippedSlot is the cron slot a JobAlreadyActive event is about, or the event
-// time when the job has no schedule to work it out from.
-func skippedSlot(job *model.Job, e corev1.Event, fallback time.Time) time.Time {
-	if job.Spec.Schedule == nil {
-		return fallback
-	}
-	first := e.FirstTimestamp.Time
-	if first.IsZero() {
-		first = fallback
-	}
-	slot, err := schedule.Previous(job.Spec.Schedule.Cron, job.Spec.Schedule.TimeZone, first)
-	if err != nil || slot.IsZero() {
-		return fallback
-	}
-	return slot
-}
-
-// eventTime is when the event last happened.
-func eventTime(e corev1.Event) time.Time {
-	for _, t := range []time.Time{e.LastTimestamp.Time, e.EventTime.Time, e.FirstTimestamp.Time, e.CreationTimestamp.Time} {
-		if !t.IsZero() {
-			return t.UTC()
-		}
-	}
-	return time.Time{}
 }
 
 // drop ends the run ref and lets go of it. It reports whether the run was
@@ -784,12 +761,9 @@ func (r *Reconciler) drop(ctx context.Context, ref workload.Ref) (wasGoing bool,
 // be recorded: each is ended and let go of first, and the row stays until
 // none is still going.
 func (r *Reconciler) finalize(ctx context.Context, job *model.Job) (ctrl.Result, error) {
-	var cronJobs batchv1.CronJobList
-	if err := r.Kube.List(ctx, &cronJobs, client.InNamespace(job.Namespace), client.MatchingLabels{model.LabelJob: job.ID}); err != nil {
-		return ctrl.Result{}, err
-	}
-	for i := range cronJobs.Items {
-		if err := r.Kube.Delete(ctx, &cronJobs.Items[i]); client.IgnoreNotFound(err) != nil {
+	if r.Legacy != nil {
+		// One not looked at since the upgrade may still have its old schedule.
+		if err := r.Legacy.Retire(ctx, jobRef(job), func(time.Time) error { return nil }); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -812,15 +786,13 @@ func (r *Reconciler) finalize(ctx context.Context, job *model.Job) (ctrl.Result,
 	if held {
 		return ctrl.Result{RequeueAfter: finalizeRetry}, nil
 	}
-	if err := r.Secrets.Delete(ctx, jobRef(job), ScheduledSecretName(job)); err != nil {
-		return ctrl.Result{}, err
-	}
 	if err := r.dropToken(ctx, job); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.tidy(ctx, job, jobRef(job)); err != nil {
 		return ctrl.Result{}, err
 	}
+	r.readable.Delete(job.ID)
 	err = r.Store.Jobs().Purge(ctx, system, job.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return ctrl.Result{}, nil
@@ -832,15 +804,12 @@ func (r *Reconciler) finalize(ctx context.Context, job *model.Job) (ctrl.Result,
 // that keep their status keep their transition time, and conditions this
 // reconciler does not own (Notified) are kept, so a repeat reconcile writes
 // nothing.
-func (r *Reconciler) writeStatus(ctx context.Context, job *model.Job, v verdict, cj *batchv1.CronJob, now time.Time) error {
+func (r *Reconciler) writeStatus(ctx context.Context, job *model.Job, v verdict, now time.Time) error {
 	next := job.Status
 	next.Phase, next.ObservedVersion = v.phase, job.Version
-	next.NextRunTimes, next.LastScheduleTime = nil, time.Time{}
+	next.NextRunTimes, next.LastScheduleTime, next.FiredThrough = nil, v.last.UTC(), v.through.UTC()
 	for _, t := range v.next {
 		next.NextRunTimes = append(next.NextRunTimes, t.UTC())
-	}
-	if cj != nil && cj.Status.LastScheduleTime != nil {
-		next.LastScheduleTime = cj.Status.LastScheduleTime.UTC()
 	}
 	next.Conditions = append([]metav1.Condition(nil), job.Status.Conditions...)
 	for _, c := range conditions(job, v, now) {
@@ -898,31 +867,33 @@ func conditions(job *model.Job, v verdict, now time.Time) []metav1.Condition {
 	return out
 }
 
-// Sweep removes the runs and CronJobs that carry a job id no row has any
-// more: what a job left behind when its row was removed without the
-// controller running. It asks the executor first and reads the rows after,
-// so a run started while the sweep runs belongs to a row that is among
-// them. See sweep.Orphans for the CronJobs it touches.
+// Sweep removes the runs that carry a job id no row has any more: what a
+// job left behind when its row was removed without the controller running.
+// It asks the executor first and reads the rows after, so a run started
+// while the sweep runs belongs to a row that is among them. The schedule an
+// earlier version had the platform fire for such a job goes too.
 func (r *Reconciler) Sweep(ctx context.Context) error {
 	refs, err := r.Exec.List(ctx)
 	if err != nil {
 		return err
 	}
-	live := func(ctx context.Context) (map[string]bool, error) {
-		jobs, err := r.Store.Jobs().ListAll(ctx)
-		live := make(map[string]bool, len(jobs))
-		for _, j := range jobs {
-			live[j.ID] = true
+	var schedules []workload.Ref
+	if r.Legacy != nil {
+		if schedules, err = r.Legacy.Schedules(ctx); err != nil {
+			return err
 		}
-		return live, err
 	}
-	rows, err := live(ctx)
+	jobs, err := r.Store.Jobs().ListAll(ctx)
 	if err != nil {
 		return err
 	}
+	live := make(map[string]bool, len(jobs))
+	for _, j := range jobs {
+		live[j.ID] = true
+	}
 	var failed error
 	for _, ref := range refs {
-		if rows[ref.ID] {
+		if live[ref.ID] {
 			continue
 		}
 		log.FromContext(ctx).Info("removing a run whose job's row is gone", "namespace", ref.Namespace, "name", ref.Name)
@@ -931,46 +902,28 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 			failed = err
 		}
 	}
-	if err := (sweep.Orphans{Client: r.Kube, Label: model.LabelJob, ManagedOnly: r.ManagedNamespacesOnly, Live: live}).Delete(ctx, &batchv1.CronJobList{}); err != nil {
-		failed = err
+	for _, ref := range schedules {
+		if live[ref.ID] {
+			continue
+		}
+		log.FromContext(ctx).Info("removing the schedule of a job whose row is gone", "namespace", ref.Namespace, "name", ref.Name)
+		if err := r.Legacy.Retire(ctx, ref, func(time.Time) error { return nil }); err != nil {
+			failed = err
+		}
 	}
 	return failed
 }
 
 // SetupWithManager wires the controller: job rows (and the run requests,
 // templates and people they depend on) come from the database through feed;
-// changes to their runs come from the executor; CronJobs and Events about
-// them come from the cluster and map back to their job by the id label. It
-// also adds the orphan sweep. The caller runs feed.
+// changes to their runs come from the executor. A job with a schedule is
+// looked at again when its next slot comes. It also adds the orphan sweep.
+// The caller runs feed.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Exec == nil || r.Secrets == nil || r.Kube == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
-		r.CronJobEvents == nil || r.Storage.Homes == nil || r.Storage.Folders == nil {
-		return errors.New("jobs reconciler needs Exec, Secrets, Kube, Store, Access, Now, RunnerImage, CronJobEvents and Storage")
+	if r.Exec == nil || r.Secrets == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
+		r.Storage.Homes == nil || r.Storage.Folders == nil {
+		return errors.New("jobs reconciler needs Exec, Secrets, Store, Access, Now, RunnerImage and Storage")
 	}
-	ctx := context.Background()
-	eventKey := func(o client.Object) []string {
-		e := o.(*corev1.Event)
-		return []string{e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name}
-	}
-	if err := r.CronJobEvents.IndexField(ctx, &corev1.Event{}, indexEventObject, eventKey); err != nil {
-		return err
-	}
-
-	byJobLabel := handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
-		return dbsource.Request(o.GetLabels()[model.LabelJob])
-	})
-	cronJobEvents := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-		e := o.(*corev1.Event)
-		cj := &batchv1.CronJob{}
-		if err := r.Kube.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.InvolvedObject.Name}, cj); err != nil {
-			return nil
-		}
-		return dbsource.Request(cj.Labels[model.LabelJob])
-	})
-	isCronJobEvent := predicate.NewPredicateFuncs(func(o client.Object) bool {
-		e, ok := o.(*corev1.Event)
-		return ok && e.InvolvedObject.Kind == "CronJob" && (e.Reason == eventJobAlreadyActive || e.Reason == eventMissSchedule)
-	})
 	if err := mgr.Add(&sweep.Runner{What: "jobs", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
 		return err
 	}
@@ -980,8 +933,6 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "templates", r.jobsOfTemplate)).
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "people", r.jobsOfPerson)).
 		WatchesRawSource(r.runs()).
-		Watches(&batchv1.CronJob{}, byJobLabel).
-		WatchesRawSource(source.Kind[client.Object](r.CronJobEvents, &corev1.Event{}, cronJobEvents, isCronJobEvent)).
 		Complete(r)
 }
 
@@ -1042,8 +993,8 @@ func (r *Reconciler) jobsOfPerson(ctx context.Context, id string) ([]reconcile.R
 }
 
 // apiSecretName is the bundle holding the API token of job (see
-// ScheduledSecretName).
-func apiSecretName(job *model.Job) string { return cronJobName(job) + ".job-api" }
+// RunSecretName).
+func apiSecretName(job *model.Job) string { return jobName(job) + ".job-api" }
 
 // syncToken gives a job whose template gives an API token (as for apps,
 // model.DefaultAPIAccess) its owner's token, made once and kept in a bundle

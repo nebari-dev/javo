@@ -1,5 +1,5 @@
-// Package jobs renders job rows into the Kubernetes CronJobs and Jobs that
-// run them and records every run in the database.
+// Package jobs starts the runs of job rows, by hand or as their schedule
+// comes due, through an executor, and records every run in the database.
 package jobs
 
 import (
@@ -10,10 +10,6 @@ import (
 	"fmt"
 	"slices"
 	"time"
-
-	batchv1 "k8s.io/api/batch/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
@@ -26,31 +22,24 @@ import (
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
+	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
-	LabelTrigger = kube.LabelTrigger
-	// FinalizerRecordRun holds a Job until its run is written to the
-	// database. Manual Jobs carry it from creation; scheduled Jobs get it
-	// when the executor first looks at them, because the CronJob controller
-	// copies only labels and annotations from the jobTemplate.
-	FinalizerRecordRun = kube.FinalizerRecordRun
+	// LabelTrigger says on a run what started it.
+	LabelTrigger    = kube.LabelTrigger
+	TriggerSchedule = store.TriggerSchedule
+	TriggerManual   = store.TriggerManual
 
-	TriggerSchedule = kube.TriggerSchedule
-	TriggerManual   = kube.TriggerManual
+	// jobNameMax keeps room after the job's name for what a run adds to it
+	// (RunName), within the 63 characters a run's name may have.
+	jobNameMax = 52
 
-	// cronJobNameMax is the Kubernetes limit for a CronJob name: its Jobs
-	// append 11 characters to it.
-	cronJobNameMax = 52
-
-	// runnerDir holds the javo binary the init container copies for the app
-	// container. It is not /javo: that path is the binary inside the image.
+	// runnerDir holds the javo binary a step copies for the main unit. It
+	// is not /javo: that path is the binary inside the image.
 	runnerDir    = "/javo-run"
 	runnerVolume = "javo-run"
-
-	// LabelJobName is the label the Job controller puts on a Job's pods.
-	LabelJobName = kube.LabelJobName
 )
 
 var (
@@ -75,7 +64,7 @@ type Inputs struct {
 	// folders and scratch (podstorage), and the owner's uid.
 	Layout podstorage.Layout
 	// Secrets are the owner's secrets each run gets as variables, read by
-	// reference from the run's Secret (ScheduledSecretName or RunSecretName).
+	// reference from the run's bundle (RunSecretName).
 	Secrets secretenv.Set
 	// Size is what each run's container gets as CPU and memory requests and
 	// limits; the zero Size keeps the template's resources.
@@ -91,23 +80,17 @@ type Inputs struct {
 	// MaxTimeout is the platform's longest run (limits.jobMaxTimeout); zero
 	// leaves the job's and the template's time limits as they are.
 	MaxTimeout time.Duration
-	// Isolation is applied to every run's pod.
-	Isolation podspec.Isolation
 }
 
-// A job's Secrets are named "<CronJob name>.job-<use>", a manual run's
-// "<Job name>.run-secrets". Kubernetes names made from a person's pick are
-// DNS labels and never hold a ".", so the part after it keeps apps' Secrets
+// A job's bundles are named "<job's name>.job-<use>", a run's
+// "<run's name>.run-secrets". Names made from a person's pick are DNS
+// labels and never hold a ".", so the part after it keeps apps' bundles
 // (".app-", workspace.SecretName), a job's and a run's apart whatever the
 // names.
 
-// ScheduledSecretName is the Secret the runs of the job's CronJob read their
-// secrets from. The CronJob owns it, so it goes with the CronJob.
-func ScheduledSecretName(j *model.Job) string { return cronJobName(j) + ".job-secrets" }
-
-// RunSecretName is the Secret the run whose Kubernetes Job is k8sJob reads
-// its secrets from: a run started by hand has its own, which that Job owns.
-func RunSecretName(k8sJob string) string { return k8sJob + ".run-secrets" }
+// RunSecretName is the bundle the run the executor knows as handle reads
+// its secrets from: each run has its own, which goes with the run.
+func RunSecretName(handle string) string { return handle + ".run-secrets" }
 
 // API is where a run reaches the javo API and the Secret holding the
 // owner's token for it (key APITokenKey). URL is the public address (the
@@ -127,25 +110,17 @@ var exitCodesFailNow = []int32{
 	runner.ExitSourceMissing, runner.ExitOutputWrite, runner.ExitParams, 137,
 }
 
-func cronJobName(j *model.Job) string {
-	return naming.ObjectNameMax(j.Owner, j.Name, cronJobNameMax)
+// jobName is the name the job's bundles and runs are called after.
+func jobName(j *model.Job) string {
+	return naming.ObjectNameMax(j.Owner, j.Name, jobNameMax)
 }
 
-// ManualJobName is the name of the Kubernetes Job that runs the run row
-// runID: the CronJob's name and a hash of the id. The same run always gets
-// the same name, so creating it twice makes one Job. Pods copy the name into
-// a label, so it stays within 63 characters.
-func ManualJobName(j *model.Job, runID string) string {
+// RunName is the name of the run whose row is runID: the job's name and a
+// hash of the id. The same run always gets the same name, so starting it
+// twice makes one run. It stays within 63 characters.
+func RunName(j *model.Job, runID string) string {
 	sum := sha256.Sum256([]byte(runID))
-	return cronJobName(j) + "-" + hex.EncodeToString(sum[:])[:10]
-}
-
-func labels(j *model.Job, trigger string) map[string]string {
-	return map[string]string{
-		model.LabelOwner: j.Owner,
-		model.LabelJob:   j.ID,
-		LabelTrigger:     trigger,
-	}
+	return jobName(j) + "-" + hex.EncodeToString(sum[:])[:10]
 }
 
 // Validate says whether the template allows the job: jobs on, engine and
@@ -215,7 +190,7 @@ func timeout(in Inputs) time.Duration {
 
 // jobRef names the job where its runs run: what its bundles are kept for.
 func jobRef(j *model.Job) workload.Ref {
-	return workload.Ref{Namespace: j.Namespace, Name: cronJobName(j), ID: j.ID, Owner: j.Owner}
+	return workload.Ref{Namespace: j.Namespace, Name: jobName(j), ID: j.ID, Owner: j.Owner}
 }
 
 // runRef names the job's run that the executor knows as handle.
@@ -300,55 +275,15 @@ func plan(in Inputs, name string, override map[string]string, secretName string)
 	return planRun(in, name, string(raw), secretName)
 }
 
-// PlanManualRun is the workload of the run started by hand whose row is
-// runID, with override over the declared parameters.
-func PlanManualRun(in Inputs, runID string, override map[string]string) (workload.Spec, error) {
-	name := ManualJobName(in.Job, runID)
-	return plan(in, name, override, RunSecretName(name))
-}
-
-// BuildJobTemplate renders the Job that one scheduled run of the job uses,
-// with params overriding the declared defaults: the Job the executor makes
-// of a run, as the CronJob controller is to make it.
-func BuildJobTemplate(in Inputs, override map[string]string) (batchv1.JobTemplateSpec, error) {
-	run, err := plan(in, cronJobName(in.Job), override, ScheduledSecretName(in.Job))
+// PlanRun is the workload of the run whose row is runID, with override
+// over the declared parameters. slot is the time a schedule starts it for;
+// zero for a run a person started.
+func PlanRun(in Inputs, runID string, override map[string]string, slot time.Time) (workload.Spec, error) {
+	name := RunName(in.Job, runID)
+	s, err := plan(in, name, override, RunSecretName(name))
 	if err != nil {
-		return batchv1.JobTemplateSpec{}, err
+		return workload.Spec{}, err
 	}
-	k := kube.RenderRun(run, in.Isolation)
-	k.Spec.TTLSecondsAfterFinished = nil
-	k.Spec.Template.Labels = labels(in.Job, TriggerSchedule)
-	return batchv1.JobTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels(in.Job, TriggerSchedule)}, Spec: k.Spec}, nil
-}
-
-// BuildCronJob renders the CronJob for a scheduled job.
-func BuildCronJob(in Inputs) (*batchv1.CronJob, error) {
-	s := in.Job.Spec.Schedule
-	if s == nil {
-		return nil, errors.New("job has no schedule")
-	}
-	jt, err := BuildJobTemplate(in, nil)
-	if err != nil {
-		return nil, err
-	}
-	h := in.Job.Spec.History
-	cj := &batchv1.CronJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: cronJobName(in.Job), Namespace: in.Job.Namespace,
-			Labels: labels(in.Job, TriggerSchedule),
-		},
-		Spec: batchv1.CronJobSpec{
-			Schedule:                   s.Cron,
-			TimeZone:                   ptr.To(s.TimeZone),
-			ConcurrencyPolicy:          batchv1.ConcurrencyPolicy(s.Concurrency),
-			Suspend:                    ptr.To(s.Paused),
-			SuccessfulJobsHistoryLimit: h.KeepSucceeded,
-			FailedJobsHistoryLimit:     h.KeepFailed,
-			JobTemplate:                jt,
-		},
-	}
-	if s.StartingDeadline != nil {
-		cj.Spec.StartingDeadlineSeconds = ptr.To(int64(s.StartingDeadline.Seconds()))
-	}
-	return cj, nil
+	s.Batch.Slot = slot
+	return s, nil
 }

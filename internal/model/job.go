@@ -149,6 +149,10 @@ type JobStatus struct {
 	Conditions       []metav1.Condition `json:"conditions,omitempty"`
 	NextRunTimes     []time.Time        `json:"nextRunTimes,omitempty"`
 	LastScheduleTime time.Time          `json:"lastScheduleTime,omitzero"`
+	// FiredThrough is the time up to which the controller has decided
+	// every slot of the schedule: it starts no run for an earlier one. Zero
+	// while the job has no schedule the controller has taken up.
+	FiredThrough time.Time `json:"firedThrough,omitzero"`
 	// ObservedVersion is the Version of the spec the controller last acted on.
 	// It has its own column, so it is not part of the stored JSON.
 	ObservedVersion int64 `json:"-"`

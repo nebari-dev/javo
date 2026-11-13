@@ -81,78 +81,31 @@ func runSpec(t *testing.T, c corev1.Container) runner.Spec {
 	return runner.Spec{}
 }
 
-func TestBuildCronJobRendersSchedule(t *testing.T) {
+// A scheduled run is a run like one started by hand, for its slot: named
+// after its job and row, labelled as the schedule's, held until recorded
+// and gone an hour after it ends.
+func TestAScheduledRunIsNamedAndLabelledAfterItsJob(t *testing.T) {
 	t.Parallel()
 	in := testInputs(nil)
-	cj, err := BuildCronJob(in)
+	k, err := buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	slug := "alice-1a2b3c4d"
-	if len(cj.Name) > 52 || cj.Name != naming.ObjectNameMax(slug, "nightly", 52) {
-		t.Fatalf("name = %q", cj.Name)
+	if k.Name != RunName(in.Job, "run-1") || !strings.HasPrefix(k.Name, naming.ObjectNameMax(slug, "nightly", 52)+"-") {
+		t.Fatalf("name = %q", k.Name)
 	}
-	if cj.Namespace != "javo-apps" {
-		t.Fatalf("namespace = %q", cj.Namespace)
+	if k.Namespace != "javo-apps" {
+		t.Fatalf("namespace = %q", k.Namespace)
 	}
-	s := cj.Spec
-	if s.Schedule != "0 6 * * 1-5" || *s.TimeZone != "Europe/Berlin" || s.ConcurrencyPolicy != batchv1.ForbidConcurrent {
-		t.Fatalf("schedule = %q tz=%v policy=%q", s.Schedule, s.TimeZone, s.ConcurrencyPolicy)
+	if k.Labels[model.LabelOwner] != slug || k.Labels[model.LabelJob] != "job-1" || k.Labels[LabelTrigger] != "schedule" {
+		t.Fatalf("labels = %v", k.Labels)
 	}
-	if *s.StartingDeadlineSeconds != 600 || *s.SuccessfulJobsHistoryLimit != 3 || *s.FailedJobsHistoryLimit != 5 {
-		t.Fatalf("deadline/history = %v %v %v", *s.StartingDeadlineSeconds, *s.SuccessfulJobsHistoryLimit, *s.FailedJobsHistoryLimit)
+	if k.Annotations["batch.kubernetes.io/cronjob-scheduled-timestamp"] != testSlot.Format(time.RFC3339) {
+		t.Fatalf("annotations = %v", k.Annotations)
 	}
-	if s.Suspend != nil && *s.Suspend {
-		t.Fatal("suspended without paused")
-	}
-	if cj.Labels[model.LabelOwner] != slug || cj.Labels[model.LabelJob] != "job-1" {
-		t.Fatalf("labels = %v", cj.Labels)
-	}
-	jt := s.JobTemplate
-	if jt.Spec.TTLSecondsAfterFinished != nil {
-		t.Fatal("scheduled jobs are pruned by history limits, not a ttl")
-	}
-	// The CronJob controller copies only labels and annotations from the
-	// template into the Job, so a finalizer here would be dead config. The
-	// job reconciler adds it to each Job it sees instead.
-	if len(jt.Finalizers) != 0 {
-		t.Fatalf("jobTemplate finalizers are ignored by the CronJob controller, got %v", jt.Finalizers)
-	}
-	if jt.Labels[LabelTrigger] != "schedule" {
-		t.Fatalf("trigger label = %q", jt.Labels[LabelTrigger])
-	}
-}
-
-func TestBuildCronJobPausedSuspends(t *testing.T) {
-	t.Parallel()
-	cj, err := BuildCronJob(testInputs(func(d *model.Job) { d.Spec.Schedule.Paused = true }))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cj.Spec.Suspend == nil || !*cj.Spec.Suspend {
-		t.Fatal("paused definition must suspend the CronJob")
-	}
-}
-
-func TestBuildCronJobNeedsSchedule(t *testing.T) {
-	t.Parallel()
-	if _, err := BuildCronJob(testInputs(func(d *model.Job) { d.Spec.Schedule = nil })); err == nil {
-		t.Fatal("want error for a definition without schedule")
-	}
-}
-
-func TestBuildCronJobLongNameStaysUnder52(t *testing.T) {
-	t.Parallel()
-	long := strings.Repeat("n", 60)
-	cj, err := BuildCronJob(testInputs(func(d *model.Job) { d.Name = long }))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cj.Name) > 52 {
-		t.Fatalf("len(%q) = %d", cj.Name, len(cj.Name))
-	}
-	if errs := validation.NameIsDNSSubdomain(cj.Name, false); len(errs) > 0 {
-		t.Fatal(errs)
+	if k.Spec.TTLSecondsAfterFinished == nil || *k.Spec.TTLSecondsAfterFinished != 3600 || !slices.Contains(k.Finalizers, kube.FinalizerRecordRun) {
+		t.Fatalf("ttl %v, finalizers %v", k.Spec.TTLSecondsAfterFinished, k.Finalizers)
 	}
 }
 
@@ -161,7 +114,7 @@ func TestTimeoutIsCappedByTemplateMax(t *testing.T) {
 	in := testInputs(func(d *model.Job) {
 		d.Spec.Run.Timeout = &metav1.Duration{Duration: 48 * time.Hour}
 	})
-	jt, err := BuildJobTemplate(in, nil)
+	jt, err := buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +128,7 @@ func TestTimeoutIsCappedByTemplateMax(t *testing.T) {
 
 func TestPodFailurePolicyOrder(t *testing.T) {
 	t.Parallel()
-	jt, err := BuildJobTemplate(testInputs(nil), nil)
+	jt, err := buildScheduledJob(testInputs(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +165,7 @@ func TestJobPodShape(t *testing.T) {
 		Home: &model.Home{Status: model.HomeStatus{ClaimName: "home-alice-1a2b3c4d-2"}}, Folders: []model.SharedFolder{folder},
 		CoLocate: true, UID: 70001, GID: podspec.FixedGID,
 	})
-	jt, err := BuildJobTemplate(in, nil)
+	jt, err := buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +232,7 @@ func TestJobPodShape(t *testing.T) {
 
 func TestJAVORunRoundTripsDefinition(t *testing.T) {
 	t.Parallel()
-	jt, err := BuildJobTemplate(testInputs(nil), nil)
+	jt, err := buildScheduledJob(testInputs(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +291,7 @@ func TestBuildManualJobOverridesParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if job.GenerateName != "" || job.Name != ManualJobName(testInputs(nil).Job, "run-1") {
+	if job.GenerateName != "" || job.Name != RunName(testInputs(nil).Job, "run-1") {
 		t.Fatalf("name = %q generateName = %q", job.Name, job.GenerateName)
 	}
 	if job.Annotations["cronjob.kubernetes.io/instantiate"] != "manual" || job.Labels[LabelTrigger] != "manual" {
@@ -347,7 +300,7 @@ func TestBuildManualJobOverridesParams(t *testing.T) {
 	if got := *job.Spec.TTLSecondsAfterFinished; got != 3600 {
 		t.Fatalf("ttl = %d, want 3600", got)
 	}
-	if !slices.Contains(job.Finalizers, FinalizerRecordRun) {
+	if !slices.Contains(job.Finalizers, kube.FinalizerRecordRun) {
 		t.Fatalf("finalizers = %v", job.Finalizers)
 	}
 	spec := runSpec(t, job.Spec.Template.Spec.Containers[0])
@@ -368,18 +321,18 @@ func TestTemplateMustAllowTheJob(t *testing.T) {
 	t.Parallel()
 	noJobs := testInputs(nil)
 	noJobs.Template.Spec.Jobs = nil
-	if _, err := BuildJobTemplate(noJobs, nil); !errors.Is(err, ErrJobsNotAllowed) {
+	if _, err := buildScheduledJob(noJobs); !errors.Is(err, ErrJobsNotAllowed) {
 		t.Fatalf("err = %v, want ErrJobsNotAllowed", err)
 	}
 	noEngine := testInputs(func(d *model.Job) { d.Spec.Engine = "quarto" })
-	if _, err := BuildCronJob(noEngine); !errors.Is(err, ErrEngineNotInTemplate) {
+	if _, err := buildScheduledJob(noEngine); !errors.Is(err, ErrEngineNotInTemplate) {
 		t.Fatalf("err = %v, want ErrEngineNotInTemplate", err)
 	}
 	if _, err := BuildManualJob(noEngine, "run-1", nil); !errors.Is(err, ErrEngineNotInTemplate) {
 		t.Fatalf("err = %v, want ErrEngineNotInTemplate", err)
 	}
 	noKernel := testInputs(func(d *model.Job) { d.Spec.Kernel = "ir" })
-	if _, err := BuildCronJob(noKernel); !errors.Is(err, ErrKernelNotInTemplate) {
+	if _, err := buildScheduledJob(noKernel); !errors.Is(err, ErrKernelNotInTemplate) {
 		t.Fatalf("err = %v, want ErrKernelNotInTemplate", err)
 	}
 	if _, err := BuildManualJob(noKernel, "run-1", nil); !errors.Is(err, ErrKernelNotInTemplate) {
@@ -390,11 +343,11 @@ func TestTemplateMustAllowTheJob(t *testing.T) {
 // A run request is turned into a Job named from the run's id, so asking
 // twice (a resync, a restart) cannot make a second Job, and the name is a
 // valid Job name however long the job's own name is.
-func TestManualJobNameIsStablePerRunAndFits(t *testing.T) {
+func TestRunNameIsStablePerRunAndFits(t *testing.T) {
 	t.Parallel()
 	in := testInputs(func(j *model.Job) { j.Name = strings.Repeat("n", 60) })
-	a, b := ManualJobName(in.Job, "run-1"), ManualJobName(in.Job, "run-2")
-	if a == b || a != ManualJobName(in.Job, "run-1") {
+	a, b := RunName(in.Job, "run-1"), RunName(in.Job, "run-2")
+	if a == b || a != RunName(in.Job, "run-1") {
 		t.Fatalf("names %q and %q: want one stable name per run", a, b)
 	}
 	if len(a) > 63 {
@@ -415,7 +368,7 @@ func TestRunsGetTheJobsSize(t *testing.T) {
 		corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi"),
 	}}
 	in.Size = sizes.Custom(resource.MustParse("2"), resource.MustParse("4Gi"))
-	cj, err := BuildCronJob(in)
+	cj, err := buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +376,7 @@ func TestRunsGetTheJobsSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, pod := range map[string]corev1.PodSpec{"scheduled": cj.Spec.JobTemplate.Spec.Template.Spec, "manual": manual.Spec.Template.Spec} {
+	for name, pod := range map[string]corev1.PodSpec{"scheduled": cj.Spec.Template.Spec, "manual": manual.Spec.Template.Spec} {
 		r := pod.Containers[0].Resources
 		for _, l := range []corev1.ResourceList{r.Requests, r.Limits} {
 			if l.Cpu().Cmp(resource.MustParse("2")) != 0 || l.Memory().Cmp(resource.MustParse("4Gi")) != 0 {
@@ -448,11 +401,11 @@ func TestRunsGetTheJobsSize(t *testing.T) {
 	}
 
 	in.Size = sizes.Size{}
-	cj, err = BuildCronJob(in)
+	cj, err = buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := cj.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Resources; r.Requests.Cpu().Cmp(resource.MustParse("250m")) != 0 || r.Limits != nil {
+	if r := cj.Spec.Template.Spec.Containers[0].Resources; r.Requests.Cpu().Cmp(resource.MustParse("250m")) != 0 || r.Limits != nil {
 		t.Fatalf("no size: resources %+v, want the template's", r)
 	}
 }
@@ -463,20 +416,20 @@ func TestJobPodPullsAPrivatePlatformImageWithItsSecrets(t *testing.T) {
 	t.Parallel()
 	in := testInputs(nil)
 	in.RunnerImage.PullSecrets = []string{"ghcr"}
-	cj, err := BuildCronJob(in)
+	cj, err := buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := cj.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets
+	got := cj.Spec.Template.Spec.ImagePullSecrets
 	if len(got) != 1 || got[0].Name != "ghcr" {
 		t.Fatalf("imagePullSecrets = %v, want [ghcr]", got)
 	}
 
-	cj, err = BuildCronJob(testInputs(nil))
+	cj, err = buildScheduledJob(testInputs(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cj.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets; got != nil {
+	if got := cj.Spec.Template.Spec.ImagePullSecrets; got != nil {
 		t.Fatalf("public image: imagePullSecrets = %v, want none", got)
 	}
 }
@@ -486,7 +439,7 @@ func TestJobPodAsksForColourUnlessTheJobSetsItsOwn(t *testing.T) {
 	t.Parallel()
 	effective := func(t *testing.T, mutate func(*model.Job), name string) string {
 		t.Helper()
-		jt, err := BuildJobTemplate(testInputs(mutate), nil)
+		jt, err := buildScheduledJob(testInputs(mutate))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -528,7 +481,7 @@ func TestTimeoutIsCappedByThePlatformMax(t *testing.T) {
 		in := testInputs(func(d *model.Job) { d.Spec.Run.Timeout = tc.job })
 		in.Template.Spec.Jobs.MaxTimeout = nil
 		in.MaxTimeout = time.Hour
-		jt, err := BuildJobTemplate(in, nil)
+		jt, err := buildScheduledJob(in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -541,13 +494,11 @@ func TestTimeoutIsCappedByThePlatformMax(t *testing.T) {
 // Job runs get the isolation the admin chose for people's pods.
 func TestJobRunsGetTheIsolation(t *testing.T) {
 	t.Parallel()
-	in := testInputs(nil)
-	in.Isolation = podspec.Isolation{UserNamespace: true, RuntimeClassName: "gvisor"}
-	jt, err := BuildJobTemplate(in, nil)
+	run, err := PlanRun(testInputs(nil), "run-1", nil, testSlot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pod := jt.Spec.Template.Spec
+	pod := kube.RenderRun(run, podspec.Isolation{UserNamespace: true, RuntimeClassName: "gvisor"}).Spec.Template.Spec
 	if pod.HostUsers == nil || *pod.HostUsers || pod.RuntimeClassName == nil || *pod.RuntimeClassName != "gvisor" {
 		t.Fatalf("hostUsers %v, runtimeClass %v", pod.HostUsers, pod.RuntimeClassName)
 	}
@@ -561,7 +512,7 @@ func TestARunNeverGetsAReservedVariableFromItsJob(t *testing.T) {
 	in := testInputs(func(d *model.Job) {
 		d.Spec.Env = []model.EnvVar{{Name: "HOME", Value: "/elsewhere"}, {Name: "JAVO_RUN", Value: "x"}, {Name: "TZ", Value: "UTC"}}
 	})
-	jt, err := BuildJobTemplate(in, nil)
+	jt, err := buildScheduledJob(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,12 +528,25 @@ func TestARunNeverGetsAReservedVariableFromItsJob(t *testing.T) {
 	}
 }
 
-// BuildManualJob renders the Job the Kubernetes executor makes for the run
-// started by hand whose row is runID.
-func BuildManualJob(in Inputs, runID string, override map[string]string) (*batchv1.Job, error) {
-	run, err := PlanManualRun(in, runID, override)
+// testSlot is the slot the scheduled runs of these tests are for.
+var testSlot = time.Date(2026, 10, 30, 5, 0, 0, 0, time.UTC)
+
+// buildScheduledJob renders the Job the Kubernetes executor makes for the
+// run of the slot testSlot whose row is run-1.
+func buildScheduledJob(in Inputs) (*batchv1.Job, error) {
+	run, err := PlanRun(in, "run-1", nil, testSlot)
 	if err != nil {
 		return nil, err
 	}
-	return kube.RenderRun(run, in.Isolation), nil
+	return kube.RenderRun(run, podspec.Isolation{}), nil
+}
+
+// BuildManualJob renders the Job the Kubernetes executor makes for the run
+// started by hand whose row is runID.
+func BuildManualJob(in Inputs, runID string, override map[string]string) (*batchv1.Job, error) {
+	run, err := PlanRun(in, runID, override, time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	return kube.RenderRun(run, podspec.Isolation{}), nil
 }

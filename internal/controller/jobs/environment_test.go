@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/pixienv"
@@ -49,16 +48,9 @@ func TestRunsOfAJobInAnEnvironmentInstallIt(t *testing.T) {
 	h.template(nil)
 	d := h.inEnvironment("in-env")
 	h.waitPhase(d, model.JobPhaseReady)
-	cj := h.cronJob(d)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		t.Fatal(err)
-	}
-	if !installs(cj.Spec.JobTemplate.Spec.Template.Spec) {
-		t.Fatal("scheduled runs do not install the environment")
-	}
 	_, k := h.requestRun(d, nil)
 	if !installs(k.Spec.Template.Spec) {
-		t.Fatal("a run by hand does not install the environment")
+		t.Fatal("a run does not install the environment")
 	}
 }
 
@@ -83,13 +75,10 @@ func TestRunsOfAJobOnATemplateWithAnEnvironmentInstallIt(t *testing.T) {
 	h.template(func(s *model.TemplateSpec) { s.Environment = "jobs-python" })
 	d := h.definition("tpl-env", nil)
 	h.waitPhase(d, model.JobPhaseReady)
-	cj := h.cronJob(d)
-	if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-		t.Fatal(err)
-	}
-	spec := cj.Spec.JobTemplate.Spec.Template.Spec
+	_, k := h.requestRun(d, nil)
+	spec := k.Spec.Template.Spec
 	if !installs(spec) {
-		t.Fatal("scheduled runs do not install the template's environment")
+		t.Fatal("a run does not install the template's environment")
 	}
 	copied := false
 	for _, c := range spec.InitContainers {

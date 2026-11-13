@@ -151,7 +151,7 @@ so neither component can create pods or services in other namespaces. */ -}}
     (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "list"))
     (dict "apiGroups" (list "") "resources" (list "persistentvolumeclaims") "verbs" (list "get")))
   "javo-controller" (list
-    (dict "apiGroups" (list "batch") "resources" (list "cronjobs") "verbs" (list "create" "update" "patch" "delete"))
+    (dict "apiGroups" (list "batch") "resources" (list "cronjobs") "verbs" (list "patch" "delete"))
     (dict "apiGroups" (list "batch") "resources" (list "jobs") "verbs" (list "create" "patch" "delete"))
     (dict "apiGroups" (list "batch") "resources" (list "jobs/finalizers") "verbs" (list "update"))
     (dict "apiGroups" (list "") "resources" (list "pods") "verbs" (list "create" "delete"))

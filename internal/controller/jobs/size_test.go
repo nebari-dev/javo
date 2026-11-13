@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -23,8 +22,8 @@ func jobSizes(t *testing.T) sizes.Catalog {
 	return c
 }
 
-// The CronJob's runs and a run started by hand both get the job's size; a
-// job that names none gets the default.
+// A run gets the job's size; a job that names none gets the default. A
+// scheduled run is planned as one started by hand is (PlanRun).
 func TestRunsGetTheJobsSizeFromTheCatalog(t *testing.T) {
 	t.Parallel()
 	h := newHarnessWith(t, func(r *Reconciler) { r.Sizes = jobSizes(t) })
@@ -36,16 +35,9 @@ func TestRunsGetTheJobsSizeFromTheCatalog(t *testing.T) {
 	for _, tc := range []struct{ size, cpu, mem string }{{"large", "4", "16Gi"}, {"", "1", "2Gi"}} {
 		d := h.definition("at-"+cmp.Or(tc.size, "default"), func(j *model.Job) { j.Size = tc.size })
 		h.waitPhase(d, model.JobPhaseReady)
-		cj := h.cronJob(d)
-		if err := k8s.Get(bg, client.ObjectKeyFromObject(cj), cj); err != nil {
-			t.Fatal(err)
-		}
-		if cpu, mem := limits(cj.Spec.JobTemplate.Spec.Template.Spec); cpu != tc.cpu || mem != tc.mem {
-			t.Errorf("size %q: scheduled runs get %s CPU and %s, want %s and %s", tc.size, cpu, mem, tc.cpu, tc.mem)
-		}
 		_, k := h.requestRun(d, nil)
 		if cpu, mem := limits(k.Spec.Template.Spec); cpu != tc.cpu || mem != tc.mem {
-			t.Errorf("size %q: a run by hand gets %s CPU and %s, want %s and %s", tc.size, cpu, mem, tc.cpu, tc.mem)
+			t.Errorf("size %q: a run gets %s CPU and %s, want %s and %s", tc.size, cpu, mem, tc.cpu, tc.mem)
 		}
 	}
 }

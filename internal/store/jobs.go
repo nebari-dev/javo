@@ -451,9 +451,9 @@ func (j *Jobs) Runs(ctx context.Context, jobID string) ([]model.Run, error) {
 // PruneRuns deletes the job's finished runs beyond the newest keep and
 // returns how many went. Newest is by when the run was scheduled or started
 // (insert order breaks ties), not by when its row was written. Runs still
-// going, runs whose handle is named in live (a Job or CronJob Event
-// still listed, which the controller would record again as a new run) and
-// other jobs' runs are kept.
+// going, runs whose handle is named in live (the executor still has them,
+// and the controller would record them again as new runs) and other jobs'
+// runs are kept.
 // Deleting run history is audited; a prune that deletes nothing is not.
 func (j *Jobs) PruneRuns(ctx context.Context, actor model.Actor, jobID string, keep int, live []string) (int64, error) {
 	if keep < 0 {

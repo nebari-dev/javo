@@ -7,6 +7,9 @@
 -- Runs recorded before have none.
 ALTER TABLE job_runs RENAME COLUMN k8s_job TO handle;
 ALTER TABLE job_runs ADD COLUMN slot BIGINT;
+-- A skipped or missed start never had a run to name: what stood there was a
+-- key made from its time, which scheduled_at holds.
+UPDATE job_runs SET handle = '' WHERE outcome IN ('Skipped', 'Missed');
 DROP INDEX job_runs_k8s_job;
 -- One run per handle: recording it again updates the same run.
 CREATE UNIQUE INDEX job_runs_handle ON job_runs (job_id, handle) WHERE handle <> '';
