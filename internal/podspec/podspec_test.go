@@ -5,8 +5,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
 func TestBaseCarriesTemplateLimitsAndHardening(t *testing.T) {
@@ -135,9 +133,10 @@ func TestScratchHomeKeepsTheClaimForAnInitContainerThatReadsIt(t *testing.T) {
 
 // withHome is spec with the home laid out as every app pod has it.
 func withHome(spec corev1.PodSpec) corev1.PodSpec {
-	pod := &corev1.Pod{Spec: spec}
-	podstorage.Build("alice", podstorage.Input{UID: FixedUID, GID: FixedGID}).Apply(pod, &pod.Spec.Containers[0])
-	return pod.Spec
+	spec.Volumes = append(spec.Volumes, corev1.Volume{Name: HomeVolume, VolumeSource: corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "home-alice"}}})
+	spec.Containers[0].VolumeMounts = append(spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: HomeVolume, MountPath: HomeDir})
+	return spec
 }
 
 // An admin may run people's pods in their own user namespace (a container

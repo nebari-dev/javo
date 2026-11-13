@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/homepath"
 	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
@@ -1207,7 +1208,7 @@ func TestAppWithoutASourceBuildsTodaysPod(t *testing.T) {
 	}
 	// Only the storage layout's annotation: no run fingerprint or token mark.
 	for k := range pod.Annotations {
-		if k != podstorage.SafeToEvictAnnotation {
+		if k != kube.SafeToEvictAnnotation {
 			t.Fatalf("annotations = %v", pod.Annotations)
 		}
 	}

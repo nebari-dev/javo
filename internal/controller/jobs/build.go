@@ -17,6 +17,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/jobs/runner"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -245,7 +246,7 @@ func buildJobTemplate(in Inputs, override map[string]string, secretName string) 
 	}
 
 	runPod := &corev1.Pod{Spec: podspec.Base(d.Owner, in.Template.Spec.RunImage(in.PixiImage), in.Template.Spec.Resources)}
-	in.Layout.Apply(runPod, &runPod.Spec.Containers[0])
+	kube.ApplyLayout(runPod, &runPod.Spec.Containers[0], d.Owner, in.Layout)
 	pod := runPod.Spec
 	pod.RestartPolicy = corev1.RestartPolicyNever
 	pod.Volumes = append(pod.Volumes, corev1.Volume{Name: runnerVolume,

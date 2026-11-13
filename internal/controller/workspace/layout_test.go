@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
@@ -34,7 +35,7 @@ func TestBuildPodAppliesTheStorageLayout(t *testing.T) {
 	if got := pod.Spec.SecurityContext.SupplementalGroups; len(got) != 1 || got[0] != 5001 {
 		t.Errorf("supplemental groups = %v", got)
 	}
-	if pod.Spec.Affinity == nil || pod.Annotations[podstorage.SafeToEvictAnnotation] != "scratch,tmp" {
+	if pod.Spec.Affinity == nil || pod.Annotations[kube.SafeToEvictAnnotation] != "scratch,tmp" {
 		t.Errorf("affinity %+v, annotations %v", pod.Spec.Affinity, pod.Annotations)
 	}
 	c := pod.Spec.Containers[0]

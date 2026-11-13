@@ -1,7 +1,7 @@
 // Package podstorage is the one place that turns a user's Home, their group
-// folders and the scratch settings into pod volumes, mounts, environment,
-// annotations, affinity and supplemental groups. App pods and file pods both
-// apply its Layout, so they always agree on what is mounted where.
+// folders and the scratch settings into the volumes, mounts, environment and
+// ids of what runs for them. Apps, job runs and file pods all use its
+// Layout, so they always agree on what is mounted where.
 package podstorage
 
 import (
@@ -9,13 +9,12 @@ import (
 	"slices"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
@@ -36,10 +35,6 @@ const (
 	// prepare Job makes it and owns the claim root.
 	FolderSubPath = "data"
 	cacheSubPath  = "cache"
-
-	// SafeToEvictAnnotation lets the cluster autoscaler drain a node whose
-	// only local volumes are scratch space.
-	SafeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes"
 )
 
 // Input is everything a Layout depends on.
@@ -66,74 +61,66 @@ type Input struct {
 	ReadOnly bool
 }
 
-// Layout is what to add to a pod. Apply puts it there.
+// Layout is the storage part of a workload: its volumes, where its main
+// unit mounts them, the variables that point tools at scratch, and who it
+// runs as.
 type Layout struct {
-	Volumes     []corev1.Volume
-	Mounts      []corev1.VolumeMount
-	Env         []corev1.EnvVar
-	Annotations map[string]string
-	Affinity    *corev1.Affinity
-	// SupplementalGroups carry the gids of the group folders. No pod built
-	// here sets fsGroup: on drivers with fsGroupPolicy File it would re-group
-	// every file of every folder the pod mounts.
-	SupplementalGroups    []int64
-	RunAsUser, RunAsGroup int64
-	// DiskMax is Input.DiskMax.
-	DiskMax resource.Quantity
+	Volumes []workload.Volume
+	Mounts  []workload.Mount
+	Env     []workload.Env
+	// User is the ids it runs as; its Groups are the gids of the group
+	// folders. Nothing built from a Layout sets a group on the files
+	// themselves: on some storage that would re-group every file of every
+	// folder mounted.
+	User workload.User
+	// DiskMax is Input.DiskMax and CoLocate Input.CoLocate.
+	DiskMax  resource.Quantity
+	CoLocate bool
 }
 
-// Build returns the layout of owner's pod.
+// Build returns the layout of owner's workload.
 func Build(owner string, in Input) Layout {
 	claim := naming.HomeClaimName(owner)
 	if in.Home != nil && in.Home.Status.ClaimName != "" {
 		claim = in.Home.Status.ClaimName
 	}
-	// /tmp is node disk like scratch: the kubelet evicts the pod that goes
-	// over its limit, not the node's other pods. Without a /tmp limit of its
+	// /tmp is the machine's disk like scratch: going over its limit ends
+	// this workload, not the machine's others. Without a /tmp limit of its
 	// own it gets the scratch limit.
-	scratch, tmp := &corev1.EmptyDirVolumeSource{}, &corev1.EmptyDirVolumeSource{}
+	var scratch, tmp *resource.Quantity
 	if !in.ScratchMax.IsZero() {
-		scratch.SizeLimit, tmp.SizeLimit = ptr.To(in.ScratchMax), ptr.To(in.ScratchMax)
+		scratch, tmp = ptr.To(in.ScratchMax), ptr.To(in.ScratchMax)
 	}
 	if !in.TmpMax.IsZero() {
-		tmp.SizeLimit = ptr.To(in.TmpMax)
+		tmp = ptr.To(in.TmpMax)
 	}
 	l := Layout{
-		DiskMax: in.DiskMax,
-		Volumes: []corev1.Volume{
-			claimVolume(HomeVolume, claim, in.ReadOnly),
-			{Name: TmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: tmp}},
-			{Name: ScratchVolume, VolumeSource: corev1.VolumeSource{EmptyDir: scratch}},
+		DiskMax:  in.DiskMax,
+		CoLocate: in.CoLocate,
+		Volumes: []workload.Volume{
+			{Name: HomeVolume, Source: claim, ReadOnly: in.ReadOnly},
+			{Name: TmpVolume, Limit: tmp},
+			{Name: ScratchVolume, Limit: scratch},
 		},
-		Mounts: []corev1.VolumeMount{
-			{Name: HomeVolume, MountPath: HomeDir, ReadOnly: in.ReadOnly},
-			{Name: TmpVolume, MountPath: tmpDir},
-			{Name: ScratchVolume, MountPath: ScratchDir},
+		Mounts: []workload.Mount{
+			{Volume: HomeVolume, Path: HomeDir, ReadOnly: in.ReadOnly},
+			{Volume: TmpVolume, Path: tmpDir},
+			{Volume: ScratchVolume, Path: ScratchDir},
 		},
-		Env:         scratchEnv(),
-		Annotations: map[string]string{SafeToEvictAnnotation: ScratchVolume + "," + TmpVolume},
-		RunAsUser:   in.UID,
-		RunAsGroup:  in.GID,
+		Env:  scratchEnv(),
+		User: workload.User{UID: in.UID, GID: in.GID},
 	}
 	if !in.ReadOnly {
 		// Caches the tools write under ~/.cache go to scratch, not the home.
-		l.Mounts = append(l.Mounts, corev1.VolumeMount{Name: ScratchVolume, MountPath: path.Join(HomeDir, ".cache"), SubPath: cacheSubPath})
+		l.Mounts = append(l.Mounts, workload.Mount{Volume: ScratchVolume, Path: path.Join(HomeDir, ".cache"), SubPath: cacheSubPath})
 	}
 	for _, f := range in.Folders {
 		name := GroupVolume(naming.GroupDir(f.Spec.Group))
-		l.Volumes = append(l.Volumes, claimVolume(name, f.Status.ClaimName, in.ReadOnly))
-		l.Mounts = append(l.Mounts, corev1.VolumeMount{
-			Name: name, MountPath: path.Join(SharedRoot, naming.GroupDir(f.Spec.Group)), SubPath: FolderSubPath, ReadOnly: in.ReadOnly,
+		l.Volumes = append(l.Volumes, workload.Volume{Name: name, Source: f.Status.ClaimName, ReadOnly: in.ReadOnly})
+		l.Mounts = append(l.Mounts, workload.Mount{
+			Volume: name, Path: path.Join(SharedRoot, naming.GroupDir(f.Spec.Group)), SubPath: FolderSubPath, ReadOnly: in.ReadOnly,
 		})
-		l.SupplementalGroups = append(l.SupplementalGroups, f.Status.GID)
-	}
-	if in.CoLocate {
-		l.Affinity = &corev1.Affinity{PodAffinity: &corev1.PodAffinity{
-			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
-				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{model.LabelOwner: owner}},
-				TopologyKey:   corev1.LabelHostname,
-			}},
-		}}
+		l.User.Groups = append(l.User.Groups, f.Status.GID)
 	}
 	return l
 }
@@ -151,9 +138,9 @@ func IsGroupVolume(name string) bool { return strings.HasPrefix(name, groupVolum
 // that runs code its owner has not reviewed (a pull request's preview).
 func (l Layout) WithoutFolders() Layout {
 	folder := IsGroupVolume
-	l.Volumes = slices.DeleteFunc(slices.Clone(l.Volumes), func(v corev1.Volume) bool { return folder(v.Name) })
-	l.Mounts = slices.DeleteFunc(slices.Clone(l.Mounts), func(m corev1.VolumeMount) bool { return folder(m.Name) })
-	l.SupplementalGroups = nil
+	l.Volumes = slices.DeleteFunc(slices.Clone(l.Volumes), func(v workload.Volume) bool { return folder(v.Name) })
+	l.Mounts = slices.DeleteFunc(slices.Clone(l.Mounts), func(m workload.Mount) bool { return folder(m.Volume) })
+	l.User.Groups = nil
 	return l
 }
 
@@ -166,24 +153,18 @@ func (l Layout) WithoutFolders() Layout {
 func (l Layout) ReadOnlyFiles() Layout {
 	l.Mounts = slices.Clone(l.Mounts)
 	for i, m := range l.Mounts {
-		if (m.Name == HomeVolume && m.MountPath == HomeDir) || strings.HasPrefix(m.Name, groupVolumePrefix) {
+		if (m.Volume == HomeVolume && m.Path == HomeDir) || strings.HasPrefix(m.Volume, groupVolumePrefix) {
 			l.Mounts[i].ReadOnly = true
 		}
 	}
 	return l
 }
 
-func claimVolume(name, claim string, readOnly bool) corev1.Volume {
-	return corev1.Volume{Name: name, VolumeSource: corev1.VolumeSource{
-		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim, ReadOnly: readOnly},
-	}}
-}
-
 // scratchEnv points every tool cache and the conda and pixi environments at
 // scratch, so a large install does not fill the home.
-func scratchEnv() []corev1.EnvVar {
+func scratchEnv() []workload.Env {
 	c := ScratchDir + "/" + cacheSubPath
-	return []corev1.EnvVar{
+	return []workload.Env{
 		{Name: "XDG_CACHE_HOME", Value: c},
 		{Name: "PIP_CACHE_DIR", Value: c + "/pip"},
 		{Name: "UV_CACHE_DIR", Value: c + "/uv"},
@@ -191,46 +172,6 @@ func scratchEnv() []corev1.EnvVar {
 		{Name: "npm_config_cache", Value: c + "/npm"},
 		{Name: "CONDA_PKGS_DIRS", Value: ScratchDir + "/pkgs"},
 		{Name: "CONDA_ENVS_PATH", Value: ScratchDir + "/envs"},
-	}
-}
-
-// Apply adds the layout to pod: volumes, affinity, ids and annotations on
-// the pod, mounts and environment on its container c (a pointer into
-// pod.Spec.Containers). It never sets fsGroup.
-func (l Layout) Apply(pod *corev1.Pod, c *corev1.Container) {
-	pod.Spec.Volumes = append(pod.Spec.Volumes, l.Volumes...)
-	c.VolumeMounts = append(c.VolumeMounts, l.Mounts...)
-	c.Env = append(c.Env, l.Env...)
-	if len(l.Annotations) > 0 && pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
-	}
-	for k, v := range l.Annotations {
-		pod.Annotations[k] = v
-	}
-	pod.Spec.Affinity = l.Affinity
-	if !l.DiskMax.IsZero() {
-		// The kubelet evicts the pod past the limit (ScratchFull). The request
-		// is an explicit zero: left out, it would default to the limit and
-		// reserve that much disk on the node for every pod.
-		if c.Resources.Limits == nil {
-			c.Resources.Limits = corev1.ResourceList{}
-		}
-		if c.Resources.Requests == nil {
-			c.Resources.Requests = corev1.ResourceList{}
-		}
-		c.Resources.Limits[corev1.ResourceEphemeralStorage] = l.DiskMax
-		if _, ok := c.Resources.Requests[corev1.ResourceEphemeralStorage]; !ok {
-			c.Resources.Requests[corev1.ResourceEphemeralStorage] = resource.MustParse("0")
-		}
-	}
-	if pod.Spec.SecurityContext == nil {
-		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
-	}
-	sc := pod.Spec.SecurityContext
-	sc.RunAsUser, sc.RunAsGroup = ptr.To(l.RunAsUser), ptr.To(l.RunAsGroup)
-	sc.SupplementalGroups = l.SupplementalGroups
-	if len(l.SupplementalGroups) > 0 {
-		sc.SupplementalGroupsPolicy = ptr.To(corev1.SupplementalGroupsPolicyStrict)
 	}
 }
 

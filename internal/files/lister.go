@@ -1253,15 +1253,15 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 	layout := podstorage.Build(userSlug, in)
 	for i := range layout.Volumes {
 		if v := &layout.Volumes[i]; v.Name == podstorage.HomeVolume {
-			v.PersistentVolumeClaim.ReadOnly = false
+			v.ReadOnly = false
 		}
 	}
 	for i := range layout.Mounts {
-		if m := &layout.Mounts[i]; m.Name == podstorage.HomeVolume {
+		if m := &layout.Mounts[i]; m.Volume == podstorage.HomeVolume {
 			m.ReadOnly = false
 		}
 	}
-	layout.Apply(pod, &pod.Spec.Containers[0])
+	kube.ApplyLayout(pod, &pod.Spec.Containers[0], userSlug, layout)
 	return pod
 }
 

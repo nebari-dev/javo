@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/nebari-dev/javo/internal/cmdline"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
@@ -334,7 +335,7 @@ func BuildPod(ws *model.App, t *model.Template, baseURL, publicHost string, layo
 	if Shared(ws) {
 		layout = layout.ReadOnlyFiles()
 	}
-	layout.Apply(pod, app)
+	kube.ApplyLayout(pod, app, ws.Owner, layout)
 	if size.Key() != "" {
 		size.Apply(spec, app, t.Spec.Resources)
 	}
@@ -390,17 +391,15 @@ func LayoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layo
 	}
 	claims := map[string]string{}
 	for _, v := range layout.Volumes {
-		if c := v.PersistentVolumeClaim; c != nil {
-			claims[v.Name] = c.ClaimName
-		}
+		claims[v.Name] = v.Source
 	}
 	var mounts []mount
 	for _, m := range layout.Mounts {
-		mounts = append(mounts, mount{m.Name, claims[m.Name], m.MountPath, m.SubPath, m.ReadOnly})
+		mounts = append(mounts, mount{m.Volume, claims[m.Volume], m.Path, m.SubPath, m.ReadOnly})
 	}
 	s := t.Spec
 	b, _ := json.Marshal([]any{
-		mounts, layout.SupplementalGroups, layout.RunAsUser, layout.RunAsGroup,
+		mounts, layout.User.Groups, layout.User.UID, layout.User.GID,
 		s.Kind, s.Image, s.Environment, s.ServesKernels, s.PodFiles, s.Port, s.Command, s.Args, s.UserCommand,
 		s.UserImage, s.FromRepo, s.Build, s.ReadinessPath, s.Activity, s.Resources, s.Sample, s.BasePath, s.AppLogin,
 	})

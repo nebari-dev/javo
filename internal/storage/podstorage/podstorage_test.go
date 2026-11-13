@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const owner = "alice-1a2b3c4d"
@@ -32,16 +32,16 @@ func input() podstorage.Input {
 	}
 }
 
-func mountsByPath(l podstorage.Layout) map[string]corev1.VolumeMount {
-	m := map[string]corev1.VolumeMount{}
+func mountsByPath(l podstorage.Layout) map[string]workload.Mount {
+	m := map[string]workload.Mount{}
 	for _, v := range l.Mounts {
-		m[v.MountPath] = v
+		m[v.Path] = v
 	}
 	return m
 }
 
-func volumes(l podstorage.Layout) map[string]corev1.Volume {
-	m := map[string]corev1.Volume{}
+func volumes(l podstorage.Layout) map[string]workload.Volume {
+	m := map[string]workload.Volume{}
 	for _, v := range l.Volumes {
 		m[v.Name] = v
 	}
@@ -53,8 +53,8 @@ func TestGroupFoldersAreMountedWithSupplementalGroupsNotFSGroup(t *testing.T) {
 	in.Folders = []model.SharedFolder{folder("research", 5001), folder("/ops", 5002)}
 	l := podstorage.Build(owner, in)
 
-	if l.SupplementalGroups[0] != 5001 || l.SupplementalGroups[1] != 5002 || len(l.SupplementalGroups) != 2 {
-		t.Fatalf("supplemental groups = %v", l.SupplementalGroups)
+	if g := l.User.Groups; len(g) != 2 || g[0] != 5001 || g[1] != 5002 {
+		t.Fatalf("groups = %v", g)
 	}
 	ms, vs := mountsByPath(l), volumes(l)
 	for _, f := range in.Folders {
@@ -62,8 +62,8 @@ func TestGroupFoldersAreMountedWithSupplementalGroupsNotFSGroup(t *testing.T) {
 		if !ok || m.SubPath != "data" || m.ReadOnly {
 			t.Fatalf("folder %s mount = %+v (found %v)", f.Spec.Group, m, ok)
 		}
-		if pvc := vs[m.Name].PersistentVolumeClaim; pvc == nil || pvc.ClaimName != f.Status.ClaimName {
-			t.Errorf("folder %s volume = %+v", f.Spec.Group, vs[m.Name])
+		if vs[m.Volume].Source != f.Status.ClaimName {
+			t.Errorf("folder %s volume = %+v", f.Spec.Group, vs[m.Volume])
 		}
 	}
 	if strings.Contains(naming.GroupDir("/ops"), "/") {
@@ -83,47 +83,25 @@ func TestReadOnlyLayoutMountsHomeAndFoldersReadOnly(t *testing.T) {
 		}
 	}
 	for name, v := range volumes(l) {
-		if pvc := v.PersistentVolumeClaim; pvc != nil && !pvc.ReadOnly {
+		if v.Source != "" && !v.ReadOnly {
 			t.Errorf("claim volume %s is writable", name)
 		}
 	}
 }
 
-func TestCoLocationNeedsTheOwnersOtherPodsOnTheSameNode(t *testing.T) {
-	in := input()
-	in.CoLocate = true
-	aff := podstorage.Build(owner, in).Affinity
-	if aff == nil || aff.PodAffinity == nil || len(aff.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution) != 1 {
-		t.Fatalf("affinity = %+v", aff)
-	}
-	term := aff.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0]
-	if term.TopologyKey != corev1.LabelHostname || term.LabelSelector.MatchLabels[model.LabelOwner] != owner {
-		t.Errorf("term = %+v", term)
-	}
-
-	in.CoLocate = false
-	if got := podstorage.Build(owner, in).Affinity; got != nil {
-		t.Errorf("shared mode must not constrain placement, affinity = %+v", got)
-	}
-}
-
-func TestScratchIsNodeLocalAndSafeToEvict(t *testing.T) {
+func TestScratchIsLocalAndLimited(t *testing.T) {
 	l := podstorage.Build(owner, input())
-	if got := l.Annotations["cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes"]; got != "scratch,tmp" {
-		t.Errorf("safe-to-evict = %q", got)
-	}
 	vs, ms := volumes(l), mountsByPath(l)
-	scratch := vs["scratch"].EmptyDir
-	if scratch == nil || scratch.SizeLimit == nil || scratch.SizeLimit.Cmp(resource.MustParse("20Gi")) != 0 {
-		t.Fatalf("scratch volume = %+v", vs["scratch"])
+	if scratch := vs["scratch"]; scratch.Source != "" || scratch.Limit == nil || scratch.Limit.Cmp(resource.MustParse("20Gi")) != 0 {
+		t.Fatalf("scratch volume = %+v", scratch)
 	}
-	if vs["tmp"].EmptyDir == nil || ms["/tmp"].Name != "tmp" {
+	if vs["tmp"].Source != "" || ms["/tmp"].Volume != "tmp" {
 		t.Errorf("/tmp = %+v", ms["/tmp"])
 	}
-	if m := ms[podstorage.ScratchDir]; m.Name != "scratch" || m.SubPath != "" {
+	if m := ms[podstorage.ScratchDir]; m.Volume != "scratch" || m.SubPath != "" {
 		t.Errorf("/scratch mount = %+v", m)
 	}
-	if m := ms[podstorage.HomeDir+"/.cache"]; m.Name != "scratch" || m.SubPath != "cache" {
+	if m := ms[podstorage.HomeDir+"/.cache"]; m.Volume != "scratch" || m.SubPath != "cache" {
 		t.Errorf("home cache mount = %+v", m)
 	}
 	env := map[string]string{}
@@ -141,7 +119,7 @@ func TestScratchIsNodeLocalAndSafeToEvict(t *testing.T) {
 }
 
 func TestHomeClaimComesFromTheHomeAndFallsBackToTheFirstGeneration(t *testing.T) {
-	claim := func(l podstorage.Layout) string { return volumes(l)["home"].PersistentVolumeClaim.ClaimName }
+	claim := func(l podstorage.Layout) string { return volumes(l)["home"].Source }
 	if got := claim(podstorage.Build(owner, input())); got != "home-"+owner+"-2" {
 		t.Errorf("claim = %q, want the Home's", got)
 	}
@@ -156,8 +134,8 @@ func TestRunsAsTheOwnersIds(t *testing.T) {
 	in := input()
 	in.UID, in.GID = 100500, 100
 	l := podstorage.Build(owner, in)
-	if l.RunAsUser != 100500 || l.RunAsGroup != 100 {
-		t.Errorf("ids = %d:%d", l.RunAsUser, l.RunAsGroup)
+	if l.User.UID != 100500 || l.User.GID != 100 {
+		t.Errorf("ids = %d:%d", l.User.UID, l.User.GID)
 	}
 }
 
@@ -178,34 +156,16 @@ func TestGroupDirIsOneStableDNSLabel(t *testing.T) {
 	}
 }
 
-// /tmp is node disk too: it has the scratch limit, so filling it evicts only
-// this pod instead of putting the node under disk pressure.
-func TestTmpHasTheScratchLimit(t *testing.T) {
-	tmp := volumes(podstorage.Build(owner, input()))["tmp"].EmptyDir
-	if tmp == nil || tmp.SizeLimit == nil || tmp.SizeLimit.Cmp(resource.MustParse("20Gi")) != 0 {
-		t.Fatalf("tmp volume = %+v, want a 20Gi size limit", tmp)
+// /tmp is the machine's disk too: it has the scratch limit, so filling it
+// ends only this workload instead of putting the machine under disk
+// pressure. A limit of its own replaces it.
+func TestTmpHasTheScratchLimitUnlessItHasItsOwn(t *testing.T) {
+	if tmp := volumes(podstorage.Build(owner, input()))["tmp"].Limit; tmp == nil || tmp.Cmp(resource.MustParse("20Gi")) != 0 {
+		t.Fatalf("tmp limit = %v, want 20Gi", tmp)
 	}
-}
-
-// One person's pod cannot fill the node's disk (and with it the database and
-// everyone else's pods): /tmp has a size limit, and the app container a
-// limit on all it writes to node-local disk. The request stays zero so the
-// limit does not reserve disk on a small node.
-func TestTmpAndTheContainersDiskAreLimited(t *testing.T) {
 	in := input()
-	in.TmpMax, in.DiskMax = resource.MustParse("2Gi"), resource.MustParse("30Gi")
-	l := podstorage.Build(owner, in)
-	tmp := volumes(l)["tmp"].EmptyDir
-	if tmp == nil || tmp.SizeLimit == nil || tmp.SizeLimit.Cmp(resource.MustParse("2Gi")) != 0 {
-		t.Fatalf("/tmp volume = %+v", tmp)
-	}
-	pod := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}}}
-	l.Apply(pod, &pod.Spec.Containers[0])
-	r := pod.Spec.Containers[0].Resources
-	if lim := r.Limits[corev1.ResourceEphemeralStorage]; lim.Cmp(resource.MustParse("30Gi")) != 0 {
-		t.Fatalf("ephemeral-storage limit = %s", lim.String())
-	}
-	if req, ok := r.Requests[corev1.ResourceEphemeralStorage]; !ok || !req.IsZero() {
-		t.Fatalf("ephemeral-storage request = %v (set %v), want an explicit 0", req.String(), ok)
+	in.TmpMax = resource.MustParse("2Gi")
+	if tmp := volumes(podstorage.Build(owner, in))["tmp"].Limit; tmp == nil || tmp.Cmp(resource.MustParse("2Gi")) != 0 {
+		t.Fatalf("tmp limit = %v, want 2Gi", tmp)
 	}
 }
