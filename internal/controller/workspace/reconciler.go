@@ -3,6 +3,9 @@ package workspace
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,6 +109,10 @@ type Reconciler struct {
 	// has no key-encryption key: an app that gets secrets then fails as
 	// SecretsUnreadable rather than start without them.
 	SecretKeys *secrets.Keys
+	// Host is set when the executor runs apps as plain processes of this
+	// machine: it says what the app of a Ref is planned with there (the
+	// process executor's Host). Nil plans every app for a container.
+	Host func(workload.Ref) workload.Host
 	// Access decides whether an app's owner may still use its template, by
 	// the rule the API applies when the app is made; an app whose owner may
 	// not stops (TemplateNotAllowed). Required.
@@ -386,7 +393,11 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 	if tpl == nil {
 		return verdict{}, nil
 	}
-	if err := r.Place.Hold(ctx, ref, AppPortOf(app, tpl)); err != nil {
+	port, err := r.portOf(ctx, ref, AppPortOf(app, tpl))
+	if err != nil {
+		return verdict{}, err
+	}
+	if err := r.Place.Hold(ctx, ref, port); err != nil {
 		return verdict{}, err
 	}
 	access, hasToken := model.APIAccessOf(app, tpl), false
@@ -445,6 +456,11 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 		Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries},
 		APIAccess: access, HasToken: hasToken, APIURL: r.APIURL, APIInternalURL: r.APIInternalURL,
 		GitHolder: p.gitHolder, GitGen: p.gitGen, Secrets: appSecrets, Agent: agent,
+		Port: port,
+	}
+	if r.Host != nil {
+		host := r.Host(ref)
+		in.Host = &host
 	}
 	in.BaseURL, in.PublicHost = r.platform().address(app)
 	if r.NebiURL != "" && model.NebiTokenFor(app, tpl) {
@@ -464,7 +480,13 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 	case planErr != nil:
 		p.obs.TemplateError = planErr.Error()
 	default:
-		if err := r.Exec.Start(ctx, spec); err != nil {
+		var unsupported *executor.UnsupportedError
+		switch err := r.Exec.Start(ctx, spec); {
+		case errors.As(err, &unsupported):
+			// The plan has to change before a start can work.
+			p.obs.TemplateError = unsupported.Error()
+			return verdict{}, nil
+		case err != nil:
 			return verdict{}, err
 		}
 		if p.have, err = r.Exec.Observe(ctx, ref); err != nil {
@@ -472,6 +494,26 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 		}
 	}
 	return verdict{}, nil
+}
+
+// portOf is the port the app is told to serve on: the one its executor
+// reaches it at when asked for port, the app's own. Kubernetes and Docker
+// answer with port itself; an executor that runs apps as processes of
+// one machine picks a free port for each.
+func (r *Reconciler) portOf(ctx context.Context, ref workload.Ref, port int32) (int32, error) {
+	addr, err := r.Exec.Addr(ctx, ref, port)
+	if err != nil {
+		return 0, err
+	}
+	_, text, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0, fmt.Errorf("the executor's address of %s: %w", ref.Name, err)
+	}
+	n, err := strconv.ParseInt(text, 10, 32)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("the executor's address of %s has no port: %q", ref.Name, addr)
+	}
+	return int32(n), nil
 }
 
 // remove ends the app's workload and gives up its place: all an app has
