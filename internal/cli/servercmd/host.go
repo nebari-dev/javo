@@ -105,11 +105,20 @@ func needsCluster(platform config.Platform, what string) error {
 	return fmt.Errorf("%s needs executor kubernetes: with executor %s the gateway and the controller run in one process, as javo server", what, platform.Executor)
 }
 
+// errNoCluster is what the server, the controller and the gateway say
+// when they are asked to run on a cluster in a binary built with the tag
+// local. Each asks before the first thing only a cluster needs, so that
+// binary links no client of one.
+var errNoCluster = wiring.LeftOut("executor kubernetes")
+
 // hostOf builds where apps run for a config whose executor is not
 // Kubernetes, or nil when it is. flags are the command's, for the ones
 // only a cluster gives meaning to.
 func hostOf(ctx context.Context, flags *pflag.FlagSet, common *commonFlags, gw *gatewayOptions, ctl *controllerOptions, platform config.Platform, db *store.Store) (*wiring.Host, error) {
 	if platform.OnKubernetes() {
+		if wiring.LocalBuild {
+			return nil, errNoCluster
+		}
 		return nil, nil
 	}
 	if err := refuseClusterFlags(flags, platform.Executor); err != nil {
@@ -151,6 +160,9 @@ type gatewayParts struct {
 func (o *gatewayOptions) parts(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store, pl placement.Placement, host *wiring.Host) (gatewayParts, error) {
 	people := db.People(uidRange(platform.Identity))
 	if host == nil {
+		if wiring.LocalBuild {
+			return gatewayParts{}, errNoCluster
+		}
 		on, err := o.clusterParts(ctx, common, platform, db, pl)
 		on.people = people
 		return on, err

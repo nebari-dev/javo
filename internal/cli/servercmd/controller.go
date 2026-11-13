@@ -162,6 +162,9 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if host != nil {
 		return o.runOnHost(ctx, common, platform, db, host)
 	}
+	if wiring.LocalBuild {
+		return errNoCluster
+	}
 	wsNamespace, releaseNS := common.workspaceNamespace, common.namespace
 	if o.runnerImage == "" || o.probe.controlURL == "" {
 		return errors.New("the controller needs --runner-image and --netprobe-control-url")
