@@ -3,7 +3,9 @@
 // done here, once, for both. An Engine starts and stops single units; the
 // Supervisor runs a workload's steps in order, keeps its helpers and its
 // main unit running, checks readiness, restarts what exits after a growing
-// wait, and says what state the workload is in.
+// wait, and says what state the workload is in. Where the units stand on
+// something they cannot outlive (Grounded), it starts the workload over
+// when that ends.
 //
 // What it knows is kept in memory. An engine whose units outlive Javo
 // (containers) says what still runs, and the next Supervisor adopts it

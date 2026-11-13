@@ -47,7 +47,7 @@ type Options struct {
 // Options names no pool: room for 4096 workloads, where the daemon's own
 // pools end after about 30 networks. It is a private range (RFC 1918)
 // away from the ones a Docker host tends to use already: the daemon's
-// own pools (172.17.0.0/16 to 172.31.0.0/16 and 192.168.0.0/16), and the
+// own pools (inside 172.16.0.0/12 and 192.168.0.0/16), and the
 // usual defaults of Kubernetes distributions (10.42.0.0/15, 10.96.0.0/12
 // and 10.244.0.0/16). A host whose own network lies in it must name
 // another.
@@ -65,8 +65,8 @@ var ErrBatch = errors.New("docker executor: job runs are not supported yet")
 type Executor struct {
 	*supervise.Supervisor
 	eng *engine
-	// starting lets one Start or Stop change the daemon at a time: two
-	// would pick the same free range of the pool.
+	// starting lets one Start take a network at a time: two would pick
+	// the same free range of the pool.
 	starting sync.Mutex
 	close    context.CancelFunc
 }
@@ -184,8 +184,6 @@ func (x *Executor) Stop(ctx context.Context, ref workload.Ref) error {
 		// Nothing was ever made under such a name.
 		return nil
 	}
-	x.starting.Lock()
-	defer x.starting.Unlock()
 	if err := x.Supervisor.Stop(ctx, ref); err != nil {
 		return err
 	}
