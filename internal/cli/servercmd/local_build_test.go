@@ -75,3 +75,24 @@ func TestALocalBuildRefusesAnMCPEndpoint(t *testing.T) {
 		t.Errorf("javo server with mcp.enabled: %q", got)
 	}
 }
+
+// It has no single sign-on: `javo local` signs its one person in through
+// a link, so the OpenID Connect client is not carried, and a server whose
+// config names an identity provider is refused rather than started with
+// no way to sign in through it.
+func TestALocalBuildRefusesAnIdentityProvider(t *testing.T) {
+	dir, args := hostConfig(t, "docker")
+	cfg := filepath.Join(dir, "config.yaml")
+	yaml, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withIdP := strings.Replace(string(yaml), "auth:\n", "urls:\n  uiHost: javo.example.com\nauth:\n  oidc:\n    issuer: https://idp.example.com\n    clientID: javo\n", 1)
+	if err := os.WriteFile(cfg, []byte(withIdP), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := refused(t, NewServer(), append(args, "--listen", "127.0.0.1:0")...)
+	if !strings.Contains(got, leftOut) || !strings.Contains(got, "auth.oidc") {
+		t.Errorf("javo server with auth.oidc: %q", got)
+	}
+}

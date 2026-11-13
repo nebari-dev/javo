@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/nebari-dev/javo/internal/buildinfo"
 	"io/fs"
 	"net"
 	"net/http"
@@ -171,11 +170,6 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	look, err := branding.Load(platform.Branding)
 	if err != nil {
 		return err
-	}
-	if buildinfo.Local && platform.MCP.Enabled {
-		// Refused before anything is started; the endpoint itself is in a
-		// file that build leaves out.
-		return buildinfo.LeftOut("the MCP endpoint (mcp.enabled)")
 	}
 	pl := wiring.Placement(platform)
 	on, err := o.parts(ctx, common, platform, db, pl, host)

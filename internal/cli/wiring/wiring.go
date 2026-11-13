@@ -35,7 +35,6 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/placement"
 	"github.com/nebari-dev/javo/internal/ext/storage"
 	"github.com/nebari-dev/javo/internal/features/authlocal"
-	"github.com/nebari-dev/javo/internal/features/authoidc"
 	"github.com/nebari-dev/javo/internal/features/codehostgithub"
 	"github.com/nebari-dev/javo/internal/features/envnebi"
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
@@ -99,8 +98,7 @@ func AuthProviders(p config.Platform, users local.Users, link *authlocal.Link) *
 		r.Register(authlocal.New(authlocal.Config{Users: users, Link: link}))
 	}
 	if p.Auth.OIDC != nil {
-		// Discovery runs in the background for the life of the process.
-		r.Register(authoidc.New(*p.Auth.OIDC, p.URLs, nil))
+		r.Register(oidcProvider(*p.Auth.OIDC, p.URLs))
 	}
 	return r
 }

@@ -4,6 +4,7 @@ package servercmd
 
 import (
 	"context"
+	"github.com/nebari-dev/javo/internal/buildinfo"
 	"os"
 
 	"github.com/spf13/pflag"
@@ -53,6 +54,9 @@ func (c *commonFlags) register(f *pflag.FlagSet) {
 // a Secret, the password.
 func (c *commonFlags) load(ctx context.Context) (config.Platform, error) {
 	platform, err := c.loadConfig()
+	if err == nil {
+		err = refuseLeftOut(platform)
+	}
 	if err != nil || c.backupPasswordSecret == "" || platform.Backup.S3 == nil {
 		return platform, err
 	}
@@ -68,4 +72,21 @@ func (c *commonFlags) openDB(ctx context.Context, platform config.Platform) (*st
 	}
 	db.SetLimits(wiring.StoreLimits(platform.Limits))
 	return db, nil
+}
+
+// refuseLeftOut refuses a config that asks for what a binary built with the tag
+// local does not carry, before anything is started: what `javo local`
+// never turns on. What is refused here is in files that build leaves out,
+// so it could not start it either.
+func refuseLeftOut(p config.Platform) error {
+	if !buildinfo.Local {
+		return nil
+	}
+	switch {
+	case p.MCP.Enabled:
+		return buildinfo.LeftOut("the MCP endpoint (mcp.enabled)")
+	case p.Auth.OIDC != nil:
+		return buildinfo.LeftOut("single sign-on (auth.oidc)")
+	}
+	return nil
 }
