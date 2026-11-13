@@ -1,9 +1,14 @@
+//go:build !local
+
 package gateway_test
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/nebari-dev/javo/internal/config"
 	"io"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -332,5 +337,27 @@ func TestMCPRefusesATokenTheAPIRefuses(t *testing.T) {
 	// The app gives no API access, so its token is not wanted.
 	if code := f.initialize(t, text); code != http.StatusUnauthorized {
 		t.Fatalf("unwanted app token: %d", code)
+	}
+}
+
+// A client that sends a request body slowly is cut off. The API's own
+// routes already give a body 5 s (huma); this covers the rest, such as /mcp.
+func TestASlowRequestBodyToMcpIsCutOff(t *testing.T) {
+	f := apitest.New(t, apitest.Options{Mcp: true, APILimits: config.APILimitsCfg{BodyReadTimeout: metav1.Duration{Duration: 300 * time.Millisecond}}})
+	tok := f.NewToken(f.LoginAlice(), `{"name":"agent","scope":"read","expiresInDays":1}`).Token
+	s := httptest.NewServer(f.Srv)
+	t.Cleanup(s.Close)
+	conn, err := net.Dial("tcp", s.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, _ = io.WriteString(conn, "POST /mcp HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n"+
+		"Authorization: Bearer "+tok+"\r\nContent-Length: 100\r\n\r\n{\"json")
+	_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
+	start := time.Now()
+	_, err = io.ReadAll(conn)
+	if took := time.Since(start); err != nil || took > 2*time.Second {
+		t.Fatalf("connection held %s (%v)", took, err)
 	}
 }

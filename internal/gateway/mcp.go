@@ -1,9 +1,13 @@
+//go:build !local
+
 package gateway
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/nebari-dev/javo/internal/actions"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -34,4 +38,15 @@ func tokenVerifier(live func(context.Context, string) (token.Token, error)) auth
 		}
 		return info, nil
 	}
+}
+
+// mountMCP serves the agent endpoint at /mcp on mux, over the API mux
+// serves, and the metadata that says where it is. A binary built with the
+// tag local carries neither (mcp_local.go).
+func mountMCP(mux *http.ServeMux, doc *huma.OpenAPI, acts []actions.Info, live func(context.Context, string) (token.Token, error), publicURL string) {
+	mux.Handle(mcp.Route, mcp.NewHandler(mcp.Config{
+		API: mux, Doc: doc, Actions: acts,
+		Verify: tokenVerifier(live), PublicURL: publicURL, Version: "v1alpha1",
+	}))
+	mux.Handle("GET "+mcp.MetadataRoute, mcp.MetadataHandler(publicURL))
 }

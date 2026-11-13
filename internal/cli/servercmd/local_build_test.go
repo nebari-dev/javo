@@ -55,3 +55,23 @@ func TestALocalBuildRefusesAnAIAssistant(t *testing.T) {
 		t.Errorf("javo server with ai.enabled: %q", got)
 	}
 }
+
+// It has no agent endpoint: `javo local` never turns MCP on, so the
+// protocol's library is not carried, and a server whose config turns it
+// on is refused rather than started without /mcp.
+func TestALocalBuildRefusesAnMCPEndpoint(t *testing.T) {
+	dir, args := hostConfig(t, "process")
+	cfg := filepath.Join(dir, "config.yaml")
+	yaml, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yaml = append(yaml, "mcp:\n  enabled: true\n"...)
+	if err := os.WriteFile(cfg, yaml, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := refused(t, NewServer(), append(args, "--listen", "127.0.0.1:0")...)
+	if !strings.Contains(got, leftOut) || !strings.Contains(got, "mcp.enabled") {
+		t.Errorf("javo server with mcp.enabled: %q", got)
+	}
+}

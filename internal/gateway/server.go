@@ -54,7 +54,6 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/streams"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
 	"github.com/nebari-dev/javo/internal/jobs/engine"
-	"github.com/nebari-dev/javo/internal/mcp"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/netprobe"
 	"github.com/nebari-dev/javo/internal/plans"
@@ -361,11 +360,7 @@ func NewServer(cfg Config) *Server {
 		http.Redirect(w, r, apiDocsRoute, http.StatusMovedPermanently)
 	}))
 	if cfg.MCP.Enabled {
-		mux.Handle(mcp.Route, mcp.NewHandler(mcp.Config{
-			API: mux, Doc: api.OpenAPI(), Actions: ws.DescribeActions(),
-			Verify: tokenVerifier(a.LiveToken), PublicURL: cfg.MCP.PublicURL, Version: "v1alpha1",
-		}))
-		mux.Handle("GET "+mcp.MetadataRoute, mcp.MetadataHandler(cfg.MCP.PublicURL))
+		mountMCP(mux, api.OpenAPI(), ws.DescribeActions(), a.LiveToken, cfg.MCP.PublicURL)
 	}
 	mux.Handle("GET "+llmsRoute, noSniff(a.WithOrigin(llmsHandler(cfg.MCP.PublicURL))))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
