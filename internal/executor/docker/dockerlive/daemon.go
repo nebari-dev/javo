@@ -32,10 +32,11 @@ import (
 const Busybox = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
 
 // Labels of what the tests create: Label marks all of it, RunLabel this
-// test process's own.
+// test process's own. They are not the labels of the docker package's
+// own daemon tests, so neither kind of test removes what the other made.
 const (
-	Label    = "javo.test"
-	RunLabel = "javo.test.run"
+	Label    = "javo.dockertest"
+	RunLabel = "javo.dockertest.run"
 )
 
 // run is this test process, in RunLabel.
@@ -220,23 +221,29 @@ func (d *Daemon) Image(t *testing.T, programs map[string]string) string {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
+	repo := "javo-test-" + run
+	tag := strings.ToLower(rand.Text())
+	if err := d.commit(ctx, files.Bytes(), repo, tag); err != nil {
+		t.Fatal(err)
+	}
+	return repo + ":" + tag
+}
+
+// commit makes the image repo:tag from Busybox and the files of a tar
+// stream.
+func (d *Daemon) commit(ctx context.Context, files []byte, repo, tag string) error {
 	var made struct {
 		ID string `json:"Id"`
 	}
 	if err := d.Call(ctx, http.MethodPost, "/containers/create", nil, map[string]any{"Image": Busybox, "Labels": Stamp()}, &made); err != nil {
-		t.Fatal(err)
+		return err
 	}
-	if err := d.Client.Extract(ctx, made.ID, "/", &files); err != nil {
-		t.Fatal(err)
+	defer func() {
+		_ = d.Call(ctx, http.MethodDelete, "/containers/"+made.ID, url.Values{"force": {"1"}}, nil, nil)
+	}()
+	if err := d.Client.Extract(ctx, made.ID, "/", bytes.NewReader(files)); err != nil {
+		return err
 	}
-	repo := "javo-test-" + run
-	tag := strings.ToLower(rand.Text())
 	// The container's labels become the image's.
-	if err := d.Call(ctx, http.MethodPost, "/commit", url.Values{"container": {made.ID}, "repo": {repo}, "tag": {tag}}, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.Call(ctx, http.MethodDelete, "/containers/"+made.ID, url.Values{"force": {"1"}}, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	return repo + ":" + tag
+	return d.Call(ctx, http.MethodPost, "/commit", url.Values{"container": {made.ID}, "repo": {repo}, "tag": {tag}}, nil, nil)
 }

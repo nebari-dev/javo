@@ -16,7 +16,7 @@ import (
 
 // The tests below run the Docker probe against a real daemon and are
 // skipped when none answers. Their image is the pinned busybox with a
-// Linux build of javo in it (dockertest.Image); the gateway is a
+// Linux build of javo in it (dockerlive.Image); the gateway is a
 // container of that image on the daemon's default network that serves
 // "javo netprobe listen" on port 9090.
 
@@ -25,9 +25,9 @@ import (
 var dockerPool = netip.MustParsePrefix("10.213.91.0/24")
 
 // dockerProber is a prober of the daemon with a running gateway.
-func dockerProber(t *testing.T) (*dockertest.Daemon, *Prober) {
+func dockerProber(t *testing.T) (*dockerlive.Daemon, *Prober) {
 	t.Helper()
-	d := dockertest.New(t)
+	d := dockerlive.New(t)
 	image := d.Image(t, map[string]string{"/javo": "./cmd/javo"})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -35,7 +35,7 @@ func dockerProber(t *testing.T) (*dockertest.Daemon, *Prober) {
 		ID string `json:"Id"`
 	}
 	err := d.Call(ctx, http.MethodPost, "/containers/create", nil, map[string]any{
-		"Image": image, "User": "65532:65532", "Labels": dockertest.Stamp(),
+		"Image": image, "User": "65532:65532", "Labels": dockerlive.Stamp(),
 		"Entrypoint": []string{"/javo", "netprobe", "listen", "--addr=:9090"},
 		"HostConfig": map[string]any{"NetworkMode": "bridge"},
 	}, &gw)
@@ -52,18 +52,18 @@ func dockerProber(t *testing.T) (*dockertest.Daemon, *Prober) {
 }
 
 // left are the containers and networks of the probe still on the daemon.
-func left(t *testing.T, d *dockertest.Daemon) []string {
+func left(t *testing.T, d *dockerlive.Daemon) []string {
 	t.Helper()
 	ctx := context.Background()
 	var out []string
-	containers, err := d.Client.ContainerList(ctx, Label, dockertest.Mark())
+	containers, err := d.Client.ContainerList(ctx, Label, dockerlive.Mark())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range containers {
 		out = append(out, c.Names...)
 	}
-	networks, err := d.Client.NetworkList(ctx, Label, dockertest.Mark())
+	networks, err := d.Client.NetworkList(ctx, Label, dockerlive.Mark())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestDockerProbeFindsWorkloadNetworksEnforced(t *testing.T) {
 // create --internal" does: no route out, but with the host's address on
 // the bridge. It stands in for a daemon that ignores the isolated gateway
 // mode.
-func plainInternal(d *dockertest.Daemon) func(context.Context, *docker.Client, workload.Ref, string, netip.Prefix) error {
+func plainInternal(d *dockerlive.Daemon) func(context.Context, *docker.Client, workload.Ref, string, netip.Prefix) error {
 	return func(ctx context.Context, c *docker.Client, ref workload.Ref, gateway string, _ netip.Prefix) error {
 		name, err := docker.NetworkName(ref)
 		if err != nil {

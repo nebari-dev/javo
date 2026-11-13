@@ -68,12 +68,13 @@ func daemon(t *testing.T) (*Client, Daemon) {
 	return nil, Daemon{}
 }
 
-// sweep removes what the daemon tests created, and only that.
+// sweep removes what this run of the daemon tests created, and only
+// that: another run may be going on against the same daemon.
 func sweep(t *testing.T, c *Client) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	mark := testLabel + "=1"
+	mark := testLabel + ".run=" + testRun
 	del := func(path string) {
 		if err := gone(c.call(ctx, request{method: http.MethodDelete, path: path}, nil)); err != nil {
 			t.Errorf("cleanup of %s: %v", path, err)
