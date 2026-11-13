@@ -23,6 +23,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
@@ -162,7 +163,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	if host != nil {
 		return o.runOnHost(ctx, common, platform, db, host)
 	}
-	if wiring.LocalBuild {
+	if buildinfo.Local {
 		return errNoCluster
 	}
 	wsNamespace, releaseNS := common.workspaceNamespace, common.namespace

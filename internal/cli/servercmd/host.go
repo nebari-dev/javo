@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
@@ -109,14 +110,14 @@ func needsCluster(platform config.Platform, what string) error {
 // when they are asked to run on a cluster in a binary built with the tag
 // local. Each asks before the first thing only a cluster needs, so that
 // binary links no client of one.
-var errNoCluster = wiring.LeftOut("executor kubernetes")
+var errNoCluster = buildinfo.LeftOut("executor kubernetes")
 
 // hostOf builds where apps run for a config whose executor is not
 // Kubernetes, or nil when it is. flags are the command's, for the ones
 // only a cluster gives meaning to.
 func hostOf(ctx context.Context, flags *pflag.FlagSet, common *commonFlags, gw *gatewayOptions, ctl *controllerOptions, platform config.Platform, db *store.Store) (*wiring.Host, error) {
 	if platform.OnKubernetes() {
-		if wiring.LocalBuild {
+		if buildinfo.Local {
 			return nil, errNoCluster
 		}
 		return nil, nil
@@ -160,7 +161,7 @@ type gatewayParts struct {
 func (o *gatewayOptions) parts(ctx context.Context, common *commonFlags, platform config.Platform, db *store.Store, pl placement.Placement, host *wiring.Host) (gatewayParts, error) {
 	people := db.People(uidRange(platform.Identity))
 	if host == nil {
-		if wiring.LocalBuild {
+		if buildinfo.Local {
 			return gatewayParts{}, errNoCluster
 		}
 		on, err := o.clusterParts(ctx, common, platform, db, pl)

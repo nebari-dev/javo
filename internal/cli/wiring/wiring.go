@@ -25,6 +25,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
+	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/jobs"
 	storagectl "github.com/nebari-dev/javo/internal/controller/storage"
@@ -230,8 +231,8 @@ func AIService(ctx context.Context, c config.AICfg, live *aisettings.Live, db *s
 	if live == nil {
 		return nil, nil
 	}
-	if LocalBuild {
-		return nil, LeftOut("the AI assistant (ai.enabled)")
+	if buildinfo.Local {
+		return nil, buildinfo.LeftOut("the AI assistant (ai.enabled)")
 	}
 	if _, err := live.Backend(ctx); err != nil {
 		over, oerr := live.Overridden(ctx)
