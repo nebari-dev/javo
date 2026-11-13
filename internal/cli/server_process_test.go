@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // processInstall is the files of a Javo that runs apps as processes, in a
@@ -35,6 +36,8 @@ spec:
   command: ["/opt/javo/pod-user.sh", "sh", "-c", "exec ` + fixtureApp + ` {{.Port}}"]
   appLogin: Enabled
   readinessPath: "/"
+  jobs:
+    engines: [command]
 `
 
 func newProcessInstall(t *testing.T, accounts ...string) processInstall {
@@ -119,6 +122,24 @@ func TestServerRunsAnAppAsAProcess(t *testing.T) {
 	}
 	if code := s.call(http.MethodGet, "/api/workspaces/"+name+"/events", nil, nil); code != http.StatusOK {
 		t.Errorf("events: %d", code)
+	}
+
+	// Nothing runs jobs here yet: a job says so instead of waiting.
+	var job struct {
+		Name    string `json:"name"`
+		Phase   string `json:"phase"`
+		Problem *struct {
+			Reason string `json:"reason"`
+		} `json:"problem"`
+	}
+	if code := s.call(http.MethodPost, "/api/jobs", map[string]string{"displayName": "Nightly", "template": "fixture", "engine": "command", "command": "true"}, &job); code != http.StatusCreated {
+		t.Fatalf("create job: %d", code)
+	}
+	for deadline := time.Now().Add(30 * time.Second); job.Phase != "Blocked" && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		s.call(http.MethodGet, "/api/jobs/"+job.Name, nil, &job)
+	}
+	if job.Phase != "Blocked" || job.Problem == nil || job.Problem.Reason != "RunsUnsupported" {
+		t.Errorf("a job where nothing runs jobs: %+v", job)
 	}
 
 	// Stopping Javo stops the app: nothing serves on its port any more.
