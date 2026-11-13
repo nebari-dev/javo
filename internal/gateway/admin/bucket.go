@@ -17,9 +17,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
@@ -600,14 +598,14 @@ func finish(p *BackupRunProgress) {
 // cannot be read (the Job is gone after a day).
 func (a *API) jobLog(ctx context.Context, ns, name string) ([]string, string) {
 	out := []string{}
-	if name == "" || a.Client == nil || a.Logs == nil {
+	if name == "" || a.Cluster == nil || a.Logs == nil {
 		return out, ""
 	}
-	var pods corev1.PodList
-	if err := a.Client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"batch.kubernetes.io/job-name": name}); err != nil || len(pods.Items) == 0 {
+	pods, err := a.Cluster.Pods(ctx, ns, map[string]string{"batch.kubernetes.io/job-name": name})
+	if err != nil || len(pods) == 0 {
 		return out, ""
 	}
-	pod := &pods.Items[0]
+	pod := &pods[0]
 	node := pod.Spec.NodeName
 	rc, err := podlogs.Read(ctx, a.Logs, pod, executor.LogOptions{Unit: pod.Spec.Containers[0].Name, Tail: stepLogLines})
 	if err != nil || rc == nil {
@@ -829,7 +827,7 @@ func (a *API) registerBucket(api huma.API) {
 	// Without a cluster no home is ever backed up or restored: that is
 	// said as it is, not as a bucket still to be set up.
 	noBucket := func() error {
-		if a.Client == nil {
+		if a.Cluster == nil {
 			return problem.Unavailable()
 		}
 		return problem.New(http.StatusConflict, reasons.Msg(reasons.MsgNoBackupBucket))

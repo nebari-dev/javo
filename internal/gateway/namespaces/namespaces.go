@@ -8,12 +8,9 @@ import (
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/ext/placement"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview"
 	"github.com/nebari-dev/javo/internal/model"
 )
 
@@ -25,7 +22,7 @@ const discoveryTTL = 10 * time.Second
 // controller labelled as managed.
 type Finder struct {
 	pl placement.Placement
-	c  client.Reader
+	c  clusterview.View
 
 	mu    sync.Mutex
 	found []string
@@ -35,7 +32,7 @@ type Finder struct {
 // New returns the finder for pl; c reads Namespaces (only needed
 // when pl lists none). Nil where apps do not run on a cluster: then only
 // the namespaces pl lists hold apps.
-func New(pl placement.Placement, c client.Reader) *Finder {
+func New(pl placement.Placement, c clusterview.View) *Finder {
 	return &Finder{pl: pl, c: c}
 }
 
@@ -56,13 +53,13 @@ func (n *Finder) All(ctx context.Context) ([]string, error) {
 	if n.found != nil && time.Since(n.at) < discoveryTTL {
 		return n.found, nil
 	}
-	var l corev1.NamespaceList
-	if err := n.c.List(ctx, &l, client.MatchingLabels{model.LabelManaged: "true"}); err != nil {
+	managed, err := n.c.Namespaces(ctx, map[string]string{model.LabelManaged: "true"})
+	if err != nil {
 		return nil, err
 	}
-	names := make([]string, len(l.Items))
-	for i := range l.Items {
-		names[i] = l.Items[i].Name
+	names := make([]string, len(managed))
+	for i := range managed {
+		names[i] = managed[i].Name
 	}
 	slices.Sort(names)
 	n.found, n.at = names, time.Now()
@@ -83,13 +80,10 @@ func (n *Finder) Managed(ctx context.Context, ns string) (bool, error) {
 	if n.c == nil {
 		return false, nil
 	}
-	var o corev1.Namespace
-	switch err := n.c.Get(ctx, client.ObjectKey{Name: ns}, &o); {
-	case apierrors.IsNotFound(err):
-		return false, nil
+	switch o, err := n.c.Namespace(ctx, ns); {
 	case err != nil:
 		return false, err
-	case o.Labels[model.LabelManaged] != "true":
+	case o == nil || o.Labels[model.LabelManaged] != "true":
 		return false, nil
 	}
 	n.mu.Lock()

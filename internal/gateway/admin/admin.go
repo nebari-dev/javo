@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview"
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -27,9 +27,9 @@ type API struct {
 	Now        func() time.Time
 	// Backups is where the database backups are.
 	Backups BackupConfig
-	// Client and Logs read the backup Jobs' pods and their logs.
-	Client client.Client
-	Logs   executor.Executor
+	// Cluster and Logs read the backup Jobs' pods and their logs.
+	Cluster clusterview.View
+	Logs    executor.Executor
 	// AI is the AI settings in force; nil while AI is off.
 	AI *aisettings.Live
 	// Trust is whether owners may let their coding agents act without asking.

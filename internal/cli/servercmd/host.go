@@ -29,6 +29,8 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/placement"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview/kubeview"
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
 	gwstorage "github.com/nebari-dev/javo/internal/gateway/storage"
 	"github.com/nebari-dev/javo/internal/netprobe"
@@ -138,8 +140,8 @@ func hostOf(ctx context.Context, flags *pflag.FlagSet, common *commonFlags, gw *
 
 // gatewayParts is what the gateway takes from where apps run.
 type gatewayParts struct {
-	// client reads the cluster; nil where there is none.
-	client   client.Client
+	// cluster reads the cluster; nil where there is none.
+	cluster  clusterview.View
 	machines capacity.Source
 	// apps and runs say where a workload listens and what it printed.
 	apps, runs executor.Executor
@@ -222,7 +224,7 @@ func (o *gatewayOptions) clusterParts(ctx context.Context, common *commonFlags, 
 		Seal:    sessionsKey,
 		Storage: podstorage.Provisioner{Resolver: wiring.StorageResolver(db, platform), Maker: db.Homes()},
 		UIDs:    ids.People{People: db.People(store.IDRange{}), Mode: platform.Identity.UIDMode},
-		ReapIn:  namespaces.New(pl, c).All,
+		ReapIn:  namespaces.New(pl, kubeview.Of(c)).All,
 		// One namespace per person: sweep with one cluster-wide call.
 		ReapAcrossNamespaces: len(pl.Desired()) == 0,
 	})
@@ -240,7 +242,7 @@ func (o *gatewayOptions) clusterParts(ctx context.Context, common *commonFlags, 
 	workloads := &kube.Executor{Client: c, PodLogs: kube.ClientsetLogs{Clientset: clientset}}
 	lister := files.NewLister(pods, files.Rclone{})
 	return gatewayParts{
-		client: c, machines: machines, apps: workloads, runs: workloads.Runs(),
+		cluster: kubeview.Of(c), machines: machines, apps: workloads, runs: workloads.Runs(),
 		policy: &netprobe.Store{Facts: db.Facts()}, homes: lister, usage: lister,
 		sessionsKey: sessionsKey, fingerprinter: fp, internalHost: o.internalHost,
 	}, nil

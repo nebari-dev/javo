@@ -231,7 +231,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	// share its throttle.
 	nebi := wiring.NebiTokens(platform, db)
 	srv := gateway.NewServer(gateway.Config{
-		Client:            on.client,
+		Cluster:           on.cluster,
 		Store:             db,
 		Tokens:            tokens,
 		API:               platform.API,

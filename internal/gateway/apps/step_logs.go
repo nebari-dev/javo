@@ -14,7 +14,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/executor"
@@ -389,12 +388,11 @@ func (f *stepFollower) sources(ctx context.Context) ([]logSource, types.UID, err
 		// The Jobs that ready the home and copy it to another storage mode.
 		var jobPods []corev1.Pod
 		for _, role := range []string{model.RoleHomePrepare, model.RoleHomeMigrate} {
-			var pods corev1.PodList
-			if err := f.s.k.List(ctx, &pods, client.InNamespace(f.app.Namespace),
-				client.MatchingLabels{model.LabelRole: role, model.LabelOwner: f.app.Owner}); err != nil {
+			pods, err := f.s.k.Pods(ctx, f.app.Namespace, map[string]string{model.LabelRole: role, model.LabelOwner: f.app.Owner})
+			if err != nil {
 				return nil, "", err
 			}
-			jobPods = append(jobPods, pods.Items...)
+			jobPods = append(jobPods, pods...)
 		}
 		slices.SortStableFunc(jobPods, func(a, b corev1.Pod) int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) })
 		for i := range jobPods {

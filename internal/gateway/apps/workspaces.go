@@ -15,9 +15,9 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"cmp"
+
 	"github.com/nebari-dev/javo/internal/actions"
 	"github.com/nebari-dev/javo/internal/ai"
 	"github.com/nebari-dev/javo/internal/auth/token"
@@ -31,6 +31,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview"
 	"github.com/nebari-dev/javo/internal/gateway/environments"
 	"github.com/nebari-dev/javo/internal/gateway/envvars"
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
@@ -142,7 +143,7 @@ type Workspaces struct {
 	// db holds apps and templates; k reads the app's Pod, its events and the
 	// home claim.
 	db    *store.Store
-	k     client.Reader
+	k     clusterview.View
 	nss   *namespaces.Finder
 	homes storage.Homes
 	// sizing holds the roles every route checks, with the sizes and machines.
@@ -889,7 +890,7 @@ type Config struct {
 	Store *store.Store
 	// Agent is config.ai.agent as the coding-agent routes use it.
 	Agent         AgentConfig
-	Client        client.Reader
+	Cluster       clusterview.View
 	Namespaces    *namespaces.Finder
 	Homes         storage.Homes
 	Sizing        sizing.Rules
@@ -931,7 +932,7 @@ type Config struct {
 // New builds the app API from c; c.Now and c.Plans must be set.
 func New(c Config) *Workspaces {
 	ws := &Workspaces{
-		db: c.Store, k: c.Client, nss: c.Namespaces, homes: c.Homes, Rules: c.Sizing, exp: c.Exposure,
+		db: c.Store, k: c.Cluster, nss: c.Namespaces, homes: c.Homes, Rules: c.Sizing, exp: c.Exposure,
 		logs: c.Logs, policy: c.NetworkPolicy, images: c.Images, tokens: c.Tokens,
 		idle: c.IdleStop, engine: c.Diagnose,
 		envs: c.Environments,

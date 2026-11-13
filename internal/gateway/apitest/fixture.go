@@ -21,6 +21,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview/kubeview"
 
 	"golang.org/x/crypto/argon2"
 	corev1 "k8s.io/api/core/v1"
@@ -297,7 +298,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Tokens: tokens, API: api, IdleStop: o.Idle,
 		Usage: o.Usage, Groups: o.Groups, Storage: o.Storage,
 
-		Client: c, Store: db, Sessions: sessions, Providers: providers,
+		Cluster: kubeview.Of(c), Store: db, Sessions: sessions, Providers: providers,
 		People: people, Roles: roles, Now: o.Now,
 		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, UI: o.UI, Branding: o.Branding,
 		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Runs: runs.Runs(), Sizes: o.Sizes, Machines: nodes.Source{Reader: c},

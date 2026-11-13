@@ -19,6 +19,7 @@ import (
 	"github.com/nebari-dev/javo/internal/diagnose"
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview/kubeview"
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/netprobe"
@@ -47,7 +48,7 @@ func stripServer(t *testing.T, f *appsFixture, uiDir string) (hits *[]string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: appsRoles(),
+	f.srv = gateway.NewServer(gateway.Config{Cluster: kubeview.Of(f.c), Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: appsRoles(),
 		URLs: f.urls, Exposure: f.exp, Providers: nil, Revalidator: f.rv, Now: func() time.Time { return f.now }, UIDir: uiDir,
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},
 		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: nodes.Source{Reader: f.c}, Diagnose: diagnose.NewEngine()})

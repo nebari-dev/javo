@@ -4,6 +4,17 @@ package gateway
 
 import (
 	"context"
+	"io"
+	"io/fs"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/netip"
+	"path"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/nebari-dev/javo/internal/ai"
@@ -28,6 +39,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/branding"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview"
 	"github.com/nebari-dev/javo/internal/gateway/environments"
 	"github.com/nebari-dev/javo/internal/gateway/hooks"
 	"github.com/nebari-dev/javo/internal/gateway/jobs"
@@ -50,17 +62,6 @@ import (
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
-	"io"
-	"io/fs"
-	"log/slog"
-	"net"
-	"net/http"
-	"net/netip"
-	"path"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
-	"sync"
-	"time"
 )
 
 // Config wires the gateway's dependencies.
@@ -68,10 +69,10 @@ type Config struct {
 	// Ready, when set, is asked by /readyz; an error means the gateway is not
 	// ready to take traffic and its text is the answer.
 	Ready func(context.Context) error
-	// Client reads Pods, Pod events, home claims and namespaces, and keeps
-	// the file picker pods and API token Secrets. The gateway never writes
+	// Cluster reads Pods, Pod events, home claims, nodes and namespaces;
+	// nil where apps do not run on a cluster. The gateway never writes
 	// apps, templates or jobs to Kubernetes: those are rows of Store.
-	Client client.Client
+	Cluster clusterview.View
 	// Store holds apps, templates, sharing and jobs. Required: NewServer
 	// panics without it.
 	Store *store.Store
@@ -286,7 +287,7 @@ func NewServer(cfg Config) *Server {
 		cfg.Branding = branding.Default()
 	}
 	cfg.Branding.Register(api, mux)
-	nss := namespaces.New(cfg.Placement, cfg.Client)
+	nss := namespaces.New(cfg.Placement, cfg.Cluster)
 	var listings *storage.Listings
 	if cfg.Homes != nil {
 		listings = storage.NewListings(cfg.Homes, now)
@@ -305,7 +306,7 @@ func NewServer(cfg Config) *Server {
 	run := workspace.Platform{Exposure: cfg.Exposure, PublicHost: cfg.PublicHost, PixiImage: cfg.PixiImage, LockAgents: cfg.LockAgents}
 	ws := apps.New(apps.Config{
 		Run:   run,
-		Store: cfg.Store, Client: cfg.Client, Namespaces: nss, Homes: cfg.Homes, Sizing: sz, Exposure: cfg.Exposure,
+		Store: cfg.Store, Cluster: cfg.Cluster, Namespaces: nss, Homes: cfg.Homes, Sizing: sz, Exposure: cfg.Exposure,
 		Logs: cfg.Executor, NetworkPolicy: cfg.NetworkPolicy, Images: cfg.ContainerImages, Tokens: cfg.Tokens,
 		IdleStop: cfg.IdleStop, Diagnose: cfg.Diagnose, Environments: envs,
 		NebiTokens: cfg.NebiTokens, IDToken: a.IDToken,
@@ -317,10 +318,10 @@ func NewServer(cfg Config) *Server {
 	})
 	ws.Register(api)
 	(&secrets.API{DB: cfg.Store, Roles: cfg.Roles}).Register(api)
-	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Client: cfg.Client, Logs: cfg.Executor, AI: cfg.AISettings, Trust: trust}).Register(api)
+	(&admin.API{Workspaces: ws, DB: cfg.Store, People: cfg.People, Roles: cfg.Roles, Now: now, Backups: cfg.Backups, Cluster: cfg.Cluster, Logs: cfg.Executor, AI: cfg.AISettings, Trust: trust}).Register(api)
 	(&templates.API{DB: cfg.Store, Roles: cfg.Roles, Run: run, Idle: cfg.IdleStop}).Register(api)
 	st := &storage.API{
-		DB: cfg.Store, Spec: cfg.Storage, Client: cfg.Client, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,
+		DB: cfg.Store, Spec: cfg.Storage, Cluster: cfg.Cluster, Sizes: cfg.Sizes, Namespaces: nss, Roles: cfg.Roles,
 		Usage: cfg.Usage, Groups: cfg.Groups, Now: now, Upload: files.UploadLimits{Bytes: limits.UploadBytes, Entries: limits.UploadFiles}, UploadReadTimeout: limits.UploadReadTimeout.Duration,
 	}
 	st.Register(api)

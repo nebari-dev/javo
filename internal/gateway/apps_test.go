@@ -35,6 +35,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview/kubeview"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/identity"
@@ -829,7 +830,7 @@ func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.A
 	providers.Register(f.idp)
 	rv := authn.NewRevalidator(providers, f.store, f.db.People(store.IDRange{}), 0, func() time.Time { return f.now })
 	f.rv = rv
-	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp, InternalHost: "javo-gateway.javo-system.svc",
+	f.srv = gateway.NewServer(gateway.Config{Cluster: kubeview.Of(f.c), Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp, InternalHost: "javo-gateway.javo-system.svc",
 		Providers: providers, Revalidator: rv, Now: func() time.Time { return f.now },
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},
 		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: nodes.Source{Reader: f.c}, Diagnose: diagnose.NewEngine()})

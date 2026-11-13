@@ -14,9 +14,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/executor"
@@ -325,14 +323,11 @@ func (s *Workspaces) events(ctx context.Context, in *nameInput) (*eventListOutpu
 	case err != nil && !errors.Is(err, store.ErrNotFound):
 		return nil, problem.Internal("read home", err)
 	}
-	var claim corev1.PersistentVolumeClaim
-	claimKey := client.ObjectKey{Namespace: app.Namespace, Name: claimName}
 	var homeEvs []corev1.Event
-	switch err := s.k.Get(ctx, claimKey, &claim); {
-	case apierrors.IsNotFound(err):
+	switch claim, err := s.k.Claim(ctx, app.Namespace, claimName); {
 	case err != nil:
 		return nil, problem.Internal("read home claim", err)
-	default:
+	case claim != nil:
 		if homeEvs, err = s.eventsAbout(ctx, app.Namespace, "PersistentVolumeClaim", claim.Name, claim.UID); err != nil {
 			return nil, err
 		}
@@ -370,14 +365,13 @@ func (s *Workspaces) events(ctx context.Context, in *nameInput) (*eventListOutpu
 // pods are found by their labels and each Job by its pod's owner reference,
 // so the gateway needs no right to read Jobs.
 func (s *Workspaces) homePrepareEvents(ctx context.Context, app *model.App) ([]corev1.Event, error) {
-	var pods corev1.PodList
-	if err := s.k.List(ctx, &pods, client.InNamespace(app.Namespace),
-		client.MatchingLabels{model.LabelRole: model.RoleHomePrepare, model.LabelOwner: app.Owner}); err != nil {
+	pods, err := s.k.Pods(ctx, app.Namespace, map[string]string{model.LabelRole: model.RoleHomePrepare, model.LabelOwner: app.Owner})
+	if err != nil {
 		return nil, problem.Internal("list home prepare pods", err)
 	}
 	var out []corev1.Event
 	jobs := map[types.UID]bool{}
-	for _, p := range pods.Items {
+	for _, p := range pods {
 		pe, err := s.eventsAbout(ctx, app.Namespace, "Pod", p.Name, p.UID)
 		if err != nil {
 			return nil, err
@@ -404,26 +398,22 @@ func (s *Workspaces) pod(ctx context.Context, app *model.App) (*corev1.Pod, erro
 	if s.k == nil {
 		return nil, nil
 	}
-	var pod corev1.Pod
-	err := s.k.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: app.ObjectName()}, &pod)
-	switch {
-	case apierrors.IsNotFound(err):
-		return nil, nil
-	case err != nil:
+	pod, err := s.k.Pod(ctx, app.Namespace, app.ObjectName())
+	if err != nil {
 		return nil, problem.Internal("read app pod", err)
 	}
-	return &pod, nil
+	return pod, nil
 }
 
 // eventsAbout lists the events about this exact object. Matching on UID
 // keeps a deleted object's events from describing its same-named successor.
 func (s *Workspaces) eventsAbout(ctx context.Context, namespace, kind, name string, uid types.UID) ([]corev1.Event, error) {
-	var l corev1.EventList
-	if err := s.k.List(ctx, &l, client.InNamespace(namespace), client.MatchingFields{"involvedObject.name": name}); err != nil {
+	evs, err := s.k.Events(ctx, namespace, name)
+	if err != nil {
 		return nil, problem.Internal("list events", err)
 	}
-	out := l.Items[:0]
-	for _, e := range l.Items {
+	out := evs[:0]
+	for _, e := range evs {
 		if e.InvolvedObject.Kind == kind && e.InvolvedObject.UID == uid {
 			out = append(out, e)
 		}

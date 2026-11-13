@@ -17,12 +17,12 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
+	"github.com/nebari-dev/javo/internal/gateway/clusterview"
 	"github.com/nebari-dev/javo/internal/gateway/namespaces"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/gateway/templates"
@@ -108,10 +108,10 @@ type API struct {
 	DB *store.Store
 	// spec is the platform config's storage section, defaults applied.
 	Spec model.ClusterStorageSpec
-	// c reads pods and nodes, for the placement preview. Nil where apps do
-	// not run on a cluster: the preview and the admin's report then answer
-	// that they are not available.
-	Client     client.Client
+	// Cluster reads pods and nodes, for the placement preview. Nil where
+	// apps do not run on a cluster: the preview and the admin's report then
+	// answer that they are not available.
+	Cluster    clusterview.View
 	Sizes      sizes.Catalog
 	Namespaces *namespaces.Finder
 	Roles      config.Roles
@@ -147,7 +147,7 @@ func (s *API) Register(api huma.API) {
 	}
 	authn.RegisterAdmin(api, s.Roles, admin("getAdminStorage", http.MethodGet, "/api/admin/storage", "Storage capability report"),
 		func(ctx context.Context, _ *struct{}) (*adminStorageOutput, error) {
-			if s.Client == nil {
+			if s.Cluster == nil {
 				return nil, problem.Unavailable()
 			}
 			cs, err := s.clusterStorage(ctx)
@@ -336,7 +336,7 @@ func (s *API) folders(ctx context.Context, ns, owner string) ([]StorageFolder, e
 }
 
 func (s *API) placement(ctx context.Context, in *placementInput) (*placementOutput, error) {
-	if s.Client == nil {
+	if s.Cluster == nil {
 		return nil, problem.Unavailable()
 	}
 	p := authn.User(ctx)
@@ -372,23 +372,23 @@ func (s *API) placement(ctx context.Context, in *placementInput) (*placementOutp
 	}
 	// The owner's own pods say which node there is to be next to; only that
 	// node's pods are then read, to count what is free there.
-	var mine corev1.PodList
-	if err := s.Client.List(ctx, &mine, client.InNamespace(ns), client.MatchingLabels{model.LabelOwner: p.ID}); err != nil {
-		return nil, problem.Internal("list pods", err)
-	}
-	i := slices.IndexFunc(mine.Items, func(p corev1.Pod) bool { return p.Spec.NodeName != "" && p.Labels[model.LabelApp] != "" })
-	if i < 0 {
-		return out, nil
-	}
-	all, err := s.appPodsOnNode(ctx, mine.Items[i].Spec.NodeName)
+	mine, err := s.Cluster.Pods(ctx, ns, map[string]string{model.LabelOwner: p.ID})
 	if err != nil {
 		return nil, problem.Internal("list pods", err)
 	}
-	var nodes corev1.NodeList
-	if err := s.Client.List(ctx, &nodes); err != nil {
+	i := slices.IndexFunc(mine, func(p corev1.Pod) bool { return p.Spec.NodeName != "" && p.Labels[model.LabelApp] != "" })
+	if i < 0 {
+		return out, nil
+	}
+	all, err := s.appPodsOnNode(ctx, mine[i].Spec.NodeName)
+	if err != nil {
+		return nil, problem.Internal("list pods", err)
+	}
+	nodes, err := s.Cluster.Nodes(ctx)
+	if err != nil {
 		return nil, problem.Internal("list nodes", err)
 	}
-	res := placement.Preview(nodes.Items, all, ns, p.ID, req)
+	res := placement.Preview(nodes, all, ns, p.ID, req)
 	if !res.CoLocated {
 		return out, nil
 	}
@@ -427,21 +427,20 @@ func (s *API) appPodsOnNode(ctx context.Context, node string) ([]corev1.Pod, err
 	if err != nil {
 		return nil, err
 	}
-	onNode := client.MatchingFields{"spec.nodeName": node}
 	if !s.Namespaces.Listed() {
-		var l corev1.PodList
-		if err := s.Client.List(ctx, &l, onNode); err != nil {
+		all, err := s.Cluster.PodsOnNode(ctx, "", node)
+		if err != nil {
 			return nil, err
 		}
-		return slices.DeleteFunc(l.Items, func(p corev1.Pod) bool { return !slices.Contains(nss, p.Namespace) }), nil
+		return slices.DeleteFunc(all, func(p corev1.Pod) bool { return !slices.Contains(nss, p.Namespace) }), nil
 	}
 	var out []corev1.Pod
 	for _, ns := range nss {
-		var l corev1.PodList
-		if err := s.Client.List(ctx, &l, client.InNamespace(ns), onNode); err != nil {
+		pods, err := s.Cluster.PodsOnNode(ctx, ns, node)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, l.Items...)
+		out = append(out, pods...)
 	}
 	return out, nil
 }
