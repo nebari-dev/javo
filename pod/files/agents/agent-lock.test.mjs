@@ -103,6 +103,18 @@ test('on a host grants the folders the app is told of', () => {
   assert.ok(!got.rw.includes(files) && !got.rw.includes(env), `--rw ${got.rw}`)
 })
 
+// In a container ~/.ssh is the pod's own folder of public files. On a host
+// no sidecar keeps the keys apart: ~/.ssh there is the person's own, with
+// the private keys, and is not granted.
+test('on a host does not grant ~/.ssh, which holds the private keys there', () => {
+  const home = temp()
+  mkdirSync(join(home, '.ssh'))
+  writeFileSync(join(home, '.ssh', 'a-private-key'), 'key')
+  assert.ok(lock(home, join(home, 'p'), 'git').ro.includes(join(home, '.ssh')), 'a container reads its ~/.ssh')
+  const got = lockWith({ JAVO_FILES_DIR: temp() }, home, join(home, 'p'), 'git')
+  assert.ok(!covers([...got.rw, ...got.ro], join(home, '.ssh', 'a-private-key')), `--rw ${got.rw} --ro ${got.ro}`)
+})
+
 test('in a container grants nothing a host is told of', () => {
   const home = temp()
   const { JAVO_FILES_DIR, JAVO_ENV_DIR, TMUX_TMPDIR, ...rest } = process.env

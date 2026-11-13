@@ -47,9 +47,13 @@ fi
 # person's settings; ~/.javo/envs holds the installed environments. The pod
 # files and the environment's activation are at /opt/javo and /opt/javo-env
 # in a container, and where JAVO_FILES_DIR and JAVO_ENV_DIR say on a machine
-# the app is a process of (pod-user.sh).
+# the app is a process of (pod-user.sh). On such a machine no sidecar keeps
+# the keys apart: ~/.ssh is the person's own, private keys and all, and is
+# not granted (an empty path is never there).
+ssh=$HOME/.ssh
+[ -z "${JAVO_FILES_DIR:-}" ] || ssh=
 for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc "${JAVO_FILES_DIR:-/opt/javo}" "${JAVO_ENV_DIR:-/opt/javo-env}" /proc /sys /home/AGENTS.md \
-  "$HOME/.javo/envs" "$HOME/.ssh" "$HOME/.gitconfig" "$HOME/.config/git"; do
+  "$HOME/.javo/envs" "$ssh" "$HOME/.gitconfig" "$HOME/.config/git"; do
   [ ! -e "$p" ] || set -- --ro "$p" "$@"
 done
 
