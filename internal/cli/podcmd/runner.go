@@ -3,6 +3,7 @@
 package podcmd
 
 import (
+	"cmp"
 	"encoding/json"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"github.com/nebari-dev/javo/internal/jobs/runner"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/reasons"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // NewRunner is the entrypoint of a job pod's main container: it runs the
@@ -55,7 +57,10 @@ func NewRunner(engines *engine.Registry) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&home, "home", podspec.HomeDir, "the user's home directory")
-	cmd.Flags().StringVar(&termLog, "termination-log", "/dev/termination-log", "file Kubernetes reads as the termination message")
+	// Kubernetes reads the message from a fixed file; an executor with no
+	// such file names one of the run's own in the variable.
+	cmd.Flags().StringVar(&termLog, "termination-log", cmp.Or(os.Getenv(workload.EnvTerminationLog), "/dev/termination-log"),
+		"file the executor reads as the termination message (default: $"+workload.EnvTerminationLog+", else the one Kubernetes reads)")
 
 	var to string
 	install := &cobra.Command{

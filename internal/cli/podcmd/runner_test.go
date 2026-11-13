@@ -11,6 +11,7 @@ import (
 	"github.com/nebari-dev/javo/internal/cli/exitcode"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/jobs/runner"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 func TestRunnerInstallCopiesTheBinary(t *testing.T) {
@@ -74,5 +75,23 @@ func TestRunnerBrokenSpecFailsWithReasonAndTemplateExitCode(t *testing.T) {
 				t.Errorf("termination message = %q, err %v", b, err)
 			}
 		})
+	}
+}
+
+// Where the platform has no fixed file for the termination message, the
+// executor names one in JAVO_TERMINATION_LOG, and the runner writes there.
+func TestRunnerWritesTheTerminationMessageWhereItIsTold(t *testing.T) {
+	home := t.TempDir()
+	term := filepath.Join(home, "term")
+	t.Setenv(workload.EnvTerminationLog, term)
+	t.Setenv("JAVO_RUN", "{")
+	t.Setenv("JAVO_RUN_ID", "r1")
+	root := clitest.Root(NewRunner(wiring.Engines()))
+	root.SetArgs([]string{"runner", "--home", home})
+	if err := root.Execute(); err == nil {
+		t.Fatal("a broken spec ran")
+	}
+	if b, err := os.ReadFile(term); err != nil || !strings.Contains(string(b), `"reason":"TemplateInvalid"`) {
+		t.Errorf("termination message = %q, err %v", b, err)
 	}
 }
