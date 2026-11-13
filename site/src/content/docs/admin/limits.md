@@ -24,7 +24,7 @@ config:
 What a person sees at a limit:
 
 - **Creating, starting or importing an app, creating a job, Run now, creating a token or proposing a change** is refused with a message that names the limit (HTTP 409). Nothing is created. An import lists the app it could not bring in with the same message; an admin restore from a backup does the same and restores the rest.
-- **A scheduled run** while the job or the person is at their run limit is not started: the controller suspends the job's CronJob until a run ends, and the job page shows **Too many runs going**. A run asked for with Run now that finds the room taken by scheduled runs fails with that reason. This also caps a schedule whose overlap setting is **run both** (`Allow`).
+- **A scheduled run** while the job or the person is at their run limit is not started: the controller holds the job's schedule until a run ends, then starts the newest run that came due meanwhile, and the job page shows **Too many runs going**. A run asked for with Run now that finds the room taken by scheduled runs fails with that reason. This also caps a schedule whose overlap setting is **run both** (`Allow`).
 - **A pull request** past the person's preview limit gets no preview and lists **Your preview limit reached**. The per-app limit (`source.previews.maxPerApp`) still applies as well.
 - **A run** with no time limit, or a longer one than `jobMaxTimeout` (from the job or its template's `maxTimeout`), is stopped at `jobMaxTimeout` and fails as timed out.
 

@@ -617,8 +617,8 @@ config:
   # Per-person caps (they apply to platform admins too), so one person cannot
   # fill the cluster or the database. A create, start, import, Run now, new
   # token or proposed change past one is refused with a message naming it;
-  # a scheduled run is skipped while a run cap is reached (the job's CronJob
-  # is suspended until a run ends); a pull request past `previews` gets no
+  # a scheduled run is not started while a run cap is reached (the controller
+  # holds the job's schedule until a run ends); a pull request past `previews` gets no
   # preview. Lowering a cap stops nothing that exists. See
   # site/src/content/docs/admin/limits.md, which also covers the kubelet's
   # podPidsLimit (Javo sets no process limit of its own).

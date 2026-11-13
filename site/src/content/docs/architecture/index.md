@@ -16,11 +16,11 @@ Solid arrows are always there; dotted ones only when that feature is on.
 | Piece | Where it runs | What it does |
 |---|---|---|
 | **Gateway** | namespace `javo-system` | Serves the web UI, the REST API under `/api/`, the MCP endpoint at `/mcp`, sign-in and the app proxy. Checks every request and writes rows to the database. |
-| **Controller** | namespace `javo-system` | Turns rows into Kubernetes objects: app pods and Services, job CronJobs and Jobs, home volumes, group folders, preview apps, backups, idle stops, namespaces and their NetworkPolicies. |
+| **Controller** | namespace `javo-system` | Turns rows into Kubernetes objects: app pods and Services, a Job per run of a job, which it starts by hand or when the job's schedule comes due, home volumes, group folders, preview apps, backups, idle stops, namespaces and their NetworkPolicies. |
 | **Database** | a file on the volume `javo-data` (SQLite), or your Postgres | Everything Javo knows: people, apps, templates, sharing, sessions, tokens, jobs, run history, audit log, and the status of each app. |
 | **App pods** | namespace `javo-apps` | One bare Pod and one Service per running app, in an upstream image (most templates use the pixi image). |
 | **Home volumes** | namespace `javo-apps` | One claim per person, mounted at `/home/user` in their apps and jobs. Their pixi environments live in it too. |
-| **Job runs** | namespace `javo-apps` | A CronJob per scheduled job and a Job per run, running `javo runner` in the job's image. |
+| **Job runs** | namespace `javo-apps` | A Job per run, running `javo runner` in the job's image. |
 | **Files pods** | namespace `javo-apps` | A small rclone pod per person, running as them, that mounts their home (writable) and group folders (read-only) so the gateway can list folders for the file picker, serve files and save files edited in the UI. rclone asks for a random password made for each pod, which only the gateway uses, so the home stays closed even where the network plugin does not enforce NetworkPolicy. Removed after 10 idle minutes. |
 | **Helper Jobs** | namespace `javo-apps` | Short Jobs in Javo's own image: ready a new home once, move a home between storage modes, back up or restore a home with restic. |
 
@@ -68,7 +68,7 @@ If a step fails, the UI shows the step, the reason and its log. A missing machin
 
 ## How jobs run
 
-A job is a row like an app. The controller renders each scheduled job into a CronJob, and each run (scheduled or Run now) into a Job, in the owner's namespace. The run's pod gets the same home, platform files and pixi environment install as an app, plus `runner-install`, which copies `javo` in; the main container then runs `javo runner`, which runs the notebook, script or command. The controller records every run and how it ended in the database.
+A job is a row like an app. The controller fires schedules itself: when a job's next time comes, it adds a run for that time, once, and starts each run (scheduled or Run now) as a Job in the owner's namespace. Nothing runs a schedule while the controller is down; when it is back it starts the newest run that came due meanwhile, or records it as missed when the job's starting deadline has passed. The run's pod gets the same home, platform files and pixi environment install as an app, plus `runner-install`, which copies `javo` in; the main container then runs `javo runner`, which runs the notebook, script or command. The controller records every run and how it ended in the database.
 
 ## Where data lives
 
@@ -77,7 +77,7 @@ A job is a row like an app. The controller renders each scheduled job into a Cro
 | Everything Javo knows | the database (SQLite file on `javo-data`, or Postgres) |
 | People's files and their pixi environments | their home volume in `javo-apps` (or their own namespace) |
 | Group folders | one claim per folder |
-| What is running | Kubernetes only; the controller can rebuild every pod, Service and CronJob from the database |
+| What is running | Kubernetes only; the controller can rebuild every pod and Service from the database, and fires job schedules from it |
 | Backups | the claim `javo-backups` and, with a bucket, the S3 bucket |
 
 Namespaces: by default every app runs in `javo-apps`. `config.namespaces.mode` can give each person (`per-user`) or each team (`per-team`) a namespace; the controller creates them, labels them for Pod Security "restricted", adds the NetworkPolicies and never deletes them, since they hold home volumes.

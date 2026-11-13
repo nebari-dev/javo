@@ -40,11 +40,11 @@ The schedule builder offers every minute, every few minutes, hourly, daily, week
 
 Hidden behind the options:
 
-- **When a run is still going**: skip the new run, run both, or replace the old run.
+- **When a run is still going**: skip the new run, run both, or replace the old run. With skip, the new run waits and starts when the old one ends; it is recorded as skipped only if the run after it comes due first.
 - **Retries** after a failure.
 - **Time limit**, such as `1h`. Your admin's longest run (24 hours by default) applies when you set none or a longer one.
 
-Your admin [limits](/admin/limits/) how many jobs you may have (50 by default) and how many runs may go at once: 3 of one job and 10 of all your jobs by default. At a run limit, **Run now** is refused, and scheduled runs due meanwhile are skipped (the job page shows **Too many runs going**) until a run ends, whatever **When a run is still going** says.
+Your admin [limits](/admin/limits/) how many jobs you may have (50 by default) and how many runs may go at once: 3 of one job and 10 of all your jobs by default. At a run limit, **Run now** is refused, and scheduled runs due meanwhile do not start (the job page shows **Too many runs going**) until a run ends, when the newest of them starts, whatever **When a run is still going** says.
 
 On the job page, **Pause schedule** and **Resume schedule** stop and restart scheduled runs; **Run now** starts one at any time.
 
