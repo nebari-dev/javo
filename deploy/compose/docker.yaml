@@ -1,0 +1,117 @@
+# javo on one Docker host without Kubernetes: one container, Javo itself,
+# with executor docker. It runs every app, job run and file helper as a
+# hardened container of this Docker daemon, each on a network of its own
+# that reaches only this container. See "Docker Compose" in README.md.
+#
+# The risk that stays: whoever holds the Docker socket is root on the
+# host. Javo mounts the socket, so a remote code execution in Javo is root
+# on this host. Its Docker executor is the only code that uses the socket,
+# and what it creates is fixed in code (never privileged, no host network,
+# pid or ipc, no path of the host, no published port). Rootless Docker is
+# recommended. The k3s install beside this file (compose.yaml) runs a
+# privileged container and mounts the socket too, so this is not a step
+# down from it.
+#
+#   docker compose -f docker.yaml up -d --build   # build the javo image here, then start
+#   docker compose -f docker.yaml exec javo /javo user add admin --group javo-admins \
+#     --password-file - --database-path /home/nonroot/javo.db   # prints the admin's password
+#   docker compose -f docker.yaml logs -f javo
+#
+# Variables (shell environment or deploy/compose/.env):
+#   JAVO_PORT        host port of the gateway (default 8080), the only one published
+#   JAVO_PUBLIC_HOST host and port browsers use (default localhost:${JAVO_PORT})
+#   JAVO_DOCKER_GID  group of the Docker socket as a container sees it (default 0):
+#                    Javo runs as uid 65532 and joins that group to use the socket.
+#                    On a Linux host: stat -c %g /var/run/docker.sock
+#   JAVO_CONTAINER   name of Javo's container (default javo); two installs on
+#                    one daemon need two names
+#   JAVO_IMAGE_TAG   tag of the javo image (default compose)
+#
+# `docker compose down` leaves what Javo made on the daemon: people's home
+# volumes (labelled javo.gateway.homes=<JAVO_CONTAINER>) always stay, and
+# so do apps that were running (labelled javo.gateway=<JAVO_CONTAINER>);
+# stop the apps in the UI first.
+name: javo-docker
+
+services:
+  javo:
+    build: {context: ../..}
+    image: javo:${JAVO_IMAGE_TAG:-compose}
+    # docker.gateway in the config below names this container: apps reach
+    # it by this name, and Javo refuses to start anywhere else.
+    container_name: ${JAVO_CONTAINER:-javo}
+    restart: unless-stopped
+    command:
+      - server
+      - --listen=:8080
+      - --public-host=${JAVO_PUBLIC_HOST:-localhost:${JAVO_PORT:-8080}}
+      - --database-path=/home/nonroot/javo.db
+      - --templates-dir=/etc/javo-templates
+      # The image apps' sandboxes and the platform's own steps run: this one.
+      - --runner-image=javo:${JAVO_IMAGE_TAG:-compose}
+    group_add: ["${JAVO_DOCKER_GID:-0}"]
+    ports:
+      # The gateway only. The apps' forward proxy (docker.proxyPort, 3128)
+      # is for the apps' own networks and is never published.
+      - "${JAVO_PORT:-8080}:8080"
+    configs:
+      - {source: config, target: /etc/javo/config.yaml}
+    volumes:
+      # The database, Javo's keys and nothing else. The image's home
+      # folder belongs to the user Javo runs as, and so does a new volume
+      # mounted there.
+      - data:/home/nonroot
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The built-in templates of the chart, read at start. backup.yaml is
+      # left out: home backups need Kubernetes.
+      - ../helm/javo/files/templates/backend-go.yaml:/etc/javo-templates/backend-go.yaml:ro
+      - ../helm/javo/files/templates/backend-node.yaml:/etc/javo-templates/backend-node.yaml:ro
+      - ../helm/javo/files/templates/bokeh.yaml:/etc/javo-templates/bokeh.yaml:ro
+      - ../helm/javo/files/templates/claude-code.yaml:/etc/javo-templates/claude-code.yaml:ro
+      - ../helm/javo/files/templates/container.yaml:/etc/javo-templates/container.yaml:ro
+      - ../helm/javo/files/templates/custom.yaml:/etc/javo-templates/custom.yaml:ro
+      - ../helm/javo/files/templates/dash.yaml:/etc/javo-templates/dash.yaml:ro
+      - ../helm/javo/files/templates/fastapi.yaml:/etc/javo-templates/fastapi.yaml:ro
+      - ../helm/javo/files/templates/gradio.yaml:/etc/javo-templates/gradio.yaml:ro
+      - ../helm/javo/files/templates/harf.yaml:/etc/javo-templates/harf.yaml:ro
+      - ../helm/javo/files/templates/herdr.yaml:/etc/javo-templates/herdr.yaml:ro
+      - ../helm/javo/files/templates/jobs-command.yaml:/etc/javo-templates/jobs-command.yaml:ro
+      - ../helm/javo/files/templates/jobs-julia.yaml:/etc/javo-templates/jobs-julia.yaml:ro
+      - ../helm/javo/files/templates/jobs-python.yaml:/etc/javo-templates/jobs-python.yaml:ro
+      - ../helm/javo/files/templates/jobs-r.yaml:/etc/javo-templates/jobs-r.yaml:ro
+      - ../helm/javo/files/templates/jupyterlab.yaml:/etc/javo-templates/jupyterlab.yaml:ro
+      - ../helm/javo/files/templates/marimo.yaml:/etc/javo-templates/marimo.yaml:ro
+      - ../helm/javo/files/templates/panel.yaml:/etc/javo-templates/panel.yaml:ro
+      - ../helm/javo/files/templates/pi.yaml:/etc/javo-templates/pi.yaml:ro
+      - ../helm/javo/files/templates/pluto.yaml:/etc/javo-templates/pluto.yaml:ro
+      - ../helm/javo/files/templates/rstudio.yaml:/etc/javo-templates/rstudio.yaml:ro
+      - ../helm/javo/files/templates/static-site.yaml:/etc/javo-templates/static-site.yaml:ro
+      - ../helm/javo/files/templates/streamlit.yaml:/etc/javo-templates/streamlit.yaml:ro
+      - ../helm/javo/files/templates/terminal.yaml:/etc/javo-templates/terminal.yaml:ro
+      - ../helm/javo/files/templates/voila.yaml:/etc/javo-templates/voila.yaml:ro
+      - ../helm/javo/files/templates/vscode.yaml:/etc/javo-templates/vscode.yaml:ro
+      - ../helm/javo/files/templates/whybook.yaml:/etc/javo-templates/whybook.yaml:ro
+
+configs:
+  config:
+    content: |
+      executor: docker
+      keysDir: /home/nonroot/keys
+      docker:
+        gateway: ${JAVO_CONTAINER:-javo}
+      auth:
+        local:
+          enabled: true
+      roles:
+        platformAdmin: {groups: [javo-admins]}
+      urls:
+        mode: path
+        scheme: http
+      sharing:
+        allowOneHost: true
+      environments:
+        # pixi 0.83.0, as the chart pins it (deploy/helm/javo/values.yaml).
+        pixiImage: ghcr.io/prefix-dev/pixi:0.83.0-trixie-slim@sha256:e68dfe75f1cc276c65163a4bea38d964b5bf59fd7966bf9a433ee0498b095a95
+
+volumes:
+  data:

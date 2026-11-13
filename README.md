@@ -56,6 +56,20 @@ docker compose exec k3s cat /var/lib/javo-secrets/admin.password
 
 On an existing Kubernetes cluster, install the Helm chart in `deploy/helm/javo` ([Helm install](site/src/content/docs/getting-started/helm.mdx)).
 
+### Docker Compose
+
+The quick start above is `deploy/compose/compose.yaml`: single-node k3s in a privileged container, and the Helm chart installed into it.
+
+`deploy/compose/docker.yaml` runs Javo without Kubernetes instead: one container, which starts every app and job as a hardened container of the same Docker daemon (`executor: docker`, see [configuration](site/src/content/docs/admin/configuration.md)).
+
+```sh
+cd deploy/compose
+docker compose -f docker.yaml up -d --build
+docker compose -f docker.yaml exec javo /javo user add admin --group javo-admins --password-file - --database-path /home/nonroot/javo.db
+```
+
+The second command prints the password of `admin`; sign in at http://localhost:8080. Javo runs as uid 65532 and uses the Docker socket through the socket's group: when that is not group 0, set `JAVO_DOCKER_GID` first (on a Linux host, `stat -c %g /var/run/docker.sock`). Whoever holds the Docker socket is root on the host, so a remote code execution in Javo is root on that host; rootless Docker is recommended. Group folders, home backups, home sizes and pull request previews need Kubernetes.
+
 ## Development
 
 Requires Go, Node with pnpm, Docker with Compose v2, kubectl and Helm.
