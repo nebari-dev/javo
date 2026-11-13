@@ -138,15 +138,22 @@ const MaxPathDepth = 64
 // folder ("" is the home folder itself). Paths that climb above it fail with
 // ErrOutsideHome.
 func CleanPath(raw string) (string, error) {
+	c, err := insideHome(raw)
+	if err == nil && strings.Count(c, "/") >= MaxPathDepth {
+		return "", ErrPathTooDeep
+	}
+	return c, err
+}
+
+// insideHome is CleanPath without the limit on depth, for the paths the
+// Lister itself builds below one it was given (an archive's entries).
+func insideHome(raw string) (string, error) {
 	c := path.Clean(strings.TrimLeft(raw, "/"))
 	if c == ".." || strings.HasPrefix(c, "../") {
 		return "", ErrOutsideHome
 	}
 	if c == "." {
 		return "", nil
-	}
-	if strings.Count(c, "/") >= MaxPathDepth {
-		return "", ErrPathTooDeep
 	}
 	return c, nil
 }
