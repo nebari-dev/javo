@@ -1,43 +1,81 @@
 //go:build local
 
 // Package localbuild checks what a javo built with the tag local
-// (make local) leaves out, so that it stays small: the model providers'
-// clients, the failure-notice engine and the Postgres driver are in files
-// the tag leaves out, and the cluster's client set, informers and cache
-// are dropped by the linker, since everything that reaches them asks
-// buildinfo.Local first. Neither cut fails a build when it is undone: an
-// import in a file both builds compile, or a cluster call placed ahead of
-// that question, only makes the binary larger. The default build must
-// still import every one of them, so a name here that has moved fails too.
+// (make local) leaves out, so that it stays small: the Kubernetes client
+// and what runs Javo on a cluster, the model providers' clients, the
+// secret scanner, the failure-notice engine, the MCP endpoint, the OpenID
+// Connect client and the Postgres driver. Each is in files the tag leaves
+// out, or in a package only such files import, so none is imported at
+// all. That cut does not fail a build when it is undone: an import in a
+// file both builds compile only makes the binary larger. The default
+// build must still import every one of them, so a name here that has
+// moved fails too.
 package localbuild
 
 import (
 	"os/exec"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 const root = "../.."
 
-// notImported are the modules no package of the local build imports.
-var notImported = []string{
-	"github.com/openai/openai-go/v3",
-	"github.com/anthropics/anthropic-sdk-go",
-	"github.com/argoproj/notifications-engine",
-	"github.com/jackc/pgx/v5",
+const javo = "github.com/nebari-dev/javo/internal/"
+
+// leftOut is an import path no package of the local build imports, nor
+// any path below it, but for the ones named in but.
+type leftOut struct {
+	path string
+	but  []string
 }
 
-// notLinked are packages the local build still imports (the admin
-// commands keep a cluster client) and whose functions the linker must
-// find no use of. A name ending in /... is the packages under it.
-var notLinked = []string{
-	"k8s.io/client-go/kubernetes",
-	"k8s.io/client-go/kubernetes/typed/...",
-	"k8s.io/client-go/informers/...",
-	"k8s.io/client-go/tools/leaderelection/resourcelock",
-	"sigs.k8s.io/controller-runtime/pkg/cache",
-	"sigs.k8s.io/controller-runtime/pkg/leaderelection",
+var notImported = []leftOut{
+	// Kubernetes: what is kept is the logger and the signal handler of
+	// controller-runtime, client-go's work queue (the loop of a host
+	// without a cluster) and the core/v1 types templates and sizes hold.
+	{path: "sigs.k8s.io/controller-runtime", but: []string{
+		"sigs.k8s.io/controller-runtime/pkg/log",
+		"sigs.k8s.io/controller-runtime/pkg/log/zap",
+		"sigs.k8s.io/controller-runtime/pkg/manager/signals",
+	}},
+	{path: "k8s.io/client-go", but: []string{"k8s.io/client-go/util/workqueue"}},
+	{path: "k8s.io/api", but: []string{"k8s.io/api/core/v1"}},
+	{path: "k8s.io/apiextensions-apiserver"},
+	{path: "github.com/google/gnostic-models"},
+	{path: "github.com/prometheus"},
+	// What runs Javo on a cluster.
+	{path: javo + "executor/kube"},
+	{path: javo + "controller/namespace"},
+	{path: javo + "controller/storage", but: []string{javo + "controller/storage/rows", javo + "controller/storage/onhost"}},
+	{path: javo + "controller/preview"},
+	{path: javo + "controller/manager"},
+	{path: javo + "controller/backupclaim"},
+	{path: javo + "controller/secretskey"},
+	{path: javo + "controller/loop/managed"},
+	{path: javo + "capacity/nodes"},
+	{path: javo + "netprobe/kubeprobe"},
+	{path: javo + "gateway/clusterview/kubeview"},
+	{path: javo + "cli/kubeclient"},
+	{path: javo + "storage/inventory"},
+	{path: javo + "storage/capability"},
+	{path: javo + "storage/choose"},
+	// The AI assistant: the providers' clients and the secret scanner.
+	{path: "github.com/openai/openai-go/v3"},
+	{path: "github.com/anthropics/anthropic-sdk-go"},
+	{path: javo + "ai/redact/scanner"},
+	{path: "github.com/zricethezav/gitleaks"},
+	{path: "github.com/mholt/archives"},
+	{path: "github.com/spf13/viper"},
+	// Failure notices, the agent endpoint, single sign-on, Postgres.
+	{path: javo + "jobs/notify"},
+	{path: "github.com/argoproj/notifications-engine"},
+	{path: javo + "mcp"},
+	{path: "github.com/modelcontextprotocol/go-sdk"},
+	{path: javo + "features/authoidc"},
+	{path: "github.com/coreos/go-oidc"},
+	{path: "github.com/go-jose/go-jose"},
+	{path: "github.com/jackc/pgx/v5"},
 }
 
 func goCmd(t *testing.T, args ...string) []string {
@@ -56,8 +94,7 @@ func goCmd(t *testing.T, args ...string) []string {
 }
 
 // under lists the names that are prefix, or prefix and then one of seps:
-// "/" for the import paths below a path, "." for the functions of a
-// package, whose symbols are its path, a dot and their name.
+// "/" for the import paths below a path.
 func under(names []string, prefix, seps string) []string {
 	var out []string
 	for _, name := range names {
@@ -72,49 +109,21 @@ func under(names []string, prefix, seps string) []string {
 func TestALocalBuildImportsNoneOfWhatItsFilesLeaveOut(t *testing.T) {
 	local := goCmd(t, "list", "-deps", "-tags", "local", "./cmd/javo")
 	whole := goCmd(t, "list", "-deps", "./cmd/javo")
-	for _, module := range notImported {
-		if len(under(whole, module, "/")) == 0 {
-			t.Errorf("the default build imports nothing of %s: it has moved, or is no longer used; correct this list", module)
+	for _, out := range notImported {
+		kept := func(pkg string) bool { return slices.Contains(out.but, pkg) }
+		if len(slices.DeleteFunc(under(whole, out.path, "/"), kept)) == 0 {
+			t.Errorf("the default build imports nothing of %s: it has moved, or is no longer used; correct this list", out.path)
 		}
-		if got := under(local, module, "/"); len(got) > 0 {
-			t.Errorf("the local build imports %s (%d of its packages), which only files with //go:build !local may import.\n"+
-				"What imports it, first on each line:\n"+
+		for _, pkg := range out.but {
+			if !slices.Contains(local, pkg) {
+				t.Errorf("the local build no longer imports %s, which this list lets it keep of %s; correct this list", pkg, out.path)
+			}
+		}
+		if got := slices.DeleteFunc(under(local, out.path, "/"), kept); len(got) > 0 {
+			t.Errorf("the local build imports %s (%d of its packages, %s among them), which only files with //go:build !local, "+
+				"or packages only they import, may import.\nWhat imports it, first on each line:\n"+
 				"  go list -deps -tags local -f '{{.ImportPath}}: {{join .Imports \" \"}}' ./cmd/javo | grep -v '^%s' | grep -F ' %s'",
-				module, len(got), module, module)
-		}
-	}
-}
-
-func TestALocalBuildLinksNoneOfWhatOnlyAClusterUses(t *testing.T) {
-	whole := goCmd(t, "list", "-deps", "./cmd/javo")
-	bin := filepath.Join(t.TempDir(), "javo")
-	// -w: no debug information, which nothing here reads and takes the
-	// longest to write.
-	goCmd(t, "build", "-tags", "local", "-ldflags=-w", "-o", bin, "./cmd/javo")
-	var funcs []string
-	for _, line := range goCmd(t, "tool", "nm", bin) {
-		if _, name, ok := strings.Cut(line, " T "); ok {
-			funcs = append(funcs, name)
-		} else if _, name, ok := strings.Cut(line, " t "); ok {
-			funcs = append(funcs, name)
-		}
-	}
-	if len(under(funcs, "main", ".")) == 0 {
-		t.Fatalf("go tool nm lists no function of main among %d", len(funcs))
-	}
-	for _, name := range notLinked {
-		pkg, below, seps := name, "", "."
-		if tree, ok := strings.CutSuffix(name, "/..."); ok {
-			pkg, below, seps = tree, "/", "./"
-		}
-		if len(under(whole, pkg, below)) == 0 {
-			t.Errorf("the default build imports nothing of %s: it has moved, or is no longer used; correct this list", name)
-		}
-		if got := under(funcs, pkg, seps); len(got) > 0 {
-			t.Errorf("the local build links %s (%d functions, %s among them): something reaches it without asking buildinfo.Local first, "+
-				"or asks after it has made a cluster call.\nWhat refers to it, one line a reference:\n"+
-				"  go build -tags local -ldflags=-dumpdep -o /dev/null ./cmd/javo 2>&1 | grep -F -- '-> %s'",
-				name, len(got), got[0], pkg)
+				out.path, len(got), got[0], out.path, out.path)
 		}
 	}
 }
