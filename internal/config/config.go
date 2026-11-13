@@ -72,6 +72,13 @@ type Platform struct {
 	// Workloads is the extra isolation of people's pods (apps, previews and
 	// job runs); off by default.
 	Workloads WorkloadsCfg `json:"workloads"`
+	// Executor is what runs apps: kubernetes (the default), docker or
+	// process. KeysDir, Docker and Process are the settings of the ones
+	// that are not Kubernetes (executor.go).
+	Executor string     `json:"executor,omitempty"`
+	KeysDir  string     `json:"keysDir,omitempty"`
+	Docker   DockerCfg  `json:"docker"`
+	Process  ProcessCfg `json:"process"`
 }
 
 // LimitsCfg is the admin's caps per person, so one person cannot fill the
@@ -741,14 +748,20 @@ func Load(path string) (Platform, error) {
 	if len(strict) > 0 {
 		return p, fmt.Errorf("decode %s: %w", path, errors.Join(strict...))
 	}
+	// What is set is only known before the defaults fill the rest in.
+	misplaced := p.misplaced()
 	p.applyDefaults()
-	if err := p.Validate(); err != nil {
+	if err := errors.Join(misplaced, p.Validate()); err != nil {
 		return p, fmt.Errorf("%s: %w", path, err)
 	}
 	return p, nil
 }
 
 func (p *Platform) applyDefaults() {
+	setStr(&p.Executor, ExecutorKubernetes)
+	if p.Executor == ExecutorDocker {
+		setStr(&p.Docker.Socket, DefaultDockerSocket)
+	}
 	setStr(&p.URLs.Mode, "path")
 	setStr(&p.Namespaces.Mode, "shared")
 	setStr(&p.Namespaces.Shared, model.DefaultWorkspaceNamespace)
@@ -950,6 +963,7 @@ func (p Platform) Validate() error {
 	}
 	p.Branding.validate(bad)
 	p.Limits.validate(bad)
+	p.validateExecutor(bad)
 	if p.Limits.Namespace.IsSet() && p.Namespaces.Mode == "shared" {
 		bad("limits.namespace", "only applies when namespaces.mode is per-user or per-team: in the shared namespace one quota would cap everyone together")
 	}
