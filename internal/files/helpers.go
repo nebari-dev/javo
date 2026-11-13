@@ -333,5 +333,23 @@ func (h *Helpers) Reap(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// End stops every helper, for a gateway that ends: their passwords are
+// in its memory only, so none could be used again, and a helper left
+// running would keep its owner's home mounted for nobody. Nothing that
+// does not have a helper's name is stopped.
+func (h *Helpers) End(ctx context.Context) error {
+	all, err := h.cfg.Exec.List(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, ref := range all {
+		if ref.Owner != "" && ref.Name == helperName(ref.Owner) {
+			errs = append(errs, h.end(ctx, ref))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Run stops idle helpers every minute until ctx is done.
 func (h *Helpers) Run(ctx context.Context) { reapLoop(ctx, "reap file helpers", h.Reap) }

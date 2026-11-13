@@ -530,3 +530,27 @@ func TestLoginsKeepNothingTheyAreHanded(t *testing.T) {
 		t.Errorf("Get = %v, %v", b, err)
 	}
 }
+
+// A gateway that ends stops every helper it could have served: their
+// passwords were only in its memory, so the next gateway would replace
+// each one anyway. Nothing that is not a file helper is stopped.
+func TestHelpersEndStopsEveryHelperAndNothingElse(t *testing.T) {
+	bob := "bob-bbbbbbbb"
+	h, x := newHelpers(t, helperOpts{storage: perOwner{}, volumes: volumesOf{homeVolume: owner, "javo-javo-apps.home-" + bob: bob}})
+	ctx := context.Background()
+	for _, who := range []string{owner, bob} {
+		if _, err := h.Ensure(ctx, who); !errors.Is(err, files.ErrHomeStarting) {
+			t.Fatal(err)
+		}
+	}
+	if err := x.Start(ctx, workload.Spec{Ref: workload.Ref{Namespace: ns, Name: bob + "-sales", Owner: bob, ID: "app-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.End(ctx); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(x.stopped)
+	if want := []string{"files--" + owner, "files--" + bob}; !slices.Equal(x.stopped, want) {
+		t.Fatalf("stopped %v, want %v", x.stopped, want)
+	}
+}

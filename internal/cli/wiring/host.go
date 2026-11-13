@@ -362,6 +362,15 @@ func (h *Host) onDocker(ctx context.Context, cfg config.Platform, in HostInputs,
 		return err
 	}
 	h.Files = files.NewLister(helpers, files.Rclone{})
+	// Helpers end with the gateway, which alone holds their passwords;
+	// before their executor is let go of.
+	h.closing = append([]func(){func() {
+		ctx, cancel := context.WithTimeout(context.Background(), helpersEnd)
+		defer cancel()
+		if err := helpers.End(ctx); err != nil {
+			slog.Warn("file helpers were left running; the next start replaces them", "err", err)
+		}
+	}}, h.closing...)
 
 	// The way out: a forward proxy on a port of this container, for the
 	// workloads of this Javo only. Its port is the one listener besides
@@ -413,6 +422,10 @@ func (h *Host) onDocker(ctx context.Context, cfg config.Platform, in HostInputs,
 	}
 	return nil
 }
+
+// helpersEnd is how long stopping the file helpers may take when Javo
+// ends.
+const helpersEnd = 30 * time.Second
 
 // probeRetry is the first wait before the Docker probe runs again after
 // it could not tell: its first run starts with the gateway, which may not
