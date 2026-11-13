@@ -64,3 +64,24 @@ Paths in the file browser and editor may have at most 64 folders and names; deep
 ## Failure notices for jobs
 
 `notifications.enabled` lets the controller send notices of failed job runs with [notifications-engine](https://github.com/argoproj/notifications-engine): services, templates, triggers and subscriptions go in the ConfigMap named by `notifications.configMapName`, credentials in the Secret named by `notifications.secretName`. Set `notifications.webhookURL` and the chart renders an example ConfigMap that posts failed runs to it. A job's failure message and display name come from the job's owner, so before they reach a template they are cut to 500 characters and escaped for the service type: an `@` that starts a word gets a zero-width space after it (no `@channel` or `@here`), links are written as `evil[.]example/x` and `https[:]//`, and `&`, `<` and `>` become entities. For a webhook, quotes become apostrophes, backslashes become slashes and line breaks become spaces, so the text is safe inside a JSON string written by hand or with `toJson`. One job sends at most one notice every 5 minutes; the failed runs in between are not sent.
+
+## Running without Kubernetes
+
+The chart always runs apps on the cluster it is installed in. A `javo server` started by hand with a config file of its own can run them on one Docker daemon, or as plain processes of the machine it is on, with no cluster and no kubeconfig. The config file then names the executor at its top level:
+
+| Key | Default | What it does |
+|---|---|---|
+| `executor` | `kubernetes` | What runs apps: `kubernetes`, `docker` or `process`. |
+| `keysDir` | none | For `docker` and `process`, required: the folder Javo keeps its own keys in (`secrets-key`, `sessions-key`, `secret-fingerprint-key`), made on the first start. The folder must be mode 0700 and each key 0600, owned by the user Javo runs as. |
+| `docker.socket` | `/var/run/docker.sock` | The Docker daemon's unix socket. Whoever holds it is root on that host. |
+| `docker.gateway` | none | Required: the name of the container Javo itself runs in. Apps reach only that container, and apps of another Javo on the same daemon are told apart by it. |
+| `docker.pool` | `10.213.0.0/16` | The private IPv4 range the apps' networks are cut from, 16 addresses each. |
+| `docker.runtime` | the daemon's own | A container runtime every app runs in, such as `runsc`. |
+| `process.stateDir` | none | Required: the folder Javo keeps the apps' logs, ports and secret files in (mode 0700). |
+| `process.homesDir` | none | Required: the folder each person's home is a folder of (mode 0700). |
+| `process.pixi` | `pixi` on `PATH` | The pixi binary that installs the apps' environments. |
+| `process.filesDir` | none | The folder with the platform's files, laid out as the platform's image holds them. |
+
+Javo does not start when it cannot keep such an install safe. With either executor: a key or a folder that its group or others can open, a flag that only means something on Kubernetes (`--network-policy`, `--sessions-key-secret`, `--metrics-bind-address` and the like: Javo then listens on `--listen` only), `javo gateway` or `javo controller` alone, and the sections `namespaces`, `workloads`, `storage`, `limits.namespace`, `backup.s3` and `source.previews.enabled`. With `docker`: a daemon that does not answer or is older than Docker 28.0, a `docker.runtime` the daemon lacks, or no container called `docker.gateway`. With `process`, which isolates nothing from the account Javo runs as and so serves one person on their own machine: running as root, a `--listen` address that is not loopback, `auth.oidc`, and a second person, in the database at start or at sign-in.
+
+Not available without Kubernetes yet: jobs (a job is Blocked and says so), homes and the file browser on Docker (an app there waits for its home), group folders, home backups and moves, the storage report and placement preview, previews, failure notices, and apps with no sign-in of their own, which need a network policy proven to be enforced.

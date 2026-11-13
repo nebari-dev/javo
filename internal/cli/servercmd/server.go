@@ -58,12 +58,12 @@ func NewServer() *cobra.Command {
 				return err
 			}
 			if host != nil {
-				if !runGateway || !runController {
-					return needsCluster(platform, "--components with one component")
-				}
 				// After both components have ended: apps that are processes
 				// stop here.
 				defer host.Close()
+				if !runGateway || !runController {
+					return needsCluster(platform, "--components with one component")
+				}
 			}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
