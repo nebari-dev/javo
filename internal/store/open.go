@@ -15,8 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
@@ -100,7 +98,7 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 		s.db, err = openSQLite(cfg)
 	case EnginePostgres:
 		s.dialect = goose.DialectPostgres
-		s.notify = &pgNotifier{dsn: cfg.DSN, emit: s.emit}
+		s.notify = newPostgresNotifier(cfg.DSN, s.emit)
 		s.backup = backupPostgres
 		s.locker, err = lock.NewPostgresSessionLocker()
 		if err == nil {
@@ -153,17 +151,6 @@ func openSQLite(cfg Config) (*sql.DB, error) {
 	}
 	u := url.URL{Scheme: "file", Opaque: cfg.Path, RawQuery: q.Encode()}
 	return sql.Open("sqlite", u.String())
-}
-
-func openPostgres(cfg Config) (*sql.DB, error) {
-	pc, err := pgx.ParseConfig(cfg.DSN)
-	if err != nil {
-		return nil, err
-	}
-	if cfg.ReadOnly {
-		pc.RuntimeParams["default_transaction_read_only"] = "on"
-	}
-	return stdlib.OpenDB(*pc), nil
 }
 
 // Close releases the connections.
