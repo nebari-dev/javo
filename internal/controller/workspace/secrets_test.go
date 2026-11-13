@@ -246,7 +246,7 @@ func TestUnreadableSecretsFailTheApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRec(s, func(r *Reconciler) { r.SecretKeys, r.Secrets = &secrets.Keys{Store: s, KEK: other}, k8s })
+	r := newRec(s, func(r *Reconciler) { r.SecretKeys = &secrets.Keys{Store: s, KEK: other} })
 	for range 2 {
 		reconcileNow(t, r, app.ID)
 	}

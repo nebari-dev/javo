@@ -33,14 +33,14 @@ func (r *Reconciler) secretsOf(ctx context.Context, app *model.App, agent agentM
 // is why the values could not be opened (never a value), for the app's
 // status. No error or log line holds a value.
 func (r *Reconciler) writeAppSecrets(ctx context.Context, app *model.App, want secretenv.Set) (unreadable string, err error) {
-	ref, name := refOf(app), AppSecretsName(app.ObjectName())
+	ref, name := RefOf(app), AppSecretsName(app.ObjectName())
 	if want.Fingerprint == "" {
-		return "", r.vault().Delete(ctx, ref, name)
+		return "", r.Secrets.Delete(ctx, ref, name)
 	}
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	have, err := r.vault().Get(ctx, ref, name)
+	have, err := r.Secrets.Get(ctx, ref, name)
 	switch {
 	case err != nil:
 		return "", err
@@ -51,7 +51,7 @@ func (r *Reconciler) writeAppSecrets(ctx context.Context, app *model.App, want s
 	if unreadable != "" {
 		return unreadable, nil
 	}
-	err = r.vault().Put(ctx, ref, name, executor.Bundle{
+	err = r.Secrets.Put(ctx, ref, name, executor.Bundle{
 		Data: data, Meta: map[string]string{model.AnnotationSecrets: want.Fingerprint}, Rebuildable: true,
 	})
 	if err != nil {

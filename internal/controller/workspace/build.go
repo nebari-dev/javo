@@ -14,10 +14,6 @@ import (
 	"text/template"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
-
 	"github.com/nebari-dev/javo/internal/cmdline"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
@@ -49,15 +45,6 @@ type templateData struct {
 	// Host is the public host (and port, if any) browsers reach the gateway
 	// at, for apps that check the websocket Origin. Empty when not configured.
 	Host string
-}
-
-// labels are what the controller finds an app's runtime objects by: the row
-// id (the only link back to the row) and the owner.
-func labels(app *model.App) map[string]string {
-	return map[string]string{
-		model.LabelApp:   app.ID,
-		model.LabelOwner: app.Owner,
-	}
 }
 
 // templateFuncs are the functions template strings may call: dir and base
@@ -329,18 +316,4 @@ func readyCheck(t *model.Template, data templateData) (*workload.Check, error) {
 		return nil, err
 	}
 	return &workload.Check{HTTPPath: probePath}, nil
-}
-
-// BuildService returns the desired Service; its name equals the Pod's.
-func BuildService(ws *model.App, t *model.Template) *corev1.Service {
-	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: ws.ObjectName(), Namespace: ws.Namespace, Labels: labels(ws)},
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{model.LabelApp: ws.ID},
-			Ports: []corev1.ServicePort{{
-				Port:       AppPortOf(ws, t),
-				TargetPort: intstr.FromInt32(AppPortOf(ws, t)),
-			}},
-		},
-	}
 }

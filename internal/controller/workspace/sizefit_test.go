@@ -37,8 +37,8 @@ func TestAppBiggerThanEveryMachineFailsAsSizeTooBig(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newRec(fx.db, func(r *Reconciler) {
-		r.Sizes = cat
-		r.Machines = fixedMachines{{CPU: resource.MustParse("2"), Memory: resource.MustParse("4Gi")}}
+		r.Sizes, onKube(r).Sizes = cat, cat
+		onKube(r).Machines = fixedMachines{{CPU: resource.MustParse("2"), Memory: resource.MustParse("4Gi")}}
 	})
 	for size, wantPhase := range map[string]string{"big": "Failed", "burst": "Starting"} {
 		app := newAppIn(t, fx.db, alloc, "ws-fit-"+size, "erin", "lab-fit", func(a *model.App) { a.Size = size })

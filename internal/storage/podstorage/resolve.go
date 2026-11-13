@@ -81,6 +81,16 @@ func (r Resolver) EnsureHome(ctx context.Context, m HomeMaker, ns, owner string)
 	return m.Ensure(ctx, ns, owner, size)
 }
 
+// HomeClaim names the claim that holds owner's home in ns, "" while the
+// home has none.
+func (r Resolver) HomeClaim(ctx context.Context, ns, owner string) (string, error) {
+	home, err := r.Homes.ByOwner(ctx, ns, owner)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	return home.Status.ClaimName, err
+}
+
 // Provisioner is a Resolver that makes a missing home with Maker, for callers
 // that ask for a home without starting an app (the file pods).
 type Provisioner struct {

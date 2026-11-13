@@ -36,6 +36,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/controller/workspace"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/features/placementperteam"
 	"github.com/nebari-dev/javo/internal/features/placementperuser"
 	"github.com/nebari-dev/javo/internal/features/placementshared"
@@ -259,13 +260,22 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	}); err != nil {
 		return err
 	}
+	appStorage := wiring.StorageResolver(db, platform)
+	// Apps run as Pods: the executor is the only part of the app controller
+	// that talks to the cluster.
+	apps := &kube.Executor{
+		Sizes: appSizes, Machines: capacity.Nodes{Reader: mgr.GetClient()}, HomeClaim: appStorage.HomeClaim,
+		ManagedOnly: !shared, Isolation: platform.Workloads.Isolation(),
+	}
+	if err := apps.SetupWithManager(mgr); err != nil {
+		return err
+	}
 	if err := (&workspace.Reconciler{
-		Client: mgr.GetClient(), Store: db, Storage: wiring.StorageResolver(db, platform),
+		Exec: apps, Place: apps, Store: db, Storage: appStorage,
 		ReadyTimeout: o.readyTimeout, PublicHost: common.publicHost, Sizes: appSizes,
-		Machines: capacity.Nodes{Reader: mgr.GetClient()},
-		UIDMode:  platform.Identity.UIDMode, Exposure: wiring.Exposure(platform),
-		ManagedNamespacesOnly: !shared, NetworkPolicy: policy,
-		Tokens: &token.DBStore{Tokens: db.Tokens()}, Secrets: mgr.GetAPIReader(),
+		UIDMode: platform.Identity.UIDMode, Exposure: wiring.Exposure(platform),
+		NetworkPolicy: policy,
+		Tokens:        &token.DBStore{Tokens: db.Tokens()}, Secrets: kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()},
 		APIURL:         publicURL(platform.URLs, common.publicHost),
 		APIInternalURL: gatewayBase(o.probe.controlURL),
 		CloneImage:     platform.Source.CloneImage, CloneGitConfig: platform.Source.GitConfig, RunnerImage: o.platformImage(),
@@ -277,7 +287,6 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 		// Checked again at each pod build, so a tightened list stops
 		// apps saved before.
 		AllowedRegistries: platform.ContainerImages.AllowedRegistries,
-		Isolation:         platform.Workloads.Isolation(),
 	}).SetupWithManager(mgr, feed); err != nil {
 		return err
 	}

@@ -3,25 +3,35 @@ package workspace
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
-
-	"github.com/nebari-dev/javo/internal/controller/sweep"
-	"github.com/nebari-dev/javo/internal/model"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// Sweep deletes the Pods and Services that carry an app id no row has any
-// more: what an app left behind when its row was removed without the
-// controller running. See sweep.Orphans for what it touches.
+// Sweep removes what carries an app id no row has any more: what an app
+// left behind when its row was removed without the controller running. It
+// asks the executor first and reads the rows after, so a workload started
+// while the sweep runs belongs to a row that is among them.
 func (r *Reconciler) Sweep(ctx context.Context) error {
-	return sweep.Orphans{
-		Client: r.Client, Label: model.LabelApp, ManagedOnly: r.ManagedNamespacesOnly,
-		Live: func(ctx context.Context) (map[string]bool, error) {
-			apps, err := r.Store.Apps().ListAll(ctx)
-			live := make(map[string]bool, len(apps))
-			for _, a := range apps {
-				live[a.ID] = true
-			}
-			return live, err
-		},
-	}.Delete(ctx, &corev1.PodList{}, &corev1.ServiceList{})
+	refs, err := r.Exec.List(ctx)
+	if err != nil {
+		return err
+	}
+	apps, err := r.Store.Apps().ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	live := make(map[string]bool, len(apps))
+	for _, a := range apps {
+		live[a.ID] = true
+	}
+	var failed error
+	for _, ref := range refs {
+		if live[ref.ID] {
+			continue
+		}
+		log.FromContext(ctx).Info("removing what an app whose row is gone left", "namespace", ref.Namespace, "name", ref.Name)
+		if err := r.remove(ctx, ref); err != nil {
+			failed = err
+		}
+	}
+	return failed
 }

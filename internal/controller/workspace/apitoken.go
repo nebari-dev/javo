@@ -84,8 +84,8 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 	if r.Tokens == nil || r.Secrets == nil {
 		return "", errors.New("the template gives apps an API token, but the controller has no token store")
 	}
-	name, ref := APITokenSecretName(app.ObjectName()), refOf(app)
-	have, err := r.vault().Get(ctx, ref, name)
+	name, ref := APITokenSecretName(app.ObjectName()), RefOf(app)
+	have, err := r.Secrets.Get(ctx, ref, name)
 	if err != nil {
 		return "", err
 	}
@@ -109,7 +109,7 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 			}
 			// A newer guide ships with this controller; the token stays.
 			have.Data[APIGuideKey] = apiGuide
-			return name, r.vault().Put(ctx, ref, name, *have)
+			return name, r.Secrets.Put(ctx, ref, name, *have)
 		}
 	}
 	text, tok, err := r.Tokens.Create(ctx, model.Actor{System: model.SystemController}, token.Token{
@@ -119,7 +119,7 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 	if err != nil {
 		return "", fmt.Errorf("make the app's API token: %w", err)
 	}
-	err = r.vault().Put(ctx, ref, name, executor.Bundle{
+	err = r.Secrets.Put(ctx, ref, name, executor.Bundle{
 		Data: map[string][]byte{APITokenKey: []byte(text), APIGuideKey: apiGuide},
 		Meta: map[string]string{model.AnnotationTokenID: tok.ID, model.AnnotationTokenScope: string(scope)},
 	})
@@ -146,5 +146,5 @@ func bundleScope(b *executor.Bundle) token.Scope {
 // removeAPIToken deletes the app's token Secret, if any. Its token record
 // is the gateway's to revoke (see ensureAPIToken).
 func (r *Reconciler) removeAPIToken(ctx context.Context, app *model.App) error {
-	return r.vault().Delete(ctx, refOf(app), APITokenSecretName(app.ObjectName()))
+	return r.Secrets.Delete(ctx, RefOf(app), APITokenSecretName(app.ObjectName()))
 }

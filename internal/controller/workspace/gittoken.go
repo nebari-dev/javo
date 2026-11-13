@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -16,8 +15,8 @@ import (
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
-	"github.com/nebari-dev/javo/internal/source"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // syncGitToken keeps the app's repository token Secret in step with the
@@ -35,13 +34,13 @@ import (
 // controller copies a pasted text into the Secret and clears it from the row
 // (so no logical backup holds it), and, given the secrets key, adopts it
 // into a secret of the owner (AdoptGitToken), after which it comes from that
-// secret. An app whose token was removed loses the Secret (pod is the app's
-// Pod or nil: only an app that had one, or whose pod is not built yet, can
-// have one left, so others make no call).
+// secret. An app whose token was removed loses the Secret (have is the app's
+// workload or nil: only an app that had one, or whose workload is not built
+// yet, can have one left, so others make no call).
 //
 // A preview uses its parent's Secret in the same namespace and never writes
 // it; a fork preview uses none.
-func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *corev1.Pod) (holderName, generation, unreadable string, err error) {
+func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, have *workload.State) (holderName, generation, unreadable string, err error) {
 	if app.Source == nil || app.Source.Fork {
 		return "", "", "", nil
 	}
@@ -76,8 +75,8 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 	}
 	switch {
 	case !has:
-		if app.ParentID == "" && (pod == nil || pod.Annotations[model.AnnotationGitToken] != "") {
-			if err := r.vault().Delete(ctx, refOf(app), GitTokenSecretName(app.ObjectName())); err != nil {
+		if app.ParentID == "" && (have == nil || have.Fingerprint.GitToken != "") {
+			if err := r.Secrets.Delete(ctx, RefOf(app), GitTokenSecretName(app.ObjectName())); err != nil {
 				return "", "", "", err
 			}
 		}
@@ -116,7 +115,7 @@ func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, ge
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	have, err := r.vault().Get(ctx, refOf(app), GitTokenSecretName(app.ObjectName()))
+	have, err := r.Secrets.Get(ctx, RefOf(app), GitTokenSecretName(app.ObjectName()))
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +133,7 @@ func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, ge
 // secret of the owner sealed with the public half of the keyset. Nothing is
 // done while the Secret holds no token yet.
 func (r *Reconciler) adoptGitToken(ctx context.Context, app *model.App) error {
-	token, err := ReadGitToken(ctx, r.Secrets, app)
+	token, err := readGitToken(ctx, r.Secrets, app)
 	if err != nil || token == "" {
 		return err
 	}
@@ -158,7 +157,7 @@ func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, token, 
 	if r.Secrets == nil {
 		return errors.New("the app has a repository token, but the controller has no Secret reader")
 	}
-	err := r.vault().Put(ctx, refOf(app), GitTokenSecretName(app.ObjectName()), executor.Bundle{
+	err := r.Secrets.Put(ctx, RefOf(app), GitTokenSecretName(app.ObjectName()), executor.Bundle{
 		Data: map[string][]byte{gitTokenKey: []byte(token)}, Meta: map[string]string{model.AnnotationGitToken: gen},
 	})
 	if err != nil {
@@ -167,26 +166,15 @@ func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, token, 
 	return nil
 }
 
-// commitOf is the commit the pod's clone checked out, once source-check has
-// finished, or "".
-func commitOf(pod *corev1.Pod) string {
-	if pod == nil {
-		return ""
-	}
-	for _, cs := range pod.Status.InitContainerStatuses {
-		if t := cs.State.Terminated; cs.Name == source.CheckContainer && t != nil && t.ExitCode == 0 {
-			c, _ := source.CommitOf(t.Message)
-			return c
-		}
-	}
-	return ""
-}
-
 // ReadGitToken returns the repository token the app's clone uses, read live
 // from its Secret, or "" when the app has none. A Secret of that name that is
 // not labelled as the app's is an error. Callers must never log the token.
 func ReadGitToken(ctx context.Context, secrets client.Reader, app *model.App) (string, error) {
-	have, err := kube.Secrets{Reader: secrets}.Get(ctx, refOf(app), GitTokenSecretName(app.ObjectName()))
+	return readGitToken(ctx, kube.Secrets{Reader: secrets}, app)
+}
+
+func readGitToken(ctx context.Context, secrets executor.Secrets, app *model.App) (string, error) {
+	have, err := secrets.Get(ctx, RefOf(app), GitTokenSecretName(app.ObjectName()))
 	if err != nil || have == nil {
 		return "", err
 	}

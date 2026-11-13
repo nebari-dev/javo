@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
 )
@@ -177,7 +178,7 @@ func TestAppTokenWithoutARowIsReplaced(t *testing.T) {
 	if n, err := fx.db.Tokens().DeleteFor(ctx, model.Actor{System: model.SystemCLI}, alice); err != nil || n != 1 {
 		t.Fatalf("DeleteFor = %d, %v", n, err)
 	}
-	reconcileNow(t, newRec(fx.db, func(r *Reconciler) { r.Tokens, r.Secrets = fx.records(), k8s }), app.ID)
+	reconcileNow(t, newRec(fx.db, func(r *Reconciler) { r.Tokens = fx.records() }), app.ID)
 	var fresh string
 	eventually(t, "a new token", func() bool {
 		sec := &corev1.Secret{}
@@ -328,8 +329,8 @@ func TestAppTokenNotStoredIsRevoked(t *testing.T) {
 	// No controller runs from here on, so only the reconcile below acts.
 	fx.stop()
 	failing := newRec(fx.db, func(r *Reconciler) {
-		r.Client = secretWriteFails{Client: k8s, name: name}
-		r.Tokens, r.Secrets = fx.records(), k8s
+		r.Secrets = kube.Secrets{Reader: k8s, Client: secretWriteFails{Client: k8s, name: name}}
+		r.Tokens = fx.records()
 	})
 	// The row goes, so the next reconcile makes a new token.
 	if _, err := fx.db.Tokens().DeleteFor(bg, model.Actor{System: model.SystemCLI}, alice); err != nil {

@@ -135,7 +135,7 @@ func planRun(in Inputs) (workload.Spec, error) {
 	}
 
 	s := workload.Spec{
-		Ref:         refOf(ws),
+		Ref:         RefOf(ws),
 		Fingerprint: in.Fingerprint,
 		Resources:   t.Spec.Resources,
 		Size:        in.Size,

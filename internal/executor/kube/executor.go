@@ -80,8 +80,11 @@ func eventPod(o client.Object) []string {
 }
 
 // SetupWithManager makes e read and write through mgr, and has mgr's cache
-// index events by the object they are about.
+// index events by the object they are about. Machines is required.
 func (e *Executor) SetupWithManager(mgr ctrl.Manager) error {
+	if e.Machines == nil {
+		return errors.New("kube.Executor: Machines is required")
+	}
 	e.Client, e.Reader, e.Informers = mgr.GetClient(), mgr.GetAPIReader(), mgr.GetCache()
 	return mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Event{}, indexEventPod, eventPod)
 }

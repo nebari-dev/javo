@@ -3,30 +3,22 @@ package workspace
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
-	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
-	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
-	"github.com/nebari-dev/javo/internal/executor/kube"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/imageref"
@@ -42,11 +34,15 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// Reconciler turns app rows into a Pod and a Service, asks for the owner's
-// home (which the storage controller turns into a claim), and writes what it
-// observed back to the row's status columns. It never writes spec columns.
+// Reconciler turns app rows into workloads an Executor runs, asks for the
+// owner's home (which the storage controller turns into a claim), and writes
+// what the Executor observed back to the row's status columns. It never
+// writes spec columns.
 type Reconciler struct {
-	client.Client
+	// Exec runs the apps' workloads and Place keeps what an app has beside
+	// its workload. Required.
+	Exec  executor.Executor
+	Place Place
 	// Store is the database the apps, templates and people are read from.
 	// Required.
 	Store *store.Store
@@ -61,18 +57,10 @@ type Reconciler struct {
 	PublicHost string
 	// Sizes are the admin-defined app sizes; empty keeps template resources.
 	Sizes sizes.Catalog
-	// Machines reads the cluster's nodes: a pod that fits none of them
-	// fails as SizeTooBig instead of waiting. Required.
-	Machines capacity.Source
 	// UIDMode is identity.uidMode; anything but config.UIDModeAllocated runs as FixedUID.
 	UIDMode string
 	// Exposure decides the app's URL and the base path it is told to serve under.
 	Exposure exposure.Backend
-	// ManagedNamespacesOnly builds apps only in namespaces labelled
-	// javo.nebari.dev/managed=true. Set it wherever the controller sees more
-	// than the one workspace namespace: an unlabelled namespace has no Pod
-	// Security labels and no gateway-only NetworkPolicy.
-	ManagedNamespacesOnly bool
 	// NetworkPolicy is the latest probe result; apps whose template has no
 	// login of their own start only when it reads Enforced. Required.
 	NetworkPolicy netprobe.Reader
@@ -83,12 +71,12 @@ type Reconciler struct {
 	// announcements, and every orphan swept. Zero means dbsource.DefaultResync.
 	ResyncEvery time.Duration
 	// Tokens stores the API tokens of apps with API access, and Secrets
-	// reads those apps' token Secrets live (Secrets are never cached).
+	// keeps the values an app reads: its API token, its secrets, its
+	// repository token and its Nebi token. Secrets is required, Tokens
+	// when any app has API access.
 	// APIURL is the UI's public URL, given to those apps as JAVO_URL.
-	// Required when any app has API access.
-	// Secrets also reads the repository token Secrets of apps from Git.
 	Tokens  TokenMinter
-	Secrets client.Reader
+	Secrets executor.Secrets
 	APIURL  string
 	// APIInternalURL is the gateway inside the cluster, given as
 	// JAVO_API_URL; the agents' model endpoint is reached there too.
@@ -97,8 +85,6 @@ type Reconciler struct {
 	// containers of apps from Git. Required when any app has a source.
 	CloneImage, CloneGitConfig string
 	RunnerImage                podspec.Image
-	// Isolation is applied to every app and preview pod (config workloads).
-	Isolation podspec.Isolation
 	// AllowedRegistries is containerImages.allowedRegistries: an app's own
 	// image is checked again when its pod is built, so tightening the list
 	// stops apps saved before. Empty allows any registry.
@@ -116,7 +102,7 @@ type Reconciler struct {
 	// their owner's Nebi token (WithNebi). Empty gives no app Nebi.
 	NebiURL string
 	// SecretKeys opens the values of people's secrets, which apps get
-	// through a per-app Secret (Secrets reads it). Nil when the controller
+	// through a bundle of their own (in Secrets). Nil when the controller
 	// has no key-encryption key: an app that gets secrets then fails as
 	// SecretsUnreadable rather than start without them.
 	SecretKeys *secrets.Keys
@@ -124,6 +110,21 @@ type Reconciler struct {
 	// the rule the API applies when the app is made; an app whose owner may
 	// not stops (TemplateNotAllowed). Required.
 	Access Access
+}
+
+// Place is what an app has where it runs for as long as its row exists,
+// whether or not its workload runs: on Kubernetes the Service the gateway
+// reaches it by, which also owns the bundles that can be made again.
+type Place interface {
+	// Hold makes sure the app has its place and is reached there on port.
+	// It comes before any of the app's bundles is written.
+	Hold(ctx context.Context, ref workload.Ref, port int32) error
+	// Tidy removes what earlier versions kept for the app under names no
+	// longer used. No workload of the app runs when it is called. An API
+	// token found there is handed to revoke first, by its id.
+	Tidy(ctx context.Context, ref workload.Ref, revoke func(ctx context.Context, tokenID string) error) error
+	// Release gives the place up. One that does not exist is not an error.
+	Release(ctx context.Context, ref workload.Ref) error
 }
 
 // Access decides whether owner may use template t. The jobs controller's
@@ -134,7 +135,10 @@ type Access interface {
 
 // RBAC for the controller (make rbac renders config/rbac/controller; the
 // Helm chart's Roles must grant the same rules, test/helm checks it). The
-// manager's cache needs list and watch on every type it reads.
+// manager's cache needs list and watch on every type it reads. Pods,
+// Services, claims, events, namespaces and nodes are the Kubernetes
+// executor's (internal/executor/kube); its rules are kept here, where make
+// rbac looks.
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
@@ -150,18 +154,54 @@ type Access interface {
 // Role there grants create alone).
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;delete
 
-// unmanagedRetry is how often an app in a not-yet-managed namespace is
-// looked at again.
+// unmanagedRetry is how often an app the executor does not serve yet (on
+// Kubernetes, one in a namespace not labelled as managed) is looked at
+// again.
 const unmanagedRetry = 10 * time.Second
 
-const indexEventName = "involvedObject.name"
+// pass is one reconcile of an app: what is known of it so far.
+type pass struct {
+	app *model.App
+	now time.Time
+	// have is the app's workload; nil when it has none, or none any more.
+	have *workload.State
+	// obs is what the status is derived from and url the address written
+	// with it.
+	obs status.Observed
+	url string
 
-// Reconcile makes the cluster match one app row (the request names its id)
-// and records derived status.
+	// tpl is the app's template; nil for a paused app, which needs none.
+	tpl *model.Template
+	// gitHolder and gitGen name the repository token the clone reads and
+	// gitUnreadable is why it could not be opened (syncGitToken).
+	gitHolder, gitGen, gitUnreadable string
+	// blocked is set when no workload may start because the app has no
+	// login of its own and network policy is not known to be enforced.
+	blocked bool
+	// layout is what the workload mounts, as which uid, and layoutFP its
+	// fingerprint; empty when the owner's uid is not known now.
+	layout   podstorage.Layout
+	layoutFP string
+}
+
+// verdict is what one step of a pass decided.
+type verdict struct {
+	// stop is set when the app's workload must not run (any longer).
+	stop bool
+	// done is set when the status is settled without looking at the
+	// workload; the steps after it are skipped. after is when to look
+	// again.
+	done  bool
+	after time.Duration
+}
+
+// Reconcile makes the app's workload match one app row (the request names
+// its id) and records derived status. The steps decide; the workload is
+// stopped and the status written here and nowhere else.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	app, err := r.Store.Apps().Get(ctx, req.Name)
 	if errors.Is(err, store.ErrNotFound) {
-		// Gone: its objects, if any are left, are the sweep's.
+		// Gone: what it left, if anything, is the sweep's.
 		return ctrl.Result{}, nil
 	}
 	if err != nil {
@@ -170,324 +210,294 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !app.DeletedAt.IsZero() {
 		return ctrl.Result{}, r.finalize(ctx, &app)
 	}
-	if r.ManagedNamespacesOnly {
-		if managed, err := namespace.IsManaged(ctx, r.Client, app.Namespace); err != nil {
-			return ctrl.Result{}, err
-		} else if !managed {
-			log.FromContext(ctx).Info("ignoring app in a namespace the controller does not manage", "namespace", app.Namespace)
-			// The namespace may gain the label later, or the cache may lag.
-			return ctrl.Result{RequeueAfter: unmanagedRetry}, nil
-		}
+	ref := RefOf(&app)
+	have, err := r.Exec.Observe(ctx, ref)
+	if errors.Is(err, executor.ErrUnmanaged) {
+		log.FromContext(ctx).Info("ignoring app in a namespace the controller does not manage", "namespace", app.Namespace)
+		return ctrl.Result{RequeueAfter: unmanagedRetry}, nil
 	}
-	owner, short := app.Owner, app.Name
-	appURL := r.Exposure.URLFor(owner, short, app.ObjectName())
-	url := appURL.String()
-	now := time.Now()
-	obs := status.Observed{Now: now, ReadyTimeout: r.ReadyTimeout}
-
-	pod, err := r.appPod(ctx, &app)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	appURL := r.Exposure.URLFor(app.Owner, app.Name, app.ObjectName())
+	p := &pass{app: &app, now: time.Now(), have: have, url: appURL.String()}
+	p.obs = status.Observed{Now: p.now, ReadyTimeout: r.ReadyTimeout}
+
+	var v verdict
+	for _, step := range []func(context.Context, *pass) (verdict, error){r.admit, r.house, r.run} {
+		if v, err = step(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
+		if v.stop && p.have != nil {
+			if err := r.Exec.Stop(ctx, ref); err != nil {
+				return ctrl.Result{}, err
+			}
+			p.have = nil
+		}
+		if v.done {
+			break
+		}
+	}
+
+	// The commit is the one the current workload reported, so a replaced
+	// workload's commit never lingers; an app held after a restore keeps
+	// the one it last ran.
+	commit := ""
+	if !v.done && p.have != nil {
+		p.obs.Workload, commit = p.have, p.have.Commit
+	}
+	if app.Held(p.now) {
+		commit = app.Status.Commit
+	}
+	phase, conds, evidence := status.Derive(&app, p.obs)
+	if err := r.writeStatus(ctx, &app, phase, p.url, status.WithEvidence(conds, evidence), commit); err != nil {
+		return ctrl.Result{}, err
+	}
+	switch {
+	case v.done:
+		return ctrl.Result{RequeueAfter: v.after}, nil
+	case p.blocked:
+		return ctrl.Result{RequeueAfter: r.policyRecheck()}, nil
+	}
+	return ctrl.Result{RequeueAfter: r.readyRecheck(p.have, phase, p.now)}, nil
+}
+
+// admit decides whether the app may run at all: not while it is held or
+// paused, and not without a template its owner may use.
+func (r *Reconciler) admit(ctx context.Context, p *pass) (verdict, error) {
+	app := p.app
 	// The token hand-off needs no template, so it runs before any state
-	// below (paused, template missing, home conflict) can return early and
+	// below (paused, template missing, home conflict) can end the pass and
 	// leave a pasted token in the row.
-	gitHolder, gitGen, gitUnreadable, err := r.syncGitToken(ctx, &app, pod)
-	if err != nil {
-		return ctrl.Result{}, err
+	var err error
+	if p.gitHolder, p.gitGen, p.gitUnreadable, err = r.syncGitToken(ctx, app, p.have); err != nil {
+		return verdict{}, err
 	}
-
-	// A restored app waits for an admin: no Pod, and no home claim, which
-	// the volume restore may still be bringing back.
-	if app.Held(now) {
-		if pod != nil {
-			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		var res ctrl.Result
+	// A restored app waits for an admin: no workload, and no home claim,
+	// which the volume restore may still be bringing back.
+	if app.Held(p.now) {
+		v := verdict{stop: true, done: true}
 		if !app.ReleaseAt.IsZero() {
-			res.RequeueAfter = app.ReleaseAt.Sub(now)
+			v.after = app.ReleaseAt.Sub(p.now)
 		}
-		phase, conds, _ := status.Derive(&app, obs)
-		return res, r.writeStatus(ctx, &app, phase, url, conds, app.Status.Commit)
+		return v, nil
 	}
-
-	var tpl *model.Template
 	if app.Paused {
-		if pod != nil {
-			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-				return ctrl.Result{}, err
-			}
-			pod = nil
-		}
-	} else {
-		t, err := r.Store.Templates().Get(ctx, app.Template)
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			obs.TemplateMissing = true
-			phase, conds, _ := status.Derive(&app, obs)
-			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, "", conds, "")
-		case err != nil:
-			return ctrl.Result{}, err
-		}
-		// Admin templates are stored as written; an empty field means its default.
-		t.Spec.ApplyDefaults()
-		if t.Spec.JobOnly {
-			// The template's command is a placeholder; a pod would exit and
-			// crash-loop.
-			obs.TemplateError = "the template only runs jobs, so it cannot start an app"
-			phase, conds, ev := status.Derive(&app, obs)
-			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, "", status.WithEvidence(conds, ev), "")
-		}
-		switch ok, err := r.Access.MayUse(ctx, app.Owner, &t); {
-		case err != nil:
-			return ctrl.Result{}, err
-		case !ok:
-			if pod != nil {
-				if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-					return ctrl.Result{}, err
-				}
-			}
-			obs.TemplateNotAllowed = true
-			phase, conds, _ := status.Derive(&app, obs)
-			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, "", conds, "")
-		}
-		tpl = &t
-		obs.AppLogin, obs.Builds = t.Spec.AppLogin, t.Spec.Build != nil
-		// withEnvironment adds the install step for either (internal/pixienv).
-		obs.InstallsEnv = t.Spec.Environment != "" || app.Environment != nil
-		if t.Spec.AppLogin == "Disabled" {
-			res, err := r.NetworkPolicy.Get(ctx)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			obs.NetworkPolicy = res.State
-		}
+		return verdict{stop: true}, nil
 	}
+	t, err := r.Store.Templates().Get(ctx, app.Template)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		p.obs.TemplateMissing, p.url = true, ""
+		return verdict{done: true}, nil
+	case err != nil:
+		return verdict{}, err
+	}
+	// Admin templates are stored as written; an empty field means its default.
+	t.Spec.ApplyDefaults()
+	if t.Spec.JobOnly {
+		// The template's command is a placeholder; a workload would exit
+		// and crash-loop.
+		p.obs.TemplateError, p.url = "the template only runs jobs, so it cannot start an app", ""
+		return verdict{done: true}, nil
+	}
+	switch ok, err := r.Access.MayUse(ctx, app.Owner, &t); {
+	case err != nil:
+		return verdict{}, err
+	case !ok:
+		p.obs.TemplateNotAllowed, p.url = true, ""
+		return verdict{stop: true, done: true}, nil
+	}
+	p.tpl = &t
+	p.obs.AppLogin, p.obs.Builds = t.Spec.AppLogin, t.Spec.Build != nil
+	// withEnvironment adds the install step for either (internal/pixienv).
+	p.obs.InstallsEnv = t.Spec.Environment != "" || app.Environment != nil
+	if t.Spec.AppLogin == "Disabled" {
+		res, err := r.NetworkPolicy.Get(ctx)
+		if err != nil {
+			return verdict{}, err
+		}
+		p.obs.NetworkPolicy = res.State
+	}
+	return verdict{}, nil
+}
 
-	if pod == nil {
-		// No pod reads the app's Secrets under their old names any more.
-		if err := r.dropLegacySecrets(ctx, &app); err != nil {
-			return ctrl.Result{}, err
+// house decides whether the app has what a workload needs before it is
+// built: its owner's home, ready to mount, and the uid it runs as.
+func (r *Reconciler) house(ctx context.Context, p *pass) (verdict, error) {
+	app := p.app
+	if p.have == nil {
+		// No workload reads what earlier versions kept for the app any more.
+		if err := r.Place.Tidy(ctx, RefOf(app), r.revokeOwn(app)); err != nil {
+			return verdict{}, err
 		}
 	}
-	home, err := r.ensureHome(ctx, &app)
+	home, err := r.ensureHome(ctx, app)
 	if err != nil {
-		return ctrl.Result{}, err
+		return verdict{}, err
 	}
 	if c := meta.FindStatusCondition(home.Status.Conditions, model.ConditionReady); c != nil && c.Reason == string(reasons.HomeClaimForeign) {
-		obs.HomeConflict = true
-		phase, conds, _ := status.Derive(&app, obs)
-		return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
+		p.obs.HomeConflict = true
+		return verdict{done: true}, nil
 	}
 	migrating := meta.IsStatusConditionTrue(home.Status.Conditions, model.ConditionMigrating)
-	if tpl != nil && (migrating || meta.IsStatusConditionTrue(home.Status.Conditions, model.ConditionRestoring)) {
+	if p.tpl != nil && (migrating || meta.IsStatusConditionTrue(home.Status.Conditions, model.ConditionRestoring)) {
 		// The copy (or the restore) owns the files until it ends: no app may
 		// write to them meanwhile. The home's change brings the app back afterwards.
-		if pod != nil {
-			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		obs.HomeMigrating, obs.HomeRestoring = migrating, !migrating
-		phase, conds, _ := status.Derive(&app, obs)
-		return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
+		p.obs.HomeMigrating, p.obs.HomeRestoring = migrating, !migrating
+		return verdict{stop: true, done: true}, nil
 	}
-	claim, err := r.homeClaim(ctx, &home)
-	if err != nil {
-		return ctrl.Result{}, err
+	// Like the owner's uid below, the home only matters when a workload is
+	// about to be built: one that already exists keeps its status while its
+	// home is being prepared again.
+	if p.tpl != nil && p.have == nil && !home.Status.Prepared {
+		p.obs.HomeReason, p.obs.HomeEvidence = homeBlock(&home)
+		return verdict{done: true}, nil
 	}
-	// Like the owner's uid below, the home only matters when a pod is about to
-	// be built: a pod that already exists keeps its status while its home is
-	// being prepared again.
-	if tpl != nil && pod == nil && !home.Status.Prepared {
-		obs.HomeReason, obs.HomeEvidence = homeBlock(&home)
-		phase, conds, evidence := status.Derive(&app, obs)
-		return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, status.WithEvidence(conds, evidence), "")
-	}
-	blocked := pod == nil && status.LoginlessBlocked(obs.AppLogin, obs.NetworkPolicy)
-	// The layout the pod should have: what it mounts, as which uid. A pod
-	// that already exists keeps its status whatever happens to the person,
-	// so without their uid it is kept (layoutFP stays empty); a pod about to
-	// be built waits for it.
-	var layout podstorage.Layout
-	var layoutFP string
-	if tpl != nil && !blocked {
+	p.blocked = p.have == nil && status.LoginlessBlocked(p.obs.AppLogin, p.obs.NetworkPolicy)
+	// The layout the workload should have: what it mounts, as which uid. A
+	// workload that already exists keeps its status whatever happens to the
+	// person, so without their uid it is kept (layoutFP stays empty); one
+	// about to be built waits for it.
+	if p.tpl != nil && !p.blocked {
 		uid, ok, err := identity.PodUIDOf(ctx, r.Store.People(store.IDRange{}), r.UIDMode, app.Owner)
 		switch {
 		case err != nil:
-			return ctrl.Result{}, err
+			return verdict{}, err
 		case ok:
-			if layout, err = r.layout(ctx, &app, uid); err != nil {
-				return ctrl.Result{}, err
+			if p.layout, err = r.layout(ctx, app, uid); err != nil {
+				return verdict{}, err
 			}
-			layoutFP = LayoutFingerprint(&app, tpl, layout)
-		case pod == nil:
-			obs.IdentityPending = true
-			phase, conds, _ := status.Derive(&app, obs)
-			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
+			p.layoutFP = LayoutFingerprint(app, p.tpl, p.layout)
+		case p.have == nil:
+			p.obs.IdentityPending = true
+			return verdict{done: true}, nil
 		}
 	}
-	var tokenSecret, access string
-	if tpl != nil {
-		if err := r.ensureService(ctx, &app, tpl); err != nil {
-			return ctrl.Result{}, err
-		}
-		access = model.APIAccessOf(&app, tpl)
-		if scope := token.ScopeFor(access); scope != "" {
-			if tokenSecret, err = r.ensureAPIToken(ctx, &app, scope); err != nil {
-				return ctrl.Result{}, err
-			}
-		} else if pod == nil || kube.FingerprintOf(pod).APIAccess != model.APIAccessNone {
-			// Only an app that had access, or whose pod is not built yet,
-			// can have a Secret left; others make no call.
-			if err := r.removeAPIToken(ctx, &app); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		if r.NebiURL != "" && model.NebiTokenFor(&app, tpl) {
-			if err := r.syncNebiToken(ctx, &app); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		agent, err := r.agentModelOf(ctx, &app, tpl)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		appSecrets, err := r.secretsOf(ctx, &app, agent)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		obj := app.ObjectName()
-		if pod != nil && readsOtherSecrets(pod, APITokenSecretName(obj), AppSecretsName(obj), NebiTokenSecretName(obj), GitTokenSecretName(gitHolder)) {
-			// Built before the Secrets' names changed: built again once,
-			// after which the old Secrets go (dropLegacySecrets).
-			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-				return ctrl.Result{}, err
-			}
-			phase, conds, _ := status.Derive(&app, obs)
-			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
-		}
-		built := r.fingerprint(&app, access, gitGen, appSecrets.Fingerprint, layoutFP)
-		if pod != nil && built.Outdated(kube.FingerprintOf(pod)) {
-			// The next reconcile, once the old pod is gone, builds the new one.
-			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
-				return ctrl.Result{}, err
-			}
-			phase, conds, _ := status.Derive(&app, obs)
-			return ctrl.Result{}, r.writeStatus(ctx, &app, phase, url, conds, "")
-		}
-		if pod == nil && !blocked {
-			size, ok := r.appSize(&app)
-			unreadable, err := r.writeAppSecrets(ctx, &app, appSecrets)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if unreadable == "" {
-				unreadable = gitUnreadable
-			}
-			if !ok {
-				obs.SizeUnknown = app.Size
-			} else if unreadable != "" {
-				obs.SecretsUnreadable = unreadable
-			} else {
-				in := Inputs{
-					App: &app, Template: tpl, Layout: layout, Size: size, Fingerprint: built,
-					Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries},
-					APIAccess: access, HasToken: tokenSecret != "", APIURL: r.APIURL, APIInternalURL: r.APIInternalURL,
-					GitHolder: gitHolder, GitGen: gitGen, Secrets: appSecrets, Agent: agent,
-				}
-				in.BaseURL, in.PublicHost = r.platform().address(&app)
-				if r.NebiURL != "" && model.NebiTokenFor(&app, tpl) {
-					in.NebiURL = r.NebiURL
-				}
-				if in.EnvFiles, err = r.environmentFiles(ctx, &app); err != nil {
-					return ctrl.Result{}, err
-				}
-				spec, planErr := Plan(in)
-				var notAllowed *imageref.NotAllowedError
-				var noEnvironment *EnvironmentError
-				switch {
-				case errors.As(planErr, &notAllowed):
-					obs.ImageNotAllowed = reasons.Msg(reasons.MsgImageRegistryNotAllowed, notAllowed.Registry, strings.Join(r.AllowedRegistries, ", "))
-				case errors.As(planErr, &noEnvironment):
-					obs.EnvironmentProblem = noEnvironment.Error()
-				case planErr != nil:
-					obs.TemplateError = planErr.Error()
-				default:
-					if pod, err = r.createPod(ctx, kube.Render(spec, r.Isolation)); err != nil {
-						return ctrl.Result{}, err
-					}
-				}
-			}
-		}
-	}
-
-	seen := kube.Seen{Pod: pod, Claim: claim}
-	if pod != nil {
-		if seen.Events, err = r.podEvents(ctx, &app, pod); err != nil {
-			return ctrl.Result{}, err
-		}
-		if seen.Machines, err = r.Machines.Cluster(ctx); err != nil {
-			return ctrl.Result{}, err
-		}
-		size, _ := r.appSize(&app)
-		seen.SizeMayWait = size.AllowUnschedulable
-	}
-	obs.Workload = kube.Observe(seen)
-	phase, conds, evidence := status.Derive(&app, obs)
-	if err := r.writeStatus(ctx, &app, phase, url, status.WithEvidence(conds, evidence), commitOf(pod)); err != nil {
-		return ctrl.Result{}, err
-	}
-	if blocked {
-		return ctrl.Result{RequeueAfter: r.policyRecheck()}, nil
-	}
-	return ctrl.Result{RequeueAfter: r.readyRecheck(pod, phase, now)}, nil
+	return verdict{}, nil
 }
 
-// appPod returns the app's Pod, or nil. A Pod of that name that carries
-// another app's id (or none) is not the app's and is never touched.
-func (r *Reconciler) appPod(ctx context.Context, app *model.App) (*corev1.Pod, error) {
-	pod := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: app.Namespace, Name: app.ObjectName()}, pod)
+// run brings the app's workload in line with its row: the values it reads
+// are written, a workload built from something else is stopped (the next
+// pass, once it is gone, starts the new one), and an app with none gets
+// one.
+func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
+	app, tpl, ref := p.app, p.tpl, RefOf(p.app)
+	if tpl == nil {
+		return verdict{}, nil
+	}
+	if err := r.Place.Hold(ctx, ref, AppPortOf(app, tpl)); err != nil {
+		return verdict{}, err
+	}
+	access, hasToken := model.APIAccessOf(app, tpl), false
+	if scope := token.ScopeFor(access); scope != "" {
+		if _, err := r.ensureAPIToken(ctx, app, scope); err != nil {
+			return verdict{}, err
+		}
+		hasToken = true
+	} else if p.have == nil || p.have.Fingerprint.APIAccess != model.APIAccessNone {
+		// Only an app that had access, or whose workload is not built yet,
+		// can have a token left; others make no call.
+		if err := r.removeAPIToken(ctx, app); err != nil {
+			return verdict{}, err
+		}
+	}
+	if r.NebiURL != "" && model.NebiTokenFor(app, tpl) {
+		if err := r.syncNebiToken(ctx, app); err != nil {
+			return verdict{}, err
+		}
+	}
+	agent, err := r.agentModelOf(ctx, app, tpl)
+	if err != nil {
+		return verdict{}, err
+	}
+	appSecrets, err := r.secretsOf(ctx, app, agent)
+	if err != nil {
+		return verdict{}, err
+	}
+	built := r.fingerprint(app, access, p.gitGen, appSecrets.Fingerprint, p.layoutFP)
+	if p.have != nil {
+		// Stale: built before the names of what it reads changed, after
+		// which what was kept under the old ones goes (Place.Tidy).
+		return verdict{stop: p.have.Stale || built.Outdated(p.have.Fingerprint)}, nil
+	}
+	if p.blocked {
+		return verdict{}, nil
+	}
+	size, ok := r.appSize(app)
+	unreadable, err := r.writeAppSecrets(ctx, app, appSecrets)
+	if err != nil {
+		return verdict{}, err
+	}
+	if unreadable == "" {
+		unreadable = p.gitUnreadable
+	}
+	if !ok {
+		p.obs.SizeUnknown = app.Size
+		return verdict{}, nil
+	}
+	if unreadable != "" {
+		p.obs.SecretsUnreadable = unreadable
+		return verdict{}, nil
+	}
+	in := Inputs{
+		App: app, Template: tpl, Layout: p.layout, Size: size, Fingerprint: built,
+		Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries},
+		APIAccess: access, HasToken: hasToken, APIURL: r.APIURL, APIInternalURL: r.APIInternalURL,
+		GitHolder: p.gitHolder, GitGen: p.gitGen, Secrets: appSecrets, Agent: agent,
+	}
+	in.BaseURL, in.PublicHost = r.platform().address(app)
+	if r.NebiURL != "" && model.NebiTokenFor(app, tpl) {
+		in.NebiURL = r.NebiURL
+	}
+	if in.EnvFiles, err = r.environmentFiles(ctx, app); err != nil {
+		return verdict{}, err
+	}
+	spec, planErr := Plan(in)
+	var notAllowed *imageref.NotAllowedError
+	var noEnvironment *EnvironmentError
 	switch {
-	case apierrors.IsNotFound(err):
-		return nil, nil
-	case err != nil:
-		return nil, err
-	case pod.Labels[model.LabelApp] != app.ID:
-		return nil, fmt.Errorf("pod %s/%s exists and does not belong to app %s", pod.Namespace, pod.Name, app.ID)
+	case errors.As(planErr, &notAllowed):
+		p.obs.ImageNotAllowed = reasons.Msg(reasons.MsgImageRegistryNotAllowed, notAllowed.Registry, strings.Join(r.AllowedRegistries, ", "))
+	case errors.As(planErr, &noEnvironment):
+		p.obs.EnvironmentProblem = noEnvironment.Error()
+	case planErr != nil:
+		p.obs.TemplateError = planErr.Error()
+	default:
+		if err := r.Exec.Start(ctx, spec); err != nil {
+			return verdict{}, err
+		}
+		if p.have, err = r.Exec.Observe(ctx, ref); err != nil {
+			return verdict{}, err
+		}
 	}
-	return pod, nil
+	return verdict{}, nil
 }
 
-// finalize removes what an app marked deleted left in the cluster: its Pod,
-// Service and token Secrets, never the owner's home. Once that is done it
-// closes the app's open usage interval and removes the row. A failure leaves
-// the row, so the next reconcile tries again.
+// remove ends the app's workload and gives up its place: all an app has
+// where it runs, but for its bundles.
+func (r *Reconciler) remove(ctx context.Context, ref workload.Ref) error {
+	if err := r.Exec.Stop(ctx, ref); err != nil {
+		return err
+	}
+	return r.Place.Release(ctx, ref)
+}
+
+// finalize removes what an app marked deleted left where it ran: its
+// workload, its place and its bundles, never the owner's home. Once that is
+// done it closes the app's open usage interval and removes the row. A
+// failure leaves the row, so the next reconcile tries again.
 func (r *Reconciler) finalize(ctx context.Context, app *model.App) error {
-	key := client.ObjectKey{Namespace: app.Namespace, Name: app.ObjectName()}
-	for _, obj := range []client.Object{&corev1.Pod{}, &corev1.Service{}} {
-		if err := r.Get(ctx, key, obj); apierrors.IsNotFound(err) {
-			continue
-		} else if err != nil {
-			return err
-		}
-		// Another app's object of the same name is not this app's to delete.
-		if obj.GetLabels()[model.LabelApp] != app.ID {
-			continue
-		}
-		if err := r.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
-			return err
-		}
+	ref := RefOf(app)
+	if err := r.remove(ctx, ref); err != nil {
+		return err
 	}
 	for _, use := range secretUses {
-		if err := r.vault().Delete(ctx, refOf(app), SecretName(app.ObjectName(), use)); err != nil {
+		if err := r.Secrets.Delete(ctx, ref, SecretName(app.ObjectName(), use)); err != nil {
 			return err
 		}
 	}
-	if err := r.dropLegacySecrets(ctx, app); err != nil {
+	if err := r.Place.Tidy(ctx, ref, r.revokeOwn(app)); err != nil {
 		return err
 	}
 	if err := r.Store.Usage().Stop(ctx, app.ID, time.Now()); err != nil {
@@ -533,19 +543,6 @@ func (r *Reconciler) ensureHome(ctx context.Context, app *model.App) (model.Home
 	return r.Storage.EnsureHome(ctx, r.Store.Homes(), app.Namespace, app.Owner)
 }
 
-// homeClaim returns the claim a home records, or nil while it has none.
-func (r *Reconciler) homeClaim(ctx context.Context, home *model.Home) (*corev1.PersistentVolumeClaim, error) {
-	if home.Status.ClaimName == "" {
-		return nil, nil
-	}
-	claim := &corev1.PersistentVolumeClaim{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: home.Namespace, Name: home.Status.ClaimName}, claim)
-	if apierrors.IsNotFound(err) {
-		return nil, nil
-	}
-	return claim, err
-}
-
 // homeBlock is why a home cannot be mounted yet: the reason its Ready
 // condition carries, or HomePreparing before the storage controller has
 // looked at it.
@@ -568,52 +565,6 @@ func (r *Reconciler) layout(ctx context.Context, app *model.App, uid int64) (pod
 	return podstorage.Build(app.Owner, in), nil
 }
 
-func (r *Reconciler) ensureService(ctx context.Context, app *model.App, tpl *model.Template) error {
-	want := BuildService(app, tpl)
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
-		svc.Labels = want.Labels
-		svc.Spec.Selector = want.Spec.Selector
-		ports := make([]corev1.ServicePort, len(want.Spec.Ports))
-		for i, p := range want.Spec.Ports {
-			p.Protocol = corev1.ProtocolTCP
-			ports[i] = p
-		}
-		svc.Spec.Ports = ports
-		return nil
-	})
-	return err
-}
-
-func (r *Reconciler) createPod(ctx context.Context, pod *corev1.Pod) (*corev1.Pod, error) {
-	err := r.Create(ctx, pod)
-	if apierrors.IsAlreadyExists(err) {
-		// The cache lagged behind a create from an earlier reconcile.
-		got := &corev1.Pod{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(pod), got); err != nil {
-			return nil, err
-		}
-		return got, nil
-	}
-	return pod, err
-}
-
-// podEvents returns the events about this exact Pod. Matching on UID keeps a
-// deleted Pod's events from describing the Pod that replaced it.
-func (r *Reconciler) podEvents(ctx context.Context, app *model.App, pod *corev1.Pod) ([]corev1.Event, error) {
-	var list corev1.EventList
-	if err := r.List(ctx, &list, client.InNamespace(app.Namespace), client.MatchingFields{indexEventName: pod.Name}); err != nil {
-		return nil, err
-	}
-	var out []corev1.Event
-	for _, e := range list.Items {
-		if e.InvolvedObject.Kind == "Pod" && e.InvolvedObject.UID == pod.UID {
-			out = append(out, e)
-		}
-	}
-	return out, nil
-}
-
 func (r *Reconciler) policyRecheck() time.Duration {
 	if r.PolicyRecheck > 0 {
 		return r.PolicyRecheck
@@ -621,21 +572,16 @@ func (r *Reconciler) policyRecheck() time.Duration {
 	return time.Minute
 }
 
-// readyRecheck schedules a reconcile for when a running-but-not-ready pod
-// passes ReadyTimeout, so AppNotAnswering appears without any new event.
-func (r *Reconciler) readyRecheck(pod *corev1.Pod, phase string, now time.Time) time.Duration {
-	if pod == nil || phase != "Starting" || pod.Status.Phase != corev1.PodRunning || r.ReadyTimeout <= 0 {
+// readyRecheck schedules a reconcile for when a workload that runs but does
+// not answer yet passes ReadyTimeout, so AppNotAnswering appears without any
+// new event.
+func (r *Reconciler) readyRecheck(have *workload.State, phase string, now time.Time) time.Duration {
+	if have == nil || phase != "Starting" || !have.Running || r.ReadyTimeout <= 0 {
 		return 0
 	}
 	since := now
-	if pod.Status.StartTime != nil {
-		since = pod.Status.StartTime.Time
-	}
-	for _, cs := range pod.Status.ContainerStatuses {
-		if run := cs.State.Running; run != nil {
-			since = run.StartedAt.Time
-			break
-		}
+	if u := have.Unanswered; u != nil && !u.Since.IsZero() {
+		since = u.Since
 	}
 	d := r.ReadyTimeout - now.Sub(since) + time.Second
 	if d < time.Second {
@@ -673,37 +619,18 @@ func (r *Reconciler) writeStatus(ctx context.Context, app *model.App, phase, url
 }
 
 // SetupWithManager wires the controller: app rows (and the templates and
-// people they depend on) come from the database through feed; Pods, Services
-// and Events about them come from the cluster and map back to their app by
-// the id label. It also adds the orphan sweep. The caller runs feed.
+// people they depend on) come from the database through feed; changes to
+// their workloads come from the executor. It also adds the orphan sweep.
+// The caller runs feed.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Machines == nil {
-		return errors.New("workspace.Reconciler: Machines is required")
+	if r.Exec == nil || r.Place == nil || r.Secrets == nil {
+		return errors.New("workspace.Reconciler: Exec, Place and Secrets are required")
 	}
 	if r.Access == nil {
 		return errors.New("workspace.Reconciler: Access is required")
 	}
 	if r.Storage.Homes == nil || r.Storage.Folders == nil {
 		return errors.New("workspace.Reconciler: Storage is required")
-	}
-	byAppLabel := handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
-		return dbsource.Request(o.GetLabels()[model.LabelApp])
-	})
-	podEvents := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
-		e, ok := o.(*corev1.Event)
-		if !ok || e.InvolvedObject.Kind != "Pod" {
-			return nil
-		}
-		pod := &corev1.Pod{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.InvolvedObject.Name}, pod); err != nil {
-			return nil
-		}
-		return dbsource.Request(pod.Labels[model.LabelApp])
-	})
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Event{}, indexEventName, func(o client.Object) []string {
-		return []string{o.(*corev1.Event).InvolvedObject.Name}
-	}); err != nil {
-		return err
 	}
 	if err := mgr.Add(&sweep.Runner{What: "apps", Sweep: r.Sweep, Every: r.ResyncEvery, Changes: feed.Subscribe()}); err != nil {
 		return err
@@ -713,13 +640,26 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "templates", r.appsOfTemplate)).
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "people", r.appsOfPerson)).
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), store.TableHomes, r.appsOfHome)).
-		Watches(&corev1.Pod{}, byAppLabel).
-		Watches(&corev1.Service{}, byAppLabel).
-		Watches(&corev1.Event{}, podEvents, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-			e, ok := o.(*corev1.Event)
-			return ok && e.InvolvedObject.Kind == "Pod"
-		}))).
+		WatchesRawSource(r.workloads()).
 		Complete(r)
+}
+
+// workloads feeds the controller the app of every workload the executor
+// saw change.
+func (r *Reconciler) workloads() source.TypedSource[reconcile.Request] {
+	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+		go func() {
+			err := r.Exec.Watch(ctx, func(ref workload.Ref) {
+				for _, req := range dbsource.Request(ref.ID) {
+					q.Add(req)
+				}
+			})
+			if err != nil && ctx.Err() == nil {
+				log.FromContext(ctx).Error(err, "watching the apps' workloads")
+			}
+		}()
+		return nil
+	})
 }
 
 func appID(a *model.App) string { return a.ID }

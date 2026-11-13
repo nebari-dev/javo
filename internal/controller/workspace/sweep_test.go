@@ -55,8 +55,8 @@ func TestSweepDeletesOrphansOnly(t *testing.T) {
 	// this test's namespaces only: other tests' apps have rows in other
 	// databases, so their objects would be orphans here.
 	mine := onlyIn{Client: k8s, namespaces: []string{fx.ns, stray}}
-	managedOnly := newRec(fx.db, func(r *Reconciler) { r.Client, r.ManagedNamespacesOnly = mine, true })
-	all := newRec(fx.db, func(r *Reconciler) { r.Client = mine })
+	managedOnly := newRec(fx.db, func(r *Reconciler) { onKube(r).Client, onKube(r).ManagedOnly = mine, true })
+	all := newRec(fx.db, func(r *Reconciler) { onKube(r).Client = mine })
 
 	if err := managedOnly.Sweep(bg); err != nil {
 		t.Fatal(err)

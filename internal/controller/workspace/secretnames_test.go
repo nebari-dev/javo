@@ -40,7 +40,7 @@ func TestAppNeverAdoptsATokenMadeForSomethingElse(t *testing.T) {
 	if err := k8s.Update(ctx, sec); err != nil {
 		t.Fatal(err)
 	}
-	reconcileNow(t, newRec(fx.db, func(r *Reconciler) { r.Tokens, r.Secrets = fx.records(), k8s }), app.ID)
+	reconcileNow(t, newRec(fx.db, func(r *Reconciler) { r.Tokens = fx.records() }), app.ID)
 	got := &corev1.Secret{}
 	if !fx.exists(got, APITokenSecretName(app.ObjectName())) {
 		t.Fatal("no token Secret")
@@ -74,7 +74,7 @@ func TestAppRefusesASecretLabelledForAnotherApp(t *testing.T) {
 	if err := k8s.Create(ctx, foreign); err != nil {
 		t.Fatal(err)
 	}
-	r := newRec(fx.db, func(r *Reconciler) { r.Tokens, r.Secrets = fx.records(), k8s })
+	r := newRec(fx.db, func(r *Reconciler) { r.Tokens = fx.records() })
 	if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: app.ID}}); err == nil {
 		t.Fatal("the reconcile used another app's Secret")
 	}
@@ -82,6 +82,16 @@ func TestAppRefusesASecretLabelledForAnotherApp(t *testing.T) {
 	if !fx.exists(got, foreign.Name) || string(got.Data["keep"]) != "x" || got.Labels[model.LabelApp] != "someone-else" {
 		t.Fatalf("another app's Secret was changed: %+v", got)
 	}
+}
+
+// oldSecretNames are the names an app's Secrets had before SecretName,
+// "<objectName>-javo-<use>", in the order of secretUses.
+func oldSecretNames(objectName string) []string {
+	var out []string
+	for _, use := range secretUses {
+		out = append(out, objectName+"-javo-"+use)
+	}
+	return out
 }
 
 // legacyPod is the app's pod as an earlier controller built it: the same, but
@@ -93,7 +103,7 @@ func legacyPod(pod *corev1.Pod, objectName string) *corev1.Pod {
 	rename := func(n string) string {
 		for i, use := range secretUses {
 			if n == SecretName(objectName, use) {
-				return legacySecretNames(objectName)[i]
+				return oldSecretNames(objectName)[i]
 			}
 		}
 		return n
@@ -148,7 +158,7 @@ func TestUpgradeMovesAnAppToItsNewSecretNames(t *testing.T) {
 	fx.stop()
 	ctx := context.Background()
 
-	legacy := legacySecretNames(obj)
+	legacy := oldSecretNames(obj)
 	text, oldTok, err := fx.records().Create(ctx, model.Actor{System: model.SystemController}, token.Token{
 		Name: app.Name, Owner: alice, Scope: token.ScopeReadWrite, App: &token.App{Namespace: fx.ns, Name: obj, Short: app.Name},
 	})
@@ -179,7 +189,7 @@ func TestUpgradeMovesAnAppToItsNewSecretNames(t *testing.T) {
 		t.Fatalf("the old pod reads %v", podSecretNames(old))
 	}
 
-	r := newRec(fx.db, func(r *Reconciler) { r.Tokens, r.Secrets, r.SecretKeys = fx.records(), k8s, fx.keys })
+	r := newRec(fx.db, func(r *Reconciler) { r.Tokens, r.SecretKeys = fx.records(), fx.keys })
 	var fresh *corev1.Pod
 	eventually(t, "a pod with the new names", func() bool {
 		reconcileNow(t, r, app.ID)

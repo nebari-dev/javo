@@ -116,24 +116,6 @@ func TestBuildPodHardening(t *testing.T) {
 	}
 }
 
-func TestBuildServiceSelectsTheApp(t *testing.T) {
-	t.Parallel()
-	ws, tpl := fixtures()
-	svc := BuildService(ws, tpl)
-	if svc.Name != ws.ObjectName() || svc.Namespace != "javo-apps" {
-		t.Fatalf("meta = %s/%s", svc.Namespace, svc.Name)
-	}
-	if svc.Spec.Selector[model.LabelApp] != "app-1" {
-		t.Fatalf("selector = %v", svc.Spec.Selector)
-	}
-	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != 8501 || svc.Spec.Ports[0].TargetPort != intstr.FromInt32(8501) {
-		t.Fatalf("ports = %+v", svc.Spec.Ports)
-	}
-	if svc.Labels[model.LabelOwner] != "alice" {
-		t.Fatalf("labels = %v", svc.Labels)
-	}
-}
-
 func TestBuildPodFileCannotEscapeHome(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
@@ -604,10 +586,6 @@ func TestBuildPodRunsTheChosenImage(t *testing.T) {
 	sc := c.SecurityContext
 	if *sc.AllowPrivilegeEscalation || len(sc.Capabilities.Drop) != 1 || psc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Fatalf("container security context = %+v", sc)
-	}
-	svc := BuildService(ws, tpl)
-	if svc.Spec.Ports[0].Port != 9000 || svc.Spec.Ports[0].TargetPort != intstr.FromInt32(9000) {
-		t.Fatalf("service ports = %+v", svc.Spec.Ports)
 	}
 	if AppPortOf(ws, tpl) != 9000 {
 		t.Fatalf("AppPort = %d", AppPortOf(ws, tpl))

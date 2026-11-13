@@ -200,7 +200,7 @@ func TestPastedTokenWorksWithoutTheSecretsKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRec(s, func(r *Reconciler) { r.Secrets = k8s })
+	r := newRec(s)
 	reconcileNow(t, r, app.ID)
 	sec := &corev1.Secret{}
 	if err := k8s.Get(bg, client.ObjectKey{Namespace: alloc, Name: GitTokenSecretName(app.ObjectName())}, sec); err != nil {
@@ -331,7 +331,7 @@ func TestRestartRequestReplacesASourceAppsPodOnce(t *testing.T) {
 	}
 	eventually(t, "the cache sees the new pod", func() bool {
 		p := &corev1.Pod{}
-		return fx.rec.Get(bg, fx.key(app.ObjectName()), p) == nil && p.UID == fresh.UID
+		return fx.cache.Get(bg, fx.key(app.ObjectName()), p) == nil && p.UID == fresh.UID
 	})
 	for range 3 {
 		reconcileNow(t, fx.rec, app.ID)

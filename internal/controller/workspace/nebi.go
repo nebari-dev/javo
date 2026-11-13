@@ -89,9 +89,9 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	if r.SecretKeys == nil || r.Secrets == nil {
 		return errors.New("the app gets a Nebi token, but the controller has no secrets key")
 	}
-	ref, name := refOf(app), NebiTokenSecretName(app.ObjectName())
+	ref, name := RefOf(app), NebiTokenSecretName(app.ObjectName())
 	stamp := expires.UTC().Format(time.RFC3339Nano)
-	have, err := r.vault().Get(ctx, ref, name)
+	have, err := r.Secrets.Get(ctx, ref, name)
 	switch {
 	case err != nil:
 		return err
@@ -106,7 +106,7 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	if err != nil {
 		return fmt.Errorf("open the app's Nebi token: %w", err)
 	}
-	err = r.vault().Put(ctx, ref, name, executor.Bundle{
+	err = r.Secrets.Put(ctx, ref, name, executor.Bundle{
 		Data: map[string][]byte{NebiTokenKey: tok}, Meta: map[string]string{annotationNebiExpires: stamp},
 	})
 	if err != nil {

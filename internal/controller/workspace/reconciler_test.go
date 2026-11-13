@@ -35,6 +35,7 @@ import (
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/features/exposurepath"
 	"github.com/nebari-dev/javo/internal/features/exposuresubdomain"
@@ -84,9 +85,11 @@ func newNamespace(t *testing.T, prefix string, labels map[string]string) string 
 // and a manager whose app reconciler serves that namespace from that
 // database, so tests run in parallel without seeing each other's apps.
 type env struct {
-	db     *store.Store
-	ns     string
-	rec    *Reconciler
+	db  *store.Store
+	ns  string
+	rec *Reconciler
+	// cache is the manager's client: what rec sees of the cluster.
+	cache  client.Client
 	policy *stubPolicy
 	keys   *secrets.Keys
 	// stop stops the manager and waits for it; calling it again is a no-op.
@@ -110,7 +113,7 @@ func newEnv(t *testing.T, tune ...func(*Reconciler)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fx.rec = r
+	fx.rec, fx.cache = r, mgr.GetClient()
 	fx.stop = run(fx.db, mgr, feed)
 	t.Cleanup(fx.stop)
 	return fx
@@ -137,18 +140,19 @@ func newManager(s *store.Store, namespaces []string, tune func(*Reconciler), mtu
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	ex := &kube.Executor{Sizes: testSizes, Machines: capacity.Nodes{Reader: mgr.GetClient()}, HomeClaim: testStorage(s).HomeClaim}
 	r := &Reconciler{
-		Client:        mgr.GetClient(),
+		Exec:          ex,
+		Place:         ex,
 		Store:         s,
 		Storage:       testStorage(s),
 		ReadyTimeout:  time.Minute,
 		Sizes:         testSizes,
-		Machines:      capacity.Nodes{Reader: mgr.GetClient()},
 		Exposure:      pathExposure,
 		NetworkPolicy: policy,
 		PolicyRecheck: 100 * time.Millisecond,
 		Tokens:        &token.DBStore{Tokens: s.Tokens()},
-		Secrets:       mgr.GetAPIReader(),
+		Secrets:       kube.Secrets{Reader: mgr.GetAPIReader(), Client: mgr.GetClient()},
 		APIURL:        "https://javo.example.com",
 		CloneImage:    testImages.Clone,
 		RunnerImage:   testImages.Runner,
@@ -158,6 +162,9 @@ func newManager(s *store.Store, namespaces []string, tune func(*Reconciler), mtu
 	}
 	if tune != nil {
 		tune(r)
+	}
+	if err := ex.SetupWithManager(mgr); err != nil {
+		return nil, nil, nil, err
 	}
 	feed := dbsource.NewFeed(s.Changes())
 	if err := r.SetupWithManager(mgr, feed); err != nil {
@@ -324,13 +331,19 @@ func reconcileNow(t *testing.T, r *Reconciler, id string) reconcile.Result {
 // newRec is a Reconciler that reads the API server directly, so a reconcile
 // run on it has finished when it returns.
 func newRec(s *store.Store, tune ...func(*Reconciler)) *Reconciler {
-	r := &Reconciler{Client: k8s, Store: s, Storage: testStorage(s), Sizes: testSizes, ReadyTimeout: time.Minute, Exposure: pathExposure, NetworkPolicy: policy,
-		Machines: capacity.Nodes{Reader: k8s}, CloneImage: testImages.Clone, RunnerImage: testImages.Runner, Access: allowAll{}}
+	ex := &kube.Executor{Client: k8s, Reader: k8s, Sizes: testSizes, Machines: capacity.Nodes{Reader: k8s}, HomeClaim: testStorage(s).HomeClaim}
+	r := &Reconciler{Exec: ex, Place: ex, Secrets: kube.Secrets{Reader: k8s, Client: k8s}, Store: s, Storage: testStorage(s), Sizes: testSizes,
+		ReadyTimeout: time.Minute, Exposure: pathExposure, NetworkPolicy: policy,
+		CloneImage: testImages.Clone, RunnerImage: testImages.Runner, Access: allowAll{}}
 	for _, f := range tune {
 		f(r)
 	}
 	return r
 }
+
+// onKube is the Kubernetes executor r runs its apps on, for a test that
+// sets it up differently.
+func onKube(r *Reconciler) *kube.Executor { return r.Exec.(*kube.Executor) }
 
 // allowAll lets every owner use every template.
 type allowAll struct{}
@@ -854,7 +867,7 @@ func TestRestartRequest(t *testing.T) {
 	eventually(t, "a new pod", func() bool { return fx.exists(&fresh, app.ObjectName()) && fresh.UID != old.UID })
 	eventually(t, "the cache sees the new pod", func() bool {
 		p := &corev1.Pod{}
-		return fx.rec.Get(bg, fx.key(app.ObjectName()), p) == nil && p.UID == fresh.UID
+		return fx.cache.Get(bg, fx.key(app.ObjectName()), p) == nil && p.UID == fresh.UID
 	})
 	for range 3 {
 		reconcileNow(t, fx.rec, app.ID)
@@ -945,7 +958,7 @@ func TestStaleEventFromDeletedPodIsIgnored(t *testing.T) {
 	// The manager cache must see the event before the direct reconcile below.
 	eventually(t, "cache sees event", func() bool {
 		var l corev1.EventList
-		return fx.rec.List(bg, &l, client.InNamespace(fx.ns)) == nil && func() bool {
+		return fx.cache.List(bg, &l, client.InNamespace(fx.ns)) == nil && func() bool {
 			for _, e := range l.Items {
 				if e.Name == "ws-stale.old" {
 					return true
@@ -993,7 +1006,7 @@ func TestImageFromARegistryNoLongerAllowedDoesNotStart(t *testing.T) {
 // own user namespace (hostUsers false).
 func TestAppPodsRunInTheirOwnUserNamespaceWhenAsked(t *testing.T) {
 	t.Parallel()
-	fx := newEnv(t, func(r *Reconciler) { r.Isolation = podspec.Isolation{UserNamespace: true} })
+	fx := newEnv(t, func(r *Reconciler) { onKube(r).Isolation = podspec.Isolation{UserNamespace: true} })
 	fx.newTemplate(t, "lab-userns")
 	app := fx.newApp(t, "ws-userns", "lou", "lab-userns")
 	var pod corev1.Pod
@@ -1095,7 +1108,7 @@ func TestPodWithoutSizeAnnotationIsKeptForAppWithoutSize(t *testing.T) {
 	// Wait for the cache to see the stripped pod, or for it to be replaced.
 	eventually(t, "cache sees the update", func() bool {
 		p := &corev1.Pod{}
-		err := fx.rec.Get(bg, fx.key(app.ObjectName()), p)
+		err := fx.cache.Get(bg, fx.key(app.ObjectName()), p)
 		return apierrors.IsNotFound(err) || err == nil && (p.UID != pod.UID || p.Annotations[model.AnnotationSize] == "")
 	})
 	reconcileNow(t, fx.rec, app.ID)
@@ -1207,7 +1220,7 @@ func TestManagedOnlyIgnoresAppsInOtherNamespaces(t *testing.T) {
 	putTemplateIn(t, s, "lab-managed")
 	stray := newNamespace(t, "javo-stray", nil)
 	labelled := newNamespace(t, "javo-labelled", map[string]string{model.LabelManaged: "true"})
-	r := newRec(s, func(r *Reconciler) { r.ManagedNamespacesOnly = true })
+	r := newRec(s, func(r *Reconciler) { onKube(r).ManagedOnly = true })
 	build := func(ns string) types.NamespacedName {
 		t.Helper()
 		app := newAppIn(t, s, ns, "managed-"+ns, "alice", "lab-managed")
@@ -1235,7 +1248,7 @@ func TestManagedOnlyRetriesUntilTheNamespaceIsLabelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := newAppIn(t, s, ns.Name, "ws-relabel", "alice", "lab-relabel")
-	r := newRec(s, func(r *Reconciler) { r.ManagedNamespacesOnly = true })
+	r := newRec(s, func(r *Reconciler) { onKube(r).ManagedOnly = true })
 	podKey := types.NamespacedName{Namespace: ns.Name, Name: app.ObjectName()}
 
 	if res := reconcileNow(t, r, app.ID); res.RequeueAfter <= 0 {
@@ -1433,7 +1446,7 @@ func TestStepFactsOutliveTheirEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "cache drops event", func() bool {
-		return apierrors.IsNotFound(fx.rec.Get(bg, client.ObjectKeyFromObject(pulled), &corev1.Event{}))
+		return apierrors.IsNotFound(fx.cache.Get(bg, client.ObjectKeyFromObject(pulled), &corev1.Event{}))
 	})
 	reconcileNow(t, fx.rec, app.ID)
 	want := map[string]string{
