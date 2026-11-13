@@ -18,12 +18,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/authz"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/gateway/podlogs"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/pixienv"
 	"github.com/nebari-dev/javo/internal/source"
-	"github.com/nebari-dev/javo/internal/status"
 )
 
 // StepLogRecord is one record of a startup step's live log: a container's
@@ -134,14 +134,14 @@ func (l *lockedWriter) flush() {
 
 // containerStep is the startup step a container of the app's pod does its
 // work in: the app's own container starts it; the environment install, and
-// on a pod with one or a build the clone, are status.InitStep's; the other
+// on a pod with one or a build the clone, are kube.InitStep's; the other
 // init containers (the platform's files, the sample copy) fill the home.
 func containerStep(pod *corev1.Pod, name string, init bool) string {
 	switch {
 	case !init:
 		return model.ConditionStarted
 	case name == pixienv.InstallContainer || name == pixienv.ToolsContainer || source.IsSiteStep(name):
-		return status.InitStep(pod, name)
+		return kube.InitStep(pod, name)
 	}
 	return model.ConditionHomeReady
 }

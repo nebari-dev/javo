@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/status"
 )
@@ -25,7 +26,7 @@ func TestEvidenceLandsInFailingConditionMessage(t *testing.T) {
 			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled", ExitCode: 137}},
 		}},
 	}}
-	_, conds, ev := status.Derive(ws, status.Observed{Pod: pod, Now: time.Now()})
+	_, conds, ev := status.Derive(ws, status.Observed{Workload: kube.Observe(kube.Seen{Pod: pod}), Now: time.Now()})
 	conds = status.WithEvidence(conds, ev)
 
 	started := meta.FindStatusCondition(conds, model.ConditionStarted)

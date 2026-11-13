@@ -42,6 +42,7 @@ import (
 
 	"github.com/tink-crypto/tink-go/v2/tink"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -977,7 +978,7 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	}
 	// Reuse the workspace status rules so the file pod and apps agree on
 	// what counts as a busy home.
-	phase, conds, _ := status.Derive(&model.App{}, status.Observed{Pod: &pod, Events: mine, Now: p.cfg.Now()})
+	phase, conds, _ := status.Derive(&model.App{}, status.Observed{Workload: kube.Observe(kube.Seen{Pod: &pod, Events: mine}), Now: p.cfg.Now()})
 	if phase == "Running" && pod.Status.PodIP != "" {
 		return login.String() + "@" + net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(rcPort)), nil
 	}

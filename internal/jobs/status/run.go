@@ -13,6 +13,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/jobs/runspec"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -95,7 +96,7 @@ func DeriveRun(job *batchv1.Job, pods []corev1.Pod, evs []corev1.Event, now time
 	default:
 		run.Outcome, run.Reason = "Running", string(reasons.Running)
 		if last != nil {
-			if _, code, evidence, ok := podstatus.ClassifyPod(last, eventsFor(last, evs), now); ok && slices.Contains(stuckCodes, reasons.Code(code)) {
+			if _, code, evidence, ok := kube.ClassifyPod(last, eventsFor(last, evs)); ok && slices.Contains(stuckCodes, reasons.Code(code)) {
 				run.Reason, run.Message = code, strings.Join(evidence, "\n")
 			}
 		}

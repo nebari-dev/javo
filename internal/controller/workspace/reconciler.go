@@ -26,6 +26,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/imageref"
@@ -424,17 +425,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
+	seen := kube.Seen{Pod: pod, Claim: claim}
 	if pod != nil {
-		if obs.Events, err = r.podEvents(ctx, &app, pod); err != nil {
+		if seen.Events, err = r.podEvents(ctx, &app, pod); err != nil {
 			return ctrl.Result{}, err
 		}
-		if obs.Machines, err = r.Machines.Cluster(ctx); err != nil {
+		if seen.Machines, err = r.Machines.Cluster(ctx); err != nil {
 			return ctrl.Result{}, err
 		}
 		size, _ := r.appSize(&app)
-		obs.SizeMayWait = size.AllowUnschedulable
+		seen.SizeMayWait = size.AllowUnschedulable
 	}
-	obs.Pod, obs.Claim = pod, claim
+	obs.Workload = kube.Observe(seen)
 	phase, conds, evidence := status.Derive(&app, obs)
 	if err := r.writeStatus(ctx, &app, phase, url, status.WithEvidence(conds, evidence), commitOf(pod)); err != nil {
 		return ctrl.Result{}, err

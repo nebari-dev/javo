@@ -1,10 +1,9 @@
-package status
+package kube
 
 import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -97,7 +96,7 @@ func TestClassifyPod(t *testing.T) {
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
-			failing, code, evidence, ok := ClassifyPod(r.pod, r.events, now)
+			failing, code, evidence, ok := ClassifyPod(r.pod, r.events)
 			if ok != r.wantOK || reasons.Code(code) != r.wantCode || failing != r.wantFailing {
 				t.Fatalf("failing = %q code = %q ok = %v, want %q %q %v", failing, code, ok, r.wantFailing, r.wantCode, r.wantOK)
 			}
@@ -113,23 +112,6 @@ func TestClassifyPod(t *testing.T) {
 	}
 }
 
-func TestCapMessageKeepsFirstLines(t *testing.T) {
-	var lines []string
-	for i := 0; i < 25; i++ {
-		lines = append(lines, "x")
-	}
-	if got := strings.Count(CapMessage(lines, 20, 300), "\n"); got != 19 {
-		t.Fatalf("newlines = %d, want 19 (20 lines)", got)
-	}
-}
-
-func TestCapMessageCutsOnRuneBoundary(t *testing.T) {
-	got := CapMessage([]string{strings.Repeat("é", 400)}, 20, 300)
-	if !utf8.ValidString(got) || len(got) > 300 || !strings.HasSuffix(got, "...") {
-		t.Fatalf("len %d valid %v", len(got), utf8.ValidString(got))
-	}
-}
-
 // The kubelet refuses to create a container whose image runs as root when the
 // pod says runAsNonRoot; the message texts are the kubelet's
 // (pkg/kubelet/kuberuntime, verifyRunAsNonRoot), as seen on kind.
@@ -142,7 +124,7 @@ func TestClassifyPodImageRunsAsRoot(t *testing.T) {
 		`container has runAsNonRoot and image will run as root (pod: "alice-web_javo-apps(1f0c2a8e-5d7b-4c4e-9a51-0b6c2d1e3f40)", container: app)`,
 		`container has runAsNonRoot and image has non-numeric user (nginx), cannot verify user is non-root (pod: "alice-web_javo-apps(1f0c2a8e-5d7b-4c4e-9a51-0b6c2d1e3f40)", container: app)`,
 	} {
-		failing, code, ev, ok := ClassifyPod(configErr(msg), nil, time.Now())
+		failing, code, ev, ok := ClassifyPod(configErr(msg), nil)
 		if !ok || failing != model.ConditionStarted || code != string(reasons.ImageRunsAsRoot) {
 			t.Fatalf("%q: classified %s/%s/%v", msg, failing, code, ok)
 		}
@@ -154,7 +136,7 @@ func TestClassifyPodImageRunsAsRoot(t *testing.T) {
 		}
 	}
 	// Another config error (a missing ConfigMap, say) is not about root.
-	if _, code, _, ok := ClassifyPod(configErr(`configmap "x" not found`), nil, time.Now()); ok && code == string(reasons.ImageRunsAsRoot) {
+	if _, code, _, ok := ClassifyPod(configErr(`configmap "x" not found`), nil); ok && code == string(reasons.ImageRunsAsRoot) {
 		t.Fatal("unrelated config error read as ImageRunsAsRoot")
 	}
 }

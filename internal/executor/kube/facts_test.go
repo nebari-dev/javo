@@ -1,4 +1,4 @@
-package status
+package kube
 
 import (
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/status"
 )
 
 // t0 is when the pod was placed on a node.
@@ -75,9 +76,8 @@ func wantLines(t *testing.T, conds []metav1.Condition, typ string, want ...strin
 // Each done step records what the API reported about it, so the facts
 // outlive the events behind them.
 func TestDoneStepsRecordWhatHappened(t *testing.T) {
-	o := Observed{Pod: readyPod(), Claim: homeClaim(), Now: t0.Add(time.Hour),
-		Events: []corev1.Event{pulledEvent(`Container image "ghcr.io/example/bokeh:3.9.2" already present on machine`)}}
-	phase, conds, _ := Derive(ws(false), o)
+	o := status.Observed{Workload: Observe(Seen{Pod: readyPod(), Claim: homeClaim(), Events: []corev1.Event{pulledEvent(`Container image "ghcr.io/example/bokeh:3.9.2" already present on machine`)}}), Now: t0.Add(time.Hour)}
+	phase, conds, _ := status.Derive(ws(false), o)
 	if phase != "Running" {
 		t.Fatalf("phase = %q", phase)
 	}
@@ -89,9 +89,8 @@ func TestDoneStepsRecordWhatHappened(t *testing.T) {
 }
 
 func TestDownloadedImageRecordsThePullTime(t *testing.T) {
-	o := Observed{Pod: readyPod(), Claim: homeClaim(), Now: t0,
-		Events: []corev1.Event{pulledEvent(`Successfully pulled image "ghcr.io/example/bokeh:3.9.2" in 27.1s (27.1s including waiting). Image size: 412 MB.`)}}
-	_, conds, _ := Derive(ws(false), o)
+	o := status.Observed{Workload: Observe(Seen{Pod: readyPod(), Claim: homeClaim(), Events: []corev1.Event{pulledEvent(`Successfully pulled image "ghcr.io/example/bokeh:3.9.2" in 27.1s (27.1s including waiting). Image size: 412 MB.`)}}), Now: t0}
+	_, conds, _ := status.Derive(ws(false), o)
 	if got := lines(conds, model.ConditionImageReady); got[len(got)-1] != "downloaded in 27.1s" {
 		t.Errorf("ImageReady = %q", got)
 	}
@@ -104,7 +103,7 @@ func TestMissingFactsAreLeftOut(t *testing.T) {
 	p.Status.ContainerStatuses[0].ImageID = ""
 	claim := homeClaim()
 	claim.Spec.StorageClassName = nil
-	_, conds, _ := Derive(ws(false), Observed{Pod: p, Claim: claim, Now: t0})
+	_, conds, _ := status.Derive(ws(false), status.Observed{Workload: Observe(Seen{Pod: p, Claim: claim}), Now: t0})
 	wantLines(t, conds, model.ConditionScheduled, "node node-1")
 	wantLines(t, conds, model.ConditionHomeReady, "claim home-alice-1a2b, 10Gi")
 	wantLines(t, conds, model.ConditionImageReady, "image ghcr.io/example/bokeh:3.9.2")
@@ -119,19 +118,19 @@ func TestDownloadFactOutlivesItsEvent(t *testing.T) {
 	w.Status.Conditions = []metav1.Condition{{Type: model.ConditionImageReady, Status: metav1.ConditionTrue,
 		LastTransitionTime: metav1.NewTime(t0.Add(time.Second)),
 		Message:            "image ghcr.io/example/bokeh:3.9.2\ndigest sha256:4b1c\ndownloaded in 27.1s"}}
-	_, conds, _ := Derive(w, Observed{Pod: p, Claim: homeClaim(), Now: t0.Add(2 * time.Hour)})
+	_, conds, _ := status.Derive(w, status.Observed{Workload: Observe(Seen{Pod: p, Claim: homeClaim()}), Now: t0.Add(2 * time.Hour)})
 	wantLines(t, conds, model.ConditionImageReady, "image ghcr.io/example/bokeh:3.9.2", "digest sha256:4b1c", "downloaded in 27.1s")
 
 	// A line recorded for an earlier pod does not describe this one.
 	w.Status.Conditions[0].LastTransitionTime = metav1.NewTime(t0.Add(-time.Hour))
-	_, conds, _ = Derive(w, Observed{Pod: p, Claim: homeClaim(), Now: t0.Add(2 * time.Hour)})
+	_, conds, _ = status.Derive(w, status.Observed{Workload: Observe(Seen{Pod: p, Claim: homeClaim()}), Now: t0.Add(2 * time.Hour)})
 	wantLines(t, conds, model.ConditionImageReady, "image ghcr.io/example/bokeh:3.9.2", "digest sha256:4b1c")
 }
 
 // While the app has not answered yet, the step says what is checked.
 func TestReadyInProgressSaysWhatIsChecked(t *testing.T) {
-	o := Observed{Pod: pod(corev1.PodRunning, true, false, running(now.Add(-10*time.Second))), Now: now, ReadyTimeout: 2 * time.Minute}
-	_, _, evidence := Derive(ws(false), o)
+	o := status.Observed{Workload: Observe(Seen{Pod: pod(corev1.PodRunning, true, false, running(now.Add(-10*time.Second)))}), Now: now, ReadyTimeout: 2 * time.Minute}
+	_, _, evidence := status.Derive(ws(false), o)
 	if strings.Join(evidence, "\n") != "checking GET :8501/u/alice/sales-app/, no answer yet" {
 		t.Errorf("evidence = %q", evidence)
 	}
@@ -140,9 +139,8 @@ func TestReadyInProgressSaysWhatIsChecked(t *testing.T) {
 // The kubelet's Pulled message gives the image size in bytes; the download
 // line says it.
 func TestDownloadLineSaysTheImageSize(t *testing.T) {
-	o := Observed{Pod: readyPod(), Claim: homeClaim(), Now: t0,
-		Events: []corev1.Event{pulledEvent(`Successfully pulled image "ghcr.io/example/bokeh:3.9.2" in 4.2s (4.2s including waiting). Image size: 412345678 bytes.`)}}
-	_, conds, _ := Derive(ws(false), o)
+	o := status.Observed{Workload: Observe(Seen{Pod: readyPod(), Claim: homeClaim(), Events: []corev1.Event{pulledEvent(`Successfully pulled image "ghcr.io/example/bokeh:3.9.2" in 4.2s (4.2s including waiting). Image size: 412345678 bytes.`)}}), Now: t0}
+	_, conds, _ := status.Derive(ws(false), o)
 	if got := lines(conds, model.ConditionImageReady); got[len(got)-1] != "downloaded in 4.2s, 412 MB" {
 		t.Errorf("ImageReady = %q", got)
 	}
@@ -164,8 +162,8 @@ func envPodWith(message string) *corev1.Pod {
 // A finished environment install records how long it took, so the step
 // says what happened once its log is gone.
 func TestEnvironmentStepRecordsTheInstall(t *testing.T) {
-	o := Observed{Pod: envPodWith(""), Claim: homeClaim(), Now: t0.Add(time.Hour), InstallsEnv: true}
-	_, conds, _ := Derive(ws(false), o)
+	o := status.Observed{Workload: Observe(Seen{Pod: envPodWith(""), Claim: homeClaim()}), Now: t0.Add(time.Hour), InstallsEnv: true}
+	_, conds, _ := status.Derive(ws(false), o)
 	wantLines(t, conds, model.ConditionEnvReady, "environment ready in 12s")
 }
 
@@ -173,8 +171,8 @@ func TestEnvironmentStepRecordsTheInstall(t *testing.T) {
 // once with the Started step, however many facts that step has.
 func TestEnvironmentNoteIsShownOnce(t *testing.T) {
 	note := "The environment sales has no Jupyter kernel, so JupyterLab does not offer it."
-	o := Observed{Pod: envPodWith(note), Claim: homeClaim(), Now: t0.Add(time.Hour), InstallsEnv: true}
-	_, conds, _ := Derive(ws(false), o)
+	o := status.Observed{Workload: Observe(Seen{Pod: envPodWith(note), Claim: homeClaim()}), Now: t0.Add(time.Hour), InstallsEnv: true}
+	_, conds, _ := status.Derive(ws(false), o)
 	if n := strings.Count(find(conds, model.ConditionStarted).Message, note); n != 1 {
 		t.Errorf("note shown %d times in %q", n, find(conds, model.ConditionStarted).Message)
 	}

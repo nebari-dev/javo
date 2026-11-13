@@ -1,9 +1,8 @@
-package status
+package kube
 
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -20,7 +19,7 @@ import (
 // nothing is wrong (including a ready pod). The rules read only the pod and
 // its events; checks that need the home claim or a ready timeout stay with
 // the caller.
-func ClassifyPod(p *corev1.Pod, evs []corev1.Event, _ time.Time) (failing, code string, evidence []string, ok bool) {
+func ClassifyPod(p *corev1.Pod, evs []corev1.Event) (failing, code string, evidence []string, ok bool) {
 	found := func(f string, c reasons.Code, ev ...string) (string, string, []string, bool) {
 		var lines []string
 		for _, e := range ev {
