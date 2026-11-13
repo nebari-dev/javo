@@ -12,6 +12,7 @@ package loop
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"k8s.io/client-go/util/workqueue"
@@ -155,11 +156,12 @@ func (w *worker) Start(ctx context.Context) error {
 }
 
 // reconcile is one call; a panic in it is an error, so one row's bug
-// does not stop the others.
+// does not stop the others, and where it happened is logged.
 func (w *worker) reconcile(ctx context.Context, id string) (again time.Duration, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			err = fmt.Errorf("panic: %v [recovered]", p)
+			log.FromContext(ctx).Error(err, "Observed a panic in reconciler", "stack", string(debug.Stack()))
 		}
 	}()
 	return w.r.Reconcile(ctx, id)
