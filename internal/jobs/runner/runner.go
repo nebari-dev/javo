@@ -78,6 +78,17 @@ func DefaultExec(ctx context.Context, argv []string, dir string, env []string, o
 // pod's environment as the pod's user.
 const PodUserScript = "/opt/javo/pod-user.sh"
 
+// PodUser is where this run has pod-user.sh: in the folder JAVO_FILES_DIR
+// names, on a machine that runs the run as plain processes and has the
+// platform's files in a folder of its own (the script reads the same
+// variable), and at PodUserScript in a pod.
+func PodUser(getenv func(string) string) string {
+	if dir := getenv("JAVO_FILES_DIR"); dir != "" {
+		return filepath.Join(dir, filepath.Base(PodUserScript))
+	}
+	return PodUserScript
+}
+
 // WithPodUser returns run that starts each step through script when the pod
 // has it, so the engine and what it starts find the programs of the pod's
 // environment (on the PATH only once the script has activated it) and the

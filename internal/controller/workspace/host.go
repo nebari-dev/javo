@@ -41,9 +41,15 @@ func placesOf(in Inputs) (places, error) {
 	if in.Host == nil {
 		return containerPlaces, nil
 	}
-	for _, v := range in.Layout.Volumes {
+	return placesOn(in.Host, in.Layout)
+}
+
+// placesOn are the places of a workload on host whose owner's storage is
+// layout: the home must be a folder of that host.
+func placesOn(host *workload.Host, layout podstorage.Layout) (places, error) {
+	for _, v := range layout.Volumes {
 		if v.Name == homeVolume && filepath.IsAbs(v.Source) {
-			return hostPlaces(in.Host, v.Source), nil
+			return hostPlaces(host, v.Source), nil
 		}
 	}
 	return places{}, &executor.UnsupportedError{Why: "the owner's home is not a folder of this machine"}
@@ -138,15 +144,24 @@ func runsWithoutImage(t *model.Template) error {
 	no := func(format string, args ...any) error { return unsupported(t, format, args...) }
 	switch s := t.Spec; {
 	case s.JobOnly:
-		return no("only runs jobs, and job runs are not supported without containers")
+		return no("only runs jobs")
+	case s.Environment == "" && needsImage(t) == nil:
+		return no("has no pixi environment to take its program from")
+	}
+	return needsImage(t)
+}
+
+// needsImage is why nothing of t, app or job, runs without containers:
+// it names an image. Nil when it names none.
+func needsImage(t *model.Template) error {
+	no := func(format string, args ...any) error { return unsupported(t, format, args...) }
+	switch s := t.Spec; {
 	case s.UserImage:
 		return no("runs the image each app names, and nothing here runs images")
 	case s.Build != nil:
 		return no("builds and serves a site in images, and nothing here runs images")
 	case s.Image != "":
 		return no("needs its image %s, and nothing here runs images", s.Image)
-	case s.Environment == "":
-		return no("has no pixi environment to take its program from")
 	}
 	return nil
 }
@@ -246,3 +261,50 @@ func (p places) onHost(s *workload.Spec) {
 		)
 	}
 }
+
+// RunOnHost is a job's run planned for a machine that runs it as plain
+// processes: the places an app has there, for the job planner
+// (internal/controller/jobs), so the two never differ.
+type RunOnHost struct{ at places }
+
+// PlanRunOnHost is where a run of a job of t is planned on host, whose
+// owner's storage is layout. picked says the job brings an environment
+// of its own, which then takes the template's place. The error is an
+// *executor.UnsupportedError when such a run cannot be: the home is not
+// a folder of the machine, the template needs an image, or its
+// environment is not locked for the machine. A template with no
+// environment runs the job with the machine's own programs.
+func PlanRunOnHost(host *workload.Host, layout podstorage.Layout, t *model.Template, picked bool) (RunOnHost, error) {
+	at, err := placesOn(host, layout)
+	if err != nil {
+		return RunOnHost{}, err
+	}
+	if err := needsImage(t); err != nil {
+		return RunOnHost{}, err
+	}
+	if !picked {
+		if err := lockedFor(t, host.Platform); err != nil {
+			return RunOnHost{}, err
+		}
+	}
+	return RunOnHost{at: at}, nil
+}
+
+// Home is the owner's home folder and Files the folder of the platform's
+// files.
+func (r RunOnHost) Home() string  { return r.at.home }
+func (r RunOnHost) Files() string { return r.at.files }
+
+// Volume is the folder of the run's own volume called name.
+func (r RunOnHost) Volume(name string) string { return r.at.volume(name) }
+
+// Layout is the run's storage: the home, and a temporary and a scratch
+// folder of its own.
+func (r RunOnHost) Layout() podstorage.Layout { return r.at.layout() }
+
+// Environment are the places the run's environment is installed with.
+func (r RunOnHost) Environment() pixienv.Places { return r.at.environment() }
+
+// Finish is what an app's plan gets last on a host (onHost), for the
+// run's plan s.
+func (r RunOnHost) Finish(s *workload.Spec) { r.at.onHost(s) }

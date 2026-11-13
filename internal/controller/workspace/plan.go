@@ -169,7 +169,7 @@ func planRun(in Inputs, at places) (workload.Spec, error) {
 		Resources:   t.Spec.Resources,
 		Size:        in.Size,
 		Port:        p.port,
-		Main:        mainUnit(ws.Owner, p.image, at.home),
+		Main:        MainUnitAt(ws.Owner, p.image, at.home),
 		Steps:       inits,
 	}
 	app := &s.Main
@@ -225,10 +225,10 @@ func planRun(in Inputs, at places) (workload.Spec, error) {
 
 // MainUnit is the unit every workload exists to run, for owner (a person's
 // name) on image. Apps and job runs share it.
-func MainUnit(owner, image string) workload.Unit { return mainUnit(owner, image, homeDir) }
+func MainUnit(owner, image string) workload.Unit { return MainUnitAt(owner, image, homeDir) }
 
-// mainUnit is MainUnit with the home in the folder home.
-func mainUnit(owner, image, home string) workload.Unit {
+// MainUnitAt is MainUnit with the home in the folder home.
+func MainUnitAt(owner, image, home string) workload.Unit {
 	return workload.Unit{
 		Name:  workload.MainUnit,
 		Image: image,

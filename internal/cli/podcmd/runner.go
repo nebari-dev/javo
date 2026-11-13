@@ -48,7 +48,7 @@ func NewRunner(engines *engine.Registry) *cobra.Command {
 			defer stop()
 			code := runner.Run(ctx, runner.Config{
 				Home: home, RunID: runID, TerminationLog: termLog,
-				Registry: engines, Exec: runner.WithPodUser(runner.PodUserScript, runner.DefaultExec),
+				Registry: engines, Exec: runner.WithPodUser(runner.PodUser(os.Getenv), runner.DefaultExec),
 			}, s)
 			if code != runner.ExitOK {
 				return exitcode.Error{Code: code}

@@ -21,40 +21,8 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// onHost turns the plan of a run, which the job planner makes for
-// containers, into one for this machine: the folder the runner is copied
-// to and the home are folders of the machine, named where the plan names
-// a container's paths. The storage is planned for the machine already
-// (podstorage.Local). The job planner has no way yet to plan for a
-// workload.Host as the app planner does; until it has, this is what it
-// would have to do.
-func onHost(s workload.Spec, runnerDir, home string) workload.Spec {
-	const planned = "/javo-run"
-	move := func(u *workload.Unit) {
-		for i, m := range u.Mounts {
-			if m.Path == planned {
-				u.Mounts[i].Path = runnerDir
-			}
-		}
-		for _, words := range [][]string{u.Command, u.Args} {
-			for i, w := range words {
-				if rest, ok := strings.CutPrefix(w, planned+"/"); ok {
-					words[i] = filepath.Join(runnerDir, rest)
-				}
-			}
-		}
-	}
-	for i := range s.Steps {
-		move(&s.Steps[i])
-	}
-	move(&s.Main)
-	s.Main.Args = append(s.Main.Args, "--home", home)
-	s.Main.SetEnv(workload.Env{Name: "HOME", Value: home})
-	return s
-}
-
-// A job, for real: the job planner's plan of a run (jobs.PlanRun), moved
-// to this machine's folders, runs as processes. The Javo binary installs
+// A job, for real: the job planner's plan of a run for this machine
+// (jobs.PlanRun with Inputs.Host) runs as processes. The Javo binary installs
 // the runner, the runner runs the job's command in the owner's home, and
 // what the executor then shows of the run is recorded as a run that
 // succeeded, with its folder and its parameters.
@@ -97,8 +65,9 @@ func TestRunsRunAPlannedJob(t *testing.T) {
 	}}
 	tpl := &model.Template{Name: "tools", Spec: model.TemplateSpec{Jobs: &model.TemplateJobs{Engines: []string{"command"}}}}
 	ref := workload.Ref{Namespace: job.Namespace, Name: jobs.RunName(job, "run-1"), ID: job.ID, Owner: job.Owner}
+	host := x.Host(ref)
 	s, err := jobs.PlanRun(jobs.Inputs{
-		Job: job, Template: tpl, RunnerImage: podspec.Image{Ref: runner},
+		Job: job, Template: tpl, RunnerImage: podspec.Image{Ref: runner}, Host: &host,
 		Layout: podstorage.Local(home, x.VolumeDir(ref, podstorage.TmpVolume), x.VolumeDir(ref, podstorage.ScratchVolume), workload.User{}),
 	}, "run-1", map[string]string{"city": "lisbon"}, time.Time{})
 	if err != nil {
@@ -107,8 +76,6 @@ func TestRunsRunAPlannedJob(t *testing.T) {
 	if s.Ref != ref {
 		t.Fatalf("the plan is for %+v, want %+v", s.Ref, ref)
 	}
-	s = onHost(s, x.VolumeDir(ref, "javo-run"), home)
-
 	if err := r.Start(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}

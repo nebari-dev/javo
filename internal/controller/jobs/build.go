@@ -80,6 +80,12 @@ type Inputs struct {
 	// MaxTimeout is the platform's longest run (limits.jobMaxTimeout); zero
 	// leaves the job's and the template's time limits as they are.
 	MaxTimeout time.Duration
+	// Host is the machine the run runs on as plain processes; nil plans it
+	// for a container. Such a run is planned with the machine's folders,
+	// as an app is (workspace.PlanRunOnHost): the runner is copied to a
+	// folder of the run's own, runs in the owner's home folder, and its
+	// environment is installed by the machine's pixi.
+	Host *workload.Host
 }
 
 // A job's bundles are named "<job's name>.job-<use>", a run's
@@ -206,26 +212,45 @@ func runRef(j *model.Job, handle string) workload.Ref {
 // secrets read from the bundle secretName.
 func planRun(in Inputs, name, run, secretName string) (workload.Spec, error) {
 	d, t := in.Job, in.Template
+	// Where the run finds its home and the runner: the fixed paths of a
+	// container, or the folders of the machine it runs on as processes.
+	home, runnerAt, layout, pixi := podspec.HomeDir, runnerDir, in.Layout, in.PixiImage
+	var host *workspace.RunOnHost
+	if in.Host != nil {
+		on, err := workspace.PlanRunOnHost(in.Host, in.Layout, t, in.Environment != nil)
+		if err != nil {
+			return workload.Spec{}, err
+		}
+		if in.RunnerImage.Ref == "" {
+			return workload.Spec{}, errors.New("the platform's own image is not named (the controller's --runner-image): its steps run as this binary under that name")
+		}
+		// Nothing runs the pixi image: the units run on the machine.
+		host, home, runnerAt, layout, pixi = &on, on.Home(), on.Volume(runnerVolume), on.Layout(), ""
+	}
 	s := workload.Spec{
 		Ref:       runRef(d, name),
 		Resources: t.Spec.Resources,
 		Size:      in.Size,
-		Main:      workspace.MainUnit(d.Owner, t.Spec.RunImage(in.PixiImage)),
+		Main:      workspace.MainUnitAt(d.Owner, t.Spec.RunImage(pixi), home),
 		Batch:     &workload.Batch{Retries: d.Spec.Run.Retries, Timeout: timeout(in), FailNow: exitCodesFailNow},
 	}
-	in.Layout.AddTo(&s)
+	layout.AddTo(&s)
 	s.Volumes = append(s.Volumes, workload.Volume{Name: runnerVolume})
-	runnerMount := workload.Mount{Volume: runnerVolume, Path: runnerDir}
+	runnerMount := workload.Mount{Volume: runnerVolume, Path: runnerAt}
 	s.Steps = []workload.Unit{{
 		Name: "runner-install", Image: in.RunnerImage.Ref, ReadOnlyRoot: true,
 		Command: []string{"/javo"},
-		Args:    []string{"runner", "install", "--to", runnerDir + "/javo"},
+		Args:    []string{"runner", "install", "--to", runnerAt + "/javo"},
 		Mounts:  []workload.Mount{runnerMount},
 	}}
 	s.Pull(in.RunnerImage.PullSecrets)
 	app := &s.Main
-	app.Command = []string{runnerDir + "/javo"}
+	app.Command = []string{runnerAt + "/javo"}
 	app.Args = []string{"runner"}
+	if host != nil {
+		// The runner takes a container's home unless told.
+		app.Args = append(app.Args, "--home", home)
+	}
 	app.Mounts = append(app.Mounts, runnerMount)
 	workspace.AddEnv(app, d.Spec.Env)
 	for _, b := range in.Secrets.Bindings {
@@ -240,10 +265,19 @@ func planRun(in Inputs, name, run, secretName string) (workload.Spec, error) {
 			workload.Env{Name: workload.EnvToken, From: &workload.SecretRef{Bundle: in.API.Secret, Key: APITokenKey}},
 		)
 	}
+	src := pixienv.Source{Files: in.Environment, Default: t.Spec.Environment}
+	if host != nil {
+		// A host has the platform's files in a folder of its own.
+		if err := pixienv.AddAt(&s, "", in.RunnerImage, src, host.Environment()); err != nil {
+			return workload.Spec{}, err
+		}
+		host.Finish(&s)
+		return s, nil
+	}
 	if t.Spec.UsesPodFiles() {
 		podfiles.Add(&s, in.RunnerImage)
 	}
-	if err := pixienv.Add(&s, in.PixiImage, in.RunnerImage, pixienv.Source{Files: in.Environment, Default: t.Spec.Environment}); err != nil {
+	if err := pixienv.Add(&s, in.PixiImage, in.RunnerImage, src); err != nil {
 		return workload.Spec{}, err
 	}
 	return s, nil
