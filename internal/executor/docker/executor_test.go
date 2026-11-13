@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -37,14 +38,17 @@ func (c *execConn) SetWriteDeadline(time.Time) error { return nil }
 
 // dialThrough connects from inside the container gw, with its nc. Javo
 // runs in the gateway container and connects from there itself; a test
-// runs on the host, which no workload's network reaches. A port nothing
-// listens on shows as a connection that ends at once, so only a check
-// that reads an answer (HTTP) can be trusted through it.
+// runs on the host, which no workload's network reaches.
 func dialThrough(c *Client, gw string) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, _, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, err
+		}
+		// A port nothing listens on is refused here: the nc below would
+		// only end at once.
+		if code, err := c.Exec(ctx, gw, []string{"nc", "-z", "-w", "1", host, port}); err != nil || code != 0 {
+			return nil, fmt.Errorf("connect to %s: refused (nc exit %d, %v)", addr, code, err)
 		}
 		create := map[string]any{"AttachStdin": true, "AttachStdout": true, "AttachStderr": true, "Cmd": []string{"nc", host, port}}
 		var made struct {
