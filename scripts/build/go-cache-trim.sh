@@ -15,7 +15,10 @@ cache=$(go env GOCACHE)
 case "$step" in
 start)
   mkdir -p "$cache"
-  find "$cache" -type f -exec touch -m -d "@$(($(date +%s) - 7200))" {} +
+  # Two hours ago, as touch -t reads it: the clock of a zone two hours
+  # behind UTC, read as UTC (touch -d @<seconds> is GNU's alone).
+  ago=$(TZ=UTC+2 date +%Y%m%d%H%M.%S)
+  TZ=UTC find "$cache" -type f -exec touch -m -t "$ago" {} +
   touch "$marker"
   ;;
 finish)
