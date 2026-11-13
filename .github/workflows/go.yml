@@ -121,6 +121,24 @@ jobs:
       - *trim-finish
       - *save
 
+  # What only a javo built with the tag local compiles (make local, the
+  # binary of `javo local`), which no other job does: every package builds
+  # and passes go vet with the tag, the packages with a file of the tag
+  # pass their tests, and the binary leaves out what keeps it small
+  # (test/localbuild). Reads go-test, which holds every package the tag
+  # does not change.
+  local:
+    name: Go local build
+    runs-on: ubuntu-24.04
+    env:
+      GO_CACHE: go-test
+    steps:
+      - *source
+      - *setup-go
+      - *week
+      - *restore
+      - run: make test-local
+
   go-test:
     name: Go tests (${{ matrix.db }} ${{ matrix.shard }}/${{ matrix.of }})
     runs-on: ubuntu-24.04

@@ -8,12 +8,13 @@ before you write it.
 Requires Go (version in `go.mod`), Node 24 with pnpm, Docker with Compose v2, kubectl and Helm.
 
     make test                     # Go unit and integration tests on SQLite, then the store and backup packages on a throwaway Postgres in Docker
+    make test-local               # the build of `javo local` (Go tag `local`): build, vet, its tests, and that it leaves out what keeps it small
     pnpm -C ui install --frozen-lockfile --ignore-scripts
     pnpm -C ui test               # UI tests
     pnpm -C ui build              # type check and production build
 
-On a pull request, CI runs `go build`, `go vet` and the Go tests (all on SQLite, the store and backup packages also on Postgres) when the Go
-side changes, the three `pnpm` steps above when `ui/` changes, and the docs site build when `site/` changes.
+On a pull request, CI runs `go build`, `go vet`, the Go tests (all on SQLite, the store and backup packages also on Postgres) and
+`make test-local` when the Go side changes, the three `pnpm` steps above when `ui/` changes, and the docs site build when `site/` changes.
 
 ## Run it locally
 

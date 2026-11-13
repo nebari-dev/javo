@@ -13,7 +13,7 @@ SETUP_ENVTEST_VERSION := v0.25.2
 SQLC_VERSION := 1.31.1
 ENVTEST_K8S_VERSION := 1.37.0
 
-.PHONY: generate generate-sql rbac test test-db test-postgres envtest-path db-packages openapi local docs docs-serve up dev-up reload down dev-down e2e e2e-quick e2e-full e2e-ai e2e-github e2e-executors compose-up compose-down compose-e2e
+.PHONY: generate generate-sql rbac test test-db test-postgres envtest-path db-packages openapi local test-local docs docs-serve up dev-up reload down dev-down e2e e2e-quick e2e-full e2e-ai e2e-github e2e-executors compose-up compose-down compose-e2e
 
 # Deep copies for internal/model.
 generate: $(CONTROLLER_GEN)
@@ -76,6 +76,17 @@ openapi:
 UI_DIST ?= ui/dist
 local: $(UI_DIST)/index.html
 	UI_DIST=$(UI_DIST) TERMINAL_PAGE=$(TERMINAL_PAGE) scripts/build/local-javo.sh $(LOCALBIN)/local $(LOCAL_PLATFORMS)
+
+# What only a build with the tag local compiles, which `make test` and the
+# other CI jobs never do: every package builds and passes go vet with the
+# tag, the packages with a file the tag alone compiles pass their tests
+# with it, and the binary leaves out what it is meant to (test/localbuild).
+# Needs no envtest binaries, restic or Docker.
+LOCAL_PACKAGES = $(shell grep -rl --include='*.go' '^//go:build local$$' cmd internal test | xargs -n1 dirname | sort -u | sed 's|^|./|')
+test-local:
+	go build -tags local ./...
+	go vet -tags local ./...
+	go test -tags local -vet=off -count=1 $(LOCAL_PACKAGES)
 
 ui/dist/index.html:
 	cd ui && pnpm install --frozen-lockfile && pnpm build
