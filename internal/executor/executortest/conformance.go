@@ -39,6 +39,10 @@ type Target struct {
 	// Fit, unless nil, gives a workload what this executor asks of every
 	// one and the suite does not care about: a user, a memory limit.
 	Fit func(*workload.Spec)
+	// Pause is how long the run whose log is read while it goes waits
+	// between its two lines; zero is three seconds, for an executor that
+	// takes a while to show a line.
+	Pause time.Duration
 }
 
 // patience is how long a workload gets to reach a state.

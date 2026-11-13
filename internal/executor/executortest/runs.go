@@ -1,6 +1,7 @@
 package executortest
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -166,8 +167,12 @@ func (s *suite) runLogs() {
 	if err != nil || rc != nil {
 		s.Fatalf("the log of a run that was not started: %v, %v; want none and no error", rc, err)
 	}
-	s.start(s.batch(`echo one; sleep 3; echo two`, 0))
+	pause := cmp.Or(s.Pause, 3*time.Second)
+	s.start(s.batch(fmt.Sprintf(`echo one; sleep %g; echo two`, pause.Seconds()), 0))
 	s.until("printing its first line", func() bool { return s.output(executor.LogOptions{}) == "one\n" })
+	if st := s.observe(); st == nil || st.Run == nil || st.Run.Done {
+		s.Fatalf("state %+v, want a run that is going", st)
+	}
 	if r := s.finished(); !r.Succeeded {
 		s.Fatalf("run %+v", r)
 	}

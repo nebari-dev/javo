@@ -40,7 +40,8 @@ func TestRunsConformance(t *testing.T) {
 	executortest.Runs(t, func(t *testing.T) executortest.Target {
 		dir, secrets := filepath.Join(t.TempDir(), "state"), &executortest.Secrets{}
 		r, x := runs(t, dir, secrets)
-		return executortest.Target{Executor: r, Secrets: secrets, Again: func() executor.Executor {
+		// A line a unit prints is in its log file at once.
+		return executortest.Target{Executor: r, Secrets: secrets, Pause: 500 * time.Millisecond, Again: func() executor.Executor {
 			r.Close()
 			x.Close()
 			r, x = runs(t, dir, secrets)
