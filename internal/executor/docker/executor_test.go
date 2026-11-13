@@ -85,7 +85,7 @@ func javoGateway(t *testing.T, c *Client, name string) string {
 	}
 	body.HostConfig.NetworkMode = "bridge"
 	body.Labels = nil
-	id, err := c.ContainerCreate(ctx, "javo-test-gateway."+name, body)
+	id, err := c.ContainerCreate(ctx, "javo-test-gateway."+testRun[:10]+"."+name, body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestDaemonExecutorConformance(t *testing.T) {
 	c, _ := daemon(t)
 	gw := javoGateway(t, c, "conformance")
 	executortest.Run(t, func(t *testing.T) executortest.Target {
-		return executortest.Target{Executor: testExecutor(t, c, gw, testPool), Secrets: testSecrets, Image: testImage, Fit: fit}
+		return executortest.Target{Executor: testExecutor(t, c, gw, testPool), Secrets: testSecrets, Image: testImage, Fit: fit, Namespace: testNamespace}
 	})
 }
 
@@ -216,7 +216,7 @@ func TestDaemonExecutorRunsAWorkload(t *testing.T) {
 	if err := testSecrets.Put(ctx, s.Ref, "run-tokens", executor.Bundle{Data: map[string][]byte{"token": []byte("t0p-s3cr3t-5512")}}); err != nil {
 		t.Fatal(err)
 	}
-	home := "javotest-run-home"
+	home := testNamespace + "-run-home"
 	if err := c.VolumeCreate(ctx, home, Labels(s.Ref)); err != nil {
 		t.Fatal(err)
 	}
@@ -396,14 +396,14 @@ func TestDaemonExecutorSaysWhenThePoolIsFull(t *testing.T) {
 	c, _ := daemon(t)
 	ctx := testContext(t)
 	gw := javoGateway(t, c, "pool")
-	x := testExecutor(t, c, gw, netip.MustParsePrefix("10.213.78.16/28"))
+	x := testExecutor(t, c, gw, onePool)
 	a, b := testSpec("pool-a"), testSpec("pool-b")
 	a.Main, b.Main = sh(workload.MainUnit, "sleep 3600"), sh(workload.MainUnit, "sleep 3600")
 	if err := x.Start(ctx, a); err != nil {
 		t.Fatal(err)
 	}
 	err := x.Start(ctx, b)
-	if err == nil || !errors.Is(err, ErrPoolFull) || !strings.Contains(err.Error(), "10.213.78.16/28") {
+	if err == nil || !errors.Is(err, ErrPoolFull) || !strings.Contains(err.Error(), onePool.String()) {
 		t.Fatalf("Start in a full pool: %v", err)
 	}
 	if st, _ := x.Observe(ctx, b.Ref); st != nil {

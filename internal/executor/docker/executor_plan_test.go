@@ -25,7 +25,7 @@ import (
 // the owner's home, as the shipped templates are planned.
 func planned(t *testing.T, name string) workload.Spec {
 	t.Helper()
-	app := &model.App{ID: "app-" + name, Namespace: "javotest", Name: name, Owner: "javotest", Template: "page"}
+	app := &model.App{ID: "app-" + name, Namespace: testNamespace, Name: name, Owner: testNamespace, Template: "page"}
 	tpl := &model.Template{Name: "page", Spec: model.TemplateSpec{
 		Kind: "page", Image: testImage, Port: 8080,
 		Command:       []string{"sh", "-c"},
@@ -117,7 +117,7 @@ func TestDaemonExecutorRunsAPlannedApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, err := c.Exec(ctx, gw, []string{"sh", "-c", "wget -q -T 5 -O - http://" + addr + "/ | grep -q page-of-javotest"}); err != nil || code != 0 {
+	if code, err := c.Exec(ctx, gw, []string{"sh", "-c", "wget -q -T 5 -O - http://" + addr + "/ | grep -q page-of-" + testNamespace}); err != nil || code != 0 {
 		t.Fatalf("the gateway's fetch of http://%s/: exit %d, %v", addr, code, err)
 	}
 	if err := x.Stop(ctx, s.Ref); err != nil {
@@ -152,7 +152,7 @@ func TestDaemonExecutorRunsTheShippedContainerTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &model.App{ID: "app-shipped", Namespace: "javotest", Name: "shipped", Owner: "javotest", Template: tpl.Name, Image: tpl.Spec.Sample.Image, Port: tpl.Spec.Port}
+	app := &model.App{ID: "app-shipped", Namespace: testNamespace, Name: "shipped", Owner: testNamespace, Template: tpl.Name, Image: tpl.Spec.Sample.Image, Port: tpl.Spec.Port}
 	amount := tpl.Spec.DefaultResources
 	s, err := workspace.Plan(workspace.Inputs{
 		App: app, Template: &tpl, BaseURL: "/u/javotest/shipped/",

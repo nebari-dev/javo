@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"fmt"
 	"net/netip"
 	"strings"
 	"testing"
@@ -9,8 +10,14 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// testPool is where the networks of the daemon tests take their addresses.
-var testPool = netip.MustParsePrefix("10.213.77.0/24")
+// testPool is where the networks of the daemon tests take their
+// addresses, and onePool has room for one network. Each test process
+// picks its own ranges (one of 128 pairs), so that two of them seldom
+// compete for the same addresses.
+var testPool, onePool = func() (netip.Prefix, netip.Prefix) {
+	n := int(testRun[0]+testRun[1]) % 128 * 2
+	return netip.MustParsePrefix(fmt.Sprintf("10.214.%d.0/24", n)), netip.MustParsePrefix(fmt.Sprintf("10.214.%d.16/28", n+1))
+}()
 
 // What a workload on its own network reaches: the units beside it on
 // loopback and the gateway, and nothing else. Not another workload, not

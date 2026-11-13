@@ -5,6 +5,7 @@
 package executortest
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -28,6 +29,10 @@ type Target struct {
 	// Image has sh, sleep, echo and cat; empty for an executor that runs
 	// units without an image.
 	Image string
+	// Namespace is where the suite's workloads live; empty is "alice". An
+	// executor whose workloads share one machine with another test run's
+	// names one of its own.
+	Namespace string
 	// Fit, unless nil, gives a workload what this executor asks of every
 	// one and the suite does not care about: a user, a memory limit.
 	Fit func(*workload.Spec)
@@ -60,7 +65,7 @@ func Run(t *testing.T, build func(t *testing.T) Target) {
 	for i, c := range tests {
 		t.Run(c.name, func(t *testing.T) {
 			s := &suite{T: t, Target: build(t)}
-			s.ref = workload.Ref{Namespace: "alice", Name: fmt.Sprintf("conformance-%d", i), ID: fmt.Sprintf("a-%d", i), Owner: "alice"}
+			s.ref = workload.Ref{Namespace: cmp.Or(s.Namespace, "alice"), Name: fmt.Sprintf("conformance-%d", i), ID: fmt.Sprintf("a-%d", i), Owner: "alice"}
 			t.Cleanup(func() {
 				// The test's own context has ended by now.
 				ctx, cancel := context.WithTimeout(context.Background(), patience)

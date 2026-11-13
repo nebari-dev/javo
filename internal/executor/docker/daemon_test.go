@@ -20,20 +20,26 @@ import (
 
 // The tests below run against a real Docker daemon and are skipped when
 // none answers. They state what the daemon does, which the translation
-// and the isolation rest on. Everything they create carries javo.test=1
-// and is removed when the test ends.
+// and the isolation rest on. Everything they create carries the label
+// javo.test with this test process's own id, is named after that id, and
+// is removed when the test ends: two test runs against one daemon never
+// see, name or remove each other's containers, networks and volumes.
 
 // testImage is busybox 1.37.0, by the digest of its image index on Docker
 // Hub: small, public, and never a different image under the same name.
 const testImage = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
 
-// testLabel marks what the daemon tests create.
+// testLabel marks what the daemon tests create; its value is testRun.
 const testLabel = "javo.test"
 
-// testRun marks what this run of the tests creates: an Executor of the
-// tests adopts and lists only that, and never what another run going on
-// against the same daemon made.
+// testRun is the id of this test process. What it creates carries it as
+// testLabel, so an Executor of the tests adopts, lists and sweeps only
+// that, and never what another run going on against the same daemon made.
 var testRun = strings.ToLower(rand.Text())
+
+// testNamespace is where the workloads of the daemon tests live. It ends
+// in the start of testRun, so no name is shared with another test process.
+var testNamespace = "javotest-" + testRun[:10]
 
 // daemon is a client of the Docker daemon on this machine, holding the
 // test image.
@@ -46,7 +52,7 @@ func daemon(t *testing.T) (*Client, Daemon) {
 	}
 	for _, sock := range sockets {
 		c := New(sock)
-		c.Labels = map[string]string{testLabel: "1", testLabel + ".run": testRun}
+		c.Labels = map[string]string{testLabel: testRun}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		d, err := c.Daemon(ctx)
 		cancel()
@@ -68,13 +74,13 @@ func daemon(t *testing.T) (*Client, Daemon) {
 	return nil, Daemon{}
 }
 
-// sweep removes what this run of the daemon tests created, and only
-// that: another run may be going on against the same daemon.
+// sweep removes what this test process created, and only that. What a
+// test process that was killed left behind is TestDaemonSweepLeftovers's.
 func sweep(t *testing.T, c *Client) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	mark := testLabel + ".run=" + testRun
+	mark := testLabel + "=" + testRun
 	del := func(path string) {
 		if err := gone(c.call(ctx, request{method: http.MethodDelete, path: path}, nil)); err != nil {
 			t.Errorf("cleanup of %s: %v", path, err)
@@ -106,7 +112,7 @@ func sweep(t *testing.T, c *Client) {
 // testSpec is a workload of the daemon tests, called name.
 func testSpec(name string) workload.Spec {
 	return workload.Spec{
-		Ref:  workload.Ref{Namespace: "javotest", Name: name, ID: "id-" + name, Owner: "alice"},
+		Ref:  workload.Ref{Namespace: testNamespace, Name: name, ID: "id-" + name, Owner: "alice"},
 		User: workload.User{UID: 1000, GID: 100},
 		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
 			corev1.ResourceMemory: resource.MustParse("64Mi"), corev1.ResourceCPU: resource.MustParse("500m"),
@@ -188,7 +194,7 @@ func gateway(t *testing.T, c *Client, name, script string) string {
 		t.Fatal(err)
 	}
 	body.HostConfig.NetworkMode = "bridge"
-	id, err := c.ContainerCreate(ctx, "javo-javotest."+name+".gateway", body)
+	id, err := c.ContainerCreate(ctx, "javo-"+testNamespace+"."+name+".gateway", body)
 	if err != nil {
 		t.Fatal(err)
 	}

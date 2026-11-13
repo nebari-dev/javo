@@ -15,20 +15,28 @@ import (
 
 // A fresh volume belongs to root, so a workload cannot write it. Own
 // gives it to the workload's user without running anything.
+// The volumes the tests below make outside a workload, named after this
+// test process.
+var (
+	ownHome       = "javo-" + testNamespace + ".own.home"
+	prepareHome   = "javo-" + testNamespace + ".prepare.home"
+	foreignVolume = testNamespace + "-foreign"
+)
+
 func TestDaemonAFreshVolumeIsRootsUntilOwned(t *testing.T) {
 	c, _ := daemon(t)
 	ctx := testContext(t)
 	s := testSpec("own")
 	up(t, c, s)
-	s.Volumes = []workload.Volume{{Name: "home", Source: "javo-javotest.own.home"}}
-	if err := c.VolumeCreate(ctx, "javo-javotest.own.home", Labels(s.Ref)); err != nil {
+	s.Volumes = []workload.Volume{{Name: "home", Source: ownHome}}
+	if err := c.VolumeCreate(ctx, ownHome, Labels(s.Ref)); err != nil {
 		t.Fatal(err)
 	}
 	look := sh("look", `stat -c '%u:%g %a' /data; touch /data/x 2>&1 && echo wrote`, workload.Mount{Volume: "home", Path: "/data"})
 	if _, out := run(t, c, s, look); !strings.HasPrefix(out, "0:0 755\n") || !strings.Contains(out, "Permission denied") {
 		t.Errorf("fresh volume: %q", out)
 	}
-	if err := Own(ctx, c, s, testImage, "javo-javotest.own.home", 0o750); err != nil {
+	if err := Own(ctx, c, s, testImage, ownHome, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if _, out := run(t, c, s, look); out != "1000:100 750\nwrote\n" {
@@ -49,13 +57,13 @@ func TestDaemonPrepareMakesVolumesAndFolders(t *testing.T) {
 	ctx := testContext(t)
 	s := testSpec("prepare")
 	gw := up(t, c, s)
-	if err := c.VolumeCreate(ctx, "javo-javotest.prepare.home", Labels(s.Ref)); err != nil {
+	if err := c.VolumeCreate(ctx, prepareHome, Labels(s.Ref)); err != nil {
 		t.Fatal(err)
 	}
-	if err := Own(ctx, c, s, testImage, "javo-javotest.prepare.home", 0o750); err != nil {
+	if err := Own(ctx, c, s, testImage, prepareHome, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	s.Volumes = []workload.Volume{{Name: "home", Source: "javo-javotest.prepare.home"}, {Name: "scratch"}}
+	s.Volumes = []workload.Volume{{Name: "home", Source: prepareHome}, {Name: "scratch"}}
 	s.Main = sh("app", `stat -c '%u:%g %a %n' /scratch /work /home/alice; touch /scratch/a /work/b && echo wrote; ls /home/alice/projects`,
 		workload.Mount{Volume: "scratch", Path: "/scratch"},
 		workload.Mount{Volume: "home", Path: "/home/alice"},
@@ -85,7 +93,7 @@ func TestDaemonPrepareMakesVolumesAndFolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := c.ContainerCreate(ctx, "javo-javotest.prepare.escape", body)
+	id, err := c.ContainerCreate(ctx, "javo-"+testNamespace+".prepare.escape", body)
 	if err == nil {
 		err = c.ContainerStart(ctx, id)
 	}
@@ -94,15 +102,15 @@ func TestDaemonPrepareMakesVolumesAndFolders(t *testing.T) {
 	}
 
 	// A volume of someone else's: made here without Javo's label.
-	if err := c.VolumeCreate(ctx, "javotest-foreign", nil); !errors.Is(err, ErrForeign) {
+	if err := c.VolumeCreate(ctx, foreignVolume, nil); !errors.Is(err, ErrForeign) {
 		t.Fatalf("creating an unlabelled volume: %v", err)
 	}
 	theirs := testSpec("prepare")
-	theirs.Volumes = []workload.Volume{{Name: "home", Source: "javotest-foreign"}}
+	theirs.Volumes = []workload.Volume{{Name: "home", Source: foreignVolume}}
 	if err := Prepare(ctx, c, theirs, testImage); !errors.Is(err, ErrForeign) {
 		t.Errorf("Prepare with a foreign volume: %v", err)
 	}
-	if err := c.VolumeRemove(ctx, "javotest-foreign"); !errors.Is(err, ErrForeign) {
+	if err := c.VolumeRemove(ctx, foreignVolume); !errors.Is(err, ErrForeign) {
 		t.Errorf("removing a foreign volume: %v", err)
 	}
 
@@ -110,10 +118,10 @@ func TestDaemonPrepareMakesVolumesAndFolders(t *testing.T) {
 	if err := Teardown(ctx, c, s.Ref, gw); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.VolumeInspect(ctx, "javo-javotest.prepare.scratch"); !errors.Is(err, ErrNotFound) {
+	if _, err := c.VolumeInspect(ctx, "javo-"+testNamespace+".prepare.scratch"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("scratch after Teardown: %v", err)
 	}
-	if _, err := c.VolumeInspect(ctx, "javo-javotest.prepare.home"); err != nil {
+	if _, err := c.VolumeInspect(ctx, prepareHome); err != nil {
 		t.Errorf("home after Teardown: %v", err)
 	}
 }
