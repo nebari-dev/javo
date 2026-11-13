@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -51,7 +50,6 @@ import (
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/status"
-	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/workload"
 )
@@ -846,9 +844,8 @@ type Storage interface {
 
 // Pods creates, reports on and reaps file pods.
 type Pods struct {
-	cfg     PodsConfig
-	mu      sync.Mutex
-	lastUse map[string]time.Time
+	cfg PodsConfig
+	use activity
 }
 
 // NewPods returns a file pod manager. Call Run to delete idle pods.
@@ -862,7 +859,7 @@ func NewPods(cfg PodsConfig) (*Pods, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Pods{cfg: cfg, lastUse: map[string]time.Time{}}, nil
+	return &Pods{cfg: cfg}, nil
 }
 
 // ns is the namespace of the home a call is about.
@@ -897,26 +894,12 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	p.Touch(userID)
 
 	c, ns := p.cfg.Client, p.ns(ctx)
-	home, err := p.cfg.Storage.Home(ctx, ns, userID)
+	in, err := homeInput(ctx, p.cfg.Storage, ns, userID)
 	if err != nil {
 		return "", err
-	}
-	if cd := meta.FindStatusCondition(home.Status.Conditions, model.ConditionReady); cd != nil && cd.Reason == string(reasons.HomeClaimForeign) {
-		return "", ErrHomeConflict
-	}
-	if home.Status.ClaimName == "" {
-		// The storage controller is making the claim.
-		return "", ErrHomeStarting
-	}
-	in, err := p.cfg.Storage.Input(ctx, ns, userID)
-	if err != nil {
-		return "", err
-	}
-	if in.Home == nil {
-		return "", ErrHomeStarting
 	}
 	var claim corev1.PersistentVolumeClaim
-	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: home.Status.ClaimName}, &claim)
+	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: in.Home.Status.ClaimName}, &claim)
 	if apierrors.IsNotFound(err) {
 		return "", ErrHomeStarting
 	}
@@ -926,15 +909,10 @@ func (p *Pods) EnsureGroup(ctx context.Context, userID, dir string) (string, err
 	if claim.Annotations[model.AnnotationOwnerID] != userID {
 		return "", ErrHomeConflict
 	}
-
-	uid, gid, err := p.cfg.UIDs.UID(ctx, userID)
-	if errors.Is(err, ids.ErrNoUID) {
-		return "", ErrHomeStarting
-	}
-	if err != nil {
+	if err := runAs(ctx, p.cfg.UIDs, userID, &in); err != nil {
 		return "", err
 	}
-	in.UID, in.GID = uid, gid
+	uid := in.UID
 
 	var pod corev1.Pod
 	err = c.Get(ctx, client.ObjectKey{Namespace: ns, Name: podName(userID)}, &pod)
@@ -1071,11 +1049,7 @@ func loginContext(pod *corev1.Pod, secretName string) []byte {
 
 // Touch records that the user is active, so their file pod (if any) is
 // kept for another IdleAfter. It never creates a pod.
-func (p *Pods) Touch(userID string) {
-	p.mu.Lock()
-	p.lastUse[userID] = p.cfg.Now()
-	p.mu.Unlock()
-}
+func (p *Pods) Touch(userID string) { p.use.touch(userID, p.cfg.Now()) }
 
 // Reap deletes file pods unused for IdleAfter. A pod this gateway has not
 // served (for example after a restart) counts as used when it was created.
@@ -1115,28 +1089,11 @@ func (p *Pods) Reap(ctx context.Context) error {
 			pods.Items = append(pods.Items, part.Items...)
 		}
 	}
-	now := p.cfg.Now()
-	var idle []*corev1.Pod
-	p.mu.Lock()
-	for i := range pods.Items {
-		pod := &pods.Items[i]
-		last, ok := p.lastUse[pod.Labels[model.LabelOwner]]
-		if !ok {
-			last = pod.CreationTimestamp.Time
-		}
-		if now.Sub(last) >= p.cfg.IdleAfter {
-			idle = append(idle, pod)
-		}
-	}
-	for s, last := range p.lastUse {
-		if now.Sub(last) >= p.cfg.IdleAfter {
-			delete(p.lastUse, s)
-		}
-	}
-	p.mu.Unlock()
-
-	for _, pod := range idle {
-		if err := deleteExact(ctx, p.cfg.Client, pod); err != nil {
+	idle := p.use.idle(p.cfg.Now(), p.cfg.IdleAfter, len(pods.Items), func(i int) (string, time.Time) {
+		return pods.Items[i].Labels[model.LabelOwner], pods.Items[i].CreationTimestamp.Time
+	})
+	for _, i := range idle {
+		if err := deleteExact(ctx, p.cfg.Client, &pods.Items[i]); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -1154,20 +1111,7 @@ func deleteExact(ctx context.Context, c client.Client, pod *corev1.Pod) error {
 }
 
 // Run reaps idle file pods every minute until ctx is done.
-func (p *Pods) Run(ctx context.Context) {
-	t := time.NewTicker(reapEvery)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if err := p.Reap(ctx); err != nil {
-				slog.Error("reap file pods", "err", err)
-			}
-		}
-	}
-}
+func (p *Pods) Run(ctx context.Context) { reapLoop(ctx, "reap file pods", p.Reap) }
 
 // held reports whether h is being restored or moved to other storage.
 func held(h *model.Home) bool {
@@ -1212,22 +1156,22 @@ func writesAs(pod *corev1.Pod, uid int64) bool {
 	})
 }
 
-// buildPod returns the file pod: rclone running as the owner (in.UID and
-// in.GID) with the owner's storage (the layout podstorage builds for in)
-// mounted read-only, except the home, which Lister.Save writes to.
-func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Pod {
+// fileSpec is the plan of what serves owner's files, called name: rclone
+// running as the owner (in.UID and in.GID) with the owner's storage (the
+// layout podstorage builds for in) mounted read-only, except the home,
+// which Lister.Save writes to. Whoever runs it adds rclone's password
+// (envRCPass) as a value no description of the workload holds.
+func fileSpec(name, userSlug, namespace, image string, in podstorage.Input) workload.Spec {
 	in.ReadOnly = true
 	in.ScratchMax = resource.MustParse("64Mi")
 	s := workload.Spec{
-		Ref: workload.Ref{Namespace: namespace, Name: podName(userSlug), Owner: userSlug},
+		Ref: workload.Ref{Namespace: namespace, Name: name, Owner: userSlug},
 		Main: workload.Unit{
 			Name:  "rclone",
 			Image: image,
-			// rclone asks every call for the pod's own password, so the
-			// home stays closed where the network plugin does not enforce
-			// the gateway-only NetworkPolicy. The password comes from a
-			// Secret (create adds it), so whoever may read pods there
-			// does not see it.
+			// rclone asks every call for its own password, so the home
+			// stays closed even where the network does not keep everyone
+			// but the gateway out.
 			Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-serve"},
 			Env: []workload.Env{
 				{Name: envRCUser, Value: rcUser},
@@ -1258,6 +1202,14 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 		}
 	}
 	layout.AddTo(&s)
+	return s
+}
+
+// buildPod returns the file pod: the plan of fileSpec as a Pod. Its
+// password comes from a Secret (create adds it), so whoever may read pods
+// there does not see it.
+func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Pod {
+	s := fileSpec(podName(userSlug), userSlug, namespace, image, in)
 	pod := kube.Render(s, podspec.Isolation{})
 	// Kubernetes only: a file pod is found by its role, not by an app's id
 	// (the admission policy allows these two labels and no other), and its
@@ -1304,9 +1256,7 @@ func newPassword() string {
 // Release deletes the user's file pod, if any, so the home claim is free
 // for an app (a single-node home attaches to one node at a time).
 func (p *Pods) Release(ctx context.Context, userID string) error {
-	p.mu.Lock()
-	delete(p.lastUse, userID)
-	p.mu.Unlock()
+	p.use.forget(userID)
 	var pod corev1.Pod
 	err := p.cfg.Client.Get(ctx, client.ObjectKey{Namespace: p.ns(ctx), Name: podName(userID)}, &pod)
 	if err != nil || !isFilePodOf(&pod, userID) {
