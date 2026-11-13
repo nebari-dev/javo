@@ -16,7 +16,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
-	"github.com/nebari-dev/javo/internal/cli/kubeclient"
+	"github.com/nebari-dev/javo/internal/cli/homeclaims"
 	"github.com/nebari-dev/javo/internal/store"
 )
 
@@ -24,11 +24,11 @@ import (
 // database, so the command reads the same database flags as the server (run it
 // in the server pod: kubectl exec deploy/javo -- javo user add ...). openStore
 // nil means open the database the flags name.
-func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
+func New(newClaims homeclaims.Factory, openStore dbflag.Opener) *cobra.Command {
 	user := &cobra.Command{Use: "user", Short: "Manage local accounts and remove people"}
 	openStore = dbflag.OrRegister(openStore, user.PersistentFlags())
 	user.AddCommand(newUserAddCmd(openStore))
-	user.AddCommand(newUserRemoveCmd(newClient, openStore))
+	user.AddCommand(newUserRemoveCmd(newClaims, openStore))
 	return user
 }
 

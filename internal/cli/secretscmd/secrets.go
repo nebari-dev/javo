@@ -8,11 +8,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
-	"github.com/nebari-dev/javo/internal/controller/secretskey"
 	"github.com/nebari-dev/javo/internal/secrets"
 )
 
@@ -21,7 +18,7 @@ import (
 // whose service account may read the key-encryption key's Secret:
 //
 //	kubectl exec deploy/javo -- /javo secrets rotate --key-secret javo-secrets-key
-func New(openStore dbflag.Opener) *cobra.Command {
+func New(openStore dbflag.Opener, fromSecret KeyOfSecret) *cobra.Command {
 	cmd := &cobra.Command{Use: "secrets", Short: "Manage the keys of people's secrets"}
 	openStore = dbflag.OrRegister(openStore, cmd.PersistentFlags())
 	var keyFile, keySecret, namespace string
@@ -34,7 +31,7 @@ func New(openStore dbflag.Opener) *cobra.Command {
 			"runs; running it again is safe. A key file that does not open the stored keyset changes nothing.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			kek, err := loadKEK(cmd.Context(), keyFile, keySecret, namespace)
+			kek, err := loadKEK(cmd.Context(), fromSecret, keyFile, keySecret, namespace)
 			if err != nil {
 				return err
 			}
@@ -69,23 +66,20 @@ func count(n int, noun string) string {
 	return fmt.Sprintf("%d %s", n, noun)
 }
 
+// KeyOfSecret reads the key-encryption key from a Secret of a cluster.
+type KeyOfSecret func(ctx context.Context, namespace, name string) (secrets.KEK, error)
+
 // loadKEK reads the key-encryption key from keyFile, or else from the Secret
-// keySecret in namespace (never made here: rotating needs the key that
-// wrapped the stored keyset).
-func loadKEK(ctx context.Context, keyFile, keySecret, namespace string) (secrets.KEK, error) {
+// keySecret in namespace through fromSecret.
+func loadKEK(ctx context.Context, fromSecret KeyOfSecret, keyFile, keySecret, namespace string) (secrets.KEK, error) {
 	if keyFile != "" {
 		return secrets.KEKFromFile(keyFile)
 	}
 	if namespace == "" {
 		return nil, errors.New("--key-secret needs --namespace (or POD_NAMESPACE)")
 	}
-	cfg, err := ctrl.GetConfig()
-	if err != nil {
-		return nil, err
+	if fromSecret == nil {
+		return nil, errors.New("--key-secret: no Kubernetes client to read the Secret with")
 	}
-	c, err := client.New(cfg, client.Options{})
-	if err != nil {
-		return nil, err
-	}
-	return secretskey.Secret{Client: c, Namespace: namespace, Name: keySecret}.Load(ctx)
+	return fromSecret(ctx, namespace, keySecret)
 }

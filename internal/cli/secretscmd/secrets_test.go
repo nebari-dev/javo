@@ -14,7 +14,7 @@ import (
 
 func runSecrets(t *testing.T, db *store.Store, args ...string) (string, error) {
 	t.Helper()
-	return clitest.Run(New(clitest.Opener(t, db)), append([]string{"secrets"}, args...)...)
+	return clitest.Run(New(clitest.Opener(t, db), nil), append([]string{"secrets"}, args...)...)
 }
 
 func TestSecretsRotateResealsEveryValue(t *testing.T) {

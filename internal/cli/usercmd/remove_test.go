@@ -19,6 +19,8 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/cli/clitest"
+	"github.com/nebari-dev/javo/internal/cli/homeclaims"
+	"github.com/nebari-dev/javo/internal/cli/kubeclient"
 	"github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
@@ -198,7 +200,7 @@ func TestUserRemoveDeletesAppsAndJobsOnlyWhenAsked(t *testing.T) {
 // runWith runs `javo args...` on e's database and the cluster c.
 func runWith(t *testing.T, e *userEnv, c client.Client, args ...string) (string, error) {
 	t.Helper()
-	return clitest.Run(New(func() (client.Client, error) { return c, nil }, clitest.Opener(t, e.db)), args...)
+	return clitest.Run(New(func() (homeclaims.Claims, error) { return kubeclient.Claims(c), nil }, clitest.Opener(t, e.db)), args...)
 }
 
 // Removing a person removes their home rows, so they are not backed up or
@@ -351,7 +353,7 @@ func TestUserRemoveWithoutAClusterForgetsTheHomeAndNeverDeletesIt(t *testing.T) 
 		t.Fatal(err)
 	}
 	// Any use of a cluster fails the command.
-	noCluster := func() (client.Client, error) { return nil, errors.New("there is no cluster here") }
+	noCluster := func() (homeclaims.Claims, error) { return nil, errors.New("there is no cluster here") }
 	run := func(args ...string) (string, error) {
 		return clitest.Run(New(noCluster, clitest.Opener(t, e.db)), append([]string{"user", "remove", "alice", "--config", config}, args...)...)
 	}

@@ -8,16 +8,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
-	"github.com/nebari-dev/javo/internal/cli/kubeclient"
+	"github.com/nebari-dev/javo/internal/cli/homeclaims"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
@@ -26,7 +22,7 @@ import (
 // cliActor is who the audit log names for changes made by `javo user remove`.
 var cliActor = model.Actor{System: model.SystemCLI}
 
-func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
+func newUserRemoveCmd(newClaims homeclaims.Factory, openStore dbflag.Opener) *cobra.Command {
 	var namespace string
 	var deleteHome, deleteWork bool
 	var cluster func() (executor string, onCluster bool, err error)
@@ -52,7 +48,7 @@ func newUserRemoveCmd(newClient kubeclient.Factory, openStore dbflag.Opener) *co
 				return err
 			}
 			defer db.Close()
-			r := remover{db: db, newClient: newClient, deleteWork: deleteWork, deleteHome: deleteHome}
+			r := remover{db: db, newClaims: newClaims, deleteWork: deleteWork, deleteHome: deleteHome}
 			if executor, onCluster, err := cluster(); err != nil {
 				return err
 			} else if !onCluster {
@@ -89,7 +85,7 @@ type removal struct {
 
 type remover struct {
 	db                     *store.Store
-	newClient              kubeclient.Factory
+	newClaims              homeclaims.Factory
 	deleteWork, deleteHome bool
 	// noCluster is the executor's name where apps do not run on
 	// Kubernetes: a home there is a Docker volume or a folder, not claims.
@@ -209,13 +205,13 @@ func (r remover) remove(ctx context.Context, who string) (string, error) {
 		// No claims to mark: the volume or folder stays as it is, and the
 		// same person coming back finds it by its name.
 	} else if r.deleteHome && len(homes) > 0 {
-		if err := deleteHomeClaims(ctx, r.newClient, homes); err != nil {
+		if err := r.claims(func(c homeclaims.Claims) error { return c.Delete(ctx, homes) }); err != nil {
 			return "", failed("deleting their home's files (rerun with --delete-home)", err)
 		}
 	} else if len(homes) > 0 {
 		// Marked before the rows go, so the controller's volume finder never
 		// sees the claims without a row and without the mark.
-		if err := forgetHomeClaims(ctx, r.newClient, homes); err != nil {
+		if err := r.claims(func(c homeclaims.Claims) error { return c.Forget(ctx, homes) }); err != nil {
 			return "", failed("marking their home's claims forgotten", err)
 		}
 	}
@@ -266,65 +262,11 @@ func describeWork(apps []model.App, jobs []model.Job) string {
 	return strings.Join(names, ", ")
 }
 
-// forgetHomeClaims labels every claim of homes (each claim labelled with
-// their owner in their namespace) model.LabelForgotten.
-func forgetHomeClaims(ctx context.Context, newClient kubeclient.Factory, homes []model.Home) error {
-	c, err := kubeclient.New(newClient)
+// claims does do to the homes' claims of the cluster.
+func (r *remover) claims(do func(homeclaims.Claims) error) error {
+	c, err := homeclaims.Open(r.newClaims)
 	if err != nil {
 		return err
 	}
-	for _, h := range homes {
-		var claims corev1.PersistentVolumeClaimList
-		if err := c.List(ctx, &claims, client.InNamespace(h.Namespace), client.MatchingLabels{model.LabelOwner: h.Spec.Owner}); err != nil {
-			return err
-		}
-		for i := range claims.Items {
-			claim := &claims.Items[i]
-			if claim.Labels[model.LabelForgotten] == "true" {
-				continue
-			}
-			base := claim.DeepCopy()
-			claim.Labels[model.LabelForgotten] = "true"
-			if err := c.Patch(ctx, claim, client.MergeFrom(base)); client.IgnoreNotFound(err) != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// deleteHomeClaims deletes the claims of homes: every claim labelled with
-// their owner in their namespace (a home moved between modes has more than
-// one).
-func deleteHomeClaims(ctx context.Context, newClient kubeclient.Factory, homes []model.Home) error {
-	c, err := kubeclient.New(newClient)
-	if err != nil {
-		return err
-	}
-	for _, h := range homes {
-		// The home's finished storage Jobs (backups, restores) keep their
-		// pods for their logs; a pod that names the claim keeps it from
-		// going, so they go first.
-		var jobs batchv1.JobList
-		if err := c.List(ctx, &jobs, client.InNamespace(h.Namespace), client.MatchingLabels{model.LabelOwner: h.Spec.Owner}); err != nil {
-			return err
-		}
-		for i := range jobs.Items {
-			if err := c.Delete(ctx, &jobs.Items[i], client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
-				return err
-			}
-		}
-		// List and delete each: the controller's account may delete claims,
-		// not delete a collection of them.
-		var claims corev1.PersistentVolumeClaimList
-		if err := c.List(ctx, &claims, client.InNamespace(h.Namespace), client.MatchingLabels{model.LabelOwner: h.Spec.Owner}); err != nil {
-			return err
-		}
-		for i := range claims.Items {
-			if err := c.Delete(ctx, &claims.Items[i]); client.IgnoreNotFound(err) != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return do(c)
 }

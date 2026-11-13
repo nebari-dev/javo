@@ -7,12 +7,10 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
-	"github.com/nebari-dev/javo/internal/cli/kubeclient"
+	"github.com/nebari-dev/javo/internal/cli/homeclaims"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
@@ -20,7 +18,7 @@ import (
 
 // New is `javo home`: home folders whose owners are gone. Run it in
 // the server pod, which has the database and may read the claims.
-func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
+func New(newClaims homeclaims.Factory, openStore dbflag.Opener) *cobra.Command {
 	home := &cobra.Command{Use: "home", Short: "Home folders whose owners are gone"}
 	openStore = dbflag.OrRegister(openStore, home.PersistentFlags())
 	cluster := wiring.ClusterFlag(home.PersistentFlags())
@@ -43,7 +41,7 @@ func New(newClient kubeclient.Factory, openStore dbflag.Opener) *cobra.Command {
 			} else if !onCluster {
 				return fmt.Errorf("javo home prune needs executor kubernetes: with executor %s a home is a Docker volume or a folder, which this command cannot see (nothing was changed)", executor)
 			}
-			c, err := kubeclient.New(newClient)
+			c, err := homeclaims.Open(newClaims)
 			if err != nil {
 				return err
 			}
@@ -85,7 +83,7 @@ var cliActor = model.Actor{System: model.SystemCLI}
 
 // orphanHomes are the homes whose owner is a local account that is gone (no
 // account, and no person or a local one) and that have no claim left.
-func orphanHomes(ctx context.Context, db *store.Store, c client.Client) ([]model.Home, error) {
+func orphanHomes(ctx context.Context, db *store.Store, c homeclaims.Claims) ([]model.Home, error) {
 	accounts, err := db.LocalAccounts().List(ctx)
 	if err != nil {
 		return nil, err
@@ -110,11 +108,11 @@ func orphanHomes(ctx context.Context, db *store.Store, c client.Client) ([]model
 		case len(p.Subjects) == 0 || p.Subjects[0].Issuer != local.Issuer:
 			continue // signs in through an identity provider
 		}
-		var claims corev1.PersistentVolumeClaimList
-		if err := c.List(ctx, &claims, client.InNamespace(h.Namespace), client.MatchingLabels{model.LabelOwner: h.Spec.Owner}); err != nil {
+		left, err := c.Any(ctx, h.Namespace, h.Spec.Owner)
+		if err != nil {
 			return nil, fmt.Errorf("list the claims of %s: %w", h.Spec.Owner, err)
 		}
-		if len(claims.Items) == 0 {
+		if !left {
 			out = append(out, h)
 		}
 	}

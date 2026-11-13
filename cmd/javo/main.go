@@ -9,11 +9,10 @@ import (
 
 	"github.com/nebari-dev/javo/internal/cli"
 	"github.com/nebari-dev/javo/internal/cli/exitcode"
-	"github.com/nebari-dev/javo/internal/cli/kubeclient"
 )
 
 func main() {
-	if err := cli.New(kubeclient.Default, nil).Execute(); err != nil {
+	if err := cli.New(nil, nil).Execute(); err != nil {
 		var ee exitcode.Error
 		if errors.As(err, &ee) {
 			os.Exit(ee.Code)

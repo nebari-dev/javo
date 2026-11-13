@@ -11,6 +11,8 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/cli/clitest"
+	"github.com/nebari-dev/javo/internal/cli/homeclaims"
+	"github.com/nebari-dev/javo/internal/cli/kubeclient"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
@@ -70,7 +72,7 @@ func TestHomePruneRemovesOnlyOrphans(t *testing.T) {
 // run runs `javo args...` on db and the cluster c.
 func run(t *testing.T, db *store.Store, c client.Client, args ...string) (string, error) {
 	t.Helper()
-	return clitest.Run(New(func() (client.Client, error) { return c, nil }, clitest.Opener(t, db)), args...)
+	return clitest.Run(New(func() (homeclaims.Claims, error) { return kubeclient.Claims(c), nil }, clitest.Opener(t, db)), args...)
 }
 
 // Where apps do not run on Kubernetes there are no claims to tell an
@@ -87,7 +89,7 @@ func TestHomePruneNeedsACluster(t *testing.T) {
 		t.Fatal(err)
 	}
 	asked := false
-	cluster := func() (client.Client, error) { asked = true; return nil, nil }
+	cluster := func() (homeclaims.Claims, error) { asked = true; return nil, nil }
 	out, err := clitest.Run(New(cluster, clitest.Opener(t, db)), "home", "prune", "--orphans", "--yes", "--config", config)
 	if err == nil || !strings.Contains(err.Error(), "needs executor kubernetes") || !strings.Contains(err.Error(), "executor process") {
 		t.Fatalf("%v\n%s", err, out)
