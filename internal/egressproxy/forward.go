@@ -70,6 +70,11 @@ func (p *Proxy) newTransport() *http.Transport {
 			if err != nil {
 				return nil, err
 			}
+			if t.port != httpPort {
+				// forward has checked the port of the URL; this is the
+				// port the transport made of it.
+				return nil, &DeniedError{Why: "not on port 80"}
+			}
 			conn, addr, err := p.dial(ctx, t)
 			if err != nil {
 				return nil, err
