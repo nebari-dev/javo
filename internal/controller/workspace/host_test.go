@@ -493,3 +493,31 @@ func TestShippedTemplatesKeepTheirFingerprint(t *testing.T) {
 		}
 	}
 }
+
+// tmux keeps its server's socket in /tmp/tmux-UID unless told otherwise.
+// On a host that folder is the person's own: an app that runs tmux (the
+// coding agents do, to keep the agent's session) would start its session
+// in the person's own tmux server. A host plan names the workload's
+// temporary folder instead; a container, whose /tmp is its own, is told
+// nothing.
+func TestTmuxKeepsItsSocketInTheWorkloadOnAHost(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"terminal", "claude-code", "pi"} {
+		in := hostInputs(t, name)
+		onHost, err := Plan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := unitEnv(onHost.Main)["TMUX_TMPDIR"], testHost.Volumes+"/tmp"; got != want {
+			t.Errorf("%s on a host: TMUX_TMPDIR = %q, want %q", name, got, want)
+		}
+		in.Host, in.Port, in.Layout = nil, 0, testLayout(FixedUID)
+		inContainer, err := Plan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dir, told := unitEnv(inContainer.Main)["TMUX_TMPDIR"]; told {
+			t.Errorf("%s in a container: TMUX_TMPDIR = %q", name, dir)
+		}
+	}
+}

@@ -211,11 +211,17 @@ const (
 	// on loopback: the samples (pod/files/samples) and Pluto's launcher
 	// read it, and listen on every address without it, as in a container.
 	envListenAddr = "JAVO_LISTEN_ADDR"
+	// envTmuxDir is tmux's own variable for the folder it keeps its
+	// servers' sockets in (TMUX_TMPDIR/tmux-UID). Without it that is
+	// /tmp/tmux-UID, which on a host is the person's own: the session of
+	// a coding agent (pod/files/agents/agent-serve.sh) would be made in
+	// the tmux server the person runs. A container's /tmp is its own.
+	envTmuxDir = "TMUX_TMPDIR"
 )
 
 // onHost finishes a plan for a host: the main unit starts in the home
 // and learns where the platform's files and its environment's activation
-// are and which address to listen on, and the install step runs with the host's tools, tells the
+// are, which address to listen on and where tmux keeps its sockets, and the install step runs with the host's tools, tells the
 // environment's own install script (javo-post-install.sh) where the
 // platform's files are, writes its temporary files in the workload's
 // folder and its message for the person beside the activation.
@@ -228,7 +234,8 @@ func (p places) onHost(s *workload.Spec) {
 		// A container starts in its image's folder; here that is the home.
 		s.Main.Dir = p.home
 	}
-	s.Main.SetEnv(workload.Env{Name: envFilesDir, Value: p.files}, workload.Env{Name: envListenAddr, Value: loopback})
+	s.Main.SetEnv(workload.Env{Name: envFilesDir, Value: p.files}, workload.Env{Name: envListenAddr, Value: loopback},
+		workload.Env{Name: envTmuxDir, Value: env.Tmp})
 	if install := s.Step(pixienv.InstallContainer); install != nil {
 		s.Main.SetEnv(workload.Env{Name: envEnvDir, Value: env.Dir})
 		install.SetEnv(
