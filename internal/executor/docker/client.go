@@ -16,7 +16,23 @@ import (
 // Client talks to one Docker daemon over its unix socket. Every call takes
 // a context and ends with it.
 type Client struct {
+	// Labels are added to every container, network and volume the client
+	// creates, on top of Javo's own.
+	Labels map[string]string
+
 	http *http.Client
+}
+
+// stamped is labels with the client's own added.
+func (c *Client) stamped(labels map[string]string) map[string]string {
+	out := make(map[string]string, len(labels)+len(c.Labels))
+	for k, v := range labels {
+		out[k] = v
+	}
+	for k, v := range c.Labels {
+		out[k] = v
+	}
+	return out
 }
 
 // New is a client of the daemon listening on the unix socket at path.

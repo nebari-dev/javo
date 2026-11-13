@@ -51,6 +51,7 @@ func (c *Client) ContainerCreate(ctx context.Context, name string, body Body) (s
 	var out struct {
 		ID string `json:"Id"`
 	}
+	body.Labels = c.stamped(body.Labels)
 	err := c.post(ctx, "/containers/create", url.Values{"name": {name}}, body, &out)
 	return out.ID, err
 }

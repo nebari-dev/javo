@@ -257,7 +257,7 @@ func mountOf(s workload.Spec, m workload.Mount) (Mount, error) {
 		if !path.IsAbs(m.Path) || path.Clean(m.Path) != m.Path || m.Path == "/" {
 			return Mount{}, fmt.Errorf("mount of %q: %q is not a clean absolute path below the root", m.Volume, m.Path)
 		}
-		if m.SubPath != "" && (path.IsAbs(m.SubPath) || path.Clean(m.SubPath) != m.SubPath || m.SubPath == ".." || strings.HasPrefix(m.SubPath, "../")) {
+		if m.SubPath != "" && !insideVolume(m.SubPath) {
 			return Mount{}, fmt.Errorf("mount of %q: %q is not a folder inside the volume", m.Volume, m.SubPath)
 		}
 		return Mount{
