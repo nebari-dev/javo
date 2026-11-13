@@ -35,7 +35,6 @@ import (
 	"github.com/nebari-dev/javo/internal/ai"
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/ai/provider"
-	"github.com/nebari-dev/javo/internal/ai/provider/openai"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -160,7 +159,7 @@ func effective(c config.AICfg, row *store.AISetting) config.AICfg {
 }
 
 // ownAPI is each provider's address when the base URL is empty.
-var ownAPI = map[string]string{"anthropic": "https://api.anthropic.com", openai.ID: "https://api.openai.com"}
+var ownAPI = map[string]string{"anthropic": "https://api.anthropic.com", provider.OpenAI: "https://api.openai.com"}
 
 // sameEndpoint is whether settings for provider at baseURL send to the
 // server the config sends to (same scheme, host and port), where the
@@ -308,7 +307,7 @@ func (l *Live) Save(ctx context.Context, actor model.Actor, in Input) error {
 	default:
 		prev = &r
 	}
-	next := store.AISetting{Provider: openai.ID, BaseURL: in.BaseURL, Model: in.Model}
+	next := store.AISetting{Provider: provider.OpenAI, BaseURL: in.BaseURL, Model: in.Model}
 	keyChanged := false
 	switch {
 	case in.APIKey != "":

@@ -80,6 +80,11 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
+// OpenAI is the id of the adapter that speaks to any OpenAI-compatible
+// server (internal/ai/provider/openai). It is named here so that what
+// needs only the name does not link that adapter's SDK.
+const OpenAI = "openai"
+
 // Factory builds a provider from its config.
 type Factory func(Config) (Provider, error)
 

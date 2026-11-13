@@ -21,7 +21,7 @@ import (
 )
 
 // ID is the provider id in the config.
-const ID = "openai"
+const ID = provider.OpenAI
 
 type adapter struct {
 	client  sdk.Client
