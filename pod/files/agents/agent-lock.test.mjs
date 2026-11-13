@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -127,14 +127,18 @@ test('runs the command as given', () => {
 
 // An app that runs as a process of a machine is told where that machine
 // has the platform's files, its environment's activation and tmux's
-// sockets (JAVO_FILES_DIR, JAVO_ENV_DIR, TMUX_TMPDIR): those are granted in
-// place of a container's /opt/javo and /opt/javo-env.
+// sockets (JAVO_FILES_DIR, JAVO_ENV_DIR, TMUX_TMPDIR) and its scratch
+// folder, where the tools keep their caches and environments
+// (JAVO_SCRATCH_DIR): those are granted in place of a container's
+// /opt/javo, /opt/javo-env and /scratch.
 test('on a host grants the folders the app is told of', () => {
   const home = temp()
   const files = temp()
   const env = temp()
   const tmux = join(temp(), 'tmp')
-  const got = lockWith({ JAVO_FILES_DIR: files, JAVO_ENV_DIR: env, TMUX_TMPDIR: tmux }, home, join(home, 'p'), 'claude')
+  const scratch = join(temp(), 'scratch')
+  const got = lockWith({ JAVO_FILES_DIR: files, JAVO_ENV_DIR: env, TMUX_TMPDIR: tmux, JAVO_SCRATCH_DIR: scratch }, home, join(home, 'p'), 'claude')
+  assert.ok(got.make.includes(scratch), `--rw-make ${got.make}`)
   assert.ok(got.ro.includes(files), `--ro ${got.ro}`)
   assert.ok(got.ro.includes(env), `--ro ${got.ro}`)
   assert.ok(got.make.includes(tmux), `--rw-make ${got.make}`)
@@ -153,14 +157,51 @@ test('on a host does not grant ~/.ssh, which holds the private keys there', () =
   assert.ok(!covers([...got.rw, ...got.ro], join(home, '.ssh', 'a-private-key')), `--rw ${got.rw} --ro ${got.ro}`)
 })
 
+// The platform's own variables (JAVO_...) are not an app's to set;
+// TMUX_TMPDIR is, and a container is told none by the platform. One set
+// there is the app's own, and is not a folder to grant: it could name the
+// home.
+test('in a container does not grant the folder an app names for tmux', () => {
+  const home = temp()
+  const got = lockWith({ TMUX_TMPDIR: home }, home, join(home, 'p'), 'claude')
+  assert.ok(!covers([...got.rw, ...got.ro], join(home, '.bashrc')), `--rw ${got.rw} --ro ${got.ro}`)
+})
+
+// What else a pod mounts for the app: its scratch volume, the pod's own, to
+// write; the clone of the repository it runs from and the Nebi CLI and
+// token to read. The folders of the person's groups (/shared) hold other
+// people's files and are not granted. Those paths are the system's, so
+// this runs where they can be made: as root in a container.
+test('grants the pod its scratch, and the clone and Nebi to read, but no group folder', (t) => {
+  const made = []
+  t.after(() => made.reverse().forEach((d) => rmSync(d, { recursive: true, force: true })))
+  const group = '/shared/team'
+  try {
+    for (const d of ['/scratch', '/srv/src', '/opt/javo-nebi', '/var/run/javo/nebi', group]) {
+      const first = mkdirSync(d, { recursive: true })
+      if (first) made.push(first)
+    }
+  } catch {
+    return t.skip('cannot make folders in / here')
+  }
+  const home = temp()
+  const got = lock(home, join(home, 'p'), 'claude')
+  assert.ok(got.rw.includes('/scratch'), `--rw ${got.rw}`)
+  for (const d of ['/srv/src', '/opt/javo-nebi', '/var/run/javo/nebi']) {
+    assert.ok(got.ro.includes(d), `${d} is not readable: --ro ${got.ro}`)
+    assert.ok(!covers(got.rw, d), `${d} is writable: --rw ${got.rw}`)
+  }
+  assert.ok(!covers([...got.rw, ...got.ro], group), `${group} is reachable: --rw ${got.rw} --ro ${got.ro}`)
+})
+
 test('in a container grants nothing a host is told of', () => {
   const home = temp()
-  const { JAVO_FILES_DIR, JAVO_ENV_DIR, TMUX_TMPDIR, ...rest } = process.env
+  const { JAVO_FILES_DIR, JAVO_ENV_DIR, JAVO_SCRATCH_DIR, TMUX_TMPDIR, ...rest } = process.env
   const saved = process.env
   process.env = rest
   try {
     const got = lock(home, join(home, 'p'), 'claude')
-    assert.deepEqual(got.rw.filter((p) => !p.startsWith(home) && p !== '/tmp' && p !== '/dev'), [])
+    assert.deepEqual(got.rw.filter((p) => !p.startsWith(home) && p !== '/tmp' && p !== '/dev' && p !== '/scratch'), [])
   } finally {
     process.env = saved
   }

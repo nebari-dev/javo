@@ -8,6 +8,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
@@ -62,7 +63,8 @@ func lockAgent(lock, folder string, command []string) []string {
 // works in (lockFolder, where runOf already started it). Nothing else of
 // the workload changes: javo-sandbox comes with the platform's files, which
 // every coding agent's template has, and agent-lock.sh grants by path what
-// the other steps mount. Every other app, and every app while the lock is
+// the other steps mount; on a host it is told where the scratch folder is.
+// Every other app, and every app while the lock is
 // off, is left as it is. It runs before the steps that read the command
 // (addEnvironment).
 func addAgentLock(s *workload.Spec, ws *model.App, t *model.Template, lock bool, at places) {
@@ -70,7 +72,15 @@ func addAgentLock(s *workload.Spec, ws *model.App, t *model.Template, lock bool,
 		return
 	}
 	s.Main.Command = lockAgent(at.agentLock(), at.lockFolder(ws), s.Main.Command)
+	if at.host != nil {
+		s.Main.SetEnv(workload.Env{Name: envScratchDir, Value: at.volume(podstorage.ScratchVolume)})
+	}
 }
+
+// envScratchDir tells agent-lock.sh where a host has the workload's scratch
+// folder, which the tools' caches and environments are pointed at
+// (podstorage.Local), to grant it; in a container that is /scratch.
+const envScratchDir = "JAVO_SCRATCH_DIR"
 
 // lockProblem is why a coding agent cannot start locked in on the host
 // in is planned for; nil when it can, or is not to be locked. Landlock is

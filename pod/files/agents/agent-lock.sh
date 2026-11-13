@@ -65,9 +65,20 @@ set -- --rw "$HOME/.claude.json" --rw /tmp "$@"
 set -- --rw /dev "$@"
 # An app that runs as a process of a machine keeps tmux's sockets in a
 # folder of its own (TMUX_TMPDIR: agent-serve.sh); a container is told
-# nothing, and keeps them in /tmp.
-if [ -n "${TMUX_TMPDIR:-}" ]; then
+# nothing, and keeps them in /tmp. Only such a machine's is granted, which
+# the platform sets with JAVO_FILES_DIR: in a container the variable is the
+# app's own to set, to any folder, and the JAVO_ ones are not.
+if [ -n "${JAVO_FILES_DIR:-}" ] && [ -n "${TMUX_TMPDIR:-}" ]; then
   set -- --rw-make "$TMUX_TMPDIR" "$@"
+fi
+# Scratch is the workload's own: the tools' caches and the conda and pixi
+# environments are pointed there (XDG_CACHE_HOME, npm_config_cache,
+# CONDA_ENVS_PATH...), and nothing of it outlives the pod. It is /scratch in
+# a container and where JAVO_SCRATCH_DIR says on a machine.
+if [ -n "${JAVO_SCRATCH_DIR:-}" ]; then
+  set -- --rw-make "$JAVO_SCRATCH_DIR" "$@"
+elif [ -e /scratch ]; then
+  set -- --rw /scratch "$@"
 fi
 
 # ~/.ssh is the pod's own folder of public files (known_hosts, config: the
@@ -78,9 +89,16 @@ fi
 # the app is a process of (pod-user.sh). On such a machine no sidecar keeps
 # the keys apart: ~/.ssh is the person's own, private keys and all, and is
 # not granted (an empty path is never there).
+#
+# An app that runs from a repository reads its clone (/srv/src; it writes
+# the folder it is locked to, which is in the clone when the app names one
+# there), and one with Nebi access the Nebi CLI and its token. The folders
+# of the person's groups (/shared) are other people's files too, and are
+# not granted.
 ssh=$HOME/.ssh
 [ -z "${JAVO_FILES_DIR:-}" ] || ssh=
 for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc "${JAVO_FILES_DIR:-/opt/javo}" "${JAVO_ENV_DIR:-/opt/javo-env}" /proc /sys /home/AGENTS.md \
+  /srv/src /opt/javo-nebi /var/run/javo/nebi \
   "$HOME/.javo/envs" "$ssh" "$HOME/.gitconfig" "$HOME/.config/git"; do
   [ ! -e "$p" ] || set -- --ro "$p" "$@"
 done

@@ -229,6 +229,20 @@ func TestLockedAgentOnAHostNeedsLinux(t *testing.T) {
 	if !slices.Contains(s.Main.Args, home+"/projects/demo") || slices.Contains(s.Main.Args, home) {
 		t.Fatalf("on Linux: args = %q, want the agent started in its own project", s.Main.Args)
 	}
+	// The tools' caches and environments are in the workload's scratch
+	// folder there, which the lock is told of to grant it; an agent that is
+	// not locked is told nothing.
+	env := unitEnv(s.Main)
+	if got, want := env["JAVO_SCRATCH_DIR"], testHost.Volumes+"/scratch"; got != want || !strings.HasPrefix(env["XDG_CACHE_HOME"], want+"/") {
+		t.Fatalf("on Linux: JAVO_SCRATCH_DIR = %q, want %q, where XDG_CACHE_HOME (%q) is", got, want, env["XDG_CACHE_HOME"])
+	}
+	in.Images.LockAgents = false
+	if s, err = Plan(in); err != nil {
+		t.Fatal(err)
+	}
+	if dir, told := unitEnv(s.Main)["JAVO_SCRATCH_DIR"]; told {
+		t.Fatalf("lock off: JAVO_SCRATCH_DIR = %q", dir)
+	}
 }
 
 // Whatever an app names as its folder, a locked agent is locked to a folder
