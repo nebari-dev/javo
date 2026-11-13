@@ -22,7 +22,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/idle"
 	"github.com/nebari-dev/javo/internal/controller/loop"
-	"github.com/nebari-dev/javo/internal/controller/namespace"
+	"github.com/nebari-dev/javo/internal/egress"
 	"github.com/nebari-dev/javo/internal/egressproxy"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
@@ -124,14 +124,14 @@ func hostOf(ctx context.Context, flags *pflag.FlagSet, common *commonFlags, gw *
 	if err := refuseClusterFlags(flags, platform.Executor); err != nil {
 		return nil, err
 	}
-	egress, err := namespace.ParseEgress(ctl.egressDeny, ctl.egressAllow, ctl.egressAllowC)
+	lists, err := egress.Parse(ctl.egressDeny, ctl.egressAllow, ctl.egressAllowC)
 	if err != nil {
 		return nil, err
 	}
 	return wiring.NewHost(ctx, platform, wiring.HostInputs{
 		DB: db, Namespace: common.workspaceNamespace, Listen: gw.listen, RunnerImage: ctl.runnerImage,
 		FilesImage: gw.filesImage, FilesIdleAfter: gw.filesIdleAfter,
-		Egress:     egressproxy.Rules{Deny: egress.Deny, Allow: egress.Allow, AllowCluster: egress.AllowCluster},
+		Egress:     egressproxy.Rules{Deny: lists.Deny, Allow: lists.Allow, AllowCluster: lists.AllowCluster},
 		ProbeEvery: ctl.probe.every, ProbeTimeout: ctl.probe.timeout,
 	})
 }

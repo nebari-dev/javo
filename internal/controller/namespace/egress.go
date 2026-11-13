@@ -44,28 +44,8 @@ type Egress struct {
 // NetworkPolicy cannot say: denying a whole address family (allow a list
 // instead), or allowing a range that a denied range covers.
 func ParseEgress(deny, allow, allowCluster []string) (Egress, error) {
-	var e Egress
-	var err error
-	if e.Deny, err = parsePrefixes(deny); err != nil {
-		return Egress{}, err
-	}
-	if e.Allow, err = parsePrefixes(allow); err != nil {
-		return Egress{}, err
-	}
-	if e.AllowCluster, err = parsePrefixes(allowCluster); err != nil {
-		return Egress{}, err
-	}
-	for _, d := range e.Deny {
-		if d.Bits() == 0 {
-			return Egress{}, fmt.Errorf("egress deny %s covers every address; allow a list instead", d)
-		}
-		for _, a := range slices.Concat(e.Allow, e.AllowCluster) {
-			if d.Bits() <= a.Bits() && d.Contains(a.Addr()) {
-				return Egress{}, fmt.Errorf("egress allow %s is inside denied %s", a, d)
-			}
-		}
-	}
-	return e, nil
+	l, err := egress.Parse(deny, allow, allowCluster)
+	return Egress{Deny: l.Deny, Allow: l.Allow, AllowCluster: l.AllowCluster}, err
 }
 
 // ReadNameServers returns the nameserver addresses of a resolv.conf.
@@ -85,21 +65,6 @@ func ReadNameServers(path string) ([]netip.Addr, error) {
 			return nil, fmt.Errorf("%s: nameserver %q: %w", path, f[1], err)
 		}
 		out = append(out, a)
-	}
-	return out, nil
-}
-
-func parsePrefixes(cidrs []string) ([]netip.Prefix, error) {
-	out := make([]netip.Prefix, 0, len(cidrs))
-	for _, c := range cidrs {
-		p, err := netip.ParsePrefix(c)
-		if err != nil {
-			return nil, fmt.Errorf("egress CIDR %q: %w", c, err)
-		}
-		if p != p.Masked() {
-			return nil, fmt.Errorf("egress CIDR %q has host bits set; did you mean %s?", c, p.Masked())
-		}
-		out = append(out, p)
 	}
 	return out, nil
 }
