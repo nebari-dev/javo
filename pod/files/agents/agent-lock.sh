@@ -11,25 +11,52 @@
 # them may run in another's terminal: Claude Code (~/.claude and its
 # settings file ~/.claude.json), pi (~/.pi, and ~/.javo/agent-prompts for
 # pi-setup.mjs) and herdr (~/.config/herdr). javo-sandbox refuses a path
-# that does not exist, so the folders the agent writes are made here first,
-# and what may be missing is granted only when it is there.
+# that does not exist, so it is told to make the folders the agent writes
+# (--rw-make), and what may be missing is granted only when it is there.
+#
+# An agent may make symbolic links in what it is granted, and a link under
+# the home may lead anywhere in it: a folder ~/projects/api/sub that is a
+# link to ~/.ssh, or to the home, would grant that to the next app locked
+# to it. So nothing here follows a path under the home: javo-sandbox is
+# told to refuse a granted path under it that is, or is reached through, a
+# link (--no-links-under), and makes the missing folders as it opens them,
+# so none is made through a link either. The system's folders are not the
+# agent's to write and are followed, as /bin is a link to /usr/bin.
 set -eu
 folder=$1
+asked=$1
 shift
 if [ "${1:-}" != -- ]; then
   echo "usage: agent-lock.sh FOLDER -- COMMAND ARGS..." >&2
   exit 125
 fi
 here=${0%/*}
+# FOLDER is a whole path from /, with no ".." or "." in it to make it another
+# folder than it reads as, and is not the home or a folder the home is in:
+# locked to that the lock would keep nothing out.
+case $folder/ in
+/*) ;;
+*) folder= ;;
+esac
+case $folder/ in
+/ | *//* | */./* | */../*) folder= ;;
+esac
+case $HOME/ in
+"$folder"/*) folder= ;;
+esac
+if [ -z "$folder" ]; then
+  echo "agent-lock.sh: the folder to lock the agent to ($asked) must be a path from / to a folder of its own, not the home ($HOME) or a folder around it; not running the command" >&2
+  exit 125
+fi
 # Each grant goes in front of what is left of the command line (-- COMMAND
 # ARGS...) with set --, so no path is ever split or quoted again.
 for d in "$folder" "$HOME/.claude" "$HOME/.pi" "$HOME/.config/herdr" "$HOME/.javo/agent-prompts" "$HOME/.cache" "$HOME/.npm"; do
-  mkdir -p "$d"
-  set -- --rw "$d" "$@"
+  set -- --rw-make "$d" "$@"
 done
 # Claude Code reads it as JSON, and an empty file is not: a new one holds
-# an empty object, which Claude Code fills in on its first start.
-[ -e "$HOME/.claude.json" ] || echo '{}' >"$HOME/.claude.json"
+# an empty object, which Claude Code fills in on its first start. Nothing
+# is written through a link that leads nowhere yet.
+[ -e "$HOME/.claude.json" ] || [ -L "$HOME/.claude.json" ] || echo '{}' >"$HOME/.claude.json"
 set -- --rw "$HOME/.claude.json" --rw /tmp "$@"
 # Terminals: /dev/null, the pseudo-terminals tmux and ttyd open, the
 # termination log.
@@ -38,8 +65,7 @@ set -- --rw /dev "$@"
 # folder of its own (TMUX_TMPDIR: agent-serve.sh); a container is told
 # nothing, and keeps them in /tmp.
 if [ -n "${TMUX_TMPDIR:-}" ]; then
-  mkdir -p "$TMUX_TMPDIR"
-  set -- --rw "$TMUX_TMPDIR" "$@"
+  set -- --rw-make "$TMUX_TMPDIR" "$@"
 fi
 
 # ~/.ssh is the pod's own folder of public files (known_hosts, config: the
@@ -57,4 +83,4 @@ for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc "${JAVO_FILES_DIR:-/opt
   [ ! -e "$p" ] || set -- --ro "$p" "$@"
 done
 
-exec "$here/../bin/javo-sandbox" "$@"
+exec "$here/../bin/javo-sandbox" --no-links-under "$HOME" "$@"

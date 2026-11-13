@@ -214,3 +214,31 @@ func TestLockedAgentOnAHostNeedsLinux(t *testing.T) {
 		t.Fatalf("on Linux: args = %q, want the agent started in its own project", s.Main.Args)
 	}
 }
+
+// Whatever an app names as its folder, a locked agent is locked to a folder
+// inside the home and never to the home itself: a path that is the home
+// gets the app's own project, and one with ".." or from / stays under the
+// home, so agent-lock.sh is never handed a folder outside it.
+func TestLockedAgentIsLockedInsideTheHomeWhateverItsFolder(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "claude-code")
+	for file, want := range map[string]string{
+		"":                "/home/user/projects/todo-app",
+		".":               "/home/user/projects/todo-app",
+		"/":               "/home/user/projects/todo-app",
+		"a/..":            "/home/user/projects/todo-app",
+		"../..":           "/home/user/projects/todo-app",
+		"../../etc":       "/home/user/etc",
+		"/etc":            "/home/user/etc",
+		"projects/api/..": "/home/user/projects",
+	} {
+		ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "todo-app", Owner: "alice", Template: tpl.Name, File: file}
+		argv := argvOf(t, ws, tpl, lockedImages())
+		if len(argv) < 3 || argv[0] != agentLock || argv[1] != want || argv[2] != "--" {
+			t.Errorf("folder %q: argv = %q, want it locked to %s", file, argv, want)
+		}
+		if !slices.Contains(argv, want) || slices.Contains(argv, "/home/user") {
+			t.Errorf("folder %q: argv = %q, want the agent started in %s", file, argv[3:], want)
+		}
+	}
+}

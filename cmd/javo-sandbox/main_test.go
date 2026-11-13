@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // The test binary doubles as javo-sandbox: with JAVO_SANDBOX_AS_MAIN set it
@@ -105,5 +107,173 @@ func TestMissingFolderToGrantRefusesToRunTheCommand(t *testing.T) {
 	}
 	if r.code != 125 || !strings.Contains(r.stderr, "missing") || !strings.Contains(r.stderr, "not running the command") {
 		t.Errorf("exit %d, stderr %q; want 125 naming the missing folder", r.code, r.stderr)
+	}
+}
+
+// aHome is a stand-in home with a private key in ~/.ssh and a project in
+// ~/projects/api; it returns the home, the project and the key's file.
+func aHome(t *testing.T) (home, project, key string) {
+	t.Helper()
+	home = t.TempDir()
+	project = filepath.Join(home, "projects", "api")
+	key = filepath.Join(home, ".ssh", "a-private-key")
+	for _, d := range []string{project, filepath.Dir(key)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(key, []byte("s3cret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home, project, key
+}
+
+// inHome runs javo-sandbox as agent-lock.sh does: no granted path under
+// home may be, or pass through, a symbolic link.
+func inHome(t *testing.T, home string, args ...string) result {
+	t.Helper()
+	return sandbox(t, append(append([]string{"--no-links-under", home}, systemRO()...), args...)...)
+}
+
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wantLinkRefused fails unless r is the refusal of a link: the command
+// never ran, so it printed nothing of the key.
+func wantLinkRefused(t *testing.T, r result) {
+	t.Helper()
+	if strings.Contains(r.stdout, "s3cret") {
+		t.Errorf("the locked command read the private key: %q", r.stdout)
+	}
+	if r.code != 125 || !strings.Contains(r.stderr, "symbolic link") || !strings.Contains(r.stderr, "not running the command") {
+		t.Errorf("exit %d, stderr %q; want 125 refusing the symbolic link", r.code, r.stderr)
+	}
+}
+
+// A folder that is a link to the home would grant the whole home: the lock
+// is for the folder the person named, not for where a link leads.
+func TestFolderThatIsALinkIsRefused(t *testing.T) {
+	home, _, key := aHome(t)
+	link := filepath.Join(home, "projects", "everything")
+	symlink(t, home, link)
+	wantLinkRefused(t, inHome(t, home, "--rw", link, "--", "cat", key))
+	wantLinkRefused(t, inHome(t, home, "--rw-make", link, "--", "cat", key))
+	wantLinkRefused(t, inHome(t, home, "--ro", link, "--", "cat", key))
+}
+
+func TestFolderReachedThroughALinkIsRefused(t *testing.T) {
+	home, _, key := aHome(t)
+	symlink(t, home, filepath.Join(home, "elsewhere"))
+	// ~/elsewhere/.ssh is ~/.ssh by another name.
+	wantLinkRefused(t, inHome(t, home, "--rw", filepath.Join(home, "elsewhere", ".ssh"), "--", "cat", key))
+}
+
+// A locked agent may make links in its folder. One that leads out of it is
+// then not a folder a later app can be locked to, nor made a folder under.
+func TestLinkPlantedInAGrantedFolderIsNotANewAppsFolder(t *testing.T) {
+	home, project, key := aHome(t)
+	sub := filepath.Join(project, "sub")
+	if r := inHome(t, home, "--rw", project, "--", "ln", "-s", home, sub); r.code != 0 {
+		t.Fatalf("planting the link: exit %d, %s", r.code, r.stderr)
+	}
+	wantLinkRefused(t, inHome(t, home, "--rw", sub, "--", "cat", key))
+	wantLinkRefused(t, inHome(t, home, "--rw-make", filepath.Join(sub, "planted"), "--", "cat", key))
+	if _, err := os.Lstat(filepath.Join(home, "planted")); err == nil {
+		t.Error("a folder was made through the link, in the home")
+	}
+}
+
+// An agent's state folder that became a link to ~/.ssh is not granted.
+func TestStateFolderReplacedByALinkIsRefused(t *testing.T) {
+	home, project, key := aHome(t)
+	symlink(t, filepath.Join(home, ".ssh"), filepath.Join(home, ".claude"))
+	wantLinkRefused(t, inHome(t, home, "--rw", project, "--rw-make", filepath.Join(home, ".claude"), "--", "cat", key))
+	// A file is treated the same.
+	symlink(t, key, filepath.Join(home, ".claude.json"))
+	wantLinkRefused(t, inHome(t, home, "--rw", project, "--rw", filepath.Join(home, ".claude.json"), "--", "cat", key))
+}
+
+// There is no moment between the check and the grant: while the folder is
+// swapped with a link to the home over and over, a command is refused or
+// locked to the real folder, and never reads the key.
+func TestFolderSwappedWithALinkWhileGrantingNeverOpensTheHome(t *testing.T) {
+	home, project, key := aHome(t)
+	link := filepath.Join(home, "projects", "link")
+	symlink(t, home, link)
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = unix.Renameat2(unix.AT_FDCWD, project, unix.AT_FDCWD, link, unix.RENAME_EXCHANGE)
+			}
+		}
+	}()
+	var refused, locked int
+	for range 150 {
+		r := inHome(t, home, "--rw", project, "--", "cat", key)
+		switch {
+		case strings.Contains(r.stdout, "s3cret"):
+			t.Fatalf("the locked command read the private key: exit %d, %s", r.code, r.stderr)
+		case r.code == 125 && strings.Contains(r.stderr, "symbolic link"):
+			refused++
+		case strings.Contains(r.stderr, "Permission denied"):
+			locked++
+		default:
+			t.Fatalf("exit %d, stderr %q; want a refusal or a permission error", r.code, r.stderr)
+		}
+	}
+	close(stop)
+	<-done
+	t.Logf("refused %d times, locked to the real folder %d times", refused, locked)
+}
+
+// --rw-make makes the folder, and those above it, when missing.
+func TestMakesAMissingFolderToGrant(t *testing.T) {
+	home, _, _ := aHome(t)
+	fresh := filepath.Join(home, "projects", "new", "deep")
+	out := filepath.Join(fresh, "out")
+	if r := inHome(t, home, "--rw-make", fresh, "--", "touch", out); r.code != 0 {
+		t.Fatalf("exit %d, %s", r.code, r.stderr)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("the command did not write its new folder: %v", err)
+	}
+}
+
+// Only under the folder named are links refused: the home itself may be
+// reached through one (/home is a link on some systems), and a path
+// outside it is followed as before (/bin is a link to /usr/bin on most).
+func TestLinksOutsideTheNamedFolderAreFollowed(t *testing.T) {
+	home, project, _ := aHome(t)
+	byLink := filepath.Join(t.TempDir(), "home")
+	symlink(t, home, byLink)
+	system := t.TempDir()
+	if err := os.WriteFile(filepath.Join(system, "file"), []byte("readable"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sysLink := filepath.Join(t.TempDir(), "system")
+	symlink(t, system, sysLink)
+
+	r := inHome(t, byLink, "--rw", filepath.Join(byLink, "projects", "api"), "--ro", sysLink,
+		"--", "sh", "-c", `cat "$1" && echo ok > "$2"`, "sh", filepath.Join(system, "file"), filepath.Join(project, "out"))
+	if r.code != 0 || r.stdout != "readable" {
+		t.Fatalf("exit %d, stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+	}
+}
+
+// A path that names a parent folder (..) is not the folder it reads as.
+func TestPathNamingAParentFolderIsRefused(t *testing.T) {
+	home, project, key := aHome(t)
+	r := inHome(t, home, "--rw", project+"/../../.ssh", "--", "cat", key)
+	if r.code != 125 || !strings.Contains(r.stderr, "..") || strings.Contains(r.stdout, "s3cret") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 125 refusing ..", r.code, r.stdout, r.stderr)
 	}
 }

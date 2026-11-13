@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -15,12 +18,17 @@ import (
 
 // options is the parsed command line.
 type options struct {
-	rw, ro  []string
+	rw, ro []string
+	// make are the folders of rw that are made when missing (--rw-make).
+	make []string
+	// noLinks are the folders under which no granted path may be, or be
+	// reached through, a symbolic link (--no-links-under).
+	noLinks []string
 	minABI  int
 	command []string
 }
 
-const usage = "usage: javo-sandbox [--rw DIR]... [--ro DIR]... [--min-abi N] -- COMMAND ARGS..."
+const usage = "usage: javo-sandbox [--no-links-under DIR]... [--rw DIR]... [--rw-make DIR]... [--ro DIR]... [--min-abi N] -- COMMAND ARGS..."
 
 func parse(args []string) (options, error) {
 	// Version 3 is the first that can refuse truncating a file, so a
@@ -40,6 +48,19 @@ func parse(args []string) (options, error) {
 		switch flag {
 		case "--rw":
 			o.rw = append(o.rw, value)
+		case "--rw-make":
+			dir, err := filepath.Abs(value)
+			if err != nil {
+				return o, fmt.Errorf("--rw-make %s: %w", value, err)
+			}
+			o.rw = append(o.rw, dir)
+			o.make = append(o.make, dir)
+		case "--no-links-under":
+			dir, err := filepath.Abs(value)
+			if err != nil {
+				return o, fmt.Errorf("--no-links-under %s: %w", value, err)
+			}
+			o.noLinks = append(o.noLinks, dir)
 		case "--ro":
 			o.ro = append(o.ro, value)
 		case "--min-abi":
@@ -142,7 +163,7 @@ func restrict(rights uint64, o options) error {
 		rights uint64
 	}{{o.rw, rights}, {o.ro, readRights & rights}} {
 		for _, p := range g.paths {
-			if err := allow(ruleset, p, g.rights); err != nil {
+			if err := o.allow(ruleset, p, g.rights); err != nil {
 				return err
 			}
 		}
@@ -159,9 +180,10 @@ func restrict(rights uint64, o options) error {
 }
 
 // allow grants rights beneath path; on a file only the rights a file can
-// have.
-func allow(ruleset int, path string, rights uint64) error {
-	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+// have. The rule is for the file or folder open opened, whatever the path
+// names by the time the command runs.
+func (o options) allow(ruleset int, path string, rights uint64) error {
+	fd, err := o.open(path)
 	if err != nil {
 		return fmt.Errorf("granting %s: %w; not running the command", path, err)
 	}
@@ -178,4 +200,88 @@ func allow(ruleset int, path string, rights uint64) error {
 		return fmt.Errorf("granting %s: %w", path, errno)
 	}
 	return nil
+}
+
+// open opens path to grant it (O_PATH: a rule names what is beneath an open
+// file or folder, not a path), making the folder first when it is to be
+// made. A path that names a parent folder (..) is refused: it is not the
+// folder it reads as.
+//
+// Under a folder of --no-links-under (the home) the command, or one locked
+// before it, may have made a symbolic link that leads out of what it was
+// granted (to ~/.ssh, to the whole home), and following it would grant
+// that. So such a path is opened one name at a time from the folder,
+// never following a link, and is refused when a name is one: what is
+// granted is then the folder that was checked, with no moment in between
+// to swap it. The folder itself and every other path (the system's, where
+// /bin is a link to /usr/bin) are opened as any program opens them.
+func (o options) open(path string) (int, error) {
+	if slices.Contains(strings.Split(path, "/"), "..") {
+		return -1, errors.New("the path names a parent folder (..)")
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return -1, err
+	}
+	// The outermost folder that holds the path: every link under it counts.
+	root, names := "", ""
+	for _, dir := range o.noLinks {
+		if rel, err := filepath.Rel(dir, path); err == nil && filepath.IsLocal(rel) && (root == "" || len(dir) < len(root)) {
+			root, names = dir, rel
+		}
+	}
+	if root == "" {
+		if slices.Contains(o.make, path) {
+			if err := os.MkdirAll(path, 0o777); err != nil {
+				return -1, err
+			}
+		}
+		return unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	}
+	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil || names == "." {
+		return fd, err
+	}
+	made := slices.Contains(o.make, path)
+	parts := strings.Split(names, "/")
+	at := root
+	for i, name := range parts {
+		at = filepath.Join(at, name)
+		next, err := openNoFollow(fd, name, made)
+		unix.Close(fd)
+		if err != nil {
+			return -1, err
+		}
+		fd = next
+		var st unix.Stat_t
+		if err := unix.Fstat(fd, &st); err != nil {
+			unix.Close(fd)
+			return -1, err
+		}
+		switch kind := st.Mode & unix.S_IFMT; {
+		case kind == unix.S_IFLNK:
+			unix.Close(fd)
+			return -1, fmt.Errorf("%s is a symbolic link, and nothing granted under %s may be one or be reached through one", at, root)
+		case kind != unix.S_IFDIR && (i < len(parts)-1 || made):
+			unix.Close(fd)
+			return -1, fmt.Errorf("%s is not a folder", at)
+		}
+	}
+	return fd, nil
+}
+
+// openNoFollow opens name in the folder dir without following a link: a
+// link is opened as itself. With make a name that is not there is made a
+// folder first; if something else takes its place meanwhile, that is what
+// is opened and judged.
+func openNoFollow(dir int, name string, make bool) (int, error) {
+	const flags = unix.O_PATH | unix.O_NOFOLLOW | unix.O_CLOEXEC
+	fd, err := unix.Openat(dir, name, flags, 0)
+	if err == unix.ENOENT && make {
+		if err := unix.Mkdirat(dir, name, 0o777); err != nil && err != unix.EEXIST {
+			return -1, err
+		}
+		fd, err = unix.Openat(dir, name, flags, 0)
+	}
+	return fd, err
 }

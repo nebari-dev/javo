@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -15,7 +15,9 @@ const temp = () => mkdtempSync(join(base, 'agent-lock-'))
 
 // lock runs agent-lock.sh FOLDER -- COMMAND... with HOME home, from a copy
 // of the pod files whose bin/javo-sandbox only records what it was asked
-// to grant; returns the --rw and --ro paths and the command it would run.
+// to grant; returns the --rw and --ro paths, those of the --rw it is to
+// make (--rw-make), the folders it is to refuse links under
+// (--no-links-under) and the command it would run.
 function lock(home, folder, ...command) {
   return lockWith({}, home, folder, ...command)
 }
@@ -29,11 +31,12 @@ function lockWith(env, home, folder, ...command) {
   const calls = join(opt, 'calls')
   writeFileSync(join(opt, 'bin', 'javo-sandbox'), `#!/bin/sh\nfor a; do printf '%s\\n' "$a"; done > ${calls}\n`, { mode: 0o755 })
   // Run as the pod runs it: the file itself, so it must be executable.
-  execFileSync(join(opt, 'agents', 'agent-lock.sh'), [folder, '--', ...command], { env: { ...process.env, HOME: home, ...env } })
+  execFileSync(join(opt, 'agents', 'agent-lock.sh'), [folder, '--', ...command], { env: { ...process.env, HOME: home, ...env }, stdio: 'pipe' })
   const argv = readFileSync(calls, 'utf8').split('\n').slice(0, -1)
   const sep = argv.indexOf('--')
-  const got = { rw: [], ro: [], command: argv.slice(sep + 1) }
-  for (let i = 0; i < sep; i += 2) got[argv[i].slice(2)].push(argv[i + 1])
+  const got = { rw: [], ro: [], make: [], noLinks: [], command: argv.slice(sep + 1) }
+  const lists = { '--rw': [got.rw], '--ro': [got.ro], '--rw-make': [got.rw, got.make], '--no-links-under': [got.noLinks] }
+  for (let i = 0; i < sep; i += 2) for (const list of lists[argv[i]]) list.push(argv[i + 1])
   return got
 }
 
@@ -41,14 +44,45 @@ const covers = (granted, p) => granted.some((g) => p === g || p.startsWith(g.rep
 
 // The agent may write its project and nowhere else in the home: no grant
 // reaches the private keys or another project.
-test('grants the project folder, creating it, and not the rest of the home', () => {
+test('grants the project folder, to be made, and not the rest of the home', () => {
   const home = temp()
   const project = join(home, 'projects', 'api')
   const got = lock(home, project, 'claude')
-  assert.ok(statSync(project).isDirectory(), 'the project folder was not made')
-  assert.ok(got.rw.includes(project), `--rw ${got.rw}`)
+  assert.ok(got.make.includes(project), `--rw-make ${got.make}`)
   for (const p of [join(home, '.ssh', 'id_ed25519'), join(home, 'projects', 'other', 'main.go'), join(home, '.bashrc')]) {
     assert.ok(!covers([...got.rw, ...got.ro], p), `${p} is reachable: --rw ${got.rw} --ro ${got.ro}`)
+  }
+})
+
+// A locked agent may make links in what it is granted, so a link under the
+// home may lead anywhere in it (to ~/.ssh, to the home itself). The script
+// follows none: javo-sandbox is told to refuse a granted path under the
+// home that is, or is reached through, a link, and makes the missing
+// folders itself, as it opens them.
+test('has javo-sandbox refuse links under the home, and writes nothing through one', () => {
+  const home = temp()
+  const project = join(home, 'projects', 'api')
+  mkdirSync(join(home, '.ssh'))
+  mkdirSync(project, { recursive: true })
+  symlinkSync(join(home, '.ssh'), join(project, 'sub'))
+  symlinkSync(join(home, '.ssh'), join(home, '.claude'))
+  symlinkSync(join(home, '.ssh', 'new'), join(home, '.claude.json'))
+  const got = lock(home, join(project, 'sub', 'planted'), 'claude')
+  assert.deepEqual(got.noLinks, [home])
+  assert.deepEqual(readdirSync(join(home, '.ssh')), [], 'the script wrote through a link')
+})
+
+// Locked to the home, or to a folder the home is in, the lock would keep
+// nothing out; and a folder that is not a whole path from / is not one the
+// platform asked for.
+test('refuses a folder that is the home, holds it, or is not a plain path', () => {
+  const home = temp()
+  for (const folder of [home, home + '/', join(home, '..'), '/', home + '/projects/../.ssh', home + '/./.ssh', 'projects/api', '']) {
+    assert.throws(
+      () => lock(home, folder, 'claude'),
+      (err) => err.status === 125 && err.stderr.toString().includes(`(${folder})`),
+      `folder ${JSON.stringify(folder)} was not refused`,
+    )
   }
 })
 
@@ -58,8 +92,7 @@ test('lets the agents keep their own state, made on the first start', () => {
   const home = temp()
   const got = lock(home, join(home, 'p'), 'claude')
   for (const d of ['.claude', '.pi', join('.config', 'herdr'), join('.javo', 'agent-prompts')]) {
-    assert.ok(statSync(join(home, d)).isDirectory(), `${d} was not made`)
-    assert.ok(got.rw.includes(join(home, d)), `${d} is not writable: --rw ${got.rw}`)
+    assert.ok(got.make.includes(join(home, d)), `${d} is not writable, or not made: --rw-make ${got.make}`)
   }
   // Claude Code keeps its settings in a file of the home itself; a file
   // the lock can grant must exist, and an empty one is not valid JSON.
@@ -82,7 +115,7 @@ test('grants git settings to read only when they exist', () => {
   writeFileSync(join(home, '.gitconfig'), '[user]\n  name = alice\n')
   const got = lock(home, join(home, 'p'), 'git')
   assert.ok(got.ro.includes(join(home, '.gitconfig')))
-  for (const p of [...got.rw, ...got.ro]) assert.ok(existsSync(p), `${p} is granted but missing`)
+  for (const p of [...got.rw, ...got.ro]) assert.ok(got.make.includes(p) || existsSync(p), `${p} is granted but missing`)
 })
 
 test('runs the command as given', () => {
@@ -103,8 +136,7 @@ test('on a host grants the folders the app is told of', () => {
   const got = lockWith({ JAVO_FILES_DIR: files, JAVO_ENV_DIR: env, TMUX_TMPDIR: tmux }, home, join(home, 'p'), 'claude')
   assert.ok(got.ro.includes(files), `--ro ${got.ro}`)
   assert.ok(got.ro.includes(env), `--ro ${got.ro}`)
-  assert.ok(statSync(tmux).isDirectory(), 'the folder of tmux was not made')
-  assert.ok(got.rw.includes(tmux), `--rw ${got.rw}`)
+  assert.ok(got.make.includes(tmux), `--rw-make ${got.make}`)
   assert.ok(!got.rw.includes(files) && !got.rw.includes(env), `--rw ${got.rw}`)
 })
 

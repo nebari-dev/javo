@@ -39,9 +39,14 @@ func (p places) ownProject(ws *model.App) string {
 
 // lockFolder is the folder a locked agent app works in and is locked to:
 // the one it opens, else one of its own. Locked to the whole home the lock
-// would keep nothing out.
+// would keep nothing out, so a path that names the home itself ("." in an
+// app made past the gateway, which stores that as no folder) is no folder
+// either. filePath keeps every other path under the home.
 func (p places) lockFolder(ws *model.App) string {
-	return cmp.Or(p.filePath(ws), p.ownProject(ws))
+	if folder := p.filePath(ws); folder != "" && folder != p.home {
+		return folder
+	}
+	return p.ownProject(ws)
 }
 
 // lockAgent is command run under the agent lock at lock (agentLock),
