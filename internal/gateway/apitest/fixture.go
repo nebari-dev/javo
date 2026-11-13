@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -89,6 +90,8 @@ type Options struct {
 	Trusted []netip.Prefix
 	Funcs   *interceptor.Funcs
 	UiDir   string
+	// UI is the built UI as files, in place of UiDir.
+	UI fs.FS
 	// Branding is the install's look; nil is the built-in one.
 	Branding *branding.Branding
 	Files    *StubFilesLister
@@ -296,7 +299,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 
 		Client: c, Store: db, Sessions: sessions, Providers: providers,
 		People: people, Roles: roles, Now: o.Now,
-		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, Branding: o.Branding,
+		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, UI: o.UI, Branding: o.Branding,
 		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Runs: runs.Runs(), Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
 		URLs: o.Urls, Exposure: exp, Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),

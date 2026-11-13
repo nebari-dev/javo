@@ -17,8 +17,31 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 )
+
+// The UI may be files that are not a folder: javo local serves the ones
+// its binary carries, by the same rules.
+func TestUIServesFilesThatAreNotAFolder(t *testing.T) {
+	t.Parallel()
+	f := apitest.New(t, apitest.Options{UI: fstest.MapFS{
+		"index.html":    {Data: []byte("<html>index</html>")},
+		"assets/app.js": {Data: []byte("console.log(1)")},
+	}})
+	for path, want := range map[string]string{"/": "index", "/apps/new": "index", "/assets/": "index", "/assets/app.js": "console.log"} {
+		w := f.Do("GET", path, "", nil)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: status %d body %q", path, w.Code, w.Body)
+		}
+		if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
+			t.Errorf("%s: csp %q", path, csp)
+		}
+	}
+	if w := f.Do("GET", "/api/nope", "", nil); strings.Contains(w.Body.String(), "index") {
+		t.Errorf("/api/nope fell back to the UI: %d", w.Code)
+	}
+}
 
 func TestUIServesFilesWithSPAFallbackAndCSP(t *testing.T) {
 	t.Parallel()

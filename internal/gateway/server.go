@@ -51,6 +51,7 @@ import (
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -132,8 +133,12 @@ type Config struct {
 	// when finding a client's address (for login rate limits). Empty
 	// trusts none.
 	TrustedProxies []netip.Prefix
-	// UIDir holds the built UI. Empty serves no UI.
+	// UIDir holds the built UI. Empty serves no UI, unless UI is set.
 	UIDir string
+	// UI is the built UI as files that are not a folder of this machine
+	// (javo local serves the ones its binary carries), in place of UIDir.
+	// The API docs page reads UIDir only.
+	UI fs.FS
 	// Branding is the install's name, logo, favicon and accent, from
 	// branding.Load; nil shows the built-in look.
 	Branding *branding.Branding
@@ -366,8 +371,15 @@ func NewServer(cfg Config) *Server {
 	// /readyz is what the pod waits on before it gets traffic; /healthz only
 	// says the process is alive.
 	mux.Handle("GET /readyz", readiness(cfg.Ready, now))
-	if cfg.UIDir != "" {
-		mux.Handle("/", uiHandler(cfg.UIDir, cfg.Branding.ImageOrigins()))
+	var ui http.FileSystem
+	switch {
+	case cfg.UI != nil:
+		ui = http.FS(cfg.UI)
+	case cfg.UIDir != "":
+		ui = http.Dir(cfg.UIDir)
+	}
+	if ui != nil {
+		mux.Handle("/", uiHandler(ui, cfg.Branding.ImageOrigins()))
 	}
 	// App requests on the UI host (/u/) carry the app's own uploads; only
 	// the platform's routes get the body deadline.
@@ -379,10 +391,7 @@ func NewServer(cfg Config) *Server {
 		}
 		bodies.ServeHTTP(w, r)
 	})
-	srv := &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, internalHost: cfg.InternalHost, https: cfg.URLs.URLScheme() == "https"}
-	if cfg.UIDir != "" {
-		srv.ui = http.Dir(cfg.UIDir)
-	}
+	srv := &Server{API: api, mux: mux, handler: handler, exp: cfg.Exposure, uiHost: cfg.URLs.UIHost, internalHost: cfg.InternalHost, https: cfg.URLs.URLScheme() == "https", ui: ui}
 	return srv
 }
 

@@ -11,16 +11,15 @@ import (
 const uiCSP = "default-src 'self'; style-src 'self'; font-src 'self'; " +
 	"frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
-// uiHandler serves the built UI from dir. Paths that are not a file get
+// uiHandler serves the built UI from root. Paths that are not a file get
 // index.html so client-side routes work; /api/ and /u/ never fall back.
 // imgOrigins are the hosts of branding images given as a URL; images load
 // from nowhere else.
-func uiHandler(dir string, imgOrigins []string) http.Handler {
+func uiHandler(root http.FileSystem, imgOrigins []string) http.Handler {
 	csp := uiCSP
 	if len(imgOrigins) > 0 {
 		csp = "img-src 'self' " + strings.Join(imgOrigins, " ") + "; " + uiCSP
 	}
-	root := http.Dir(dir)
 	files := http.FileServer(root)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := path.Clean("/" + r.URL.Path)
