@@ -36,12 +36,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
 	"github.com/nebari-dev/javo/internal/controller/manager"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -120,11 +123,12 @@ func newHarnessWith(t *testing.T, configure func(*Reconciler)) *harness {
 	return h
 }
 
-// newReconciler builds a reconciler over the harness's database and the
-// manager's clients.
-func (h *harness) newReconciler(c client.Client, reader client.Reader) *Reconciler {
+// newReconciler builds a reconciler over the harness's database whose runs
+// are Jobs of the cluster as e sees it.
+func (h *harness) newReconciler(e *kube.Executor) *Reconciler {
 	r := &Reconciler{
-		Client: c, Store: h.db, Reader: reader, RunnerImage: podspec.Image{Ref: "example.com/javo:9"}, Secrets: k8s,
+		Exec: e.Runs(), Legacy: e.Runs(), Secrets: kube.Secrets{Reader: k8s, Client: k8s, Runs: true},
+		Kube: e.Client, Store: h.db, RunnerImage: podspec.Image{Ref: "example.com/javo:9"},
 		Storage: podstorage.Resolver{Homes: h.db.Homes(), Folders: h.db.SharedFolders()},
 		Access:  h.access, Now: func() time.Time { return fixedNow },
 		// A short resync stands in for announcements the tests make by
@@ -156,7 +160,11 @@ func (h *harness) start() {
 	if err := mgr.Add(events); err != nil {
 		h.t.Fatal(err)
 	}
-	r := h.newReconciler(mgr.GetClient(), mgr.GetAPIReader())
+	exec := &kube.Executor{Machines: capacity.Nodes{Reader: mgr.GetClient()}}
+	if err := exec.SetupWithManager(mgr); err != nil {
+		h.t.Fatal(err)
+	}
+	r := h.newReconciler(exec)
 	r.CronJobEvents = events
 	feed := dbsource.NewFeed(h.db.Changes())
 	if err := r.SetupWithManager(mgr, feed); err != nil {
@@ -1049,7 +1057,9 @@ func TestCancelStopsARunningJob(t *testing.T) {
 // A reconciler with no manager: the requests are handled by calling
 // startRequested, so what it does with each one is not racing a running
 // controller.
-func (h *harness) direct() *Reconciler { return h.newReconciler(k8s, k8s) }
+func (h *harness) direct() *Reconciler {
+	return h.newReconciler(&kube.Executor{Client: k8s, Reader: k8s})
+}
 
 func (h *harness) readyVerdict(j model.Job) verdict {
 	h.t.Helper()
@@ -1398,7 +1408,8 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 	keepJob, dropJob := jobOf(live, "live-1"), jobOf(gone, "gone-1")
 	// A running run's Job carries the finalizer; with the row gone nothing
 	// else would ever release it.
-	if err := h.direct().addFinalizer(bg, dropJob); err != nil {
+	controllerutil.AddFinalizer(dropJob, FinalizerRecordRun)
+	if err := k8s.Update(bg, dropJob); err != nil {
 		t.Fatal(err)
 	}
 	// A job of someone else, without the label, is never touched.
@@ -1416,7 +1427,7 @@ func TestSweepDeletesOrphanCronJobsAndJobsOnly(t *testing.T) {
 
 	// The sweep sees this test's namespace only: other tests' jobs have rows
 	// in other databases, so their objects would be orphans here.
-	sweeper := h.newReconciler(client.NewNamespacedClient(k8s, h.ns), k8s)
+	sweeper := h.newReconciler(&kube.Executor{Client: client.NewNamespacedClient(k8s, h.ns), Reader: k8s})
 	if err := sweeper.Sweep(bg); err != nil {
 		t.Fatal(err)
 	}

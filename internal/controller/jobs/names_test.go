@@ -99,8 +99,8 @@ func TestUpgradeMovesAJobToItsNewSecretNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	mine := map[string]string{model.LabelJob: d.ID, model.LabelOwner: d.Owner}
-	oldAPI := legacyAPISecretName(&d)
-	oldScheduled := cronJobName(&d) + legacySecretsSuffix
+	oldAPI := cronJobName(&d) + "-api"
+	oldScheduled := cronJobName(&d) + "-javo-secrets"
 	for _, s := range []*corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Namespace: h.ns, Name: oldAPI, Labels: mine, Annotations: map[string]string{
 			model.AnnotationTokenID: oldTok.ID, model.AnnotationTokenScope: string(token.ScopeReadWrite)}},

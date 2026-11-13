@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/jobs/runner"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
@@ -574,4 +575,14 @@ func TestARunNeverGetsAReservedVariableFromItsJob(t *testing.T) {
 	if seen["HOME"] != 1 || seen["JAVO_RUN"] != 1 {
 		t.Errorf("HOME is set %d times and JAVO_RUN %d", seen["HOME"], seen["JAVO_RUN"])
 	}
+}
+
+// BuildManualJob renders the Job the Kubernetes executor makes for the run
+// started by hand whose row is runID.
+func BuildManualJob(in Inputs, runID string, override map[string]string) (*batchv1.Job, error) {
+	run, err := PlanManualRun(in, runID, override)
+	if err != nil {
+		return nil, err
+	}
+	return kube.RenderRun(run, in.Isolation), nil
 }

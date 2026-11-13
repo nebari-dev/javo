@@ -12,7 +12,6 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -31,20 +30,19 @@ import (
 )
 
 const (
-	LabelTrigger = model.Group + "/trigger"
+	LabelTrigger = kube.LabelTrigger
 	// FinalizerRecordRun holds a Job until its run is written to the
-	// database. Manual Jobs carry it from creation; scheduled Jobs get it from
-	// the reconciler, because the CronJob controller copies only labels and
-	// annotations from the jobTemplate.
-	FinalizerRecordRun = model.Group + "/record-run"
+	// database. Manual Jobs carry it from creation; scheduled Jobs get it
+	// when the executor first looks at them, because the CronJob controller
+	// copies only labels and annotations from the jobTemplate.
+	FinalizerRecordRun = kube.FinalizerRecordRun
 
-	TriggerSchedule = "schedule"
-	TriggerManual   = "manual"
+	TriggerSchedule = kube.TriggerSchedule
+	TriggerManual   = kube.TriggerManual
 
 	// cronJobNameMax is the Kubernetes limit for a CronJob name: its Jobs
 	// append 11 characters to it.
 	cronJobNameMax = 52
-	manualJobTTL   = time.Hour
 
 	// runnerDir holds the javo binary the init container copies for the app
 	// container. It is not /javo: that path is the binary inside the image.
@@ -101,8 +99,7 @@ type Inputs struct {
 // "<Job name>.run-secrets". Kubernetes names made from a person's pick are
 // DNS labels and never hold a ".", so the part after it keeps apps' Secrets
 // (".app-", workspace.SecretName), a job's and a run's apart whatever the
-// names. legacySecretsSuffix ended both job and run Secrets before.
-const legacySecretsSuffix = "-" + model.ProductName + "-secrets"
+// names.
 
 // ScheduledSecretName is the Secret the runs of the job's CronJob read their
 // secrets from. The CronJob owns it, so it goes with the CronJob.
@@ -216,22 +213,26 @@ func timeout(in Inputs) time.Duration {
 	return t
 }
 
-// deadline is t in whole seconds for a Job, nil for no limit.
-func deadline(t time.Duration) *int64 {
-	if t == 0 {
-		return nil
-	}
-	return ptr.To(int64(t.Seconds()))
+// jobRef names the job where its runs run: what its bundles are kept for.
+func jobRef(j *model.Job) workload.Ref {
+	return workload.Ref{Namespace: j.Namespace, Name: cronJobName(j), ID: j.ID, Owner: j.Owner}
 }
 
-// planRun is the workload of one run of the job: the runner (the platform's
-// binary, copied in by a step) in the template's image, on the owner's
-// storage, with run (runner.Spec as JSON) as JAVO_RUN and the job's secrets
-// read from the bundle secretName.
-func planRun(in Inputs, run, secretName string) (workload.Spec, error) {
+// runRef names the job's run that the executor knows as handle.
+func runRef(j *model.Job, handle string) workload.Ref {
+	ref := jobRef(j)
+	ref.Name = handle
+	return ref
+}
+
+// planRun is the workload of the job's run called name: the runner (the
+// platform's binary, copied in by a step) in the template's image, on the
+// owner's storage, with run (runner.Spec as JSON) as JAVO_RUN and the job's
+// secrets read from the bundle secretName.
+func planRun(in Inputs, name, run, secretName string) (workload.Spec, error) {
 	d, t := in.Job, in.Template
 	s := workload.Spec{
-		Ref:       workload.Ref{Namespace: d.Namespace, Name: cronJobName(d), ID: d.ID, Owner: d.Owner},
+		Ref:       runRef(d, name),
 		Resources: t.Spec.Resources,
 		Size:      in.Size,
 		Main:      workspace.MainUnit(d.Owner, t.Spec.RunImage(in.PixiImage)),
@@ -273,21 +274,15 @@ func planRun(in Inputs, run, secretName string) (workload.Spec, error) {
 	return s, nil
 }
 
-// BuildJobTemplate renders the Job that one scheduled run of the job uses,
-// with params overriding the declared defaults.
-func BuildJobTemplate(in Inputs, override map[string]string) (batchv1.JobTemplateSpec, error) {
-	return buildJobTemplate(in, override, ScheduledSecretName(in.Job))
-}
-
-// buildJobTemplate is BuildJobTemplate for a run that reads its secrets from
-// the Secret secretName.
-func buildJobTemplate(in Inputs, override map[string]string, secretName string) (batchv1.JobTemplateSpec, error) {
+// plan is the workload of the job's run called name, with override over the
+// declared parameters, reading its secrets from the bundle secretName.
+func plan(in Inputs, name string, override map[string]string, secretName string) (workload.Spec, error) {
 	if err := Validate(in); err != nil {
-		return batchv1.JobTemplateSpec{}, err
+		return workload.Spec{}, err
 	}
 	ps, err := params(in.Job, override)
 	if err != nil {
-		return batchv1.JobTemplateSpec{}, err
+		return workload.Spec{}, err
 	}
 	d := in.Job
 	spec := runner.Spec{
@@ -300,42 +295,30 @@ func buildJobTemplate(in Inputs, override map[string]string, secretName string) 
 	}
 	raw, err := json.Marshal(spec)
 	if err != nil {
-		return batchv1.JobTemplateSpec{}, err
+		return workload.Spec{}, err
 	}
+	return planRun(in, name, string(raw), secretName)
+}
 
-	run, err := planRun(in, string(raw), secretName)
+// PlanManualRun is the workload of the run started by hand whose row is
+// runID, with override over the declared parameters.
+func PlanManualRun(in Inputs, runID string, override map[string]string) (workload.Spec, error) {
+	name := ManualJobName(in.Job, runID)
+	return plan(in, name, override, RunSecretName(name))
+}
+
+// BuildJobTemplate renders the Job that one scheduled run of the job uses,
+// with params overriding the declared defaults: the Job the executor makes
+// of a run, as the CronJob controller is to make it.
+func BuildJobTemplate(in Inputs, override map[string]string) (batchv1.JobTemplateSpec, error) {
+	run, err := plan(in, cronJobName(in.Job), override, ScheduledSecretName(in.Job))
 	if err != nil {
 		return batchv1.JobTemplateSpec{}, err
 	}
-	runPod := kube.Render(run, in.Isolation)
-
-	return batchv1.JobTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{Labels: labels(d, TriggerSchedule)},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:          ptr.To(run.Batch.Retries),
-			ActiveDeadlineSeconds: deadline(run.Batch.Timeout),
-			PodFailurePolicy: &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
-				{
-					Action: batchv1.PodFailurePolicyActionIgnore,
-					OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{
-						{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue},
-					},
-				},
-				{
-					Action: batchv1.PodFailurePolicyActionFailJob,
-					OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
-						ContainerName: ptr.To(podspec.ContainerName),
-						Operator:      batchv1.PodFailurePolicyOnExitCodesOpIn,
-						Values:        run.Batch.FailNow,
-					},
-				},
-			}},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels(d, TriggerSchedule), Annotations: runPod.Annotations},
-				Spec:       runPod.Spec,
-			},
-		},
-	}, nil
+	k := kube.RenderRun(run, in.Isolation)
+	k.Spec.TTLSecondsAfterFinished = nil
+	k.Spec.Template.Labels = labels(in.Job, TriggerSchedule)
+	return batchv1.JobTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels(in.Job, TriggerSchedule)}, Spec: k.Spec}, nil
 }
 
 // BuildCronJob renders the CronJob for a scheduled job.
@@ -368,27 +351,4 @@ func BuildCronJob(in Inputs) (*batchv1.CronJob, error) {
 		cj.Spec.StartingDeadlineSeconds = ptr.To(int64(s.StartingDeadline.Seconds()))
 	}
 	return cj, nil
-}
-
-// BuildManualJob renders the Job for the run started by hand whose row is
-// runID.
-func BuildManualJob(in Inputs, runID string, override map[string]string) (*batchv1.Job, error) {
-	name := ManualJobName(in.Job, runID)
-	jt, err := buildJobTemplate(in, override, RunSecretName(name))
-	if err != nil {
-		return nil, err
-	}
-	jt.Labels[LabelTrigger] = TriggerManual
-	jt.Spec.Template.Labels[LabelTrigger] = TriggerManual
-	jt.Spec.TTLSecondsAfterFinished = ptr.To(int32(manualJobTTL.Seconds()))
-	jt.Annotations = map[string]string{"cronjob.kubernetes.io/instantiate": "manual"}
-	return &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: in.Job.Namespace,
-			Labels:    jt.Labels, Annotations: jt.Annotations,
-			Finalizers: []string{FinalizerRecordRun},
-		},
-		Spec: jt.Spec,
-	}, nil
 }

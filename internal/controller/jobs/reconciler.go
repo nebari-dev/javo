@@ -16,12 +16,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -33,7 +32,7 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/namespace"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/controller/sweep"
-	"github.com/nebari-dev/javo/internal/executor/kube"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/jobs/schedule"
 	jobstatus "github.com/nebari-dev/javo/internal/jobs/status"
@@ -45,21 +44,29 @@ import (
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // Reconciler renders job rows into CronJobs, turns run requests into Jobs,
 // and records every run of those Jobs in the database. It never writes spec
 // columns.
 type Reconciler struct {
-	client.Client
+	// Exec runs the jobs' runs and Secrets keeps the bundles they read.
+	// Required.
+	Exec    executor.Executor
+	Secrets executor.Secrets
+	// Legacy removes what earlier versions left where the runs run; nil
+	// where there is nothing to remove.
+	Legacy Legacy
+	// Kube is the cluster, for the CronJobs that fire the schedules and for
+	// nothing else. Required.
+	Kube client.Client
 	// Store is the database jobs, runs, templates and people are read from.
 	// Required.
-	Store *store.Store
-	// Reader reads live, bypassing the cache; it confirms that a Job is gone
-	// before its run is called lost. Required.
-	Reader      client.Reader
+	Store       *store.Store
 	RunnerImage podspec.Image
-	// Isolation is applied to every run's pod (config workloads).
+	// Isolation is applied to the pods of the runs a CronJob starts (config
+	// workloads); the executor applies its own to the runs it starts.
 	Isolation podspec.Isolation
 	// PixiImage installs the environment of a job that runs in one
 	// (internal/pixienv). Without it such a job is Blocked.
@@ -81,9 +88,6 @@ type Reconciler struct {
 	// ResyncEvery is how often every job row is looked at again regardless of
 	// announcements, and every orphan swept. Zero means dbsource.DefaultResync.
 	ResyncEvery time.Duration
-	// Secrets reads and writes, live, the Secrets runs read the owner's
-	// secrets from (Secrets are never cached). Required.
-	Secrets client.Client
 	// SecretKeys opens the values of people's secrets. Nil when the
 	// controller has no key-encryption key: a job whose runs get secrets is
 	// then blocked, and its runs fail, as SecretsUnreadable.
@@ -103,6 +107,14 @@ type Reconciler struct {
 	MaxTimeout time.Duration
 }
 
+// Legacy removes what earlier versions kept for a job, or for one of its
+// runs, under names no longer used. No run of the job reads it any more
+// when it is called. An API token found there is handed to revoke first,
+// by its id.
+type Legacy interface {
+	Tidy(ctx context.Context, ref workload.Ref, revoke func(ctx context.Context, tokenID string) error) error
+}
+
 // JobTokens makes, checks and revokes the API tokens of jobs.
 type JobTokens interface {
 	Get(ctx context.Context, id string) (token.Token, error)
@@ -112,6 +124,8 @@ type JobTokens interface {
 
 // RBAC for the controller (make rbac renders config/rbac/controller; the
 // Helm chart's Roles must grant the same rules, test/helm checks it).
+// The Jobs, pods, events and Secrets are the Kubernetes executor's
+// (internal/executor/kube); its rules are kept here, where make rbac looks.
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=update
@@ -127,6 +141,9 @@ const (
 	// unmanagedRetry is how often a job in a not-yet-managed namespace is
 	// looked at again.
 	unmanagedRetry = 10 * time.Second
+	// finalizeRetry is how soon a deleted job whose runs were still going
+	// is looked at again.
+	finalizeRetry = time.Second
 
 	// annotationSpecHash records the CronJob spec the reconciler last wrote, so
 	// an unchanged job costs no write. A suspended-by-block CronJob carries
@@ -157,16 +174,16 @@ type verdict struct {
 	secrets secretenv.Set
 	// size is what each run gets as CPU and memory.
 	size sizes.Size
-	// scheduled is the Secret scheduled runs read, as it is now (nil: none),
+	// scheduled is the bundle scheduled runs read, as it is now (nil: none),
 	// and scheduledData the values to write to it when it is out of date.
-	scheduled     *corev1.Secret
+	scheduled     *executor.Bundle
 	scheduledData map[string][]byte
 	// api is the owner's API token of a job whose template gives one.
 	api API
 	// env is the files of the job's environment; nil when it names none.
 	env *model.EnvironmentFiles
-	// active counts the job's Jobs not finished and running the owner's runs
-	// with a Job (store.Jobs.RunningRuns); held is RunLimitReached when either
+	// active counts the job's runs still going and running the owner's runs
+	// that were started (store.Jobs.RunningRuns); held is RunLimitReached when either
 	// is at its cap (store.Limits), which holds the schedule (runCaps).
 	active, running int64
 	held            reasons.Code
@@ -184,10 +201,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	if !job.DeletedAt.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &job)
+		return r.finalize(ctx, &job)
 	}
 	if r.ManagedNamespacesOnly {
-		if managed, err := namespace.IsManaged(ctx, r.Client, job.Namespace); err != nil {
+		if managed, err := namespace.IsManaged(ctx, r.Kube, job.Namespace); err != nil {
 			return ctrl.Result{}, err
 		} else if !managed {
 			log.FromContext(ctx).Info("ignoring job in a namespace the controller does not manage", "namespace", job.Namespace)
@@ -203,7 +220,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.prepareSecrets(ctx, &job, &v); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.runCaps(ctx, &job, &v); err != nil {
+	seen, err := r.look(ctx, &job)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.runCaps(ctx, &job, &v, seen); err != nil {
 		return ctrl.Result{}, err
 	}
 	cj, err := r.syncCronJob(ctx, &job, v)
@@ -216,19 +237,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.startRequested(ctx, &job, v, now); err != nil {
 		return ctrl.Result{}, err
 	}
-	release, err := r.recordRuns(ctx, &job, now)
+	release, err := r.recordRuns(ctx, &job, seen, now)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.dropLegacySecrets(ctx, &job); err != nil {
+	if err := r.dropLegacySecrets(ctx, &job, seen); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.writeStatus(ctx, &job, v, cj, now); err != nil {
 		return ctrl.Result{}, err
 	}
-	// Only now is every finished run recorded, so its Job may go.
-	for _, j := range release {
-		if err := r.removeFinalizer(ctx, j); err != nil {
+	// Only now is every finished run recorded, so the executor may let go
+	// of it.
+	for _, ref := range release {
+		if err := r.Exec.Stop(ctx, ref); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -315,20 +337,17 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 // against and holds the schedule when one is reached: the Kubernetes CronJob
 // controller would otherwise start a run at every slot whatever the
 // concurrency (Allow) or the owner's other jobs.
-func (r *Reconciler) runCaps(ctx context.Context, job *model.Job, v *verdict) error {
+func (r *Reconciler) runCaps(ctx context.Context, job *model.Job, v *verdict, seen []seenRun) error {
 	l := r.Store.Limits()
 	if l.RunsPerJob <= 0 && l.RunsPerPerson <= 0 {
 		return nil
 	}
-	jobs, err := r.jobsOf(ctx, job)
-	if err != nil {
-		return err
-	}
-	for i := range jobs.Items {
-		if !Finished(&jobs.Items[i]) {
+	for _, s := range seen {
+		if s.st != nil && going(s.st) {
 			v.active++
 		}
 	}
+	var err error
 	if v.running, err = r.Store.Jobs().RunningRuns(ctx, job.Owner); err != nil {
 		return err
 	}
@@ -366,7 +385,7 @@ func invalidCode(err error) reasons.Code {
 // survives; a job without a schedule has none.
 func (r *Reconciler) syncCronJob(ctx context.Context, job *model.Job, v verdict) (*batchv1.CronJob, error) {
 	got := &batchv1.CronJob{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: cronJobName(job)}, got)
+	err := r.Kube.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: cronJobName(job)}, got)
 	exists := err == nil
 	if err != nil && !apierrors.IsNotFound(err) {
 		return nil, err
@@ -377,7 +396,7 @@ func (r *Reconciler) syncCronJob(ctx context.Context, job *model.Job, v verdict)
 	switch {
 	case job.Spec.Schedule == nil:
 		if exists {
-			return nil, client.IgnoreNotFound(r.Delete(ctx, got))
+			return nil, client.IgnoreNotFound(r.Kube.Delete(ctx, got))
 		}
 		return nil, nil
 	case v.phase == model.JobPhaseBlocked || v.phase == model.JobPhaseInvalid:
@@ -387,7 +406,7 @@ func (r *Reconciler) syncCronJob(ctx context.Context, job *model.Job, v verdict)
 		base := got.DeepCopy()
 		got.Spec.Suspend = ptr.To(true)
 		metav1.SetMetaDataAnnotation(&got.ObjectMeta, annotationSpecHash, hashBlocked)
-		return got, r.Patch(ctx, got, client.MergeFrom(base))
+		return got, r.Kube.Patch(ctx, got, client.MergeFrom(base))
 	}
 
 	want, err := BuildCronJob(r.inputs(job, v))
@@ -403,14 +422,14 @@ func (r *Reconciler) syncCronJob(ctx context.Context, job *model.Job, v verdict)
 	}
 	metav1.SetMetaDataAnnotation(&want.ObjectMeta, annotationSpecHash, hash)
 	if !exists {
-		return want, r.Create(ctx, want)
+		return want, r.Kube.Create(ctx, want)
 	}
 	if got.Annotations[annotationSpecHash] == hash {
 		return got, nil
 	}
 	got.Labels, got.Spec = want.Labels, want.Spec
 	metav1.SetMetaDataAnnotation(&got.ObjectMeta, annotationSpecHash, hash)
-	return got, r.Update(ctx, got)
+	return got, r.Kube.Update(ctx, got)
 }
 
 func specHash(cj *batchv1.CronJob) (string, error) {
@@ -429,11 +448,11 @@ func specHash(cj *batchv1.CronJob) (string, error) {
 // it is not Running.
 func final(outcome string) bool { return outcome != "" && outcome != model.RunOutcomeRunning }
 
-// startRequested turns each run a person requested (a row with no outcome)
-// into a Job. The Job's name comes from the row id, so a resync or restart
-// between creating the Job and recording it finds the same Job again. A
-// cancel asked for before the start ends the run without a Job; a job that
-// cannot run now (blocked, invalid) fails the request with the reason.
+// startRequested starts each run a person requested (a row with no
+// outcome). The run's name comes from the row id, so a resync or restart
+// between starting the run and recording it finds the same run again. A
+// cancel asked for before the start ends the run without starting it; a job
+// that cannot run now (blocked, invalid) fails the request with the reason.
 func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdict, now time.Time) error {
 	runs, err := r.Store.Jobs().Runs(ctx, job.ID)
 	if err != nil {
@@ -443,9 +462,10 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 		if run.Outcome != "" || run.K8sJob != "" {
 			continue
 		}
+		ref := runRef(job, ManualJobName(job, run.ID))
 		if run.CancelRequested {
-			// A start cut short after its Secret was written leaves it with no Job to own it.
-			if err := r.deleteRunSecret(ctx, job, ManualJobName(job, run.ID)); err != nil {
+			// A start cut short after its bundle was written leaves it with no run to go with.
+			if err := r.deleteRunSecret(ctx, job, ref); err != nil {
 				return err
 			}
 			if err := r.endRequest(ctx, run, model.RunOutcomeCancelled, reasons.RunCancelled, now); err != nil {
@@ -467,8 +487,7 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 			}
 			continue
 		}
-		manual, err := BuildManualJob(r.inputs(job, v), run.ID, run.Parameters)
-
+		spec, err := PlanManualRun(r.inputs(job, v), run.ID, run.Parameters)
 		if errors.Is(err, ErrParameterNotDeclared) {
 			if err := r.endRequest(ctx, run, model.RunOutcomeFailed, reasons.ParametersInvalid, now); err != nil {
 				return err
@@ -478,8 +497,8 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 		if err != nil {
 			return err
 		}
-		// The Secret comes first, so the run's pod never starts without it.
-		unreadable, err := r.startSecret(ctx, job, v, manual.Name)
+		// The bundle comes first, so the run never starts without it.
+		unreadable, err := r.startSecret(ctx, v, ref)
 		if err != nil {
 			return err
 		}
@@ -490,19 +509,29 @@ func (r *Reconciler) startRequested(ctx context.Context, job *model.Job, v verdi
 			}
 			continue
 		}
-		if err := r.Create(ctx, manual); client.IgnoreAlreadyExists(err) != nil {
+		if err := r.Exec.Start(ctx, spec); err != nil {
 			return err
 		}
-		if err := r.ownRunSecret(ctx, v, manual); err != nil {
+		// Again, now that the run is there for the bundle to go with.
+		if _, err := r.startSecret(ctx, v, ref); err != nil {
 			return err
 		}
 		v.active, v.running = v.active+1, v.running+1
-		run.K8sJob, run.Outcome, run.Reason = manual.Name, model.RunOutcomeRunning, string(reasons.Running)
+		run.K8sJob, run.Outcome, run.Reason = ref.Name, model.RunOutcomeRunning, string(reasons.Running)
 		if _, err := r.Store.Jobs().RecordRun(ctx, run); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// deleteRunSecret removes the bundle of the run ref, under its name and the
+// one it had before RunSecretName.
+func (r *Reconciler) deleteRunSecret(ctx context.Context, job *model.Job, ref workload.Ref) error {
+	if err := r.Secrets.Delete(ctx, ref, RunSecretName(ref.Name)); err != nil {
+		return err
+	}
+	return r.tidy(ctx, job, ref)
 }
 
 // endRequest records a requested run that never got a Job.
@@ -512,13 +541,28 @@ func (r *Reconciler) endRequest(ctx context.Context, run model.Run, outcome stri
 	return err
 }
 
-// recordRuns writes every run of the job's Jobs, and of the CronJob's
-// skipped and missed starts, to job_runs; stops a Job whose run was asked to
-// be cancelled; calls a run lost when its Job is gone; and keeps only the
-// newest keepRuns finished runs (plus those whose Job still exists). It returns the Jobs whose run is final and
-// may be released from their finalizer.
-func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, now time.Time) ([]*batchv1.Job, error) {
-	jobs, err := r.jobsOf(ctx, job)
+// seenRun is a run of the job the executor has, with what it shows of it:
+// nil for a run already recorded as over, which is not looked at again.
+type seenRun struct {
+	ref workload.Ref
+	st  *workload.State
+}
+
+// runsOf names the job's runs the executor has, scheduled and manual.
+func (r *Reconciler) runsOf(ctx context.Context, job *model.Job) ([]workload.Ref, error) {
+	all, err := r.Exec.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(all, func(ref workload.Ref) bool { return ref.ID != job.ID || ref.Namespace != job.Namespace }), nil
+}
+
+// look observes the job's runs the executor has. A run recorded as over
+// stays as recorded: observing it again could replace the outcome and
+// reason with worse ones once what explained them is gone, and would cost
+// a look at the platform on every reconcile.
+func (r *Reconciler) look(ctx context.Context, job *model.Job) ([]seenRun, error) {
+	refs, err := r.runsOf(ctx, job)
 	if err != nil {
 		return nil, err
 	}
@@ -526,42 +570,60 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, now time.Ti
 	if err != nil {
 		return nil, err
 	}
-	byK8sJob := make(map[string]model.Run, len(stored))
+	over := map[string]bool{}
 	for _, run := range stored {
-		if run.K8sJob != "" {
-			byK8sJob[run.K8sJob] = run
-		}
+		over[run.K8sJob] = run.K8sJob != "" && final(run.Outcome)
 	}
-
-	seen := map[string]bool{}
-	var release []*batchv1.Job
-	for i := range jobs.Items {
-		k := &jobs.Items[i]
-		seen[k.Name] = true
-		old, known := byK8sJob[k.Name]
-		// A final run stays as recorded: re-deriving it could replace the
-		// outcome and reason with worse ones once the pods that explained it
-		// are gone, and would list pods again on every reconcile.
-		if known && final(old.Outcome) {
-			release = append(release, k)
+	var seen []seenRun
+	for _, ref := range refs {
+		if over[ref.Name] {
+			seen = append(seen, seenRun{ref: ref})
 			continue
 		}
-		// A finished Job needs no hold: its run is recorded below in this same
-		// pass, and a finalizer added now would only be removed again.
-		if k.DeletionTimestamp.IsZero() && !Finished(k) && !slices.Contains(k.Finalizers, FinalizerRecordRun) {
-			if err := r.addFinalizer(ctx, k); err != nil {
-				return nil, err
-			}
-		}
-		if known && old.CancelRequested && k.DeletionTimestamp.IsZero() && !Finished(k) {
-			if err := r.Delete(ctx, k, client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
-				return nil, err
-			}
-		}
-		run, err := r.deriveRun(ctx, k)
+		st, err := r.Exec.Observe(ctx, ref)
 		if err != nil {
 			return nil, err
 		}
+		if st != nil {
+			seen = append(seen, seenRun{ref: ref, st: st})
+		}
+	}
+	return seen, nil
+}
+
+// recordRuns writes every run the executor has of the job, and the
+// CronJob's skipped and missed starts, to job_runs; stops a run that was
+// asked to be cancelled; calls a run lost when the executor no longer has
+// it; and keeps only the newest keepRuns finished runs (plus those the
+// executor still has). It returns the runs whose record is final: the
+// executor may let go of them.
+func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, seen []seenRun, now time.Time) ([]workload.Ref, error) {
+	stored, err := r.Store.Jobs().Runs(ctx, job.ID)
+	if err != nil {
+		return nil, err
+	}
+	byHandle := make(map[string]model.Run, len(stored))
+	for _, run := range stored {
+		if run.K8sJob != "" {
+			byHandle[run.K8sJob] = run
+		}
+	}
+
+	had := map[string]bool{}
+	var release []workload.Ref
+	for _, s := range seen {
+		had[s.ref.Name] = true
+		old, known := byHandle[s.ref.Name]
+		if s.st == nil {
+			release = append(release, s.ref)
+			continue
+		}
+		if known && old.CancelRequested && !s.st.Run.Done {
+			if err := r.Exec.Stop(ctx, s.ref); err != nil {
+				return nil, err
+			}
+		}
+		run := jobstatus.DeriveRun(s.st)
 		run.ID, run.JobID = old.ID, job.ID
 		if !known || !sameRun(old, run) {
 			if _, err := r.Store.Jobs().RecordRun(ctx, run); err != nil {
@@ -569,23 +631,23 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, now time.Ti
 			}
 		}
 		if final(run.Outcome) {
-			release = append(release, k)
+			release = append(release, s.ref)
 		}
 	}
-	// A run recorded as Running whose Job is gone (deleted without the
-	// finalizer, for example while the controller was not installed) cannot
-	// finish any more. The cache may lag behind a Job just created, so the
-	// API server has the last word.
+	// A run recorded as Running that the executor no longer has (removed
+	// behind its back, for example while the controller was not installed)
+	// cannot finish any more. One started since the look above is still
+	// there.
 	for _, old := range stored {
-		if old.Outcome != model.RunOutcomeRunning || old.K8sJob == "" || seen[old.K8sJob] {
+		if old.Outcome != model.RunOutcomeRunning || old.K8sJob == "" || had[old.K8sJob] {
 			continue
 		}
-		err := r.Reader.Get(ctx, client.ObjectKey{Namespace: job.Namespace, Name: old.K8sJob}, &batchv1.Job{})
-		if err == nil {
-			continue
-		}
-		if !apierrors.IsNotFound(err) {
+		st, err := r.Exec.Observe(ctx, runRef(job, old.K8sJob))
+		if err != nil {
 			return nil, err
+		}
+		if st != nil {
+			continue
 		}
 		old.Outcome, old.Reason, old.FinishTime = model.RunOutcomeLost, string(reasons.RunLost), now
 		if _, err := r.Store.Jobs().RecordRun(ctx, old); err != nil {
@@ -597,12 +659,12 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, now time.Ti
 	if err != nil {
 		return nil, err
 	}
-	// A run whose Job or CronJob Event is still listed stays: the next
-	// reconcile would record it again as a new run (and notify a failure
-	// again, or audit another prune of the same skip).
-	live := make([]string, 0, len(jobs.Items)+len(evs))
-	for i := range jobs.Items {
-		live = append(live, jobs.Items[i].Name)
+	// A run the executor still has, or whose CronJob Event is still listed,
+	// stays: the next reconcile would record it again as a new run (and
+	// notify a failure again, or audit another prune of the same skip).
+	live := make([]string, 0, len(seen)+len(evs))
+	for _, s := range seen {
+		live = append(live, s.ref.Name)
 	}
 	for _, e := range evs {
 		run, ok := runFromEvent(job, e)
@@ -610,7 +672,7 @@ func (r *Reconciler) recordRuns(ctx context.Context, job *model.Job, now time.Ti
 			continue
 		}
 		live = append(live, run.K8sJob)
-		if _, known := byK8sJob[run.K8sJob]; known {
+		if _, known := byHandle[run.K8sJob]; known {
 			continue
 		}
 		run.JobID = job.ID
@@ -630,47 +692,6 @@ func sameRun(old, next model.Run) bool {
 	return old.Outcome == next.Outcome && old.Reason == next.Reason && old.Message == next.Message &&
 		old.OutputPath == next.OutputPath && slices.Equal(old.Outputs, next.Outputs) &&
 		old.StartTime.Equal(next.StartTime) && old.FinishTime.Equal(next.FinishTime)
-}
-
-// deriveRun is DeriveRun of what the cluster shows of the Job: its pods and
-// (while it runs) their events.
-// A Job that is being deleted while still active was cancelled.
-func (r *Reconciler) deriveRun(ctx context.Context, job *batchv1.Job) (model.Run, error) {
-	var pods corev1.PodList
-	if err := r.List(ctx, &pods, client.InNamespace(job.Namespace), client.MatchingLabels{LabelJobName: job.Name}); err != nil {
-		return model.Run{}, err
-	}
-	var evs []corev1.Event
-	if !Finished(job) {
-		for _, p := range pods.Items {
-			e, err := r.eventsAbout(ctx, job.Namespace, "Pod", p.Name)
-			if err != nil {
-				return model.Run{}, err
-			}
-			evs = append(evs, e...)
-		}
-	}
-	run := jobstatus.DeriveRun(kube.ObserveRun(kube.SeenRun{Job: job, Pods: pods.Items, Events: evs}))
-	if !job.DeletionTimestamp.IsZero() && run.Outcome == model.RunOutcomeRunning {
-		run.Outcome, run.Reason, run.Message = model.RunOutcomeCancelled, string(reasons.RunCancelled), ""
-		run.FinishTime = job.DeletionTimestamp.Time
-	}
-	return run, nil
-}
-
-// Finished reports whether the Job has completed or failed.
-func Finished(job *batchv1.Job) bool {
-	return slices.ContainsFunc(job.Status.Conditions, func(c batchv1.JobCondition) bool {
-		return c.Status == corev1.ConditionTrue && (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed)
-	})
-}
-
-func (r *Reconciler) eventsAbout(ctx context.Context, ns, kind, name string) ([]corev1.Event, error) {
-	var list corev1.EventList
-	if err := r.List(ctx, &list, client.InNamespace(ns), client.MatchingFields{indexEventObject: kind + "/" + name}); err != nil {
-		return nil, err
-	}
-	return list.Items, nil
 }
 
 func (r *Reconciler) cronJobEvents(ctx context.Context, job *model.Job) ([]corev1.Event, error) {
@@ -740,72 +761,71 @@ func eventTime(e corev1.Event) time.Time {
 	return time.Time{}
 }
 
-func (r *Reconciler) addFinalizer(ctx context.Context, job *batchv1.Job) error {
-	base := job.DeepCopy()
-	controllerutil.AddFinalizer(job, FinalizerRecordRun)
-	return r.Patch(ctx, job, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
-}
-
-func (r *Reconciler) removeFinalizer(ctx context.Context, job *batchv1.Job) error {
-	if !controllerutil.ContainsFinalizer(job, FinalizerRecordRun) {
-		return nil
+// drop ends the run ref and lets go of it. It reports whether the run was
+// still going: the executor then holds it until it shows it as stopped and
+// is asked again.
+func (r *Reconciler) drop(ctx context.Context, ref workload.Ref) (wasGoing bool, err error) {
+	st, err := r.Exec.Observe(ctx, ref)
+	if err != nil || st == nil {
+		return false, err
 	}
-	base := job.DeepCopy()
-	controllerutil.RemoveFinalizer(job, FinalizerRecordRun)
-	return client.IgnoreNotFound(r.Patch(ctx, job, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})))
+	if err := r.Exec.Stop(ctx, ref); err != nil {
+		return false, err
+	}
+	if st.Run.Done {
+		return false, nil
+	}
+	// Lets go at once where the executor already shows the run stopped.
+	return true, r.Exec.Stop(ctx, ref)
 }
 
-// jobsOf lists the job's Jobs, scheduled and manual.
-func (r *Reconciler) jobsOf(ctx context.Context, job *model.Job) (batchv1.JobList, error) {
-	var jobs batchv1.JobList
-	err := r.List(ctx, &jobs, client.InNamespace(job.Namespace), client.MatchingLabels{model.LabelJob: job.ID})
-	return jobs, err
-}
-
-// finalize removes what a deleted job left in the cluster, then the row. Its
-// runs go with the row, so a Job held by the record-run finalizer has nowhere
-// to be recorded and is released first.
-func (r *Reconciler) finalize(ctx context.Context, job *model.Job) error {
+// finalize removes what a deleted job left where its runs run, then the
+// row. Its runs go with the row, so a run the executor holds has nowhere to
+// be recorded: each is ended and let go of first, and the row stays until
+// none is still going.
+func (r *Reconciler) finalize(ctx context.Context, job *model.Job) (ctrl.Result, error) {
 	var cronJobs batchv1.CronJobList
-	if err := r.List(ctx, &cronJobs, client.InNamespace(job.Namespace), client.MatchingLabels{model.LabelJob: job.ID}); err != nil {
-		return err
+	if err := r.Kube.List(ctx, &cronJobs, client.InNamespace(job.Namespace), client.MatchingLabels{model.LabelJob: job.ID}); err != nil {
+		return ctrl.Result{}, err
 	}
 	for i := range cronJobs.Items {
-		if err := r.Delete(ctx, &cronJobs.Items[i]); client.IgnoreNotFound(err) != nil {
-			return err
+		if err := r.Kube.Delete(ctx, &cronJobs.Items[i]); client.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
 		}
 	}
-	jobs, err := r.jobsOf(ctx, job)
+	refs, err := r.runsOf(ctx, job)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
-	for i := range jobs.Items {
-		k := &jobs.Items[i]
-		if err := r.removeFinalizer(ctx, k); err != nil {
-			return err
+	held := false
+	for _, ref := range refs {
+		wasGoing, err := r.drop(ctx, ref)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-		if err := r.Delete(ctx, k, client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
-			return err
-		}
-		// Its owner takes it too; deleting it here does not wait for that.
-		if err := r.deleteRunSecret(ctx, job, k.Name); err != nil {
-			return err
+		held = held || wasGoing
+		// It goes with the run too; deleting it here does not wait for that.
+		if err := r.deleteRunSecret(ctx, job, ref); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
-	if err := r.deleteSecret(ctx, job, ScheduledSecretName(job)); err != nil {
-		return err
+	if held {
+		return ctrl.Result{RequeueAfter: finalizeRetry}, nil
+	}
+	if err := r.Secrets.Delete(ctx, jobRef(job), ScheduledSecretName(job)); err != nil {
+		return ctrl.Result{}, err
 	}
 	if err := r.dropToken(ctx, job); err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
-	if err := r.removeLegacySecrets(ctx, job); err != nil {
-		return err
+	if err := r.tidy(ctx, job, jobRef(job)); err != nil {
+		return ctrl.Result{}, err
 	}
 	err = r.Store.Jobs().Purge(ctx, system, job.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		return ctrl.Result{}, nil
 	}
-	return err
+	return ctrl.Result{}, err
 }
 
 // writeStatus updates the status columns only when they differ. Conditions
@@ -878,49 +898,59 @@ func conditions(job *model.Job, v verdict, now time.Time) []metav1.Condition {
 	return out
 }
 
-// Sweep deletes the CronJobs and Jobs that carry a job id no row has any
+// Sweep removes the runs and CronJobs that carry a job id no row has any
 // more: what a job left behind when its row was removed without the
-// controller running. See sweep.Orphans for what it touches.
+// controller running. It asks the executor first and reads the rows after,
+// so a run started while the sweep runs belongs to a row that is among
+// them. See sweep.Orphans for the CronJobs it touches.
 func (r *Reconciler) Sweep(ctx context.Context) error {
-	return sweep.Orphans{
-		Client: r.Client, Label: model.LabelJob, ManagedOnly: r.ManagedNamespacesOnly,
-		// A Job holds the record-run finalizer and its pods outlive it unless
-		// the delete cascades; finalize does the same for a job being deleted.
-		Release: func(ctx context.Context, obj client.Object) error {
-			if k, ok := obj.(*batchv1.Job); ok {
-				return r.removeFinalizer(ctx, k)
-			}
-			return nil
-		},
-		DeleteOptions: []client.DeleteOption{client.PropagationPolicy(metav1.DeletePropagationBackground)},
-		Live: func(ctx context.Context) (map[string]bool, error) {
-			jobs, err := r.Store.Jobs().ListAll(ctx)
-			live := make(map[string]bool, len(jobs))
-			for _, j := range jobs {
-				live[j.ID] = true
-			}
-			return live, err
-		},
-	}.Delete(ctx, &batchv1.CronJobList{}, &batchv1.JobList{})
+	refs, err := r.Exec.List(ctx)
+	if err != nil {
+		return err
+	}
+	live := func(ctx context.Context) (map[string]bool, error) {
+		jobs, err := r.Store.Jobs().ListAll(ctx)
+		live := make(map[string]bool, len(jobs))
+		for _, j := range jobs {
+			live[j.ID] = true
+		}
+		return live, err
+	}
+	rows, err := live(ctx)
+	if err != nil {
+		return err
+	}
+	var failed error
+	for _, ref := range refs {
+		if rows[ref.ID] {
+			continue
+		}
+		log.FromContext(ctx).Info("removing a run whose job's row is gone", "namespace", ref.Namespace, "name", ref.Name)
+		// One that was going and is still held goes at the next sweep.
+		if _, err := r.drop(ctx, ref); err != nil {
+			failed = err
+		}
+	}
+	if err := (sweep.Orphans{Client: r.Kube, Label: model.LabelJob, ManagedOnly: r.ManagedNamespacesOnly, Live: live}).Delete(ctx, &batchv1.CronJobList{}); err != nil {
+		failed = err
+	}
+	return failed
 }
 
 // SetupWithManager wires the controller: job rows (and the run requests,
 // templates and people they depend on) come from the database through feed;
-// CronJobs, Jobs and Events about CronJobs come from the cluster and map back
-// to their job by the id label. It also adds the orphan sweep. The caller
-// runs feed.
+// changes to their runs come from the executor; CronJobs and Events about
+// them come from the cluster and map back to their job by the id label. It
+// also adds the orphan sweep. The caller runs feed.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Store == nil || r.Reader == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" || r.CronJobEvents == nil ||
-		r.Storage.Homes == nil || r.Storage.Folders == nil || r.Secrets == nil {
-		return errors.New("jobs reconciler needs Store, Reader, Access, Now, RunnerImage, CronJobEvents, Storage and Secrets")
+	if r.Exec == nil || r.Secrets == nil || r.Kube == nil || r.Store == nil || r.Access == nil || r.Now == nil || r.RunnerImage.Ref == "" ||
+		r.CronJobEvents == nil || r.Storage.Homes == nil || r.Storage.Folders == nil {
+		return errors.New("jobs reconciler needs Exec, Secrets, Kube, Store, Access, Now, RunnerImage, CronJobEvents and Storage")
 	}
 	ctx := context.Background()
 	eventKey := func(o client.Object) []string {
 		e := o.(*corev1.Event)
 		return []string{e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name}
-	}
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Event{}, indexEventObject, eventKey); err != nil {
-		return err
 	}
 	if err := r.CronJobEvents.IndexField(ctx, &corev1.Event{}, indexEventObject, eventKey); err != nil {
 		return err
@@ -932,7 +962,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 	cronJobEvents := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 		e := o.(*corev1.Event)
 		cj := &batchv1.CronJob{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.InvolvedObject.Name}, cj); err != nil {
+		if err := r.Kube.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.InvolvedObject.Name}, cj); err != nil {
 			return nil
 		}
 		return dbsource.Request(cj.Labels[model.LabelJob])
@@ -949,13 +979,27 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) err
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "job_runs", r.jobOfRun)).
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "templates", r.jobsOfTemplate)).
 		WatchesRawSource(dbsource.Fan(feed.Subscribe(), "people", r.jobsOfPerson)).
-		Watches(&batchv1.Job{}, byJobLabel, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-			_, ok := o.GetLabels()[model.LabelJob]
-			return ok
-		}))).
+		WatchesRawSource(r.runs()).
 		Watches(&batchv1.CronJob{}, byJobLabel).
 		WatchesRawSource(source.Kind[client.Object](r.CronJobEvents, &corev1.Event{}, cronJobEvents, isCronJobEvent)).
 		Complete(r)
+}
+
+// runs feeds the controller the job of every run the executor saw change.
+func (r *Reconciler) runs() source.TypedSource[reconcile.Request] {
+	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+		go func() {
+			err := r.Exec.Watch(ctx, func(ref workload.Ref) {
+				for _, req := range dbsource.Request(ref.ID) {
+					q.Add(req)
+				}
+			})
+			if err != nil && ctx.Err() == nil {
+				log.FromContext(ctx).Error(err, "watching the jobs' runs")
+			}
+		}()
+		return nil
+	})
 }
 
 func jobID(j *model.Job) string { return j.ID }
@@ -997,14 +1041,13 @@ func (r *Reconciler) jobsOfPerson(ctx context.Context, id string) ([]reconcile.R
 	return dbsource.Requests(jobs, jobID, nil), err
 }
 
-// apiSecretName is the Secret holding the API token of job (see
-// ScheduledSecretName); legacyAPISecretName was its name before.
-func apiSecretName(job *model.Job) string       { return cronJobName(job) + ".job-api" }
-func legacyAPISecretName(job *model.Job) string { return cronJobName(job) + "-api" }
+// apiSecretName is the bundle holding the API token of job (see
+// ScheduledSecretName).
+func apiSecretName(job *model.Job) string { return cronJobName(job) + ".job-api" }
 
 // syncToken gives a job whose template gives an API token (as for apps,
-// model.DefaultAPIAccess) its owner's token, made once and kept in a Secret
-// beside its CronJob; a job whose template gives none has its token revoked.
+// model.DefaultAPIAccess) its owner's token, made once and kept in a bundle
+// of the job; a job whose template gives none has its token revoked.
 func (r *Reconciler) syncToken(ctx context.Context, job *model.Job, tpl *model.Template) (API, error) {
 	scope := token.ScopeFor(model.DefaultAPIAccess(tpl))
 	if scope == "" {
@@ -1013,30 +1056,28 @@ func (r *Reconciler) syncToken(ctx context.Context, job *model.Job, tpl *model.T
 	if r.Tokens == nil {
 		return API{}, errors.New("the template gives jobs an API token, but the controller has no token store")
 	}
-	name := apiSecretName(job)
-	sec, err := r.jobSecret(ctx, job.Namespace, job.ID, name)
-	switch {
-	case err != nil:
+	name, ref := apiSecretName(job), jobRef(job)
+	have, err := r.Secrets.Get(ctx, ref, name)
+	if err != nil {
 		return API{}, err
-	case sec == nil:
-		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: job.Namespace}}
-	default:
-		// A Secret can name a token whose record is gone (`javo user remove`),
-		// one made before tokens recorded their job, which is not kept from
-		// the owner's secrets, or one that is not this job's at all (an app's,
-		// another job's), which is never adopted: all are made again.
-		id := sec.Annotations[model.AnnotationTokenID]
-		if id == "" {
-			break
-		}
-		switch tok, err := r.Tokens.Get(ctx, id); {
+	}
+	// A bundle can name a token whose record is gone (`javo user remove`),
+	// one made before tokens recorded their job, which is not kept from
+	// the owner's secrets, or one that is not this job's at all (an app's,
+	// another job's), which is never adopted: all are made again.
+	old := ""
+	if have != nil {
+		old = have.Meta[model.AnnotationTokenID]
+	}
+	if old != "" {
+		switch tok, err := r.Tokens.Get(ctx, old); {
 		case errors.Is(err, token.ErrNotFound):
 		case err != nil:
 			return API{}, err
 		case tok.Owner != job.Owner || tok.App != nil || (tok.Job != job.ID && tok.Job != ""):
 			// Not the job's: never adopted, and not the job's to revoke.
-			delete(sec.Annotations, model.AnnotationTokenID)
-		case tok.Job == job.ID && sec.Annotations[model.AnnotationTokenScope] == string(scope) && len(sec.Data[APITokenKey]) > 0:
+			old = ""
+		case tok.Job == job.ID && have.Meta[model.AnnotationTokenScope] == string(scope) && len(have.Data[APITokenKey]) > 0:
 			return API{URL: r.APIURL, Internal: r.APIInternalURL, Secret: name}, nil
 		}
 	}
@@ -1044,52 +1085,53 @@ func (r *Reconciler) syncToken(ctx context.Context, job *model.Job, tpl *model.T
 	if err != nil {
 		return API{}, fmt.Errorf("make the job's API token: %w", err)
 	}
-	if old := sec.Annotations[model.AnnotationTokenID]; old != "" {
+	if old != "" {
 		if _, err := r.Tokens.Revoke(ctx, system, job.Owner, old); err != nil && !errors.Is(err, token.ErrNotFound) {
 			return API{}, err
 		}
 	}
-	sec.Labels = labels(job, TriggerSchedule)
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, model.AnnotationTokenID, tok.ID)
-	metav1.SetMetaDataAnnotation(&sec.ObjectMeta, model.AnnotationTokenScope, string(scope))
-	sec.Data = map[string][]byte{APITokenKey: []byte(text)}
-	if sec.ResourceVersion == "" {
-		err = r.Create(ctx, sec)
-	} else {
-		err = r.Update(ctx, sec)
-	}
+	err = r.Secrets.Put(ctx, ref, name, executor.Bundle{
+		Data: map[string][]byte{APITokenKey: []byte(text)},
+		Meta: map[string]string{model.AnnotationTokenID: tok.ID, model.AnnotationTokenScope: string(scope)},
+	})
 	if err != nil {
 		return API{}, fmt.Errorf("store the job's API token: %w", err)
 	}
 	return API{URL: r.APIURL, Internal: r.APIInternalURL, Secret: name}, nil
 }
 
-// dropToken revokes a job's API token and deletes its Secret, if it has one.
+// dropToken revokes a job's API token and deletes its bundle, if it has
+// one. A bundle that is not the job's is left alone.
 func (r *Reconciler) dropToken(ctx context.Context, job *model.Job) error {
-	return r.dropTokenSecret(ctx, job, apiSecretName(job))
-}
-
-// dropTokenSecret deletes the job's token Secret name and revokes the token
-// it holds when the token's record is the job's. A Secret that is not the
-// job's is left alone.
-func (r *Reconciler) dropTokenSecret(ctx context.Context, job *model.Job, name string) error {
-	sec, err := r.jobSecret(ctx, job.Namespace, job.ID, name)
-	if errors.Is(err, errForeignSecret) || (err == nil && sec == nil) {
+	name, ref := apiSecretName(job), jobRef(job)
+	have, err := r.Secrets.Get(ctx, ref, name)
+	if errors.Is(err, executor.ErrForeign) || (err == nil && have == nil) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if id := sec.Annotations[model.AnnotationTokenID]; id != "" && r.Tokens != nil {
-		switch tok, err := r.Tokens.Get(ctx, id); {
-		case errors.Is(err, token.ErrNotFound):
-		case err != nil:
+	if id := have.Meta[model.AnnotationTokenID]; id != "" {
+		if err := r.revokeOwn(ctx, job, id); err != nil {
 			return err
-		case tok.Job == job.ID && tok.Owner == job.Owner:
-			if _, err := r.Tokens.Revoke(ctx, system, job.Owner, id); err != nil && !errors.Is(err, token.ErrNotFound) {
-				return err
-			}
 		}
 	}
-	return client.IgnoreNotFound(r.Delete(ctx, sec, client.Preconditions{UID: &sec.UID}))
+	return r.Secrets.Delete(ctx, ref, name)
+}
+
+// revokeOwn revokes the token id when its record is the job's.
+func (r *Reconciler) revokeOwn(ctx context.Context, job *model.Job, id string) error {
+	if r.Tokens == nil {
+		return nil
+	}
+	switch tok, err := r.Tokens.Get(ctx, id); {
+	case errors.Is(err, token.ErrNotFound):
+	case err != nil:
+		return err
+	case tok.Job == job.ID && tok.Owner == job.Owner:
+		if _, err := r.Tokens.Revoke(ctx, system, job.Owner, id); err != nil && !errors.Is(err, token.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }
