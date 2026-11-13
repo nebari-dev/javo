@@ -101,6 +101,9 @@ type Check struct {
 	HTTPPath string
 	// TCP connects to the workload's port.
 	TCP bool
+	// Every is how often the port is checked, for a workload something
+	// waits on; zero is the platform's own pace.
+	Every time.Duration
 	// Exec is run in the unit, once a second, up to Tries times.
 	Exec  []string
 	Tries int32

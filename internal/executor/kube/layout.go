@@ -18,25 +18,6 @@ const LabelJobName = "batch.kubernetes.io/job-name"
 // local volumes are scratch space.
 const SafeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes"
 
-// ApplyLayout adds a storage layout to owner's pod: volumes, affinity, ids
-// and annotations on the pod, mounts and environment on its container c (a
-// pointer into pod.Spec.Containers). It never sets fsGroup.
-func ApplyLayout(pod *corev1.Pod, c *corev1.Container, owner string, l podstorage.Layout) {
-	for _, v := range l.Volumes {
-		pod.Spec.Volumes = append(pod.Spec.Volumes, volume(v))
-	}
-	for _, m := range l.Mounts {
-		c.VolumeMounts = append(c.VolumeMounts, mount(m))
-	}
-	for _, e := range l.Env {
-		c.Env = append(c.Env, env(e))
-	}
-	evictable(pod)
-	pod.Spec.Affinity = affinity(owner, l.CoLocate)
-	limitDisk(c, l.DiskMax)
-	runAs(&pod.Spec, l.User)
-}
-
 // evictable marks the pod's scratch space as safe to lose.
 func evictable(pod *corev1.Pod) {
 	if pod.Annotations == nil {

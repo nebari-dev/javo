@@ -125,6 +125,15 @@ func Build(owner string, in Input) Layout {
 	return l
 }
 
+// AddTo gives s the storage l lays out: its volumes, the mounts and
+// variables of the main unit, and who the workload runs as.
+func (l Layout) AddTo(s *workload.Spec) {
+	s.Volumes = append(s.Volumes, l.Volumes...)
+	s.Main.Mounts = append(s.Main.Mounts, l.Mounts...)
+	s.Main.Env = append(s.Main.Env, l.Env...)
+	s.User, s.DiskMax, s.CoLocate = l.User, l.DiskMax, l.CoLocate
+}
+
 // GroupVolume is the name of the volume of the group folder at /shared/<dir>
 // (dir is naming.GroupDir of the group).
 func GroupVolume(dir string) string { return groupVolumePrefix + dir }

@@ -10,7 +10,7 @@ import (
 
 func homeSpec() workload.Spec {
 	s := workload.Spec{Main: MainUnit("alice", "example.com/app:1")}
-	AddLayout(&s, testLayout(FixedUID))
+	testLayout(FixedUID).AddTo(&s)
 	return s
 }
 

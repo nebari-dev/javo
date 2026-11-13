@@ -1,6 +1,8 @@
 package kube
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -53,20 +55,23 @@ func Render(s workload.Spec, iso podspec.Isolation) *corev1.Pod {
 	}
 	if c := s.Main.Ready; c != nil {
 		port := intstr.FromInt32(s.Port)
+		app.ReadinessProbe = &corev1.Probe{PeriodSeconds: int32(c.Every / time.Second)}
 		if c.TCP {
-			app.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: port}}}
+			app.ReadinessProbe.TCPSocket = &corev1.TCPSocketAction{Port: port}
 		} else {
-			app.ReadinessProbe = &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: c.HTTPPath, Port: port}}}
+			app.ReadinessProbe.HTTPGet = &corev1.HTTPGetAction{Path: c.HTTPPath, Port: port}
 		}
 	}
 	spec.Containers = []corev1.Container{app}
 	s.Size.Apply(spec, &spec.Containers[0], s.Resources)
 
 	evictable(pod)
-	if s.Batch == nil {
-		Mark(pod, s.Fingerprint)
-	} else {
+	switch {
+	case s.Batch != nil:
 		spec.RestartPolicy = corev1.RestartPolicyNever
+	case s.Fingerprint != (workload.Fingerprint{}):
+		// One that is never built again (a file pod) has none to record.
+		Mark(pod, s.Fingerprint)
 	}
 	iso.Apply(spec)
 	return pod

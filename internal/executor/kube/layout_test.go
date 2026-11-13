@@ -7,13 +7,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 func laidOut(in podstorage.Input) *corev1.Pod {
-	pod := appPod()
-	ApplyLayout(pod, &pod.Spec.Containers[0], "alice", podstorage.Build("alice", in))
-	return pod
+	s := workload.Spec{Ref: workload.Ref{Owner: "alice"}, Main: workload.Unit{Name: workload.MainUnit}}
+	podstorage.Build("alice", in).AddTo(&s)
+	return Render(s, podspec.Isolation{})
 }
 
 func TestCoLocationNeedsTheOwnersOtherPodsOnTheSameNode(t *testing.T) {

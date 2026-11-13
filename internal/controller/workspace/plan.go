@@ -158,7 +158,7 @@ func planRun(in Inputs) (workload.Spec, error) {
 	if Shared(ws) {
 		layout = layout.ReadOnlyFiles()
 	}
-	AddLayout(&s, layout)
+	layout.AddTo(&s)
 	if t.Spec.UserImage {
 		// The owner's uid and gid run it, as every other app: the image's
 		// USER could be another person's uid or gid 0, which would open
@@ -215,15 +215,6 @@ func colorEnv() []workload.Env {
 		out = append(out, workload.Env{Name: e.Name, Value: e.Value})
 	}
 	return out
-}
-
-// AddLayout gives s the storage l lays out: its volumes, the mounts and
-// variables of the main unit, and who the workload runs as.
-func AddLayout(s *workload.Spec, l podstorage.Layout) {
-	s.Volumes = append(s.Volumes, l.Volumes...)
-	s.Main.Mounts = append(s.Main.Mounts, l.Mounts...)
-	s.Main.Env = append(s.Main.Env, l.Env...)
-	s.User, s.DiskMax, s.CoLocate = l.User, l.DiskMax, l.CoLocate
 }
 
 // scratchHome gives the main unit an empty folder at the home path instead

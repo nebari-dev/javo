@@ -2,9 +2,11 @@ package kube
 
 import (
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/workload"
 )
@@ -89,5 +91,32 @@ func TestSecretValuesAreReferencesToTheAppsSecrets(t *testing.T) {
 	if v == nil || v.SecretName != "alice-sales.app-nebi" || v.Optional == nil || !*v.Optional || *v.DefaultMode != 0o444 ||
 		len(v.Items) != 1 || v.Items[0].Key != "token" || v.Items[0].Path != "token" {
 		t.Errorf("volume = %+v", v)
+	}
+}
+
+// Something that waits on a workload (the file picker) asks for its check
+// to run more often than the kubelet's ten seconds.
+func TestTheReadyCheckRunsAsOftenAsAsked(t *testing.T) {
+	s := someSpec()
+	if p := Render(s, podspec.Isolation{}).Spec.Containers[0].ReadinessProbe; p.PeriodSeconds != 0 {
+		t.Fatalf("period = %d, want the kubelet's own", p.PeriodSeconds)
+	}
+	s.Main.Ready = &workload.Check{TCP: true, Every: time.Second}
+	p := Render(s, podspec.Isolation{}).Spec.Containers[0].ReadinessProbe
+	if p.TCPSocket == nil || p.TCPSocket.Port.IntVal != 8080 || p.PeriodSeconds != 1 {
+		t.Fatalf("probe = %+v", p)
+	}
+}
+
+// A workload that is never built again (a file pod) has no fingerprint, and
+// its pod no empty record of one.
+func TestAWorkloadWithNoFingerprintRecordsNone(t *testing.T) {
+	s := someSpec()
+	if a := Render(s, podspec.Isolation{}).Annotations; len(a) != 1 || a[SafeToEvictAnnotation] == "" {
+		t.Errorf("annotations = %v", a)
+	}
+	s.Fingerprint = workload.Fingerprint{APIAccess: model.APIAccessNone}
+	if a := Render(s, podspec.Isolation{}).Annotations; a[model.AnnotationAPIAccess] != model.APIAccessNone {
+		t.Errorf("annotations = %v", a)
 	}
 }

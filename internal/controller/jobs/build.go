@@ -237,7 +237,7 @@ func planRun(in Inputs, run, secretName string) (workload.Spec, error) {
 		Main:      workspace.MainUnit(d.Owner, t.Spec.RunImage(in.PixiImage)),
 		Batch:     &workload.Batch{Retries: d.Spec.Run.Retries, Timeout: timeout(in), FailNow: exitCodesFailNow},
 	}
-	workspace.AddLayout(&s, in.Layout)
+	in.Layout.AddTo(&s)
 	s.Volumes = append(s.Volumes, workload.Volume{Name: runnerVolume})
 	runnerMount := workload.Mount{Volume: runnerVolume, Path: runnerDir}
 	s.Steps = []workload.Unit{{

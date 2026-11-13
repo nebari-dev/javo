@@ -36,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -45,10 +44,12 @@ import (
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/status"
 	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
@@ -1203,51 +1204,32 @@ func writesAs(pod *corev1.Pod, uid int64) bool {
 func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Pod {
 	in.ReadOnly = true
 	in.ScratchMax = resource.MustParse("64Mi")
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName(userSlug),
-			Namespace: namespace,
-			Labels:    map[string]string{model.LabelRole: roleFiles, model.LabelOwner: userSlug},
-		},
-		Spec: corev1.PodSpec{
-			AutomountServiceAccountToken: ptr.To(false),
-			EnableServiceLinks:           ptr.To(false),
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsNonRoot:   ptr.To(true),
-				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	s := workload.Spec{
+		Ref: workload.Ref{Namespace: namespace, Name: podName(userSlug), Owner: userSlug},
+		Main: workload.Unit{
+			Name:  "rclone",
+			Image: image,
+			// rclone asks every call for the pod's own password, so the
+			// home stays closed where the network plugin does not enforce
+			// the gateway-only NetworkPolicy. The password comes from a
+			// Secret (create adds it), so whoever may read pods there
+			// does not see it.
+			Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-serve"},
+			Env: []workload.Env{
+				{Name: envRCUser, Value: rcUser},
+				{Name: "HOME", Value: scratchDir},
+				{Name: "RCLONE_CONFIG", Value: scratchDir + "/rclone.conf"},
+				{Name: "RCLONE_CACHE_DIR", Value: scratchDir + "/cache"},
 			},
-			Containers: []corev1.Container{{
-				Name:  "rclone",
-				Image: image,
-				// rclone asks every call for the pod's own password, so the
-				// home stays closed where the network plugin does not enforce
-				// the gateway-only NetworkPolicy. The password comes from a
-				// Secret (create adds it), so whoever may read pods there
-				// does not see it.
-				Args: []string{"rcd", fmt.Sprintf("--rc-addr=:%d", rcPort), "--rc-serve"},
-				Env: []corev1.EnvVar{
-					{Name: envRCUser, Value: rcUser},
-					{Name: "HOME", Value: scratchDir},
-					{Name: "RCLONE_CONFIG", Value: scratchDir + "/rclone.conf"},
-					{Name: "RCLONE_CACHE_DIR", Value: scratchDir + "/cache"},
-				},
-				Ports: []corev1.ContainerPort{{Name: "rc", ContainerPort: rcPort}},
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
-					Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
-				},
-				SecurityContext: &corev1.SecurityContext{
-					AllowPrivilegeEscalation: ptr.To(false),
-					ReadOnlyRootFilesystem:   ptr.To(true),
-					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-				},
-				// rclone listens within milliseconds of starting, so the probe
-				// runs at once and every second: the picker waits on it.
-				ReadinessProbe: &corev1.Probe{
-					ProbeHandler:  corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(rcPort)}},
-					PeriodSeconds: 1,
-				},
-			}},
+			ReadOnlyRoot: true,
+			// rclone listens within milliseconds of starting, so the check
+			// runs at once and every second: the picker waits on it.
+			Ready: &workload.Check{TCP: true, Every: time.Second},
+		},
+		Port: rcPort,
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
+			Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
 		},
 	}
 	layout := podstorage.Build(userSlug, in)
@@ -1261,7 +1243,13 @@ func buildPod(userSlug, namespace, image string, in podstorage.Input) *corev1.Po
 			m.ReadOnly = false
 		}
 	}
-	kube.ApplyLayout(pod, &pod.Spec.Containers[0], userSlug, layout)
+	layout.AddTo(&s)
+	pod := kube.Render(s, podspec.Isolation{})
+	// Kubernetes only: a file pod is found by its role, not by an app's id
+	// (the admission policy allows these two labels and no other), and its
+	// port keeps its name.
+	pod.Labels = map[string]string{model.LabelRole: roleFiles, model.LabelOwner: userSlug}
+	pod.Spec.Containers[0].Ports[0].Name = "rc"
 	return pod
 }
 
