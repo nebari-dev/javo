@@ -3,6 +3,7 @@ package supervise
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,6 +26,9 @@ type work struct {
 
 	// at is the unit the startup waits for: a step, then the main unit.
 	at string
+	// ground is how what the units stand on failed; nil while it is
+	// there, and for an engine that has none.
+	ground *failure
 	// failed is, per unit, how its last run failed; a unit that runs or
 	// ended well has no entry.
 	failed map[string]*failure
@@ -43,47 +47,135 @@ type failure struct {
 	what   string
 	exit   int
 	output []string
+	// image is set when the unit's image could not be fetched.
+	image bool
 }
 
-// run takes w from its first step to a running main unit, and keeps it
-// there until ctx ends.
-func (s *Supervisor) run(ctx context.Context, w *work) {
+// run keeps w running until ctx ends: each time what its units stand on
+// ends, it starts over after a growing wait. found is what an earlier
+// supervisor left running of it, for the first round to take over.
+func (s *Supervisor) run(ctx context.Context, w *work, found *Found) {
 	defer close(w.done)
+	for n := 0; ; n++ {
+		began := time.Now()
+		s.round(ctx, w, found)
+		found = nil
+		if ctx.Err() != nil {
+			return
+		}
+		if time.Since(began) > maxBackoff {
+			n = 0
+		}
+		if !sleep(ctx, s.delay(n)) {
+			return
+		}
+	}
+}
+
+// round takes w from the ground up to a running main unit and keeps it
+// there. It returns when ctx ends or the ground does, with every unit
+// stopped (or left running, when the supervisor leaves).
+func (s *Supervisor) round(ctx context.Context, w *work, found *Found) {
+	var ground Unit
+	if found != nil {
+		ground = found.Ground
+	} else if g, ok := s.eng.(Grounded); ok {
+		var err error
+		if ground, err = g.Ground(ctx, w.spec); err != nil {
+			if ctx.Err() == nil {
+				s.update(w, func() {
+					w.ground = &failure{what: fmt.Sprintf("what the units run on did not start: %v", err), exit: -1}
+				})
+			}
+			return
+		}
+	}
+	s.update(w, func() { w.ground = nil })
+
+	units, stop := context.WithCancel(ctx)
 	var kept sync.WaitGroup
+	if ground != nil {
+		ended := make(chan int, 1)
+		go func() {
+			ended <- ground.Wait()
+			stop()
+		}()
+		// The units end before what they stand on.
+		defer func() {
+			kept.Wait()
+			if s.leaving.Load() {
+				return
+			}
+			ground.Stop()
+			code := <-ended
+			if ctx.Err() != nil {
+				return
+			}
+			s.update(w, func() {
+				w.ground = &failure{what: fmt.Sprintf("what the units run on ended with code %d", code), exit: code}
+				w.at, w.mainSince, w.ready = "", time.Time{}, false
+				clear(w.failed)
+			})
+		}()
+	}
 	defer kept.Wait()
+	defer stop()
+	s.units(units, w, found, &kept)
+}
+
+// units runs w's steps in order and then its main unit, which it keeps
+// running until ctx ends. Steps that stay are kept running in kept.
+func (s *Supervisor) units(ctx context.Context, w *work, found *Found, kept *sync.WaitGroup) {
+	// taken is the unit called name that was found running, or nil.
+	taken := func(name string) Unit {
+		if found == nil {
+			return nil
+		}
+		return found.Units[name]
+	}
 	for _, u := range w.spec.Steps {
-		s.update(w, func() { w.at = u.Name })
 		if !u.Stays {
-			if !s.keep(ctx, w, u, nil) {
+			// A workload found running has its steps behind it.
+			if found != nil {
+				continue
+			}
+			s.update(w, func() { w.at = u.Name })
+			if !s.keep(ctx, w, u, nil, nil) {
 				return
 			}
 			continue
 		}
-		// The next unit starts once this one runs and its check passes.
-		up := make(chan struct{}, 1)
+		s.update(w, func() { w.at = u.Name })
+		// The next unit starts once this one runs and its check passes;
+		// the check is tried again each time the unit is started again.
+		passed := make(chan struct{}, 1)
 		kept.Go(func() {
-			s.keep(ctx, w, u, func(context.Context) {
-				select {
-				case up <- struct{}{}:
-				default:
+			s.keep(ctx, w, u, taken(u.Name), func(running context.Context, r Unit) {
+				if s.answers(running, w, u, r) {
+					select {
+					case passed <- struct{}{}:
+					default:
+					}
 				}
 			})
 		})
 		select {
-		case <-up:
+		case <-passed:
 		case <-ctx.Done():
-			return
-		}
-		if !s.answers(ctx, w, u) {
 			return
 		}
 	}
 
 	main := w.spec.Main
 	s.update(w, func() { w.at = main.Name })
-	s.keep(ctx, w, main, func(running context.Context) {
-		s.update(w, func() { w.mainSince = time.Now() })
-		if !s.answers(running, w, main) {
+	adopted := taken(main.Name)
+	s.keep(ctx, w, main, adopted, func(running context.Context, r Unit) {
+		since := time.Now()
+		if r == adopted {
+			since = found.MainSince
+		}
+		s.update(w, func() { w.mainSince = since })
+		if !s.answers(running, w, main, r) {
 			return
 		}
 		s.update(w, func() {
@@ -96,13 +188,17 @@ func (s *Supervisor) run(ctx context.Context, w *work) {
 
 // keep runs u, and runs it again after a growing wait each time it exits:
 // a step until it exits with 0, a unit that stays and the main unit until
-// ctx ends. up is called, each time u has started, with a context that
-// ends when that run does. It reports whether u ended well.
-func (s *Supervisor) keep(ctx context.Context, w *work, u workload.Unit, up func(context.Context)) bool {
+// ctx ends. first, unless nil, is u already running, for the first turn.
+// up is called, each time u has started, with the started unit and a
+// context that ends when that run does. It reports whether u ended well.
+func (s *Supervisor) keep(ctx context.Context, w *work, u workload.Unit, first Unit, up func(context.Context, Unit)) bool {
 	forever := u.Stays || u.Name == w.spec.Main.Name
 	for n := 0; ; n++ {
 		began := time.Now()
-		r, err := s.eng.Start(ctx, w.spec, u)
+		r, err := first, error(nil)
+		if first = nil; r == nil {
+			r, err = s.eng.Start(ctx, w.spec, u)
+		}
 		code := 0
 		if err == nil {
 			if forever {
@@ -111,12 +207,17 @@ func (s *Supervisor) keep(ctx context.Context, w *work, u workload.Unit, up func
 				s.update(w, func() { delete(w.failed, u.Name) })
 			}
 			running, ended := context.WithCancel(ctx)
-			if up != nil {
-				go up(running)
-			}
+			told := make(chan struct{})
+			go func() {
+				defer close(told)
+				if up != nil {
+					up(running, r)
+				}
+			}()
 			var ok bool
-			code, ok = wait(ctx, r)
+			code, ok = s.wait(ctx, r)
 			ended()
+			<-told
 			if !ok {
 				return false
 			}
@@ -155,7 +256,8 @@ func (s *Supervisor) keep(ctx context.Context, w *work, u workload.Unit, up func
 func (s *Supervisor) failureOf(ctx context.Context, w *work, u workload.Unit, code int, err error) *failure {
 	switch {
 	case err != nil:
-		return &failure{what: fmt.Sprintf("unit %s did not start: %v", u.Name, err), exit: -1}
+		var image *ImageError
+		return &failure{what: fmt.Sprintf("unit %s did not start: %v", u.Name, err), exit: -1, image: errors.As(err, &image)}
 	case code == 0:
 		return nil
 	}
@@ -189,15 +291,18 @@ func (s *Supervisor) delay(n int) time.Duration {
 	return min(d, maxBackoff)
 }
 
-// wait returns r's exit code. When ctx ends first it stops r and reports
-// false.
-func wait(ctx context.Context, r Unit) (int, bool) {
+// wait returns r's exit code. When ctx ends first it stops r, unless the
+// supervisor leaves, and reports false.
+func (s *Supervisor) wait(ctx context.Context, r Unit) (int, bool) {
 	exited := make(chan int, 1)
 	go func() { exited <- r.Wait() }()
 	select {
 	case code := <-exited:
 		return code, true
 	case <-ctx.Done():
+		if s.leaving.Load() {
+			return 0, false
+		}
 		r.Stop()
 		<-exited
 		return 0, false

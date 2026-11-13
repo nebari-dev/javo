@@ -5,17 +5,20 @@
 // main unit running, checks readiness, restarts what exits after a growing
 // wait, and says what state the workload is in.
 //
-// What it knows is kept in memory: a workload it started is gone when it
-// is closed.
+// What it knows is kept in memory. An engine whose units outlive Javo
+// (containers) says what still runs, and the next Supervisor adopts it
+// (Adopt) after the last one left (Leave).
 package supervise
 
 import (
 	"context"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nebari-dev/javo/internal/executor"
@@ -26,7 +29,13 @@ import (
 type Engine interface {
 	// Start starts u, a unit of s or the check of one, and returns once it
 	// runs. Its error is shown to people: it never holds a secret value.
+	// An image that could not be fetched is an *ImageError.
 	Start(ctx context.Context, s workload.Spec, u workload.Unit) (Unit, error)
+	// Adopt finds the workloads an earlier Supervisor left running on the
+	// engine (Leave), for this one to keep. What it finds half started it
+	// ends, so that it is started again whole. An engine whose units end
+	// with Javo has none.
+	Adopt(ctx context.Context) ([]Found, error)
 	// Addr is the host:port that reaches the workload's port.
 	Addr(ctx context.Context, ref workload.Ref, port int32) (string, error)
 	// Logs streams what a unit of the workload printed.
@@ -42,6 +51,47 @@ type Unit interface {
 	Stop()
 }
 
+// Grounded is an Engine whose units stand on something they share and
+// cannot outlive: on Docker, the container that owns the workload's
+// network namespace.
+type Grounded interface {
+	// Ground starts it for s and returns once it is there. When it ends,
+	// every unit of s is stopped and the workload starts over from its
+	// first step. Its error is shown to people, as Start's is.
+	Ground(ctx context.Context, s workload.Spec) (Unit, error)
+}
+
+// Execer is a started Unit that can run a command inside itself. A check
+// with a command (workload.Check.Exec) runs there, where it sees what
+// the unit sees; a Unit that is no Execer has the check run as a unit of
+// its own beside it.
+type Execer interface {
+	// Exec runs command to its end and returns its exit code.
+	Exec(ctx context.Context, command []string) (int, error)
+}
+
+// ImageError is Start's error for a unit whose image could not be
+// fetched: the workload then fails at its ImageReady step.
+type ImageError struct{ Err error }
+
+func (e *ImageError) Error() string { return e.Err.Error() }
+func (e *ImageError) Unwrap() error { return e.Err }
+
+// Found is a workload an earlier Supervisor started that still runs.
+type Found struct {
+	// Spec is what it was started from.
+	Spec workload.Spec
+	// Created is when it was made, and MainSince when its main unit
+	// started.
+	Created, MainSince time.Time
+	// Ground is what its units stand on; nil for an Engine that is not
+	// Grounded.
+	Ground Unit
+	// Units are its main unit and its steps that stay, by name. All of
+	// them run: its other steps have ended well.
+	Units map[string]Unit
+}
+
 // Config is what a Supervisor is made of.
 type Config struct {
 	Engine Engine
@@ -51,6 +101,9 @@ type Config struct {
 	// Backoff is how long to wait before starting a unit that exited again.
 	// It doubles each time, up to five minutes; zero is a second.
 	Backoff time.Duration
+	// Dial is how a readiness check connects to a workload's address; nil
+	// connects from this process.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // maxBackoff is the longest wait before a restart. A unit that ran longer
@@ -64,6 +117,9 @@ type Supervisor struct {
 	// probe never follows a redirect (it counts as an answer) and never
 	// goes through a proxy: the address is the workload's own.
 	probe *http.Client
+	dial  func(ctx context.Context, network, addr string) (net.Conn, error)
+	// leaving is set by Leave: units are then left running.
+	leaving atomic.Bool
 
 	mu       sync.Mutex
 	work     map[string]*work
@@ -75,10 +131,14 @@ var _ executor.Executor = (*Supervisor)(nil)
 
 // New makes a Supervisor that runs nothing yet.
 func New(c Config) *Supervisor {
+	dial := c.Dial
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
 	s := &Supervisor{
-		eng: c.Engine, every: c.Every, backoff: c.Backoff,
+		eng: c.Engine, every: c.Every, backoff: c.Backoff, dial: dial,
 		probe: &http.Client{
-			Transport:     &http.Transport{Proxy: nil, DisableKeepAlives: true},
+			Transport:     &http.Transport{Proxy: nil, DisableKeepAlives: true, DialContext: dial},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		work:     map[string]*work{},
@@ -97,21 +157,41 @@ func key(ref workload.Ref) string { return ref.Namespace + "/" + ref.Name }
 
 // Start begins running sp and returns at once; Observe says how far it is.
 func (s *Supervisor) Start(_ context.Context, sp workload.Spec) error {
+	s.begin(sp, time.Now(), nil)
+	return nil
+}
+
+// begin runs sp, taking over what was found of it, unless it runs here
+// already.
+func (s *Supervisor) begin(sp workload.Spec, created time.Time, found *Found) {
 	s.mu.Lock()
 	if _, ok := s.work[key(sp.Ref)]; ok {
 		s.mu.Unlock()
-		return nil
+		return
 	}
 	// The workload outlives the call that started it: Stop and Close end it.
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &work{
-		spec: sp, created: time.Now(), cancel: cancel, done: make(chan struct{}),
+		spec: sp, created: created, cancel: cancel, done: make(chan struct{}),
 		failed: map[string]*failure{}, took: map[string]time.Duration{},
 	}
 	s.work[key(sp.Ref)] = w
 	s.mu.Unlock()
-	go s.run(ctx, w)
+	go s.run(ctx, w, found)
 	s.changed(sp.Ref)
+}
+
+// Adopt takes over the workloads an earlier Supervisor left running on
+// the engine: none of their units is started again. Call it before the
+// first Start.
+func (s *Supervisor) Adopt(ctx context.Context) error {
+	all, err := s.eng.Adopt(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range all {
+		s.begin(f.Spec, f.Created, &f)
+	}
 	return nil
 }
 
@@ -139,7 +219,17 @@ func (s *Supervisor) Stop(ctx context.Context, ref workload.Ref) error {
 }
 
 // Close stops every workload. Nothing an Engine started outlives it.
-func (s *Supervisor) Close() {
+func (s *Supervisor) Close() { s.end() }
+
+// Leave forgets every workload and stops none of them: their units run
+// on, for the next Supervisor on the engine to adopt. The Supervisor
+// cannot be used after it.
+func (s *Supervisor) Leave() {
+	s.leaving.Store(true)
+	s.end()
+}
+
+func (s *Supervisor) end() {
 	s.mu.Lock()
 	all := slices.Collect(maps.Values(s.work))
 	s.mu.Unlock()
@@ -149,6 +239,9 @@ func (s *Supervisor) Close() {
 	for _, w := range all {
 		<-w.done
 	}
+	s.mu.Lock()
+	clear(s.work)
+	s.mu.Unlock()
 }
 
 // Observe is the workload's state, or nil when it was not started here.

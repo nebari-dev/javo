@@ -3,7 +3,6 @@ package supervise
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -17,9 +16,9 @@ const checkTimeout = time.Second
 // first. A check that names its Tries and has failed that many times is a
 // failure of the unit, and is tried on: the failure goes once it passes.
 // A unit with no check is ready as soon as it runs. Once passed, a check
-// is not tried again.
-func (s *Supervisor) answers(ctx context.Context, w *work, u workload.Unit) bool {
-	for n := 1; !s.check(ctx, w, u); n++ {
+// is not tried again. r is u as it runs.
+func (s *Supervisor) answers(ctx context.Context, w *work, u workload.Unit, r Unit) bool {
+	for n := 1; !s.check(ctx, w, u, r); n++ {
 		if n == int(u.Ready.Tries) {
 			s.update(w, func() {
 				w.failed[u.Name] = &failure{what: fmt.Sprintf("unit %s did not pass its check in %d tries", u.Name, n), exit: -1}
@@ -34,22 +33,26 @@ func (s *Supervisor) answers(ctx context.Context, w *work, u workload.Unit) bool
 }
 
 // check tries u's readiness check once.
-func (s *Supervisor) check(ctx context.Context, w *work, u workload.Unit) bool {
+func (s *Supervisor) check(ctx context.Context, w *work, u workload.Unit, r Unit) bool {
 	c := u.Ready
 	switch {
 	case c == nil:
 		return true
 	case len(c.Exec) > 0:
+		if x, ok := r.(Execer); ok {
+			code, err := x.Exec(ctx, c.Exec)
+			return err == nil && code == 0
+		}
 		// Run beside the unit, with what the unit sees.
 		probe := workload.Unit{
 			Name: u.Name + "-check", Image: u.Image, Command: c.Exec,
 			Dir: u.Dir, Env: u.Env, Mounts: u.Mounts, ReadOnlyRoot: true,
 		}
-		r, err := s.eng.Start(ctx, w.spec, probe)
+		p, err := s.eng.Start(ctx, w.spec, probe)
 		if err != nil {
 			return false
 		}
-		code, ok := wait(ctx, r)
+		code, ok := s.wait(ctx, p)
 		return ok && code == 0
 	}
 	addr, err := s.eng.Addr(ctx, w.spec.Ref, w.spec.Port)
@@ -59,7 +62,7 @@ func (s *Supervisor) check(ctx context.Context, w *work, u workload.Unit) bool {
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 	if c.TCP {
-		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+		conn, err := s.dial(ctx, "tcp", addr)
 		if err != nil {
 			return false
 		}

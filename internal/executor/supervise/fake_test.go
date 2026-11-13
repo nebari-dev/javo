@@ -17,7 +17,7 @@ import (
 
 // engine is an Engine with no programs behind it. A unit exits at once
 // with the next code planned for its name; one with none left runs until
-// it is stopped.
+// it is stopped or killed.
 type engine struct {
 	mu      sync.Mutex
 	exits   map[string][]int
@@ -26,25 +26,48 @@ type engine struct {
 	addr    string
 	started []string
 	live    map[string]int
+	// units are the units that run now, by name.
+	units map[string]*unit
+	// execs makes units run their checks inside themselves; ran are the
+	// units that did, and execCodes what the next ones exit with.
+	execs     bool
+	ran       []string
+	execCodes []int
+	// left is what Adopt finds.
+	left []supervise.Found
 }
 
 func (e *engine) Start(_ context.Context, _ workload.Spec, u workload.Unit) (supervise.Unit, error) {
+	return e.start(u.Name)
+}
+
+func (e *engine) start(name string) (supervise.Unit, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if err := e.refuse[u.Name]; err != nil {
+	if err := e.refuse[name]; err != nil {
 		return nil, err
 	}
-	e.started = append(e.started, u.Name)
-	r := &unit{e: e, name: u.Name, stop: make(chan struct{})}
-	if codes := e.exits[u.Name]; len(codes) > 0 {
-		r.code, e.exits[u.Name] = &codes[0], codes[1:]
+	e.started = append(e.started, name)
+	r := &unit{e: e, name: name, stop: make(chan struct{}), exit: 143}
+	if codes := e.exits[name]; len(codes) > 0 {
+		r.code, e.exits[name] = &codes[0], codes[1:]
 		return r, nil
 	}
 	if e.live == nil {
-		e.live = map[string]int{}
+		e.live, e.units = map[string]int{}, map[string]*unit{}
 	}
-	e.live[u.Name]++
+	e.live[name]++
+	e.units[name] = r
+	if e.execs {
+		return &execUnit{r}, nil
+	}
 	return r, nil
+}
+
+func (e *engine) Adopt(context.Context) ([]supervise.Found, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.left, nil
 }
 
 func (e *engine) Addr(context.Context, workload.Ref, int32) (string, error) {
@@ -86,12 +109,47 @@ func (e *engine) plan(name string, codes ...int) {
 	e.exits[name] = codes
 }
 
+// refuses makes the engine fail to start the unit name with err; nil
+// lets it start again.
+func (e *engine) refuses(name string, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.refuse == nil {
+		e.refuse = map[string]error{}
+	}
+	e.refuse[name] = err
+}
+
+// kill ends the running unit name from outside, with exit code code.
+func (e *engine) kill(name string, code int) {
+	e.mu.Lock()
+	u := e.units[name]
+	e.mu.Unlock()
+	u.end(code)
+}
+
+// checked is the units that ran a check inside themselves, in order.
+func (e *engine) checked() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.ran)
+}
+
+// grounded is an engine whose units stand on a unit called "ground".
+type grounded struct{ *engine }
+
+func (g grounded) Ground(context.Context, workload.Spec) (supervise.Unit, error) {
+	return g.start("ground")
+}
+
 type unit struct {
 	e    *engine
 	name string
 	code *int
 	once sync.Once
 	stop chan struct{}
+	// exit is what Wait returns once the unit was stopped or killed.
+	exit int
 }
 
 func (u *unit) Wait() int {
@@ -99,18 +157,36 @@ func (u *unit) Wait() int {
 		return *u.code
 	}
 	<-u.stop
-	return 143
+	return u.exit
 }
 
-func (u *unit) Stop() {
+func (u *unit) Stop() { u.end(143) }
+
+func (u *unit) end(code int) {
 	u.once.Do(func() {
 		if u.code == nil {
 			u.e.mu.Lock()
 			u.e.live[u.name]--
 			u.e.mu.Unlock()
 		}
+		u.exit = code
 		close(u.stop)
 	})
+}
+
+// execUnit is a unit that runs a check inside itself.
+type execUnit struct{ *unit }
+
+func (u *execUnit) Exec(context.Context, []string) (int, error) {
+	u.e.mu.Lock()
+	defer u.e.mu.Unlock()
+	u.e.ran = append(u.e.ran, u.name)
+	if len(u.e.execCodes) > 0 {
+		code := u.e.execCodes[0]
+		u.e.execCodes = u.e.execCodes[1:]
+		return code, nil
+	}
+	return 0, nil
 }
 
 var ref = workload.Ref{Namespace: "alice", Name: "notes", ID: "a-1", Owner: "alice"}
@@ -122,14 +198,33 @@ func spec(steps ...workload.Unit) workload.Spec {
 
 // start makes a supervisor on e that checks and restarts every few
 // milliseconds, and stops everything when the test ends.
-func start(t *testing.T, e *engine, s workload.Spec) *supervise.Supervisor {
+func start(t *testing.T, e supervise.Engine, s workload.Spec) *supervise.Supervisor {
 	t.Helper()
-	sup := supervise.New(supervise.Config{Engine: e, Every: 5 * time.Millisecond, Backoff: 5 * time.Millisecond})
-	t.Cleanup(sup.Close)
+	sup := fast(t, e)
 	if err := sup.Start(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
 	return sup
+}
+
+// fast is a supervisor on e that checks and restarts every few
+// milliseconds, and stops everything when the test ends.
+func fast(t *testing.T, e supervise.Engine) *supervise.Supervisor {
+	t.Helper()
+	sup := supervise.New(supervise.Config{Engine: e, Every: 5 * time.Millisecond, Backoff: 5 * time.Millisecond})
+	t.Cleanup(sup.Close)
+	return sup
+}
+
+// until waits for ok, which what describes.
+func until(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(2 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatalf("never %s", what)
 }
 
 // eventually waits until the workload's state passes ok, and returns it.

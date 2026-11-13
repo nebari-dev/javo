@@ -35,11 +35,19 @@ func (w *work) state() *workload.State {
 	// It describes the app and is never recorded on a workload.
 	st.Fingerprint.SizeUnpicked = false
 	main := w.spec.Main.Name
+	if f := w.ground; f != nil {
+		// The machine's doing, whatever the units did before.
+		st.Phase, st.Step, st.Code, st.Evidence = "Failed", model.ConditionStarted, reasons.SandboxFailed, []string{f.what}
+		return st
+	}
 	// A unit that failed explains the workload best, the earliest first.
 	for _, u := range append(slices.Clone(w.spec.Steps), w.spec.Main) {
 		if f := w.failed[u.Name]; f != nil {
 			st.Phase, st.Step = "Failed", w.stepOf(u.Name)
 			st.Code, st.Evidence = w.diagnose(u.Name, f)
+			if f.image {
+				st.Step, st.Code = model.ConditionImageReady, reasons.ImagePullFailed
+			}
 			return st
 		}
 	}
