@@ -10,7 +10,9 @@
 # The state folders are those of every agent in the environment, as any of
 # them may run in another's terminal: Claude Code (~/.claude and its
 # settings file ~/.claude.json), pi (~/.pi, and ~/.javo/agent-prompts for
-# pi-setup.mjs) and herdr (~/.config/herdr). javo-sandbox refuses a path
+# pi-setup.mjs), herdr (~/.config/herdr) and Harf (~/.harf: its chats and
+# the pi sessions behind them; its pi keeps its settings in ~/.pi too, and
+# what pi makes in the folder it is locked to, Harf's workspace). javo-sandbox refuses a path
 # that does not exist, so it is told to make the folders the agent writes
 # (--rw-make), and what may be missing is granted only when it is there.
 #
@@ -50,7 +52,7 @@ if [ -z "$folder" ]; then
 fi
 # Each grant goes in front of what is left of the command line (-- COMMAND
 # ARGS...) with set --, so no path is ever split or quoted again.
-for d in "$folder" "$HOME/.claude" "$HOME/.pi" "$HOME/.config/herdr" "$HOME/.javo/agent-prompts" "$HOME/.cache" "$HOME/.npm"; do
+for d in "$folder" "$HOME/.claude" "$HOME/.pi" "$HOME/.harf" "$HOME/.config/herdr" "$HOME/.javo/agent-prompts" "$HOME/.cache" "$HOME/.npm"; do
   set -- --rw-make "$d" "$@"
 done
 # Claude Code reads it as JSON, and an empty file is not: a new one holds

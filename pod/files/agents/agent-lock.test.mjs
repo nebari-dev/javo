@@ -86,12 +86,13 @@ test('refuses a folder that is the home, holds it, or is not a plain path', () =
   }
 })
 
-// Claude Code, pi and herdr (any agent may run in another's terminal) keep
-// their sign-in and settings where they always do, from the first start.
+// Claude Code, pi, herdr and Harf (any agent may run in another's terminal)
+// keep their sign-in, settings and chats where they always do, from the
+// first start.
 test('lets the agents keep their own state, made on the first start', () => {
   const home = temp()
   const got = lock(home, join(home, 'p'), 'claude')
-  for (const d of ['.claude', '.pi', join('.config', 'herdr'), join('.javo', 'agent-prompts')]) {
+  for (const d of ['.claude', '.pi', '.harf', join('.config', 'herdr'), join('.javo', 'agent-prompts')]) {
     assert.ok(got.make.includes(join(home, d)), `${d} is not writable, or not made: --rw-make ${got.make}`)
   }
   // Claude Code keeps its settings in a file of the home itself; a file

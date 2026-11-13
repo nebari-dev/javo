@@ -105,6 +105,22 @@ func TestLockedAgentWithoutAFolderGetsItsOwnProject(t *testing.T) {
 	}
 }
 
+// Harf keeps what pi makes and what people upload in its workspace,
+// ~/workspace when the app has no folder. Locked, that is the folder the app
+// is locked to, the only one of the home pi may write.
+func TestLockedHarfWorksInTheFolderItIsLockedTo(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "harf")
+	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "chat", Owner: "alice", Template: tpl.Name}
+	if argv := argvOf(t, ws, tpl, testImages); !slices.Contains(argv, "-workspace=/home/user/workspace") {
+		t.Fatalf("lock off: argv = %q, want Harf's own workspace", argv)
+	}
+	argv := argvOf(t, ws, tpl, lockedImages())
+	if argv[1] != "/home/user/projects/chat" || !slices.Contains(argv, "-workspace="+argv[1]) {
+		t.Fatalf("lock on: argv = %q, want Harf locked to its workspace, ~/projects/chat", argv)
+	}
+}
+
 // The lock changes an agent's Pod in two places and nowhere else: the main
 // container's command gets the lock in front, and an app with no folder
 // runs as the same app opening ~/projects/<app name> does. The step that
