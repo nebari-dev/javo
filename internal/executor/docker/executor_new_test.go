@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/nebari-dev/javo/internal/executor/executortest"
 )
 
 // An Executor is not made on a daemon that is too old, that lacks the
@@ -24,7 +26,7 @@ func TestNewExecutorRefuses(t *testing.T) {
 			fail(w, http.StatusNotFound, "No such container")
 		}
 	})
-	good := Options{Client: c, Secrets: testSecrets, Gateway: "gw", RunnerImage: "example.com/javo:1"}
+	good := Options{Client: c, Secrets: &executortest.Secrets{}, Gateway: "gw", RunnerImage: "example.com/javo:1"}
 	x, err := NewExecutor(t.Context(), good)
 	if err != nil {
 		t.Fatalf("a daemon that has it all: %v", err)

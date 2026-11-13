@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build e2e && (linux || darwin)
 
 package process
 
@@ -45,9 +45,6 @@ const e2eRunner = "example.com/javo:1"
 // network: pixi fetches the packages.
 func newMachine(t *testing.T) *machine {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("installs pixi environments")
-	}
 	pixi, err := exec.LookPath("pixi")
 	if err != nil {
 		t.Skip("no pixi on PATH")

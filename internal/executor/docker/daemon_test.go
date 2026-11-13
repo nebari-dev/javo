@@ -1,3 +1,5 @@
+//go:build e2e
+
 package docker
 
 import (
@@ -6,9 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 	"github.com/nebari-dev/javo/internal/workload"
@@ -20,15 +19,6 @@ import (
 // swept the way every daemon test of the repository is (testrun): with
 // this test process's own id, so two test runs against one daemon never
 // see, name or remove each other's containers, networks and volumes.
-
-// testImage is busybox 1.37.0, by the digest of its image index on Docker
-// Hub: small, public, and never a different image under the same name.
-const testImage = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
-
-// testNamespace is where the workloads of the daemon tests live. It ends
-// in the start of this test process's id, so no name is shared with
-// another test process.
-var testNamespace = "javotest-" + testrun.ID[:10]
 
 // daemon is a client of the Docker daemon on this machine, holding the
 // test image. What it creates carries this test process's id, so an
@@ -50,22 +40,6 @@ func daemon(t *testing.T) (*Client, Daemon) {
 	}
 	t.Cleanup(func() { testrun.Sweep(t, sock) })
 	return c, d
-}
-
-// testSpec is a workload of the daemon tests, called name.
-func testSpec(name string) workload.Spec {
-	return workload.Spec{
-		Ref:  workload.Ref{Namespace: testNamespace, Name: name, ID: "id-" + name, Owner: "alice"},
-		User: workload.User{UID: 1000, GID: 100},
-		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("64Mi"), corev1.ResourceCPU: resource.MustParse("500m"),
-		}},
-	}
-}
-
-// sh is a unit that runs a shell script in the test image.
-func sh(name, script string, mounts ...workload.Mount) workload.Unit {
-	return workload.Unit{Name: name, Image: testImage, Command: []string{"sh", "-c", script}, Mounts: mounts}
 }
 
 func testContext(t *testing.T) context.Context {

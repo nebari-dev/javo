@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build e2e && (linux || darwin)
 
 package process
 
@@ -27,9 +27,6 @@ import (
 // what the executor then shows of the run is recorded as a run that
 // succeeded, with its folder and its parameters.
 func TestRunsRunAPlannedJob(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the javo binary")
-	}
 	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)

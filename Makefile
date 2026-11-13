@@ -13,7 +13,7 @@ SETUP_ENVTEST_VERSION := v0.25.2
 SQLC_VERSION := 1.31.1
 ENVTEST_K8S_VERSION := 1.37.0
 
-.PHONY: generate generate-sql rbac test test-db test-postgres envtest-path db-packages openapi docs docs-serve up dev-up reload down dev-down e2e e2e-quick e2e-full e2e-ai e2e-github compose-up compose-down compose-e2e
+.PHONY: generate generate-sql rbac test test-db test-postgres envtest-path db-packages openapi docs docs-serve up dev-up reload down dev-down e2e e2e-quick e2e-full e2e-ai e2e-github e2e-executors compose-up compose-down compose-e2e
 
 # Deep copies for internal/model.
 generate: $(CONTROLLER_GEN)
@@ -133,6 +133,16 @@ e2e e2e-full:
 e2e-github:
 	JAVO_E2E_GITHUB=1 scripts/dev/up.sh
 	$(E2E_ENV) JAVO_E2E_GITHUB=1 $(E2E_TEST) -timeout 20m -run '^TestLiveGitHub$$' ./test/e2e/
+
+# The executors against the real things: a Docker daemon (containers, networks,
+# volumes, image pulls and builds), pixi installing the shipped templates'
+# environments (downloads several GB the first time) and the javo binary
+# compiled inside the tests. Needs a Docker daemon, pixi on PATH and the
+# network. Run on demand, not on every push: go test ./... proves Javo's own
+# logic with stand-ins.
+E2E_EXECUTOR_PKGS := ./internal/executor/... ./internal/netprobe/dockerprobe/ ./internal/egressproxy/ ./internal/cli/
+e2e-executors:
+	go test -tags e2e -count=1 -timeout 60m -run '^(TestDaemon|TestDockerProbe|TestSweep|TestServerStartsOnDocker|TestRunsRunAPlannedJob|TestAPickedEnvironmentRunsAsProcesses|TestShippedTemplatesRunAsProcesses)' $(E2E_EXECUTOR_PKGS)
 
 # Docker Compose install (deploy/compose), the way people install it: build
 # the images from this checkout, install, follow the installer and fail when

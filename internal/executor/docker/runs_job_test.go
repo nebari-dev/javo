@@ -1,3 +1,5 @@
+//go:build e2e
+
 package docker_test
 
 import (
@@ -29,9 +31,6 @@ import (
 // owner's home, and what the executor then shows of the run is recorded
 // as a run that succeeded, with its folder and its parameters.
 func TestDaemonRunsRunAPlannedJob(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the javo binary and an image of it")
-	}
 	d := dockerlive.New(t)
 	c, ctx := d.Client, homesContext(t)
 	// The platform's image, as far as a run uses it: the Javo binary of

@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build e2e && (linux || darwin)
 
 package cli
 
@@ -130,9 +130,6 @@ func rcloneImage(t *testing.T, d *dockerlive.Daemon) string {
 // takes itself to be there. The whole of it, with Javo in its container,
 // is what deploy/compose/docker.yaml runs.
 func TestServerStartsOnDocker(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the javo binary into an image")
-	}
 	d := dockerlive.New(t)
 	ctx := context.Background()
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
