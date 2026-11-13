@@ -640,7 +640,7 @@ func TestRunNowRefusesWhenTheTemplateNoLongerAllowsJobs(t *testing.T) {
 func TestNewServerRefusesWhatItCannotWorkWithout(t *testing.T) {
 	t.Parallel()
 	db := storetest.New(t)
-	full := gateway.Config{Store: db, Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{}, Tokens: &token.DBStore{}, Machines: capacity.Nodes{}}
+	full := gateway.Config{Store: db, Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{}, Tokens: &token.DBStore{}, Machines: capacity.Unknown{}}
 	for name, cut := range map[string]func(*gateway.Config){
 		"no store":          func(c *gateway.Config) { c.Store = nil },
 		"no engines":        func(c *gateway.Config) { c.Engines = nil },

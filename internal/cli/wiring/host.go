@@ -98,7 +98,7 @@ func (h *Host) Close() {
 
 // Machines is what is known of the machines apps run on: nothing, so
 // every size fits.
-func (*Host) Machines() capacity.Source { return unknownMachines{} }
+func (*Host) Machines() capacity.Source { return capacity.Unknown{} }
 
 // NetworkPolicy answers the gate of apps with no login of their own
 // (status.LoginlessBlocked): on Docker the stored result of the isolation
@@ -164,10 +164,6 @@ func (o onePerson) Ensure(ctx context.Context, c store.Claims) (model.Person, er
 	}
 	return o.People.Ensure(ctx, c)
 }
-
-type unknownMachines struct{}
-
-func (unknownMachines) Cluster(context.Context) (capacity.Cluster, error) { return nil, nil }
 
 // HostInputs is what NewHost needs besides the config.
 type HostInputs struct {

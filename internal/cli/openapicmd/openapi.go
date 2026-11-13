@@ -27,7 +27,7 @@ func docConfig() gateway.Config {
 	return gateway.Config{
 		Providers: wiring.AuthProviders(p, &local.DBUsers{}, nil), Exposure: wiring.Exposure(p),
 		Engines: wiring.Engines(), NetworkPolicy: &netprobe.Store{},
-		Tokens: &token.DBStore{}, Store: &store.Store{}, Machines: capacity.Nodes{}, Diagnose: wiring.DiagnoseEngine(),
+		Tokens: &token.DBStore{}, Store: &store.Store{}, Machines: capacity.Unknown{}, Diagnose: wiring.DiagnoseEngine(),
 		// Optional routes the UI calls when the install turns them on.
 		Thumbnails: true,
 	}

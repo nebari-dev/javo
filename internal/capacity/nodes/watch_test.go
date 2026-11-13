@@ -1,4 +1,4 @@
-package capacity
+package nodes
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
@@ -34,7 +36,10 @@ func TestWatchFollowsTheNodesTrimmed(t *testing.T) {
 		t.Fatalf("no nodes yet: %v, %v", cl, err)
 	}
 
-	n := node("node-1", "8", "16Gi")
+	n := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+		Status:     corev1.NodeStatus{Allocatable: corev1.ResourceList{corev1.ResourceCPU: q("8"), corev1.ResourceMemory: q("16Gi")}},
+	}
 	status := n.Status
 	n.Status = corev1.NodeStatus{}
 	if err := live.Create(ctx, n); err != nil {
@@ -68,3 +73,5 @@ func TestWatchFollowsTheNodesTrimmed(t *testing.T) {
 		t.Fatal("the node cache also reads pods")
 	}
 }
+
+func q(s string) resource.Quantity { return resource.MustParse(s) }

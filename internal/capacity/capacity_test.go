@@ -1,9 +1,11 @@
-package capacity
+package capacity_test
 
 import (
 	"context"
 	"testing"
 
+	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,13 +23,13 @@ func node(name, cpu, mem string) *corev1.Node {
 	}
 }
 
-func clusterOf(t *testing.T, nodes ...client.Object) Cluster {
+func clusterOf(t *testing.T, objs ...client.Object) capacity.Cluster {
 	t.Helper()
 	s := runtime.NewScheme()
 	if err := corev1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Nodes{Reader: fake.NewClientBuilder().WithScheme(s).WithObjects(nodes...).Build()}.Cluster(context.Background())
+	c, err := nodes.Source{Reader: fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build()}.Cluster(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +93,7 @@ func TestPodRequests(t *testing.T) {
 			{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: q("1"), corev1.ResourceMemory: q("1Gi")}}},
 		},
 	}}
-	cpu, mem := PodRequests(p)
+	cpu, mem := capacity.PodRequests(p)
 	if cpu.Cmp(q("6")) != 0 || mem.Cmp(q("9Gi")) != 0 {
 		t.Fatalf("requests = %s, %s", cpu.String(), mem.String())
 	}
@@ -104,7 +106,7 @@ func TestTrimKeepsOnlyAllocatable(t *testing.T) {
 	n.Labels = map[string]string{"a": "b"}
 	n.Status.Images = []corev1.ContainerImage{{Names: []string{"example.org/big:1"}, SizeBytes: 1 << 30}}
 	n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
-	got, err := Trim(n)
+	got, err := nodes.Trim(n)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +125,7 @@ func TestTrimKeepsTheNodesAddresses(t *testing.T) {
 	n := node("n1", "8", "16Gi")
 	n.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeExternalIP, Address: "203.0.113.7"}}
 	n.Spec.PodCIDRs = []string{"198.51.100.0/24"}
-	got, err := Trim(n)
+	got, err := nodes.Trim(n)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,40 +148,40 @@ func TestHoldsCountsDevicesAndLabels(t *testing.T) {
 	c := clusterOf(t, node("cpu", "64", "256Gi"),
 		gpuNode("a100", "16", "64Gi", "2", map[string]string{"pool": "a100"}))
 	gpus := func(n string) corev1.ResourceList { return corev1.ResourceList{"nvidia.com/gpu": q(n)} }
-	if !c.Holds(Need{CPU: q("8"), Memory: q("32Gi"), Devices: gpus("2")}) {
+	if !c.Holds(capacity.Need{CPU: q("8"), Memory: q("32Gi"), Devices: gpus("2")}) {
 		t.Error("2 GPUs fit the a100 node")
 	}
-	if c.Holds(Need{CPU: q("8"), Memory: q("32Gi"), Devices: gpus("4")}) {
+	if c.Holds(capacity.Need{CPU: q("8"), Memory: q("32Gi"), Devices: gpus("4")}) {
 		t.Error("4 GPUs fit no node")
 	}
-	if c.Holds(Need{CPU: q("32"), Memory: q("32Gi"), Devices: gpus("1")}) {
+	if c.Holds(capacity.Need{CPU: q("32"), Memory: q("32Gi"), Devices: gpus("1")}) {
 		t.Error("the CPU of one node and the GPU of another do not add up")
 	}
-	if c.Holds(Need{CPU: q("1"), Memory: q("1Gi"), Devices: corev1.ResourceList{"amd.com/gpu": q("1")}}) {
+	if c.Holds(capacity.Need{CPU: q("1"), Memory: q("1Gi"), Devices: corev1.ResourceList{"amd.com/gpu": q("1")}}) {
 		t.Error("no node has amd.com/gpu")
 	}
-	if !c.Holds(Need{CPU: q("1"), Memory: q("1Gi"), NodeSelector: map[string]string{"pool": "a100"}}) {
+	if !c.Holds(capacity.Need{CPU: q("1"), Memory: q("1Gi"), NodeSelector: map[string]string{"pool": "a100"}}) {
 		t.Error("the a100 node carries pool=a100")
 	}
-	if c.Holds(Need{CPU: q("32"), Memory: q("1Gi"), NodeSelector: map[string]string{"pool": "a100"}}) {
+	if c.Holds(capacity.Need{CPU: q("32"), Memory: q("1Gi"), NodeSelector: map[string]string{"pool": "a100"}}) {
 		t.Error("only the a100 node matches the selector, and it has 16 CPU")
 	}
-	if c.Holds(Need{CPU: q("1"), Memory: q("1Gi"), NodeSelector: map[string]string{"pool": "h100"}}) {
+	if c.Holds(capacity.Need{CPU: q("1"), Memory: q("1Gi"), NodeSelector: map[string]string{"pool": "h100"}}) {
 		t.Error("no node carries pool=h100")
 	}
-	if !(Cluster{}).Holds(Need{CPU: q("1"), Devices: gpus("8")}) {
+	if !(capacity.Cluster{}).Holds(capacity.Need{CPU: q("1"), Devices: gpus("8")}) {
 		t.Error("an unknown cluster holds anything")
 	}
 }
 
 // Trim keeps what Holds reads: the device counts and the labels.
 func TestTrimKeepsLabelsForSelectors(t *testing.T) {
-	got, err := Trim(gpuNode("g", "8", "16Gi", "1", map[string]string{"pool": "gpu"}))
+	got, err := nodes.Trim(gpuNode("g", "8", "16Gi", "1", map[string]string{"pool": "gpu"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := clusterOf(t, got.(*corev1.Node))
-	if !c.Holds(Need{CPU: q("1"), Memory: q("1Gi"), Devices: corev1.ResourceList{"nvidia.com/gpu": q("1")}, NodeSelector: map[string]string{"pool": "gpu"}}) {
+	if !c.Holds(capacity.Need{CPU: q("1"), Memory: q("1Gi"), Devices: corev1.ResourceList{"nvidia.com/gpu": q("1")}, NodeSelector: map[string]string{"pool": "gpu"}}) {
 		t.Fatal("a trimmed GPU node no longer holds a GPU need")
 	}
 }
@@ -191,7 +193,7 @@ func TestPodNeedHasDevicesAndSelector(t *testing.T) {
 		Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
 			corev1.ResourceCPU: q("4"), corev1.ResourceMemory: q("8Gi"), "nvidia.com/gpu": q("1")}}}},
 	}}
-	n := PodNeed(p)
+	n := capacity.PodNeed(p)
 	if n.CPU.Cmp(q("4")) != 0 || n.Memory.Cmp(q("8Gi")) != 0 || n.NodeSelector["pool"] != "gpu" {
 		t.Fatalf("need %+v", n)
 	}

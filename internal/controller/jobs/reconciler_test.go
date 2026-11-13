@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
-	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
@@ -144,7 +144,7 @@ func (h *harness) start() {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	exec := &kube.Executor{Machines: capacity.Nodes{Reader: mgr.GetClient()}, ManagedOnly: h.managedOnly}
+	exec := &kube.Executor{Machines: nodes.Source{Reader: mgr.GetClient()}, ManagedOnly: h.managedOnly}
 	if err := exec.SetupWithManager(mgr); err != nil {
 		h.t.Fatal(err)
 	}

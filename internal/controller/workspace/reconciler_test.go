@@ -30,7 +30,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
-	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/ctrltest"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
@@ -140,7 +140,7 @@ func newManager(s *store.Store, namespaces []string, tune func(*Reconciler), mtu
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ex := &kube.Executor{Sizes: testSizes, Machines: capacity.Nodes{Reader: mgr.GetClient()}, HomeClaim: testStorage(s).HomeClaim}
+	ex := &kube.Executor{Sizes: testSizes, Machines: nodes.Source{Reader: mgr.GetClient()}, HomeClaim: testStorage(s).HomeClaim}
 	r := &Reconciler{
 		Exec:          ex,
 		Place:         ex,
@@ -331,7 +331,7 @@ func reconcileNow(t *testing.T, r *Reconciler, id string) time.Duration {
 // newRec is a Reconciler that reads the API server directly, so a reconcile
 // run on it has finished when it returns.
 func newRec(s *store.Store, tune ...func(*Reconciler)) *Reconciler {
-	ex := &kube.Executor{Client: k8s, Reader: k8s, Sizes: testSizes, Machines: capacity.Nodes{Reader: k8s}, HomeClaim: testStorage(s).HomeClaim}
+	ex := &kube.Executor{Client: k8s, Reader: k8s, Sizes: testSizes, Machines: nodes.Source{Reader: k8s}, HomeClaim: testStorage(s).HomeClaim}
 	r := &Reconciler{Exec: ex, Place: ex, Secrets: kube.Secrets{Reader: k8s, Client: k8s}, Store: s, Storage: testStorage(s), Sizes: testSizes,
 		ReadyTimeout: time.Minute, Exposure: pathExposure, NetworkPolicy: policy,
 		CloneImage: testImages.Clone, RunnerImage: testImages.Runner, Access: allowAll{}}

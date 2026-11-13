@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/model"
 )
 
@@ -70,7 +70,7 @@ func Options(scheme *runtime.Scheme, namespaces []string, metricsAddr, probeAddr
 				&corev1.Namespace{}:             {Label: managed},
 				&networkingv1.NetworkPolicy{}:   {Label: managed},
 				// Nodes: only their allocatable, for the too-big size check.
-				&corev1.Node{}: {Transform: capacity.Trim},
+				&corev1.Node{}: {Transform: nodes.Trim},
 			},
 		},
 	}

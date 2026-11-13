@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
-	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/diagnose"
 	"github.com/nebari-dev/javo/internal/gateway"
@@ -50,7 +50,7 @@ func stripServer(t *testing.T, f *appsFixture, uiDir string) (hits *[]string) {
 	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: appsRoles(),
 		URLs: f.urls, Exposure: f.exp, Providers: nil, Revalidator: f.rv, Now: func() time.Time { return f.now }, UIDir: uiDir,
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},
-		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: capacity.Nodes{Reader: f.c}, Diagnose: diagnose.NewEngine()})
+		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: nodes.Source{Reader: f.c}, Diagnose: diagnose.NewEngine()})
 	f.srv.Apps(proxy.New(proxy.Config{Store: f.db, Sessions: f.store, Exposure: f.exp, Roles: appsRoles(), Activity: f.activity,
 		Revalidator: f.rv, URLs: f.urls, DialWait: 200 * time.Millisecond, Seal: seal,
 		Resolve: func(_ context.Context, app *model.App, _ *model.Template) (proxy.Backend, error) {

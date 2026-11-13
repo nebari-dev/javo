@@ -16,6 +16,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
@@ -205,7 +206,7 @@ func (o *gatewayOptions) clusterParts(ctx context.Context, common *commonFlags, 
 	if err != nil {
 		return none, err
 	}
-	machines, err := capacity.Watch(ctx, restCfg)
+	machines, err := nodes.Watch(ctx, restCfg)
 	if err != nil {
 		return none, fmt.Errorf("watch nodes: %w", err)
 	}

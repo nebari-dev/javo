@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 
 	"golang.org/x/crypto/argon2"
@@ -35,7 +36,6 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/authz"
-	"github.com/nebari-dev/javo/internal/capacity"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
@@ -300,7 +300,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Client: c, Store: db, Sessions: sessions, Providers: providers,
 		People: people, Roles: roles, Now: o.Now,
 		Placement: pl, SecureCookies: o.Secure, UIDir: o.UiDir, UI: o.UI, Branding: o.Branding,
-		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Runs: runs.Runs(), Sizes: o.Sizes, Machines: capacity.Nodes{Reader: c},
+		Homes: Homes(o.Files), TrustedProxies: o.Trusted, Executor: apps, Runs: runs.Runs(), Sizes: o.Sizes, Machines: nodes.Source{Reader: c},
 		URLs: o.Urls, Exposure: exp, Sharing: config.SharingCfg{AllowOneHost: o.AllowOneHost}, StaleAfter: o.StaleAfter,
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
 		AI:       o.Ai, AgentModel: o.AgentModel, AISettings: live, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp, PublicURL: o.PublicURL}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},

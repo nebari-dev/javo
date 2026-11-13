@@ -24,7 +24,7 @@ import (
 	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/authz"
-	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/core/registry"
 	"github.com/nebari-dev/javo/internal/diagnose"
@@ -832,7 +832,7 @@ func newApps(t *testing.T, urls config.URLs, maxSharing string, apps ...*model.A
 	f.srv = gateway.NewServer(gateway.Config{Client: f.c, Store: f.db, Placement: apitest.SharedPlacement(), Sessions: f.store, Roles: roles, URLs: urls, Exposure: f.exp, InternalHost: "javo-gateway.javo-system.svc",
 		Providers: providers, Revalidator: rv, Now: func() time.Time { return f.now },
 		Engines: apitest.TestEngines(), NetworkPolicy: &netprobe.Store{Facts: f.db.Facts()},
-		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: capacity.Nodes{Reader: f.c}, Diagnose: diagnose.NewEngine()})
+		Tokens: &token.DBStore{Tokens: f.db.Tokens()}, Machines: nodes.Source{Reader: f.c}, Diagnose: diagnose.NewEngine()})
 	f.activity = activity.NewTracker(nil)
 	f.srv.Apps(proxy.New(proxy.Config{Store: f.db, Sessions: f.store, Exposure: f.exp, Roles: roles, Activity: f.activity,
 		Revalidator: rv, URLs: urls, DialWait: 200 * time.Millisecond,

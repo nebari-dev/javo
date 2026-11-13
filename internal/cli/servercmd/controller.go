@@ -24,7 +24,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/buildinfo"
-	"github.com/nebari-dev/javo/internal/capacity"
+	"github.com/nebari-dev/javo/internal/capacity/nodes"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/controller/backupclaim"
@@ -276,7 +276,7 @@ func (o *controllerOptions) run(ctx context.Context, common *commonFlags, platfo
 	// Apps run as Pods: the executor is the only part of the app controller
 	// that talks to the cluster.
 	apps := &kube.Executor{
-		Sizes: appSizes, Machines: capacity.Nodes{Reader: mgr.GetClient()}, HomeClaim: appStorage.HomeClaim,
+		Sizes: appSizes, Machines: nodes.Source{Reader: mgr.GetClient()}, HomeClaim: appStorage.HomeClaim,
 		ManagedOnly: !shared, Isolation: platform.Workloads.Isolation(),
 	}
 	if err := apps.SetupWithManager(mgr); err != nil {
