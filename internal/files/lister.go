@@ -7,6 +7,10 @@
 // and files over the pod network. A file pod is created on the
 // first request and deleted after it has been idle for a while.
 //
+// Where homes are volumes of a Docker daemon (the Docker executor) the
+// file pod is a container: Helpers runs the same rclone, from the same
+// plan, through an executor, and the same Lister and Rclone talk to it.
+//
 // Where homes are folders of the machine Javo runs on (the process
 // executor) there is no file pod: the same Lister reads them through
 // Direct, and Folders stands in for the file pods.
