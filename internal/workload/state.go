@@ -34,6 +34,18 @@ type State struct {
 	// Pull is how the image got there; nil when the platform did not say.
 	Pull *Pull
 
+	// Fingerprint is what this instance was built from.
+	Fingerprint Fingerprint
+	// Stale is set for an instance built in a way the executor has since
+	// given up: it must be built again whatever its Fingerprint says.
+	Stale bool
+	// Running is set once the platform has started the workload, whether
+	// or not it answers yet.
+	Running bool
+	// Commit is the commit of the code it runs, once it has fetched it;
+	// empty for a workload that runs no code from Git.
+	Commit string
+
 	// Run is set for a run (Spec.Batch), which has no Phase or Step: Code
 	// and Evidence are then the problem its newest attempt has while the
 	// run is not done.

@@ -48,4 +48,6 @@ type LogOptions struct {
 	Since time.Time
 	// Timestamps starts each line with when it was printed (RFC 3339).
 	Timestamps bool
+	// MaxBytes ends the stream after that many bytes; zero is no limit.
+	MaxBytes int64
 }

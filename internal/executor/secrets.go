@@ -39,3 +39,7 @@ type Secrets interface {
 	// Delete removes the workload's bundle name, if there is one.
 	Delete(ctx context.Context, of workload.Ref, name string) error
 }
+
+// ErrUnmanaged means the executor runs nothing where a workload points,
+// for now: Observe returns it, and the caller looks again later.
+var ErrUnmanaged = errors.New("is not a place the executor runs workloads in")
