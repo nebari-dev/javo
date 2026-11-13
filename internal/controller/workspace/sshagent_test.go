@@ -10,6 +10,7 @@ import (
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/pixienv"
 	"github.com/nebari-dev/javo/internal/sizes"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 func initContainer(pod *corev1.Pod, name string) (int, *corev1.Container) {
@@ -43,17 +44,23 @@ func volumeNamed(pod *corev1.Pod, name string) *corev1.Volume {
 // environment's install step, as the reconciler builds it.
 func agentPod(t *testing.T, name string) *corev1.Pod {
 	t.Helper()
+	return podOf(agentSpec(t, name))
+}
+
+// agentSpec is the workload agentPod renders.
+func agentSpec(t *testing.T, name string) workload.Spec {
+	t.Helper()
 	tpl := shippedTemplate(t, name)
 	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name}
-	pod, err := BuildPod(ws, tpl, "/u/a/agent/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/a/agent/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := pixienv.Apply(&pod.Spec, testPixiImage, testImages.Runner, pixienv.Source{Default: tpl.Spec.Environment}); err != nil {
+	if err := pixienv.Add(&s, testPixiImage, testImages.Runner, pixienv.Source{Default: tpl.Spec.Environment}); err != nil {
 		t.Fatal(err)
 	}
-	WithSSHAgent(pod, tpl)
-	return pod
+	addSSHAgent(&s, tpl)
+	return s
 }
 
 // A coding agent never reads the owner's private keys: its ~/.ssh is an
@@ -146,13 +153,13 @@ func TestOtherTemplatesGetNoSSHAgent(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tpl := shippedTemplate(t, name)
 			ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "x", Owner: "alice", Template: tpl.Name}
-			pod, err := BuildPod(ws, tpl, "/u/a/x/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+			s, err := planOf(ws, tpl, "/u/a/x/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 			if err != nil {
 				t.Fatal(err)
 			}
-			before := pod.DeepCopy()
-			WithSSHAgent(pod, tpl)
-			if !reflect.DeepEqual(before, pod) {
+			before := podOf(s)
+			addSSHAgent(&s, tpl)
+			if pod := podOf(s); !reflect.DeepEqual(before, pod) {
 				t.Fatalf("pod changed for %s", name)
 			}
 		})

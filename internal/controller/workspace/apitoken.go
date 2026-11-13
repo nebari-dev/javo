@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
@@ -49,32 +47,27 @@ func APITokenSecretName(objectName string) string {
 	return kube.SecretName(objectName, executor.UseAPI)
 }
 
-// WithAPIToken gives the app container of pod, built from template t with
-// API access, the owner's API token from the Secret secretName as
-// JAVO_TOKEN, the UI's public URL as JAVO_URL and the API guide. With access
-// None it does nothing. The token is never in the pod spec in clear and
-// never a file. internalURL, when set, is
-// the gateway inside the cluster, as JAVO_API_URL: the public address may
-// resolve to one the pod may not reach.
-func WithAPIToken(pod *corev1.Pod, t *model.Template, access, secretName, apiURL, internalURL string) {
-	if token.ScopeFor(access) == "" {
+// addAPIToken gives the main unit the owner's API token from the app's
+// bundle as JAVO_TOKEN, the UI's public URL as JAVO_URL and the API guide.
+// With access None it does nothing. The token is never in the Spec and
+// never a file.
+func addAPIToken(s *workload.Spec, t *model.Template, in Inputs) {
+	if token.ScopeFor(in.APIAccess) == "" {
 		return
 	}
-	app := &pod.Spec.Containers[0]
-	if internalURL != "" {
-		app.Env = append(app.Env, corev1.EnvVar{Name: envInternalURL, Value: internalURL})
+	app := &s.Main
+	if in.APIInternalURL != "" {
+		app.Env = append(app.Env, workload.Env{Name: envInternalURL, Value: in.APIInternalURL})
 	}
 	app.Env = append(app.Env,
-		corev1.EnvVar{Name: envURL, Value: apiURL},
-		corev1.EnvVar{Name: envToken, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: APITokenKey,
-		}}},
+		workload.Env{Name: envURL, Value: in.APIURL},
+		workload.Env{Name: envToken, From: &workload.SecretRef{Holder: s.Ref.Name, Use: executor.UseAPI, Key: APITokenKey}},
 	)
 	for _, p := range append([]string{APIGuidePath}, t.Spec.APIGuidePaths...) {
-		app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: apiGuideVolume, MountPath: p, SubPath: APIGuideKey, ReadOnly: true})
+		app.Mounts = append(app.Mounts, workload.Mount{Volume: apiGuideVolume, Path: p, SubPath: APIGuideKey, ReadOnly: true})
 	}
-	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: apiGuideVolume, VolumeSource: corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{SecretName: secretName, Items: []corev1.KeyToPath{{Key: APIGuideKey, Path: APIGuideKey}}},
+	s.Volumes = append(s.Volumes, workload.Volume{Name: apiGuideVolume, Secret: &workload.SecretFiles{
+		Holder: s.Ref.Name, Use: executor.UseAPI, Keys: []string{APIGuideKey},
 	}})
 }
 

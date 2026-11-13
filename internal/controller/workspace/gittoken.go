@@ -21,7 +21,8 @@ import (
 )
 
 // syncGitToken keeps the app's repository token Secret in step with the
-// database and returns the Secret's name and the generation of the token the
+// database and returns the name of the workload that holds it (the app's
+// own, or its parent's for a preview) and the generation of the token the
 // pod must have been built for ("" when the app's clone gets no token).
 // unreadable is why a token from a secret could not be opened (never a
 // value): the app then does not start.
@@ -40,7 +41,7 @@ import (
 //
 // A preview uses its parent's Secret in the same namespace and never writes
 // it; a fork preview uses none.
-func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *corev1.Pod) (secretName, generation, unreadable string, err error) {
+func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *corev1.Pod) (holderName, generation, unreadable string, err error) {
 	if app.Source == nil || app.Source.Fork {
 		return "", "", "", nil
 	}
@@ -55,7 +56,7 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 		}
 		holder = &parent
 	}
-	secretName = GitTokenSecretName(holder.ObjectName())
+	holderName = holder.ObjectName()
 	bound, err := r.gitTokenOf(ctx, holder)
 	if err != nil {
 		return "", "", "", err
@@ -67,7 +68,7 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 				return "", "", unreadable, err
 			}
 		}
-		return secretName, gen, "", nil
+		return holderName, gen, "", nil
 	}
 	pasted, gen, has, err := r.Store.GitTokens().Pending(ctx, holder.ID)
 	if err != nil {
@@ -95,7 +96,7 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 			log.FromContext(ctx).Error(err, "adopt the pasted repository token into a secret")
 		}
 	}
-	return secretName, strconv.FormatInt(gen, 10), "", nil
+	return holderName, strconv.FormatInt(gen, 10), "", nil
 }
 
 // gitTokenOf is the app's token from a secret, if authz lets the controller

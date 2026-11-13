@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
-
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // What an app with Nebi access (model.NebiTokenFor, with Nebi on) gets:
@@ -46,39 +44,31 @@ func NebiTokenSecretName(objectName string) string {
 	return kube.SecretName(objectName, executor.UseNebi)
 }
 
-// WithNebi gives the app container of pod the owner's Nebi token file, the
-// Nebi address nebiURL and the nebi CLI from runner (the platform's image).
-// The Secret is optional: a pod made before the gateway first wrote it
-// starts without the file, and the kubelet adds it once the Secret exists.
-func WithNebi(pod *corev1.Pod, objectName, nebiURL string, runner podspec.Image) {
-	spec := &pod.Spec
-	app := &spec.Containers[0]
-	spec.Volumes = append(spec.Volumes,
-		corev1.Volume{Name: nebiVolume, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-			SecretName: NebiTokenSecretName(objectName), Optional: ptr.To(true),
-			Items: []corev1.KeyToPath{{Key: NebiTokenKey, Path: NebiTokenKey}},
-			// The kubelet writes it as root and app pods have no fsGroup,
-			// so the app's own uid reads it as "others". Only that uid
-			// runs in the pod.
-			DefaultMode: ptr.To[int32](0o444),
-		}}},
-		corev1.Volume{Name: nebiCLIVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+// addNebi gives the main unit the owner's Nebi token file, the Nebi
+// address nebiURL and the nebi CLI from runner (the platform's image). The
+// bundle is optional: a workload made before the gateway first wrote it
+// starts without the file, which appears once the bundle exists.
+func addNebi(s *workload.Spec, nebiURL string, runner podspec.Image) {
+	app := &s.Main
+	s.Volumes = append(s.Volumes,
+		workload.Volume{Name: nebiVolume, Secret: &workload.SecretFiles{
+			Holder: s.Ref.Name, Use: executor.UseNebi, Keys: []string{NebiTokenKey}, Optional: true, WorldReadable: true,
+		}},
+		workload.Volume{Name: nebiCLIVolume},
 	)
-	cli := corev1.VolumeMount{Name: nebiCLIVolume, MountPath: NebiCLIDir}
-	spec.InitContainers = append(spec.InitContainers, corev1.Container{
-		Name: NebiCLIContainer, Image: runner.Ref, SecurityContext: podspec.ReadOnlyRootContext(),
-		Command:                  []string{"/" + model.ProductName},
-		Args:                     []string{"pod-files", "--from", NebiCLIImageDir, "--to", NebiCLIDir},
-		VolumeMounts:             []corev1.VolumeMount{cli},
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+	cli := workload.Mount{Volume: nebiCLIVolume, Path: NebiCLIDir}
+	s.Steps = append(s.Steps, workload.Unit{
+		Name: NebiCLIContainer, Image: runner.Ref, ReadOnlyRoot: true,
+		Command: []string{"/" + model.ProductName},
+		Args:    []string{"pod-files", "--from", NebiCLIImageDir, "--to", NebiCLIDir},
+		Mounts:  []workload.Mount{cli},
 	})
-	runner.Pull(spec)
+	s.Pull(runner.PullSecrets)
 	cli.ReadOnly = true
-	app.VolumeMounts = append(app.VolumeMounts, cli,
-		corev1.VolumeMount{Name: nebiVolume, MountPath: NebiTokenDir, ReadOnly: true})
+	app.Mounts = append(app.Mounts, cli, workload.Mount{Volume: nebiVolume, Path: NebiTokenDir, ReadOnly: true})
 	app.Env = append(app.Env,
-		corev1.EnvVar{Name: "NEBI_REMOTE_URL", Value: nebiURL},
-		corev1.EnvVar{Name: "JAVO_NEBI_TOKEN_FILE", Value: NebiTokenDir + "/" + NebiTokenKey},
+		workload.Env{Name: "NEBI_REMOTE_URL", Value: nebiURL},
+		workload.Env{Name: "JAVO_NEBI_TOKEN_FILE", Value: NebiTokenDir + "/" + NebiTokenKey},
 	)
 }
 

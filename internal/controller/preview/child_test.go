@@ -8,11 +8,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/nebari-dev/javo/internal/controller/workspace"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/ext/codehost"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/podspec"
-	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
@@ -160,12 +160,15 @@ func TestNewHeadCommitChangesThePodFingerprint(t *testing.T) {
 func builtPod(t *testing.T, child *model.App) *corev1.Pod {
 	t.Helper()
 	img := workspace.Images{Clone: "example.com/git-sync:1", Runner: podspec.Image{Ref: "example.com/javo:1"}}
-	pod, err := workspace.BuildPod(child, readWriteTemplate(), "/u/alice/"+child.Name+"/", "", podstorage.Build(child.Owner, podstorage.Input{UID: workspace.FixedUID, GID: podspec.FixedGID}), sizes.Size{}, img)
+	spec, err := workspace.Plan(workspace.Inputs{
+		App: child, Template: readWriteTemplate(), BaseURL: "/u/alice/" + child.Name + "/", Images: img,
+		Layout:    podstorage.Build(child.Owner, podstorage.Input{UID: workspace.FixedUID, GID: podspec.FixedGID}),
+		GitHolder: naming.ObjectName("alice", "site"), GitGen: "1",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.WithGitToken(pod, child, workspace.GitTokenSecretName(naming.ObjectName("alice", "site")), "1")
-	return pod
+	return kube.Render(spec, podspec.Isolation{})
 }
 
 func hasSecretVolume(pod *corev1.Pod) bool {

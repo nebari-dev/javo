@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
-	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // AppSecretsName is the Secret holding the secret values of the app whose
@@ -64,26 +62,22 @@ func (r *Reconciler) writeAppSecrets(ctx context.Context, app *model.App, want s
 	return "", nil
 }
 
-// WithEnv gives the app container the app's variables with a plain value.
-// The platform's own variables (reserved names) are never replaced: the
-// gateway refuses those names, and one written straight into the database is
-// left out here. The defaults a variable may replace (podspec.ColorEnv) are.
-func WithEnv(pod *corev1.Pod, env []model.EnvVar) {
-	app := &pod.Spec.Containers[0]
+// addEnv gives u the app's variables with a plain value. The platform's own
+// variables (reserved names) are never replaced: the gateway refuses those
+// names, and one written straight into the database is left out here. The
+// defaults a variable may replace (podspec.ColorEnv) are.
+func addEnv(u *workload.Unit, env []model.EnvVar) {
 	for _, e := range env {
 		if model.EnvNameProblem(e.Name) == model.EnvNameOK {
-			podspec.SetEnv(app, corev1.EnvVar{Name: e.Name, Value: e.Value})
+			u.SetEnv(workload.Env{Name: e.Name, Value: e.Value})
 		}
 	}
 }
 
-// WithAppSecrets gives the app container of pod each of want's variables
-// from the Secret secretName, by reference: the values are never in the pod
-// spec.
-func WithAppSecrets(pod *corev1.Pod, secretName string, want secretenv.Set) {
-	if want.Fingerprint == "" {
-		return
+// addAppSecrets gives the main unit each of want's variables from the
+// app's bundle, by reference: the values are never in the Spec.
+func addAppSecrets(s *workload.Spec, want secretenv.Set) {
+	for _, b := range want.Bindings {
+		s.Main.SetEnv(workload.Env{Name: b.Env, From: &workload.SecretRef{Holder: s.Ref.Name, Use: executor.UseSecrets, Key: b.Env}})
 	}
-	app := &pod.Spec.Containers[0]
-	podspec.SetEnv(app, want.Env(secretName)...)
 }

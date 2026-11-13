@@ -797,10 +797,11 @@ func TestHarfWorksInTheChosenFolder(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.label, func(t *testing.T) {
 			ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "chat", Owner: "alice", Template: tpl.Name, File: c.file, Sample: c.sample}
-			pod, err := BuildPod(ws, tpl, "/u/a/chat/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+			s, err := planOf(ws, tpl, "/u/a/chat/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 			if err != nil {
 				t.Fatal(err)
 			}
+			pod := podOf(s)
 			ctr := pod.Spec.Containers[0]
 			if !strings.HasPrefix(ctr.Image, "ghcr.io/aktech/harf:") || !strings.Contains(ctr.Image, "@sha256:") {
 				t.Fatalf("image = %q, want ghcr.io/aktech/harf pinned by digest", ctr.Image)
@@ -813,8 +814,8 @@ func TestHarfWorksInTheChosenFolder(t *testing.T) {
 			if p := ctr.ReadinessProbe; p == nil || p.HTTPGet == nil || p.HTTPGet.Path != "/healthz" {
 				t.Fatalf("readiness probe = %+v, want GET /healthz", p)
 			}
-			WithSSHAgent(pod, tpl)
-			_, side := initContainer(pod, SSHAgentContainer)
+			addSSHAgent(&s, tpl)
+			_, side := initContainer(podOf(s), SSHAgentContainer)
 			if side == nil {
 				t.Fatalf("no %s sidecar", SSHAgentContainer)
 			}

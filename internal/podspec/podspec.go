@@ -22,7 +22,8 @@ const (
 	HomeDir    = podstorage.HomeDir
 	HomeVolume = podstorage.HomeVolume
 	TmpVolume  = podstorage.TmpVolume
-	// HomeScratchVolume is the emptyDir ScratchHome mounts at the home path.
+	// HomeScratchVolume is the empty folder a preview or a built site gets at
+	// the home path instead of the owner's home.
 	HomeScratchVolume = "home-scratch"
 
 	// FixedGID is the group every pod's files belong to: the primary group of
@@ -97,35 +98,6 @@ func SetEnv(c *corev1.Container, vars ...corev1.EnvVar) {
 		c.Env = slices.DeleteFunc(c.Env, func(e corev1.EnvVar) bool { return e.Name == v.Name })
 		c.Env = append(c.Env, v)
 	}
-}
-
-// ScratchHome gives the main container an empty folder at the home path
-// instead of the owner's home: nothing it writes lasts and nothing of the
-// owner's is there. The claim volume stays only while an init container
-// still mounts it (the copy of a single file out of the home).
-func ScratchHome(spec *corev1.PodSpec) {
-	for i := range spec.Containers {
-		for j := range spec.Containers[i].VolumeMounts {
-			if m := &spec.Containers[i].VolumeMounts[j]; m.Name == HomeVolume {
-				m.Name = HomeScratchVolume
-			}
-		}
-	}
-	spec.Volumes = append(spec.Volumes, corev1.Volume{Name: HomeScratchVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
-	for _, c := range spec.InitContainers {
-		for _, m := range c.VolumeMounts {
-			if m.Name == HomeVolume {
-				return
-			}
-		}
-	}
-	kept := spec.Volumes[:0]
-	for _, v := range spec.Volumes {
-		if v.Name != HomeVolume {
-			kept = append(kept, v)
-		}
-	}
-	spec.Volumes = kept
 }
 
 // Image is the platform's own image and the Secrets the kubelet pulls it

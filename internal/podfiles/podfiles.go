@@ -21,6 +21,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
@@ -96,6 +97,40 @@ func Apply(spec *corev1.PodSpec, image podspec.Image) {
 	for _, f := range []string{"passwd", "group", "bash.bashrc"} {
 		app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: etcVolume, MountPath: "/etc/" + f, SubPath: f, ReadOnly: true})
 	}
+}
+
+// Add gives s's main unit the files at Dir, copied by image (the platform's
+// own, which has the javo binary; s gets its pull secrets), and the
+// identity files over /etc, written by the main unit's own image.
+func Add(s *workload.Spec, image podspec.Image) {
+	s.Pull(image.PullSecrets)
+	s.Volumes = append(s.Volumes, workload.Volume{Name: volume}, workload.Volume{Name: etcVolume})
+	app := &s.Main
+	step := func(name, image string, m workload.Mount) workload.Unit {
+		return workload.Unit{
+			Name: name, Image: image, ReadOnlyRoot: true,
+			Env:    []workload.Env{{Name: "HOME", Value: podspec.HomeDir}},
+			Mounts: []workload.Mount{m},
+		}
+	}
+	cp := step(CopyContainer, image.Ref, workload.Mount{Volume: volume, Path: Dir})
+	cp.Command = []string{"/" + model.ProductName, "pod-files", "--to", Dir}
+	id := step(IdentityContainer, app.Image, workload.Mount{Volume: etcVolume, Path: etcDir})
+	id.Command = []string{"sh", "-c", identityScript, "sh", etcDir}
+	id.Env = append(id.Env, workload.Env{Name: "JAVO_USER", Value: app.EnvValue("JAVO_USER")})
+	s.Steps = append(s.Steps, cp, id)
+
+	// Not read-only: the API guide is mounted at a file inside it.
+	app.Mounts = append(app.Mounts, workload.Mount{Volume: volume, Path: Dir})
+	for _, f := range []string{"passwd", "group", "bash.bashrc"} {
+		app.Mounts = append(app.Mounts, workload.Mount{Volume: etcVolume, Path: "/etc/" + f, SubPath: f, ReadOnly: true})
+	}
+}
+
+// ReadOnly shows the files at Dir, read-only, to another step (the sample
+// copy, the environment install).
+func ReadOnly() workload.Mount {
+	return workload.Mount{Volume: volume, Path: Dir, ReadOnly: true}
 }
 
 // Mount shows the files at Dir, read-only, to another init container (the

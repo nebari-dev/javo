@@ -30,6 +30,7 @@ import (
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
@@ -261,6 +262,90 @@ func Apply(spec *corev1.PodSpec, image string, toolsImage podspec.Image, src Sou
 	toolsImage.Pull(spec)
 	mount.ReadOnly = true
 	app.VolumeMounts = append(app.VolumeMounts, mount)
+	return nil
+}
+
+// Add makes s's main unit run in the environment src names, installed by a
+// step running image (one with pixi, sh, flock, sha256sum, base64 and
+// gunzip), after one running toolsImage (the platform's, with its binary at
+// /<product>) copies that binary into Dir. The step sees the home exactly as
+// the main unit does (a preview's scratch home stays scratch), the pod files
+// when it installs one of theirs, and the repository when it may hold the
+// lockfile. Files too large to carry, or no image, are an error.
+func Add(s *workload.Spec, image string, toolsImage podspec.Image, src Source) error {
+	if src.Files == nil && src.Default == "" {
+		return nil
+	}
+	if image == "" {
+		return errors.New("environment: the platform has no image to install environments with (environments.pixiImage)")
+	}
+	if toolsImage.Ref == "" {
+		return errors.New("environment: the platform's own image is not set (the controller's --runner-image)")
+	}
+	app := &s.Main
+	home, ok := app.MountAt(podspec.HomeDir)
+	if !ok {
+		return errors.New("environment: the pod has no home folder to install into")
+	}
+	home.ReadOnly = false
+	root := path.Join(podspec.HomeDir, HomeFolder)
+	tool := path.Join(Dir, model.ProductName)
+	mount := workload.Mount{Volume: volume, Path: Dir}
+	env := []workload.Env{
+		{Name: "HOME", Value: podspec.HomeDir},
+		{Name: "PIXI_CACHE_DIR", Value: root + "/pixi-cache"},
+		{Name: "JAVO_ENV_ROOT", Value: root + "/envs"},
+		{Name: "JAVO_ENV_DIR", Value: Dir},
+		{Name: "JAVO_TOOL", Value: tool},
+	}
+	mounts := []workload.Mount{mount, home}
+	for _, v := range []struct{ name, value string }{
+		{"JAVO_ENV_NAME", src.Name}, {"JAVO_ENV_FROM", src.From}, {"JAVO_ENV_PROGRAM", src.Program},
+	} {
+		if v.value != "" {
+			env = append(env, workload.Env{Name: v.name, Value: v.value})
+		}
+	}
+	beside := src.Beside && src.Files != nil && src.Default != ""
+	if beside {
+		env = append(env, workload.Env{Name: "JAVO_ENV_BESIDE", Value: "1"}, workload.Env{Name: "JAVO_ENV_SLUG", Value: Slug(src.Name)})
+	}
+	if src.Files != nil {
+		toml, lock, err := check(src.Files)
+		if err != nil {
+			return err
+		}
+		env = append(env, workload.Env{Name: "JAVO_PIXI_TOML", Value: toml}, workload.Env{Name: "JAVO_PIXI_LOCK", Value: lock})
+	}
+	if src.Files == nil || beside {
+		env = append(env, workload.Env{Name: "JAVO_ENV_DEFAULT", Value: path.Join(podfiles.Dir, "envs", src.Default)})
+		mounts = append(mounts, podfiles.ReadOnly())
+		if src.RepoDir != "" {
+			if m, ok := app.MountAt(src.RepoDir); ok {
+				m.ReadOnly = true
+				mounts = append(mounts, m)
+				env = append(env, workload.Env{Name: "JAVO_ENV_REPO", Value: src.RepoDir})
+			}
+		}
+	}
+	for _, v := range s.Volumes {
+		if v.Name == podspec.TmpVolume {
+			mounts = append(mounts, workload.Mount{Volume: podspec.TmpVolume, Path: "/tmp"})
+		}
+	}
+	s.Volumes = append(s.Volumes, workload.Volume{Name: volume})
+	s.Steps = append(s.Steps, workload.Unit{
+		Name: ToolsContainer, Image: toolsImage.Ref, ReadOnlyRoot: true,
+		Command: []string{"/" + model.ProductName},
+		Args:    []string{"runner", "install", "--to", tool},
+		Mounts:  []workload.Mount{mount},
+	}, workload.Unit{
+		Name: InstallContainer, Image: image,
+		Command: []string{"sh", "-c", script}, Env: env, Mounts: mounts,
+	})
+	s.Pull(toolsImage.PullSecrets)
+	mount.ReadOnly = true
+	app.Mounts = append(app.Mounts, mount)
 	return nil
 }
 

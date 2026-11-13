@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/homepath"
 	"github.com/nebari-dev/javo/internal/imageref"
 	"github.com/nebari-dev/javo/internal/model"
@@ -677,11 +676,12 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 	ws, tpl := fixtures()
 	tpl.Spec.APIToken = true
 	tpl.Spec.APIGuidePaths = []string{"/etc/claude-code/CLAUDE.md", "/home/AGENTS.md"}
-	pod, err := BuildPod(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithAPIToken(pod, tpl, model.APIAccessOf(ws, tpl), "sales-app-javo-api", "https://javo.example.com", "http://javo-gateway.javo-system.svc:80")
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessOf(ws, tpl), APIURL: "https://javo.example.com", APIInternalURL: "http://javo-gateway.javo-system.svc:80"})
+	pod, tokenSecret := podOf(s), APITokenSecretName(ws.ObjectName())
 	c := pod.Spec.Containers[0]
 	env := map[string]corev1.EnvVar{}
 	for _, e := range c.Env {
@@ -697,7 +697,7 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 	}
 	tok := env["JAVO_TOKEN"]
 	if tok.Value != "" || tok.ValueFrom == nil || tok.ValueFrom.SecretKeyRef == nil ||
-		tok.ValueFrom.SecretKeyRef.Name != "sales-app-javo-api" || tok.ValueFrom.SecretKeyRef.Key != APITokenKey {
+		tok.ValueFrom.SecretKeyRef.Name != tokenSecret || tok.ValueFrom.SecretKeyRef.Key != APITokenKey {
 		t.Fatalf("JAVO_TOKEN %+v", tok)
 	}
 	mounts := map[string]corev1.VolumeMount{}
@@ -717,7 +717,7 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 		}
 	}
 	// Only the guide is projected into the volume: the token is never a file.
-	if vol == nil || vol.Secret == nil || vol.Secret.SecretName != "sales-app-javo-api" ||
+	if vol == nil || vol.Secret == nil || vol.Secret.SecretName != tokenSecret ||
 		len(vol.Secret.Items) != 1 || vol.Secret.Items[0].Key != APIGuideKey {
 		t.Fatalf("guide volume %+v", vol)
 	}
@@ -726,11 +726,12 @@ func TestAPITokenReachesTheAppFromASecretAndTheGuideIsMounted(t *testing.T) {
 func TestNoAPITokenWithoutTheTemplateField(t *testing.T) {
 	t.Parallel()
 	ws, tpl := fixtures()
-	pod, err := BuildPod(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithAPIToken(pod, tpl, model.APIAccessOf(ws, tpl), "sales-app-javo-api", "https://javo.example.com", "")
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessOf(ws, tpl), APIURL: "https://javo.example.com"})
+	pod := podOf(s)
 	for _, e := range pod.Spec.Containers[0].Env {
 		if e.Name == envURL || e.Name == envToken {
 			t.Fatalf("env %s on a template without apiToken", e.Name)
@@ -902,11 +903,12 @@ func TestCloneTakesTheGitConfigOfThePlatform(t *testing.T) {
 func TestWithGitTokenMountsTheSecretOnlyIntoClone(t *testing.T) {
 	t.Parallel()
 	ws, tpl := sourceFixtures()
-	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithGitToken(pod, ws, "alice-sales-javo-git", "3")
+	addGitToken(&s, ws, "alice-sales", "3")
+	pod, gitSecret := podOf(s), GitTokenSecretName("alice-sales")
 
 	clone := initNamed(t, pod, "clone")
 	for _, want := range []string{"--username=x-access-token", "--password-file=/etc/javo/git/token"} {
@@ -921,7 +923,7 @@ func TestWithGitTokenMountsTheSecretOnlyIntoClone(t *testing.T) {
 	for _, v := range pod.Spec.Volumes {
 		if v.Secret != nil {
 			secrets++
-			if v.Secret.SecretName != "alice-sales-javo-git" {
+			if v.Secret.SecretName != gitSecret {
 				t.Errorf("secret %q", v.Secret.SecretName)
 			}
 		}
@@ -934,7 +936,7 @@ func TestWithGitTokenMountsTheSecretOnlyIntoClone(t *testing.T) {
 			t.Errorf("%s mounts the token", c.Name)
 		}
 		for _, e := range c.Env {
-			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == "alice-sales-javo-git" {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == gitSecret {
 				t.Errorf("%s reads the token through env", c.Name)
 			}
 		}
@@ -945,11 +947,12 @@ func TestWithGitTokenNeverReachesAForkPreview(t *testing.T) {
 	t.Parallel()
 	ws, tpl := sourceFixtures()
 	ws.ParentID, ws.PullNumber, ws.Source.Fork = "parent-1", 7, true
-	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithGitToken(pod, ws, "alice-sales-javo-git", "3")
+	addGitToken(&s, ws, "alice-sales", "3")
+	pod := podOf(s)
 	for _, v := range pod.Spec.Volumes {
 		if v.Secret != nil {
 			t.Fatalf("fork preview has secret volume %s", v.Name)
@@ -1206,9 +1209,9 @@ func TestAppWithoutASourceBuildsTodaysPod(t *testing.T) {
 			t.Fatalf("volume %s on an app without a source", v.Name)
 		}
 	}
-	// Only the storage layout's annotation: no run fingerprint or token mark.
-	for k := range pod.Annotations {
-		if k != kube.SafeToEvictAnnotation {
+	// No run fingerprint, restart request or token mark.
+	for _, k := range []string{model.AnnotationRun, model.AnnotationRestart, model.AnnotationGitToken, model.AnnotationSecrets} {
+		if _, ok := pod.Annotations[k]; ok {
 			t.Fatalf("annotations = %v", pod.Annotations)
 		}
 	}
@@ -1263,11 +1266,12 @@ func TestCloneTmpIsNotSharedWithTheBuild(t *testing.T) {
 	t.Parallel()
 	ws, _ := sourceFixtures()
 	ws.File, ws.Source.Path = "", "site"
-	pod, err := BuildPod(ws, staticTemplate("npm run build"), "/u/alice/site/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, staticTemplate("npm run build"), "/u/alice/site/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithGitToken(pod, ws, "alice-site.app-git", "3")
+	addGitToken(&s, ws, "alice-site", "3")
+	pod := podOf(s)
 	clone := initNamed(t, pod, "clone")
 	var cloneTmp string
 	for _, m := range clone.VolumeMounts {
@@ -1356,17 +1360,18 @@ func effectiveEnv(t *testing.T, c corev1.Container, name string) string {
 func TestAppPodAsksForColourUnlessTheAppSetsItsOwn(t *testing.T) {
 	t.Parallel()
 	ws, tpl := fixtures()
-	pod, err := BuildPod(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/alice/sales-app/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
+	pod := podOf(s)
 	for _, n := range []string{"FORCE_COLOR", "CLICOLOR_FORCE", "PY_COLORS"} {
 		if v := effectiveEnv(t, pod.Spec.Containers[0], n); v != "1" {
 			t.Errorf("%s = %q, want 1", n, v)
 		}
 	}
-	WithEnv(pod, []model.EnvVar{{Name: "FORCE_COLOR", Value: "0"}})
-	if v := effectiveEnv(t, pod.Spec.Containers[0], "FORCE_COLOR"); v != "0" {
+	addEnv(&s.Main, []model.EnvVar{{Name: "FORCE_COLOR", Value: "0"}})
+	if v := effectiveEnv(t, podOf(s).Spec.Containers[0], "FORCE_COLOR"); v != "0" {
 		t.Fatalf("FORCE_COLOR = %q, want the app's own 0", v)
 	}
 }
@@ -1415,18 +1420,13 @@ func TestNebiNeverGivesAUserImageThePlatformsPullSecrets(t *testing.T) {
 	t.Parallel()
 	ws, tpl := containerFixtures()
 	tpl.Spec.NebiToken = true
-	pod, err := BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := &Reconciler{NebiURL: "http://nebi.example.com", RunnerImage: podspec.Image{Ref: "registry.example.com/javo:1", PullSecrets: []string{"platform-pull"}}}
-	if err := r.withNebi(pod, ws, tpl); err == nil {
-		t.Fatalf("Nebi gave image %s pull secrets %v", pod.Spec.Containers[0].Image, pod.Spec.ImagePullSecrets)
-	}
-	r.RunnerImage.PullSecrets = nil
-	pod, _ = BuildPod(ws, tpl, "/u/alice/web/", "", testLayout(100500), sizes.Size{}, testImages)
-	if err := r.withNebi(pod, ws, tpl); err != nil {
+	in := Inputs{App: ws, Template: tpl, BaseURL: "/u/alice/web/", Layout: testLayout(100500), Images: testImages, NebiURL: "http://nebi.example.com"}
+	if _, err := Plan(in); err != nil {
 		t.Fatalf("public platform image: %v", err)
+	}
+	in.Images.Runner = podspec.Image{Ref: "registry.example.com/javo:1", PullSecrets: []string{"platform-pull"}}
+	if s, err := Plan(in); err == nil {
+		t.Fatalf("Nebi gave image %s pull secrets %v", s.Main.Image, s.PullSecrets)
 	}
 }
 
@@ -1473,12 +1473,12 @@ func TestPlatformInitContainersHaveAReadOnlyRoot(t *testing.T) {
 	ws.File = "index.html"
 	build(ws, staticTemplate(""))
 	ws, tpl = fixtures()
-	pod, err := BuildPod(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/a/b/", "", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithNebi(pod, ws.ObjectName(), "http://nebi.example.com", testImages.Runner)
-	pods = append(pods, pod)
+	addNebi(&s, "http://nebi.example.com", testImages.Runner)
+	pods = append(pods, podOf(s))
 
 	seen := map[string]bool{}
 	for _, p := range pods {

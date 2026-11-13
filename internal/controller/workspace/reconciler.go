@@ -192,7 +192,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// The token hand-off needs no template, so it runs before any state
 	// below (paused, template missing, home conflict) can return early and
 	// leave a pasted token in the row.
-	gitSecret, gitGen, gitUnreadable, err := r.syncGitToken(ctx, &app, pod)
+	gitHolder, gitGen, gitUnreadable, err := r.syncGitToken(ctx, &app, pod)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -360,7 +360,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, err
 		}
 		obj := app.ObjectName()
-		if pod != nil && readsOtherSecrets(pod, APITokenSecretName(obj), AppSecretsName(obj), NebiTokenSecretName(obj), gitSecret) {
+		if pod != nil && readsOtherSecrets(pod, APITokenSecretName(obj), AppSecretsName(obj), NebiTokenSecretName(obj), GitTokenSecretName(gitHolder)) {
 			// Built before the Secrets' names changed: built again once,
 			// after which the old Secrets go (dropLegacySecrets).
 			if err := r.Delete(ctx, pod); client.IgnoreNotFound(err) != nil {
@@ -380,7 +380,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		if pod == nil && !blocked {
 			size, ok := r.appSize(&app)
-			secretsName := AppSecretsName(app.ObjectName())
 			unreadable, err := r.writeAppSecrets(ctx, &app, appSecrets)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -388,37 +387,38 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if unreadable == "" {
 				unreadable = gitUnreadable
 			}
-			base, host := r.platform().address(&app)
 			if !ok {
 				obs.SizeUnknown = app.Size
 			} else if unreadable != "" {
 				obs.SecretsUnreadable = unreadable
-			} else if want, buildErr := BuildPod(&app, tpl, base, host, layout, size, Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries}); buildErr != nil {
-				if na := (*imageref.NotAllowedError)(nil); errors.As(buildErr, &na) {
-					obs.ImageNotAllowed = reasons.Msg(reasons.MsgImageRegistryNotAllowed, na.Registry, strings.Join(r.AllowedRegistries, ", "))
-				} else {
-					obs.TemplateError = buildErr.Error()
-				}
-			} else if pullErr := r.withNebi(want, &app, tpl); pullErr != nil {
-				obs.TemplateError = pullErr.Error()
 			} else {
-				kube.Mark(want, built)
-				r.Isolation.Apply(&want.Spec)
-				WithAPIToken(want, tpl, access, tokenSecret, r.APIURL, r.APIInternalURL)
-				WithGitToken(want, &app, gitSecret, gitGen)
-				WithEnv(want, app.Env)
-				WithAppSecrets(want, secretsName, appSecrets)
-				WithAgent(want, &app, tpl, agent, tokenSecret)
-				problem, err := r.withEnvironment(ctx, &app, tpl, want)
-				if err != nil {
+				in := Inputs{
+					App: &app, Template: tpl, Layout: layout, Size: size, Fingerprint: built,
+					Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries},
+					APIAccess: access, HasToken: tokenSecret != "", APIURL: r.APIURL, APIInternalURL: r.APIInternalURL,
+					GitHolder: gitHolder, GitGen: gitGen, Secrets: appSecrets, Agent: agent,
+				}
+				in.BaseURL, in.PublicHost = r.platform().address(&app)
+				if r.NebiURL != "" && model.NebiTokenFor(&app, tpl) {
+					in.NebiURL = r.NebiURL
+				}
+				if in.EnvFiles, err = r.environmentFiles(ctx, &app); err != nil {
 					return ctrl.Result{}, err
 				}
-				WithSSHAgent(want, tpl)
-				WithAgentHelper(want, tpl, r.RunnerImage)
-				if problem != "" {
-					obs.EnvironmentProblem = problem
-				} else if pod, err = r.createPod(ctx, want); err != nil {
-					return ctrl.Result{}, err
+				spec, planErr := Plan(in)
+				var notAllowed *imageref.NotAllowedError
+				var noEnvironment *EnvironmentError
+				switch {
+				case errors.As(planErr, &notAllowed):
+					obs.ImageNotAllowed = reasons.Msg(reasons.MsgImageRegistryNotAllowed, notAllowed.Registry, strings.Join(r.AllowedRegistries, ", "))
+				case errors.As(planErr, &noEnvironment):
+					obs.EnvironmentProblem = noEnvironment.Error()
+				case planErr != nil:
+					obs.TemplateError = planErr.Error()
+				default:
+					if pod, err = r.createPod(ctx, kube.Render(spec, r.Isolation)); err != nil {
+						return ctrl.Result{}, err
+					}
 				}
 			}
 		}
@@ -670,16 +670,6 @@ func (r *Reconciler) writeStatus(ctx context.Context, app *model.App, phase, url
 		return nil
 	}
 	return err
-}
-
-// withNebi gives want the Nebi CLI when the template asks for it, and refuses
-// a pod that would then pull a person's image with the platform's pull
-// secrets (the CLI container carries them).
-func (r *Reconciler) withNebi(want *corev1.Pod, app *model.App, tpl *model.Template) error {
-	if r.NebiURL != "" && model.NebiTokenFor(app, tpl) {
-		WithNebi(want, app.ObjectName(), r.NebiURL, r.RunnerImage)
-	}
-	return UserImagePullSecrets(&want.Spec, tpl)
 }
 
 // SetupWithManager wires the controller: app rows (and the templates and

@@ -271,12 +271,13 @@ func TestPlatformVariablesAreReserved(t *testing.T) {
 	ws := &model.App{Namespace: fx.ns, Name: "all", Owner: "alice", Template: "t", Command: "run {{.Home}}", File: "app.py",
 		Source: &model.Source{URL: "https://github.com/example-org/site", Ref: "main"}}
 	tpl := &model.Template{Name: "t", Spec: model.TemplateSpec{Kind: "streamlit", Image: "example.com/i:1", Port: 8501, UserCommand: model.UserCommandOptional}}
-	pod, err := BuildPod(ws, tpl, "/u/alice/all/", "example.com", testLayout(FixedUID), sizes.Size{}, testImages)
+	s, err := planOf(ws, tpl, "/u/alice/all/", "example.com", testLayout(FixedUID), sizes.Size{}, testImages)
 	if err != nil {
 		t.Fatal(err)
 	}
-	WithAPIToken(pod, tpl, model.APIAccessReadWrite, "tok", "https://javo.example.com", "")
-	WithGitToken(pod, ws, "git", "1")
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com"})
+	addGitToken(&s, ws, ws.ObjectName(), "1")
+	pod := podOf(s)
 	var names []string
 	for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 		for _, e := range c.Env {

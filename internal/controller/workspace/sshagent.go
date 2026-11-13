@@ -4,12 +4,9 @@ import (
 	"path"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
-
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/pixienv"
-	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 const (
@@ -28,59 +25,47 @@ const (
 	sshPublicVolume = "ssh-public"
 )
 
-// WithSSHAgent keeps the owner's private SSH keys out of reach of a coding
-// agent (a template of model.CategoryAgents) while SSH still works: the app
-// container's ~/.ssh is an empty folder of the pod, and SSH_AUTH_SOCK points
-// at an ssh-agent run by a native sidecar, the only container that sees the
-// real ~/.ssh (the home, read-only). The sidecar copies known_hosts, config
-// and the public keys into the app's ~/.ssh and loads the keys that need no
-// passphrase. It runs in the app's image and environment, so it comes after
-// the environment's install step (withEnvironment). Other templates are left
-// as they are.
-func WithSSHAgent(pod *corev1.Pod, t *model.Template) {
+// addSSHAgent keeps the owner's private SSH keys out of reach of a coding
+// agent (a template of model.CategoryAgents) while SSH still works: the
+// main unit's ~/.ssh is an empty folder of the workload, and SSH_AUTH_SOCK
+// points at an ssh-agent run by a step that stays, the only unit that sees
+// the real ~/.ssh (the home, read-only). That step copies known_hosts,
+// config and the public keys into the app's ~/.ssh and loads the keys that
+// need no passphrase. It runs in the app's image and environment, so it
+// comes after the environment's install step. Other templates are left as
+// they are.
+func addSSHAgent(s *workload.Spec, t *model.Template) {
 	if t.Spec.Category != model.CategoryAgents {
 		return
 	}
-	spec := &pod.Spec
-	app := &spec.Containers[0]
-	empty := corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
-	spec.Volumes = append(spec.Volumes,
-		corev1.Volume{Name: sshAgentVolume, VolumeSource: empty},
-		corev1.Volume{Name: sshPublicVolume, VolumeSource: empty})
+	app := &s.Main
+	s.Volumes = append(s.Volumes, workload.Volume{Name: sshAgentVolume}, workload.Volume{Name: sshPublicVolume})
 
-	// The sidecar sees what pod-user.sh needs to run ssh-agent from the
+	// The step sees what pod-user.sh needs to run ssh-agent from the
 	// environment (the pod files, the identity files, the activation and the
 	// home holding the installed environment), all read-only.
-	var mounts []corev1.VolumeMount
-	for _, m := range app.VolumeMounts {
-		if m.MountPath == homeDir || m.MountPath == model.PodFilesDir || m.MountPath == pixienv.Dir || strings.HasPrefix(m.MountPath, "/etc/") {
+	var mounts []workload.Mount
+	for _, m := range app.Mounts {
+		if m.Path == homeDir || m.Path == model.PodFilesDir || m.Path == pixienv.Dir || strings.HasPrefix(m.Path, "/etc/") {
 			m.ReadOnly = true
 			mounts = append(mounts, m)
 		}
 	}
 	mounts = append(mounts,
-		corev1.VolumeMount{Name: sshAgentVolume, MountPath: sshAgentDir},
-		corev1.VolumeMount{Name: sshPublicVolume, MountPath: sshPublicDir})
-	spec.InitContainers = append(spec.InitContainers, corev1.Container{
-		Name:          SSHAgentContainer,
-		Image:         app.Image,
-		RestartPolicy: ptr.To(corev1.ContainerRestartPolicyAlways),
-		Command:       []string{path.Join(model.PodFilesDir, "pod-user.sh"), path.Join(model.PodFilesDir, "agents", "ssh-agent.sh")},
-		Args:          []string{path.Join(homeDir, ".ssh"), sshPublicDir, path.Join(sshAgentDir, "agent.sock")},
-		Env:           []corev1.EnvVar{{Name: "HOME", Value: homeDir}},
-		VolumeMounts:  mounts,
+		workload.Mount{Volume: sshAgentVolume, Path: sshAgentDir},
+		workload.Mount{Volume: sshPublicVolume, Path: sshPublicDir})
+	s.Steps = append(s.Steps, workload.Unit{
+		Name: SSHAgentContainer, Image: app.Image, ReadOnlyRoot: true, Stays: true,
+		Command: []string{path.Join(model.PodFilesDir, "pod-user.sh"), path.Join(model.PodFilesDir, "agents", "ssh-agent.sh")},
+		Args:    []string{path.Join(homeDir, ".ssh"), sshPublicDir, path.Join(sshAgentDir, "agent.sock")},
+		Env:     []workload.Env{{Name: "HOME", Value: homeDir}},
+		Mounts:  mounts,
 		// The app starts once the keys are loaded (or found missing), so
 		// its first git command already has them.
-		StartupProbe: &corev1.Probe{
-			ProbeHandler:     corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"test", "-e", path.Join(sshAgentDir, "ready")}}},
-			PeriodSeconds:    1,
-			FailureThreshold: 60,
-		},
-		SecurityContext:          podspec.ReadOnlyRootContext(),
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+		Ready: &workload.Check{Exec: []string{"test", "-e", path.Join(sshAgentDir, "ready")}, Tries: 60},
 	})
-	app.VolumeMounts = append(app.VolumeMounts,
-		corev1.VolumeMount{Name: sshPublicVolume, MountPath: path.Join(homeDir, ".ssh")},
-		corev1.VolumeMount{Name: sshAgentVolume, MountPath: sshAgentDir, ReadOnly: true})
-	podspec.SetEnv(app, corev1.EnvVar{Name: "SSH_AUTH_SOCK", Value: path.Join(sshAgentDir, "agent.sock")})
+	app.Mounts = append(app.Mounts,
+		workload.Mount{Volume: sshPublicVolume, Path: path.Join(homeDir, ".ssh")},
+		workload.Mount{Volume: sshAgentVolume, Path: sshAgentDir, ReadOnly: true})
+	app.SetEnv(workload.Env{Name: "SSH_AUTH_SOCK", Value: path.Join(sshAgentDir, "agent.sock")})
 }

@@ -77,68 +77,6 @@ func TestBaseNamesTheOwnerInJAVOUser(t *testing.T) {
 	}
 }
 
-func TestScratchHomeKeepsTheOwnersHomeAwayFromTheAppContainer(t *testing.T) {
-	spec := withHome(Base("alice", "example.com/app:1", corev1.ResourceRequirements{}))
-	ScratchHome(&spec)
-
-	for _, v := range spec.Volumes {
-		if v.PersistentVolumeClaim != nil {
-			t.Fatalf("volume %s still claims the home", v.Name)
-		}
-	}
-	var scratch string
-	for _, m := range spec.Containers[0].VolumeMounts {
-		if m.MountPath == HomeDir {
-			scratch = m.Name
-		}
-	}
-	if scratch == "" {
-		t.Fatal("the app container has nothing at the home path")
-	}
-	found := false
-	for _, v := range spec.Volumes {
-		if v.Name == scratch {
-			found = v.EmptyDir != nil
-		}
-	}
-	if !found {
-		t.Fatalf("mount %s is not an emptyDir", scratch)
-	}
-}
-
-func TestScratchHomeKeepsTheClaimForAnInitContainerThatReadsIt(t *testing.T) {
-	spec := withHome(Base("alice", "example.com/app:1", corev1.ResourceRequirements{}))
-	spec.InitContainers = []corev1.Container{{Name: "site-copy",
-		VolumeMounts: []corev1.VolumeMount{{Name: HomeVolume, MountPath: HomeDir, ReadOnly: true}}}}
-	ScratchHome(&spec)
-
-	if spec.InitContainers[0].VolumeMounts[0].Name != HomeVolume {
-		t.Fatal("the init container lost its home mount")
-	}
-	claims := 0
-	for _, v := range spec.Volumes {
-		if v.PersistentVolumeClaim != nil {
-			claims++
-		}
-	}
-	if claims != 1 {
-		t.Fatalf("claims = %d, want the one the init container reads", claims)
-	}
-	for _, m := range spec.Containers[0].VolumeMounts {
-		if m.Name == HomeVolume {
-			t.Fatal("the app container still mounts the home claim")
-		}
-	}
-}
-
-// withHome is spec with the home laid out as every app pod has it.
-func withHome(spec corev1.PodSpec) corev1.PodSpec {
-	spec.Volumes = append(spec.Volumes, corev1.Volume{Name: HomeVolume, VolumeSource: corev1.VolumeSource{
-		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "home-alice"}}})
-	spec.Containers[0].VolumeMounts = append(spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: HomeVolume, MountPath: HomeDir})
-	return spec
-}
-
 // An admin may run people's pods in their own user namespace (a container
 // escape then lands as an unprivileged uid on the node) and under a
 // sandboxed runtime class. The zero value leaves the pod as it is.

@@ -6,12 +6,12 @@ import (
 	"errors"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
+	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // The variables a coding-agent app (a template with agentModel) gets, for
@@ -70,26 +70,23 @@ func (r *Reconciler) agentModelOf(ctx context.Context, app *model.App, tpl *mode
 		key: &store.SealedBinding{Env: envAgentKey, Secret: sec, Ciphertext: sealed}}, nil
 }
 
-// WithAgent gives the app container of pod, built from template t, its
-// agent model and first prompt. On the platform's model the key is the
-// app's own API token (from its token Secret tokenSecret); the owner's own
-// key comes with the app's other secrets (WithAppSecrets). Nothing for a
-// template without agentModel.
-func WithAgent(pod *corev1.Pod, app *model.App, t *model.Template, m agentModel, tokenSecret string) {
+// addAgent gives the main unit of a coding agent (a template with
+// agentModel) its model and first prompt. On the platform's model the key
+// is the app's own API token; the owner's own key comes with the app's
+// other secrets (addAppSecrets).
+func addAgent(s *workload.Spec, ws *model.App, t *model.Template, m agentModel, hasToken bool) {
 	if !t.Spec.AgentModel {
 		return
 	}
-	c := &pod.Spec.Containers[0]
-	c.Env = append(c.Env, corev1.EnvVar{Name: envAgentMode, Value: m.mode})
+	c := &s.Main
+	c.Env = append(c.Env, workload.Env{Name: envAgentMode, Value: m.mode})
 	if m.mode != model.AgentModeLogin {
-		c.Env = append(c.Env, corev1.EnvVar{Name: envAgentModel, Value: m.model}, corev1.EnvVar{Name: envAgentBaseURL, Value: m.baseURL})
+		c.Env = append(c.Env, workload.Env{Name: envAgentModel, Value: m.model}, workload.Env{Name: envAgentBaseURL, Value: m.baseURL})
 	}
-	if m.mode == model.AgentModePlatform && tokenSecret != "" {
-		c.Env = append(c.Env, corev1.EnvVar{Name: envAgentKey, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: tokenSecret}, Key: APITokenKey,
-		}}})
+	if m.mode == model.AgentModePlatform && hasToken {
+		c.Env = append(c.Env, workload.Env{Name: envAgentKey, From: &workload.SecretRef{Holder: s.Ref.Name, Use: executor.UseAPI, Key: APITokenKey}})
 	}
-	if prompt := model.PrintableText(app.AgentPrompt); prompt != "" {
-		c.Env = append(c.Env, corev1.EnvVar{Name: envAgentPrompt, Value: prompt})
+	if prompt := model.PrintableText(ws.AgentPrompt); prompt != "" {
+		c.Env = append(c.Env, workload.Env{Name: envAgentPrompt, Value: prompt})
 	}
 }

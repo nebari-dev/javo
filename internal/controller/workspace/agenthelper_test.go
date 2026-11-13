@@ -10,11 +10,14 @@ import (
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
-const (
-	testTokenSecret   = "app-api"
-	testSecretsSecret = "app-secrets"
+// The Secrets the agent app of these tests reads its credentials from.
+var (
+	agentApp          = &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice"}
+	testTokenSecret   = APITokenSecretName(agentApp.ObjectName())
+	testSecretsSecret = AppSecretsName(agentApp.ObjectName())
 )
 
 // credentialPod is the pod of an app from the shipped template name with an
@@ -23,19 +26,19 @@ const (
 func credentialPod(t *testing.T, name, mode string) *corev1.Pod {
 	t.Helper()
 	tpl := shippedTemplate(t, name)
-	pod := agentPod(t, name)
+	s := agentSpec(t, name)
 	app := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name}
-	WithAPIToken(pod, tpl, model.APIAccessReadWrite, testTokenSecret, "https://javo.example.com", "http://gateway.javo:8080")
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com", APIInternalURL: "http://gateway.javo:8080"})
 	m := agentModel{mode: mode, model: "vendor/m1", baseURL: "http://gateway.javo:8080/api/ai/openai/v1"}
 	var set secretenv.Set
 	if mode == model.AgentModeOwn {
 		m.baseURL = "https://llm.example.com/v1"
 		set = secretenv.Set{Bindings: []store.SealedBinding{{Env: envAgentKey}, {Env: "MY_OWN_SECRET"}}, Fingerprint: "fp"}
 	}
-	WithAppSecrets(pod, testSecretsSecret, set)
-	WithAgent(pod, app, tpl, m, testTokenSecret)
-	WithAgentHelper(pod, tpl, testImages.Runner)
-	return pod
+	addAppSecrets(&s, set)
+	addAgent(&s, app, tpl, m, true)
+	addAgentHelper(&s, tpl, testImages.Runner)
+	return podOf(s)
 }
 
 func envNamed(c *corev1.Container, name string) *corev1.EnvVar {
@@ -139,16 +142,18 @@ func TestCodingAgentsHoldNoCredentials(t *testing.T) {
 func TestNoHelperWithoutCredentialsOrOutsideAgents(t *testing.T) {
 	t.Parallel()
 	herdr := shippedTemplate(t, "herdr")
-	pod := agentPod(t, "herdr")
-	WithAPIToken(pod, herdr, model.APIAccessNone, "", "https://javo.example.com", "")
-	WithAgentHelper(pod, herdr, testImages.Runner)
+	s := agentSpec(t, "herdr")
+	addAPIToken(&s, herdr, Inputs{APIAccess: model.APIAccessNone, APIURL: "https://javo.example.com"})
+	addAgentHelper(&s, herdr, testImages.Runner)
+	pod := podOf(s)
 	if _, h := initContainer(pod, AgentHelperContainer); h != nil {
 		t.Fatal("herdr got a helper")
 	}
 	tpl := shippedTemplate(t, "jupyterlab")
-	pod = &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}}}
-	WithAPIToken(pod, tpl, model.APIAccessReadWrite, testTokenSecret, "https://javo.example.com", "")
-	WithAgentHelper(pod, tpl, testImages.Runner)
+	s = workload.Spec{Main: workload.Unit{Name: workload.MainUnit}}
+	addAPIToken(&s, tpl, Inputs{APIAccess: model.APIAccessReadWrite, APIURL: "https://javo.example.com"})
+	addAgentHelper(&s, tpl, testImages.Runner)
+	pod = podOf(s)
 	if _, h := initContainer(pod, AgentHelperContainer); h != nil || envNamed(&pod.Spec.Containers[0], envToken) == nil {
 		t.Fatalf("a JupyterLab app changed: %+v", pod.Spec)
 	}

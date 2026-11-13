@@ -1,16 +1,16 @@
 package workspace
 
 import (
+	"cmp"
 	"fmt"
 	"path"
-
-	corev1 "k8s.io/api/core/v1"
 
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/source"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // Where an app that runs from Git keeps its clone and, for a template with a
@@ -98,9 +98,9 @@ fi`
 	ifFileCopy = `if [ -e "$2/$1" ]; then from="$3"; else from="$2"; fi; cp -r "$from/." "$4"`
 )
 
-// sourceInitContainers are the steps that make the clone and, for a template
-// with a build step, the site: clone, source-check, build and site-copy.
-func sourceInitContainers(ws *model.App, t *model.Template, baseURL string, img Images) ([]corev1.Container, error) {
+// sourceSteps are the steps that make the clone and, for a template with a
+// build step, the site: clone, source-check, build and site-copy.
+func sourceSteps(ws *model.App, t *model.Template, baseURL string, img Images) ([]workload.Unit, error) {
 	if img.Clone == "" || img.Runner.Ref == "" {
 		return nil, fmt.Errorf("spec.source: the platform has no clone or runner image to clone with (set source.cloneImage and the controller's --runner-image)")
 	}
@@ -110,142 +110,122 @@ func sourceInitContainers(ws *model.App, t *model.Template, baseURL string, img 
 			return nil, fmt.Errorf("spec.source.ref: %w", err)
 		}
 	}
-	srcMount := corev1.VolumeMount{Name: sourceVolume, MountPath: SourceDir}
-	tmpMount := corev1.VolumeMount{Name: podspec.TmpVolume, MountPath: "/tmp"}
-	step := func(name, image string, mounts ...corev1.VolumeMount) corev1.Container {
-		return corev1.Container{
-			Name: name, Image: image, SecurityContext: podspec.RestrictedContext(),
-			Env:          []corev1.EnvVar{{Name: "HOME", Value: "/tmp"}},
-			VolumeMounts: mounts,
-			// Errors go to stderr; the kubelet turns them into the termination message.
-			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-		}
+	srcMount := workload.Mount{Volume: sourceVolume, Path: SourceDir}
+	tmpMount := workload.Mount{Volume: podspec.TmpVolume, Path: "/tmp"}
+	step := func(name, image string, mounts ...workload.Mount) workload.Unit {
+		return workload.Unit{Name: name, Image: image, Env: []workload.Env{{Name: "HOME", Value: "/tmp"}}, Mounts: mounts}
 	}
-	ref := s.Ref
-	if ref == "" {
-		ref = "HEAD"
-	}
-	clone := step(source.CloneContainer, img.Clone, srcMount, corev1.VolumeMount{Name: cloneTmpVolume, MountPath: "/tmp"})
-	clone.Args = []string{"--repo=" + s.URL, "--ref=" + ref, "--root=" + SourceDir, "--link=" + cloneLink, "--one-time", "--depth=1", "--submodules=off"}
+	clone := step(source.CloneContainer, img.Clone, srcMount, workload.Mount{Volume: cloneTmpVolume, Path: "/tmp"})
+	clone.Args = []string{"--repo=" + s.URL, "--ref=" + cmp.Or(s.Ref, "HEAD"), "--root=" + SourceDir, "--link=" + cloneLink, "--one-time", "--depth=1", "--submodules=off"}
 	if img.GitConfig != "" {
 		clone.Args = append(clone.Args, "--git-config="+img.GitConfig)
 	}
 
 	check := step(source.CheckContainer, img.Runner.Ref, srcMount)
-	check.SecurityContext = podspec.ReadOnlyRootContext()
+	check.ReadOnlyRoot = true
 	check.Command = []string{"/" + model.ProductName, "source-check", "--link=" + sourceRoot, "--path=" + s.Path}
 	if ws.File != "" {
 		check.Command = append(check.Command, "--file="+ws.File)
 	}
-	inits := []corev1.Container{clone, check}
+	steps := []workload.Unit{clone, check}
 
-	if tb := t.Spec.Build; tb != nil {
-		command, output, ifFile := buildOf(ws, tb)
-		folder := sourceFolder(s)
-		if command != "" {
-			build := step(source.BuildContainer, tb.Image, srcMount, tmpMount)
-			build.WorkingDir = folder
-			build.Command = []string{"sh", "-c", command}
-			if ifFile != "" {
-				build.Command = []string{"sh", "-c", fmt.Sprintf(ifFileBuild, command), "sh", ifFile}
-			}
-			build.Env = append(build.Env,
-				corev1.EnvVar{Name: "CI", Value: "true"},
-				corev1.EnvVar{Name: "npm_config_cache", Value: "/tmp/npm"},
-				corev1.EnvVar{Name: "JAVO_BASE_URL", Value: baseURL})
-			inits = append(inits, build)
-		}
-		from := folder
-		if output != "" {
-			from = path.Join(folder, path.Clean("/"+output))
-		}
-		cp := step(source.SiteCopyContainer, tb.Image, srcMount, corev1.VolumeMount{Name: siteVolume, MountPath: tb.ServeDir})
-		cp.SecurityContext = podspec.ReadOnlyRootContext()
-		cp.Command = []string{"cp", "-r", from + "/.", tb.ServeDir}
-		if ifFile != "" {
-			cp.Command = []string{"sh", "-c", ifFileCopy, "sh", ifFile, folder, from, tb.ServeDir}
-		}
-		inits = append(inits, cp)
-		var err error
-		if inits, err = withSiteConfig(inits, t); err != nil {
-			return nil, err
-		}
+	tb := t.Spec.Build
+	if tb == nil {
+		return steps, nil
 	}
-	return inits, nil
+	command, output, ifFile := buildOf(ws, tb)
+	folder := sourceFolder(s)
+	if command != "" {
+		build := step(source.BuildContainer, tb.Image, srcMount, tmpMount)
+		build.Dir = folder
+		build.Command = []string{"sh", "-c", command}
+		if ifFile != "" {
+			build.Command = []string{"sh", "-c", fmt.Sprintf(ifFileBuild, command), "sh", ifFile}
+		}
+		build.Env = append(build.Env,
+			workload.Env{Name: "CI", Value: "true"},
+			workload.Env{Name: "npm_config_cache", Value: "/tmp/npm"},
+			workload.Env{Name: "JAVO_BASE_URL", Value: baseURL})
+		steps = append(steps, build)
+	}
+	from := folder
+	if output != "" {
+		from = path.Join(folder, path.Clean("/"+output))
+	}
+	cp := step(source.SiteCopyContainer, tb.Image, srcMount, workload.Mount{Volume: siteVolume, Path: tb.ServeDir})
+	cp.ReadOnlyRoot = true
+	cp.Command = []string{"cp", "-r", from + "/.", tb.ServeDir}
+	if ifFile != "" {
+		cp.Command = []string{"sh", "-c", ifFileCopy, "sh", ifFile, folder, from, tb.ServeDir}
+	}
+	return withSiteConfigStep(append(steps, cp), t)
 }
 
-// withSiteConfig adds the step that writes the template's server config, when
-// it has one, after the steps that fill the folder it serves. A template with
-// none keeps the config of its image.
-func withSiteConfig(inits []corev1.Container, t *model.Template) ([]corev1.Container, error) {
+// withSiteConfigStep adds the step that writes the template's server
+// config, when it has one, after the steps that fill the folder it serves.
+// A template with none keeps the config of its image.
+func withSiteConfigStep(steps []workload.Unit, t *model.Template) ([]workload.Unit, error) {
 	tb := t.Spec.Build
 	if tb.ServerConfig == "" {
-		return inits, nil
+		return steps, nil
 	}
 	conf, err := tb.RenderServerConfig(t.Spec.Port)
 	if err != nil {
 		return nil, fmt.Errorf("workspace template %q: spec.build.serverConfig: %w", t.Name, err)
 	}
-	return append(inits, corev1.Container{
-		Name: source.SiteConfigContainer, Image: tb.Image, SecurityContext: podspec.ReadOnlyRootContext(),
-		Command:                  []string{"sh", "-c", `printf '%s\n' "$1" > "$2/site.conf"`, "sh", conf, tb.ServerConfigDir},
-		VolumeMounts:             []corev1.VolumeMount{{Name: siteConfigVolume, MountPath: tb.ServerConfigDir}},
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+	return append(steps, workload.Unit{
+		Name: source.SiteConfigContainer, Image: tb.Image, ReadOnlyRoot: true,
+		Command: []string{"sh", "-c", `printf '%s\n' "$1" > "$2/site.conf"`, "sh", conf, tb.ServerConfigDir},
+		Mounts:  []workload.Mount{{Volume: siteConfigVolume, Path: tb.ServerConfigDir}},
 	}), nil
 }
 
-// siteFromHome copies one file of the home to the folder a static template
-// serves, as its index. It is the only container that sees the home.
-func siteFromHome(t *model.Template, homeFile string) corev1.Container {
+// siteFromHomeStep copies one file of the home to the folder a static
+// template serves, as its index. It is the only unit that sees the home.
+func siteFromHomeStep(t *model.Template, homeFile string) workload.Unit {
 	tb := t.Spec.Build
-	return corev1.Container{
-		Name: source.SiteCopyContainer, Image: tb.Image, SecurityContext: podspec.ReadOnlyRootContext(),
-		Env:     []corev1.EnvVar{{Name: "HOME", Value: "/tmp"}},
+	return workload.Unit{
+		Name: source.SiteCopyContainer, Image: tb.Image, ReadOnlyRoot: true,
+		Env:     []workload.Env{{Name: "HOME", Value: "/tmp"}},
 		Command: []string{"cp", homeFile, path.Join(tb.ServeDir, "index.html")},
-		VolumeMounts: []corev1.VolumeMount{
-			{Name: homeVolume, MountPath: homeDir, ReadOnly: true},
-			{Name: siteVolume, MountPath: tb.ServeDir},
+		Mounts: []workload.Mount{
+			{Volume: homeVolume, Path: homeDir, ReadOnly: true},
+			{Volume: siteVolume, Path: tb.ServeDir},
 		},
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 	}
 }
 
-// addSourceVolumes gives the pod the volumes its source steps and app use.
-func addSourceVolumes(spec *corev1.PodSpec, ws *model.App, t *model.Template) {
-	empty := corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
-	app := &spec.Containers[0]
+// addSourceVolumes gives s the volumes its source steps and main unit use.
+func addSourceVolumes(s *workload.Spec, ws *model.App, t *model.Template) {
+	app := &s.Main
 	if ws.Source != nil {
-		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: sourceVolume, VolumeSource: empty},
-			corev1.Volume{Name: cloneTmpVolume, VolumeSource: empty})
-		app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: sourceVolume, MountPath: SourceDir})
+		s.Volumes = append(s.Volumes, workload.Volume{Name: sourceVolume}, workload.Volume{Name: cloneTmpVolume})
+		app.Mounts = append(app.Mounts, workload.Mount{Volume: sourceVolume, Path: SourceDir})
 	}
 	if tb := t.Spec.Build; tb != nil {
-		spec.Volumes = append(spec.Volumes, corev1.Volume{Name: siteVolume, VolumeSource: empty})
-		app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: siteVolume, MountPath: tb.ServeDir})
+		s.Volumes = append(s.Volumes, workload.Volume{Name: siteVolume})
+		app.Mounts = append(app.Mounts, workload.Mount{Volume: siteVolume, Path: tb.ServeDir})
 		if tb.ServerConfig != "" {
-			spec.Volumes = append(spec.Volumes, corev1.Volume{Name: siteConfigVolume, VolumeSource: empty})
-			app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: siteConfigVolume, MountPath: tb.ServerConfigDir})
+			s.Volumes = append(s.Volumes, workload.Volume{Name: siteConfigVolume})
+			app.Mounts = append(app.Mounts, workload.Mount{Volume: siteConfigVolume, Path: tb.ServerConfigDir})
 		}
 	}
 }
 
-// WithGitToken lets the clone container read the app's repository token from
-// the Secret secretName, as a file (never in the URL, an argument value or the
+// addGitToken lets the clone step read the app's repository token from the
+// bundle of holder, as a file (never in the URL, an argument value or the
 // environment). generation is which paste of the token that is; without one
-// there is nothing to read. A fork preview runs code the owner has not written and gets nothing.
-func WithGitToken(pod *corev1.Pod, ws *model.App, secretName, generation string) {
+// there is nothing to read. A fork preview runs code the owner has not
+// written and gets nothing.
+func addGitToken(s *workload.Spec, ws *model.App, holder, generation string) {
 	if ws.Source == nil || ws.Source.Fork || generation == "" {
 		return
 	}
-	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: gitTokenVolume, VolumeSource: corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{SecretName: secretName, Items: []corev1.KeyToPath{{Key: gitTokenKey, Path: gitTokenKey}}},
+	s.Volumes = append(s.Volumes, workload.Volume{Name: gitTokenVolume, Secret: &workload.SecretFiles{
+		Holder: holder, Use: executor.UseGit, Keys: []string{gitTokenKey},
 	}})
-	for i := range pod.Spec.InitContainers {
-		c := &pod.Spec.InitContainers[i]
-		if c.Name != source.CloneContainer {
-			continue
-		}
+	if c := s.Step(source.CloneContainer); c != nil {
 		c.Args = append(c.Args, "--username="+gitTokenUser, "--password-file="+gitTokenDir+"/"+gitTokenKey)
-		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: gitTokenVolume, MountPath: gitTokenDir, ReadOnly: true})
+		c.Mounts = append(c.Mounts, workload.Mount{Volume: gitTokenVolume, Path: gitTokenDir, ReadOnly: true})
 	}
 }

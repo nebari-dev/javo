@@ -29,11 +29,12 @@ import (
 	"github.com/tink-crypto/tink-go/v2/tink"
 
 	"github.com/nebari-dev/javo/internal/controller/workspace"
+	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/naming"
+	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/secrets"
-	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
@@ -1522,10 +1523,11 @@ func TestFilePodAndAppPodShareStorageLayout(t *testing.T) {
 		Spec: model.TemplateSpec{Kind: "t", Image: "example.com/app:1", Port: 8000, Command: []string{"app"}},
 	}
 
-	appPod, err := workspace.BuildPod(ws, tpl, "/u/a/app/", "", podstorage.Build(owner, in), sizes.Size{}, workspace.Images{})
+	spec, err := workspace.Plan(workspace.Inputs{App: ws, Template: tpl, BaseURL: "/u/a/app/", Layout: podstorage.Build(owner, in)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	appPod := kube.Render(spec, podspec.Isolation{})
 	filePod := filePodWith(t, in)
 
 	claims := func(p corev1.Pod) map[string]string { // volume name -> claim
