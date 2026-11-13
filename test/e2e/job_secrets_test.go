@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/nebari-dev/javo/internal/controller/jobs"
+	execkube "github.com/nebari-dev/javo/internal/executor/kube"
 )
 
 // runToEnd starts a run of the job and waits until it ends, returning its id
@@ -93,7 +94,7 @@ func TestJobGetsASecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	var pods corev1.PodList
-	if err := c.List(ctx, &pods, client.InNamespace(appsNS), client.MatchingLabels{jobs.LabelJobName: k8sJob}); err != nil {
+	if err := c.List(ctx, &pods, client.InNamespace(appsNS), client.MatchingLabels{execkube.LabelJobName: k8sJob}); err != nil {
 		t.Fatal(err)
 	}
 	for _, o := range []any{k, pods} {

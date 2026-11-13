@@ -15,7 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/nebari-dev/javo/internal/controller/jobs"
+	execkube "github.com/nebari-dev/javo/internal/executor/kube"
 )
 
 // TestSampleJob makes the sample job a template ships, the way its card on
@@ -119,8 +119,8 @@ func TestSampleJob(t *testing.T) {
 	if folder == "" {
 		t.Fatal("the run names no folder")
 	}
-	runPods := []client.ListOption{client.InNamespace(appsNS), client.MatchingLabels{jobs.LabelJobName: k8sJob}}
-	if err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(appsNS), client.MatchingLabels{jobs.LabelJobName: k8sJob}); err != nil {
+	runPods := []client.ListOption{client.InNamespace(appsNS), client.MatchingLabels{execkube.LabelJobName: k8sJob}}
+	if err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(appsNS), client.MatchingLabels{execkube.LabelJobName: k8sJob}); err != nil {
 		t.Fatalf("delete the run's pods: %v", err)
 	}
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
