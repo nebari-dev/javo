@@ -95,11 +95,12 @@ func ClusterFlag(f *pflag.FlagSet) func() (executor string, onCluster bool, err 
 	}
 }
 
-// AuthProviders registers the sign-in providers the config enables.
-func AuthProviders(p config.Platform, users local.Users) *registry.Registry[authprovider.Provider] {
+// AuthProviders registers the sign-in providers the config enables. link,
+// when not nil, also signs a local account in through a link (javo local).
+func AuthProviders(p config.Platform, users local.Users, link *authlocal.Link) *registry.Registry[authprovider.Provider] {
 	r := registry.New[authprovider.Provider]()
 	if p.Auth.Local.Enabled {
-		r.Register(authlocal.New(authlocal.Config{Users: users}))
+		r.Register(authlocal.New(authlocal.Config{Users: users, Link: link}))
 	}
 	if p.Auth.OIDC != nil {
 		// Discovery runs in the background for the life of the process.

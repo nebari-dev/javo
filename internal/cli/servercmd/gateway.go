@@ -192,7 +192,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	go apps.TrustJanitor{DB: db, Policy: apps.TrustPolicy{Config: platform.Agents.TrustedAllowed(), DB: db}, Now: time.Now}.Run(ctx, time.Minute)
 	exp := wiring.Exposure(platform)
 	workloads := on.apps
-	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()})
+	providers := wiring.AuthProviders(platform, &local.DBUsers{Accounts: db.LocalAccounts()}, nil)
 	people := on.people
 	revalidator := authn.NewRevalidator(providers, sessions, people, outageGrace, nil)
 	// One keeper for the API (create, start) and the app proxy, so they

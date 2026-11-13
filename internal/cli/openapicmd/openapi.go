@@ -25,7 +25,7 @@ func docConfig() gateway.Config {
 	// The store and clients are placeholders: nothing reads them while only
 	// the document is built.
 	return gateway.Config{
-		Providers: wiring.AuthProviders(p, &local.DBUsers{}), Exposure: wiring.Exposure(p),
+		Providers: wiring.AuthProviders(p, &local.DBUsers{}, nil), Exposure: wiring.Exposure(p),
 		Engines: wiring.Engines(), NetworkPolicy: &netprobe.Store{},
 		Tokens: &token.DBStore{}, Store: &store.Store{}, Machines: capacity.Nodes{}, Diagnose: wiring.DiagnoseEngine(),
 		// Optional routes the UI calls when the install turns them on.

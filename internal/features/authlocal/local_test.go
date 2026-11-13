@@ -58,10 +58,17 @@ type fakeHost struct {
 	outcomes  []bool
 	completed []identity.Claims
 	sessions  []session.Session
+	// routes are the browser routes the provider mounted; nil refuses any.
+	routes *http.ServeMux
 }
 
-func (h *fakeHost) API() huma.API               { return h.api }
-func (h *fakeHost) Handle(string, http.Handler) { panic("local provider has no browser routes") }
+func (h *fakeHost) API() huma.API { return h.api }
+func (h *fakeHost) Handle(pattern string, handler http.Handler) {
+	if h.routes == nil {
+		panic("the local provider has no browser routes without a sign-in link")
+	}
+	h.routes.Handle(pattern, handler)
+}
 func (h *fakeHost) LimitLogin(context.Context, string) (func(bool), error) {
 	if h.limit != nil {
 		return nil, h.limit

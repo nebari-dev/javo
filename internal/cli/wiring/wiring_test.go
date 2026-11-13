@@ -43,10 +43,10 @@ func TestAuthProvidersFollowTheConfig(t *testing.T) {
 	on.Auth.Local.Enabled = true
 	users := &local.DBUsers{}
 
-	if _, ok := AuthProviders(on, users).Get("local"); !ok {
+	if _, ok := AuthProviders(on, users, nil).Get("local"); !ok {
 		t.Fatal("local provider missing with auth.local.enabled")
 	}
-	if n := len(AuthProviders(off, users).All()); n != 0 {
+	if n := len(AuthProviders(off, users, nil).All()); n != 0 {
 		t.Fatalf("%d providers with auth.local disabled", n)
 	}
 }
@@ -54,11 +54,11 @@ func TestAuthProvidersFollowTheConfig(t *testing.T) {
 func TestOIDCProviderIsRegisteredOnlyWhenConfigured(t *testing.T) {
 	var p config.Platform
 	p.Auth.Local.Enabled = true
-	if _, ok := AuthProviders(p, &local.DBUsers{}).Get("oidc"); ok {
+	if _, ok := AuthProviders(p, &local.DBUsers{}, nil).Get("oidc"); ok {
 		t.Fatal("oidc provider registered without auth.oidc")
 	}
 	p.Auth.OIDC = &config.OIDC{Issuer: "http://idp.test/realms/javo", ClientID: "javo"}
-	r := AuthProviders(p, &local.DBUsers{})
+	r := AuthProviders(p, &local.DBUsers{}, nil)
 	got, ok := r.Get("oidc")
 	if !ok {
 		t.Fatal("oidc provider missing with auth.oidc")

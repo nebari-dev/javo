@@ -31,6 +31,8 @@ type Config struct {
 	// RevalidateEvery is how often a session re-reads its account; zero means
 	// DefaultRevalidateEvery.
 	RevalidateEvery time.Duration
+	// Link, when set, also signs its account in through a link (LinkPath).
+	Link *Link
 }
 
 // Provider signs people in with local accounts.
@@ -38,6 +40,7 @@ type Provider struct {
 	users local.Users
 	every time.Duration
 	host  authprovider.Mounter
+	link  *Link
 }
 
 var _ authprovider.Provider = (*Provider)(nil)
@@ -48,7 +51,7 @@ func New(cfg Config) *Provider {
 	if every <= 0 {
 		every = DefaultRevalidateEvery
 	}
-	return &Provider{users: cfg.Users, every: every}
+	return &Provider{users: cfg.Users, every: every, link: cfg.Link}
 }
 
 func (p *Provider) ID() string { return ID }
@@ -71,6 +74,9 @@ type loginOutput struct {
 
 func (p *Provider) Mount(m authprovider.Mounter) {
 	p.host = m
+	if p.link != nil {
+		m.Handle("GET "+LinkPath, http.HandlerFunc(p.signInByLink))
+	}
 	huma.Register(m.API(), huma.Operation{
 		OperationID: "localLogin", Method: http.MethodPost, Path: "/api/auth/local/login",
 		Summary: "Sign in with a local account", Tags: []string{"auth"}, Security: []map[string][]string{},
