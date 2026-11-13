@@ -84,23 +84,25 @@ func (d *Daemon) Call(ctx context.Context, method, path string, query url.Values
 // The image carries the test labels and is removed with everything else.
 func (d *Daemon) Image(t *testing.T, programs map[string]string) string {
 	t.Helper()
+	return d.ImageWith(t, programs, nil)
+}
+
+// ImageWith is Image with, at each path of files, the file named there,
+// executable: a file of this repository by its path from the root (such
+// as "pod/files/pod-user.sh"), or any other by its absolute path.
+func (d *Daemon) ImageWith(t *testing.T, programs, files map[string]string) string {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	root, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}").Output()
 	if err != nil {
 		t.Fatalf("the repository's root: %v", err)
 	}
-	var files bytes.Buffer
-	w := tar.NewWriter(&files)
-	for at, pkg := range programs {
-		bin := filepath.Join(t.TempDir(), "program")
-		build := exec.CommandContext(ctx, "go", "build", "-o", bin, pkg)
-		build.Dir = strings.TrimSpace(string(root))
-		build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+d.Arch, "CGO_ENABLED=0")
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build of %s: %v\n%s", pkg, err, out)
-		}
-		raw, err := os.ReadFile(bin)
+	dir := strings.TrimSpace(string(root))
+	var layer bytes.Buffer
+	w := tar.NewWriter(&layer)
+	put := func(at, file string) {
+		raw, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,12 +113,28 @@ func (d *Daemon) Image(t *testing.T, programs map[string]string) string {
 			t.Fatal(err)
 		}
 	}
+	for at, pkg := range programs {
+		bin := filepath.Join(t.TempDir(), "program")
+		build := exec.CommandContext(ctx, "go", "build", "-o", bin, pkg)
+		build.Dir = dir
+		build.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+d.Arch, "CGO_ENABLED=0")
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build of %s: %v\n%s", pkg, err, out)
+		}
+		put(at, bin)
+	}
+	for at, file := range files {
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(dir, file)
+		}
+		put(at, file)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
 	repo := "javo-test-" + testrun.ID
 	tag := strings.ToLower(rand.Text())
-	if err := d.commit(ctx, files.Bytes(), repo, tag); err != nil {
+	if err := d.commit(ctx, layer.Bytes(), repo, tag); err != nil {
 		t.Fatal(err)
 	}
 	return repo + ":" + tag
