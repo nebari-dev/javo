@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/nebari-dev/javo/internal/executor/docker"
-	"github.com/nebari-dev/javo/internal/executor/docker/dockertest"
+	"github.com/nebari-dev/javo/internal/executor/docker/dockerlive"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
@@ -55,7 +55,7 @@ func lines(out string) map[string]string {
 // the proxy (testdata/proxyd) with the Docker socket; the app runs
 // testdata/fetch. Both are built for Linux into the pinned busybox image.
 func TestDaemonAnAppReachesTheInternetOnlyThroughTheProxy(t *testing.T) {
-	d := dockertest.New(t)
+	d := dockerlive.New(t)
 	c := d.Client
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -66,14 +66,14 @@ func TestDaemonAnAppReachesTheInternetOnlyThroughTheProxy(t *testing.T) {
 
 	// The gateway.
 	var labels []string
-	for k, v := range dockertest.Stamp() {
+	for k, v := range dockerlive.Stamp() {
 		labels = append(labels, k+"="+v)
 	}
 	var gw struct {
 		ID string `json:"Id"`
 	}
 	if err := d.Call(ctx, http.MethodPost, "/containers/create", nil, map[string]any{
-		"Image": image, "Labels": dockertest.Stamp(),
+		"Image": image, "Labels": dockerlive.Stamp(),
 		"Entrypoint": []string{"/proxyd", "-listen=:3128", "-pool=" + daemonPool.String(), "-labels=" + strings.Join(labels, ",")},
 		"HostConfig": map[string]any{"NetworkMode": "bridge", "Binds": []string{"/var/run/docker.sock:/var/run/docker.sock"}},
 	}, &gw); err != nil {
@@ -112,7 +112,7 @@ func TestDaemonAnAppReachesTheInternetOnlyThroughTheProxy(t *testing.T) {
 	if err := docker.Isolate(ctx, c, s.Ref, gw.ID, daemonPool); err != nil {
 		t.Fatal(err)
 	}
-	sandbox, err := docker.SandboxBody(s, docker.Tool{Image: dockertest.Busybox, Command: []string{"sleep", "3600"}}, "")
+	sandbox, err := docker.SandboxBody(s, docker.Tool{Image: dockerlive.Busybox, Command: []string{"sleep", "3600"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestDaemonAnAppReachesTheInternetOnlyThroughTheProxy(t *testing.T) {
 		ID string `json:"Id"`
 	}
 	if err := d.Call(ctx, http.MethodPost, "/containers/create", nil, map[string]any{
-		"Image": image, "Labels": dockertest.Stamp(), "User": "1000:100",
+		"Image": image, "Labels": dockerlive.Stamp(), "User": "1000:100",
 		"Env":        []string{"HTTP_PROXY=http://" + gwOnBridge + ":3128", "HTTPS_PROXY=http://" + gwOnBridge + ":3128"},
 		"Entrypoint": fetch("http://example.com/", "https://example.com/"),
 		"HostConfig": map[string]any{"NetworkMode": "bridge"},
