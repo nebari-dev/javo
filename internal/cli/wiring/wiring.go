@@ -21,8 +21,6 @@ import (
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/ai/provider"
-	"github.com/nebari-dev/javo/internal/ai/provider/anthropic"
-	"github.com/nebari-dev/javo/internal/ai/provider/openai"
 	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/auth/local"
 	"github.com/nebari-dev/javo/internal/backup"
@@ -193,14 +191,6 @@ func Engines() *engine.Registry {
 // DiagnoseEngine is the only place diagnosis rules are wired in.
 func DiagnoseEngine() *diagnose.Engine { return diagnose.NewEngine(diagnose.DefaultRules()...) }
 
-// aiProviders is the only place model adapters are wired in.
-func aiProviders() *provider.Registry {
-	var r provider.Registry
-	r.Register(anthropic.ID, anthropic.New)
-	r.Register(openai.ID, openai.New)
-	return &r
-}
-
 // AISettings is the AI settings in force (the config's, with what a
 // platform admin set in Settings > AI in their place), or nil when AI is
 // off: then no factory ever runs and nothing connects to a model. The
@@ -239,6 +229,9 @@ func aiSettings(c config.AICfg, key string, db *store.Store, seal tink.AEAD, r *
 func AIService(ctx context.Context, c config.AICfg, live *aisettings.Live, db *store.Store, fp *secrets.Fingerprinter) (*ai.Service, error) {
 	if live == nil {
 		return nil, nil
+	}
+	if LocalBuild {
+		return nil, LeftOut("the AI assistant (ai.enabled)")
 	}
 	if _, err := live.Backend(ctx); err != nil {
 		over, oerr := live.Overridden(ctx)

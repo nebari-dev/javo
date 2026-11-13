@@ -35,3 +35,23 @@ func TestALocalBuildRefusesToRunOnACluster(t *testing.T) {
 		}
 	}
 }
+
+// It has no AI assistant: `javo local` never turns AI on, so the model
+// providers' clients are not carried, and a server whose config turns it
+// on is refused rather than started with an assistant that cannot answer.
+func TestALocalBuildRefusesAnAIAssistant(t *testing.T) {
+	dir, args := hostConfig(t, "process")
+	cfg := filepath.Join(dir, "config.yaml")
+	yaml, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yaml = append(yaml, "ai:\n  enabled: true\n  provider: openai\n  model: m\n  baseURL: http://127.0.0.1:1\n"...)
+	if err := os.WriteFile(cfg, yaml, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := refused(t, NewServer(), append(args, "--listen", "127.0.0.1:0")...)
+	if !strings.Contains(got, leftOut) || !strings.Contains(got, "ai.enabled") {
+		t.Errorf("javo server with ai.enabled: %q", got)
+	}
+}
