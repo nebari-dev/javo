@@ -6,6 +6,10 @@
 // and their group folders read-only. The gateway asks it for folder listings
 // and files over the pod network. A file pod is created on the
 // first request and deleted after it has been idle for a while.
+//
+// Where homes are folders of the machine Javo runs on (the process
+// executor) there is no file pod: the same Lister reads them through
+// Direct, and Folders stands in for the file pods.
 package files
 
 import (
@@ -862,11 +866,14 @@ func NewPods(cfg PodsConfig) (*Pods, error) {
 }
 
 // ns is the namespace of the home a call is about.
-func (p *Pods) ns(ctx context.Context) string {
+func (p *Pods) ns(ctx context.Context) string { return namespaceOr(ctx, p.cfg.Namespace) }
+
+// namespaceOr is the namespace WithNamespace put in ctx, else fallback.
+func namespaceOr(ctx context.Context, fallback string) string {
 	if ns, ok := NamespaceOf(ctx); ok {
 		return ns
 	}
-	return p.cfg.Namespace
+	return fallback
 }
 
 func podName(userSlug string) string { return model.FilesPodPrefix + userSlug }
