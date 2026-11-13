@@ -26,7 +26,7 @@ type Bundle struct {
 
 // ErrForeign means the place a workload's bundle is kept holds something
 // that is not that workload's. It is never read, replaced or deleted.
-var ErrForeign = errors.New("exists and does not belong to the app")
+var ErrForeign = errors.New("exists and does not belong to the app or job")
 
 // Secrets keeps the bundles workloads read, each under a name that is
 // unique where the workload runs (workload.SecretRef names one). A bundle
