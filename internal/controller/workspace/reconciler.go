@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -379,7 +381,7 @@ func (r *Reconciler) house(ctx context.Context, p *pass) (verdict, error) {
 			if p.layout, err = r.layout(ctx, app, uid); err != nil {
 				return verdict{}, err
 			}
-			p.layoutFP = LayoutFingerprint(app, p.tpl, p.layout)
+			p.layoutFP = r.layoutFingerprint(app, p.tpl, p.layout)
 		case p.have == nil:
 			p.obs.IdentityPending = true
 			return verdict{done: true}, nil
@@ -559,6 +561,21 @@ func (r *Reconciler) finalize(ctx context.Context, app *model.App) error {
 // platform is what apps' runs take from the install (Platform).
 func (r *Reconciler) platform() Platform {
 	return Platform{Exposure: r.Exposure, PublicHost: r.PublicHost, PixiImage: r.PixiImage, LockAgents: r.LockAgents}
+}
+
+// layoutFingerprint is LayoutFingerprint of app as this install builds it.
+// A coding agent that starts locked in (LockAgents) runs another command
+// than the same app not locked in, which no other part of the fingerprint
+// covers: it has another fingerprint, so turning the lock on or off
+// replaces the running agents, once, and no other app. With the lock off
+// it is LayoutFingerprint itself.
+func (r *Reconciler) layoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layout) string {
+	fp := LayoutFingerprint(app, t, layout)
+	if !locksAgent(t, r.LockAgents) {
+		return fp
+	}
+	sum := sha256.Sum256([]byte(fp + " landlock"))
+	return hex.EncodeToString(sum[:8])
 }
 
 // fingerprint is what a pod built for app now would be marked with: its

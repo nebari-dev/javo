@@ -13,6 +13,7 @@ import (
 	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // lockedImages builds pods with the coding agents locked in (config
@@ -269,6 +270,29 @@ func TestLockedAgentIsLockedInsideTheHomeWhateverItsFolder(t *testing.T) {
 		}
 		if !slices.Contains(argv, want) || slices.Contains(argv, "/home/user") {
 			t.Errorf("folder %q: argv = %q, want the agent started in %s", file, argv[3:], want)
+		}
+	}
+}
+
+// Turning the lock on or off changes what a coding agent's pod runs, so a
+// running agent is out of date and restarts once, into the lock or out of
+// it. No other app is, and with the lock off every app's fingerprint is the
+// one it had before there was a lock.
+func TestFlippingTheLockRestartsRunningAgentsAndNothingElse(t *testing.T) {
+	t.Parallel()
+	layout := testLayout(FixedUID)
+	off, on := &Reconciler{}, &Reconciler{LockAgents: true}
+	for _, name := range shippedNames(t) {
+		tpl := shippedTemplate(t, name)
+		app := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "demo", Owner: "alice", Template: name}
+		was := LayoutFingerprint(app, tpl, layout)
+		if got := off.layoutFingerprint(app, tpl, layout); got != was {
+			t.Errorf("%s, lock off: fingerprint %s, want %s as before", name, got, was)
+		}
+		running := workload.Fingerprint{Layout: was}
+		restarts := workload.Fingerprint{Layout: on.layoutFingerprint(app, tpl, layout)}.Outdated(running)
+		if agent := tpl.Spec.Category == model.CategoryAgents; restarts != agent {
+			t.Errorf("%s, lock turned on: restarts = %v, want %v", name, restarts, agent)
 		}
 	}
 }
