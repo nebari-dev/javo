@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/controller/dbsource"
+	"github.com/nebari-dev/javo/internal/controller/loop"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
 	"github.com/nebari-dev/javo/internal/storage/dockerhome"
@@ -103,28 +104,35 @@ func (r *DockerHomeReconciler) step(ctx context.Context, h *model.Home) (*blocke
 	return nil, nil
 }
 
-// SetupWithManager reconciles homes when their rows change, as
-// HomeReconciler is set up.
+// SetupWithManager is Setup on a controller-runtime manager.
 func (r *DockerHomeReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
+	return r.Setup(loop.OnManager(mgr), feed)
+}
+
+// Setup reconciles homes on d when their rows change, as HomeReconciler
+// is set up. A Docker host has no manager: there d is a loop.Loop.
+func (r *DockerHomeReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
 	if r.Store == nil || r.Volumes.Client == nil || r.Volumes.Image == "" || r.UIDs == nil {
 		return errors.New("storage.DockerHomeReconciler needs Store, Volumes and UIDs")
 	}
 	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.homeRequests(ctx, nil) }
-	return ctrl.NewControllerManagedBy(mgr).Named("storage-docker-home").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableHomes, 0, all)).
-		Complete(r)
+	return d.Reconcile("storage-docker-home", r, dbsource.For(feed.Subscribe(), store.TableHomes, 0, all))
 }
 
-// DockerFolderReconciler answers every SharedFolder where apps run as
-// Docker containers: group folders are not offered there yet. It makes no
-// volume and marks the folder not Ready with SharedFoldersUnavailable and
-// the reason, so nothing mounts it and the admin who asked sees why.
-type DockerFolderReconciler struct {
+// NoFolderReconciler answers every SharedFolder where group folders are
+// not offered: where apps run as Docker containers, and where they run as
+// processes of one person's machine. It makes nothing and marks the
+// folder not Ready with SharedFoldersUnavailable and Why, so nothing
+// mounts it and the admin who asked sees why.
+type NoFolderReconciler struct {
 	Rows
+	// Why says, as the folder's evidence, why there are none here.
+	// Required.
+	Why string
 }
 
 // Reconcile records that the folder is not offered.
-func (r *DockerFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *NoFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	got, err := r.Store.SharedFolders().Get(ctx, req.Name)
 	if errors.Is(err, store.ErrNotFound) {
 		return ctrl.Result{}, nil
@@ -133,8 +141,7 @@ func (r *DockerFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	f, base := &got, got.DeepCopy()
 	meta.SetStatusCondition(&f.Status.Conditions, readyCondition("", &blocked{
-		code:     reasons.SharedFoldersUnavailable,
-		evidence: []string{"apps run as Docker containers here, where a group has no volume of its own yet"},
+		code: reasons.SharedFoldersUnavailable, evidence: []string{r.Why},
 	}))
 	if err := r.writeFolder(ctx, f, base); errors.Is(err, errRowChanged) {
 		return ctrl.Result{RequeueAfter: retryConflict}, nil
@@ -144,13 +151,16 @@ func (r *DockerFolderReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager reconciles folders when their rows change.
-func (r *DockerFolderReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
-	if r.Store == nil {
-		return errors.New("storage.DockerFolderReconciler needs Store")
+// SetupWithManager is Setup on a controller-runtime manager.
+func (r *NoFolderReconciler) SetupWithManager(mgr ctrl.Manager, feed *dbsource.Feed) error {
+	return r.Setup(loop.OnManager(mgr), feed)
+}
+
+// Setup reconciles folders on d when their rows change.
+func (r *NoFolderReconciler) Setup(d loop.Driver, feed *dbsource.Feed) error {
+	if r.Store == nil || r.Why == "" {
+		return errors.New("storage.NoFolderReconciler needs Store and Why")
 	}
 	all := func(ctx context.Context) ([]reconcile.Request, error) { return r.folderRequests(ctx, nil) }
-	return ctrl.NewControllerManagedBy(mgr).Named("storage-docker-folder").
-		WatchesRawSource(dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all)).
-		Complete(r)
+	return d.Reconcile("storage-no-folder", r, dbsource.For(feed.Subscribe(), store.TableSharedFolders, 0, all))
 }

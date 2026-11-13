@@ -182,12 +182,12 @@ func TestDockerHomeVolumeOutlivesItsRow(t *testing.T) {
 	}
 }
 
-// Group folders are not offered on Docker: a folder asked for says so on
-// its status, is never mounted, and no volume is made for it.
-func TestDockerFolderSaysItIsNotOffered(t *testing.T) {
+// Where group folders are not offered, a folder asked for says so and why
+// on its status, is never mounted, and no volume is made for it.
+func TestAFolderWhereNoneIsOfferedSaysSo(t *testing.T) {
 	db := storetest.New(t)
 	d, _ := dockertest.New(t)
-	r := &DockerFolderReconciler{Rows: Rows{Store: db}}
+	r := &NoFolderReconciler{Rows: Rows{Store: db}, Why: "apps run as Docker containers here"}
 	f, err := db.SharedFolders().Create(ctx, model.Actor{Person: "admin"}, model.SharedFolder{
 		Name: "team", Namespace: "javo-apps", Spec: model.SharedFolderSpec{Group: "team"},
 	})
