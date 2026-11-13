@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
@@ -15,7 +16,7 @@ import (
 // picks its own ranges (one of 128 pairs), so that two of them seldom
 // compete for the same addresses.
 var testPool, onePool = func() (netip.Prefix, netip.Prefix) {
-	n := int(testRun[0]+testRun[1]) % 128 * 2
+	n := int(testrun.ID[0]+testrun.ID[1]) % 128 * 2
 	return netip.MustParsePrefix(fmt.Sprintf("10.214.%d.0/24", n)), netip.MustParsePrefix(fmt.Sprintf("10.214.%d.16/28", n+1))
 }()
 

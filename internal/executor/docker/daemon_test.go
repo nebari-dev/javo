@@ -2,12 +2,7 @@ package docker
 
 import (
 	"context"
-	"crypto/rand"
-	"errors"
 	"io"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,98 +10,46 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
 // The tests below run against a real Docker daemon and are skipped when
 // none answers. They state what the daemon does, which the translation
-// and the isolation rest on. Everything they create carries the label
-// javo.test with this test process's own id, is named after that id, and
-// is removed when the test ends: two test runs against one daemon never
+// and the isolation rest on. Everything they create is stamped, named and
+// swept the way every daemon test of the repository is (testrun): with
+// this test process's own id, so two test runs against one daemon never
 // see, name or remove each other's containers, networks and volumes.
 
 // testImage is busybox 1.37.0, by the digest of its image index on Docker
 // Hub: small, public, and never a different image under the same name.
 const testImage = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
 
-// testLabel marks what the daemon tests create; its value is testRun.
-const testLabel = "javo.test"
-
-// testRun is the id of this test process. What it creates carries it as
-// testLabel, so an Executor of the tests adopts, lists and sweeps only
-// that, and never what another run going on against the same daemon made.
-var testRun = strings.ToLower(rand.Text())
-
 // testNamespace is where the workloads of the daemon tests live. It ends
-// in the start of testRun, so no name is shared with another test process.
-var testNamespace = "javotest-" + testRun[:10]
+// in the start of this test process's id, so no name is shared with
+// another test process.
+var testNamespace = "javotest-" + testrun.ID[:10]
 
 // daemon is a client of the Docker daemon on this machine, holding the
-// test image.
+// test image. What it creates carries this test process's id, so an
+// Executor of the tests adopts and lists only that, and all of it goes
+// when the test ends.
 func daemon(t *testing.T) (*Client, Daemon) {
 	t.Helper()
-	home, _ := os.UserHomeDir()
-	sockets := []string{"/var/run/docker.sock", filepath.Join(home, ".colima/default/docker.sock"), filepath.Join(home, ".docker/run/docker.sock")}
-	if h, ok := strings.CutPrefix(os.Getenv("DOCKER_HOST"), "unix://"); ok {
-		sockets = []string{h}
-	}
-	for _, sock := range sockets {
-		c := New(sock)
-		c.Labels = map[string]string{testLabel: testRun}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		d, err := c.Daemon(ctx)
-		cancel()
-		if errors.Is(err, ErrTooOld) {
-			t.Skipf("the Docker daemon at %s is too old: %v", sock, err)
-		}
-		if err != nil {
-			continue
-		}
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := EnsureImage(ctx, c, testImage, false, nil); err != nil {
-			t.Skipf("cannot pull %s: %v", testImage, err)
-		}
-		t.Cleanup(func() { sweep(t, c) })
-		return c, d
-	}
-	t.Skip("no Docker daemon answers")
-	return nil, Daemon{}
-}
-
-// sweep removes what this test process created, and only that. What a
-// test process that was killed left behind is TestDaemonSweepLeftovers's.
-func sweep(t *testing.T, c *Client) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	sock := testrun.Socket(t)
+	c := New(sock)
+	c.Labels = testrun.Stamp()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	mark := testLabel + "=" + testRun
-	del := func(path string) {
-		if err := gone(c.call(ctx, request{method: http.MethodDelete, path: path}, nil)); err != nil {
-			t.Errorf("cleanup of %s: %v", path, err)
-		}
-	}
-	containers, err := c.ContainerList(ctx, mark)
+	d, err := c.Daemon(ctx)
 	if err != nil {
-		t.Errorf("cleanup: %v", err)
+		t.Skipf("the Docker daemon at %s: %v", sock, err)
 	}
-	for _, x := range containers {
-		del("/containers/" + x.ID + "?force=1&v=1")
+	if err := EnsureImage(ctx, c, testImage, false, nil); err != nil {
+		t.Skipf("cannot pull %s: %v", testImage, err)
 	}
-	networks, err := c.NetworkList(ctx, mark)
-	if err != nil {
-		t.Errorf("cleanup: %v", err)
-	}
-	for _, x := range networks {
-		del("/networks/" + x.ID)
-	}
-	volumes, err := c.VolumeList(ctx, mark)
-	if err != nil {
-		t.Errorf("cleanup: %v", err)
-	}
-	for _, x := range volumes {
-		del("/volumes/" + x.Name)
-	}
+	t.Cleanup(func() { testrun.Sweep(t, sock) })
+	return c, d
 }
 
 // testSpec is a workload of the daemon tests, called name.

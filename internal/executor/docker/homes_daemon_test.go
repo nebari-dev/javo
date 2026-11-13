@@ -12,7 +12,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/nebari-dev/javo/internal/controller/storage"
 	"github.com/nebari-dev/javo/internal/executor/docker"
+	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 	"github.com/nebari-dev/javo/internal/files"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/storage/dockerhome"
@@ -40,12 +40,12 @@ import (
 // daemon, with the rclone image the Kubernetes file pod runs, and are
 // skipped when no daemon answers or the image cannot be pulled.
 //
-// Other test runs share the daemon. Everything made here carries
-// homesMark with a value of this process's own, and only what carries it
-// is removed; none of it carries the label the other daemon tests sweep.
+// Other test runs share the daemon. Everything made here carries this
+// test process's label (testrun), as all daemon tests' things do, and
+// each rig lives in a namespace of its own, which is all its cleanup
+// removes.
 
 const (
-	homesMark = "javo.homes-test"
 	homesRole = "javo.homes-test.role"
 
 	alice    = "alice-aaaaaaaa"
@@ -54,9 +54,6 @@ const (
 	bobUID   = 20002
 	userGID  = 100
 )
-
-// homesRun marks what this run of the tests creates.
-var homesRun = strings.ToLower(rand.Text())[:10]
 
 // homesPool is where the networks of these tests take their addresses,
 // away from the pool of the package's other daemon tests.
@@ -106,28 +103,6 @@ type rig struct {
 	changed                   chan struct{}
 }
 
-func homesSocket(t *testing.T) string {
-	t.Helper()
-	home, _ := os.UserHomeDir()
-	sockets := []string{"/var/run/docker.sock", filepath.Join(home, ".colima/default/docker.sock"), filepath.Join(home, ".docker/run/docker.sock")}
-	if h, ok := strings.CutPrefix(os.Getenv("DOCKER_HOST"), "unix://"); ok {
-		sockets = []string{h}
-	}
-	for _, sock := range sockets {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_, err := docker.New(sock).Daemon(ctx)
-		cancel()
-		if errors.Is(err, docker.ErrTooOld) {
-			t.Skipf("the Docker daemon at %s is too old: %v", sock, err)
-		}
-		if err == nil {
-			return sock
-		}
-	}
-	t.Skip("no Docker daemon answers")
-	return ""
-}
-
 func homesContext(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
@@ -136,18 +111,18 @@ func homesContext(t *testing.T) context.Context {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
-	sock := homesSocket(t)
+	sock := testrun.Socket(t)
 	ctx := homesContext(t)
 	client := func(role string) *docker.Client {
 		c := docker.New(sock)
-		c.Labels = map[string]string{homesMark: homesRun}
+		c.Labels = testrun.Stamp()
 		if role != "" {
 			c.Labels[homesRole] = role
 		}
 		return c
 	}
 	r := &rig{
-		ns:  "ht-" + homesRun + "-" + strings.ToLower(rand.Text())[:6],
+		ns:  "ht-" + testrun.ID[:10] + "-" + strings.ToLower(rand.Text())[:6],
 		all: client(""), homes: client("homes"), helpers: client("files"), apps: client("apps"),
 		now: time.Now(), changed: make(chan struct{}, 1),
 	}
@@ -206,7 +181,7 @@ func (r *rig) sweep(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	mark := homesMark + "=" + homesRun
+	mark := testrun.Mark()
 	ns := docker.LabelNamespace + "=" + r.ns
 	containers, err := r.all.ContainerList(ctx, mark, ns)
 	must(t, err)

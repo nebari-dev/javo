@@ -1,8 +1,9 @@
 // Package dockerlive gives tests outside the docker package a real
-// Docker daemon to run against: a client whose every creation carries a
-// label of this test process, a cleanup that removes what carries that
-// label and nothing else, and a small test image that holds programs of
-// this repository. Tests are skipped when no daemon answers.
+// Docker daemon to run against: a client whose every creation carries
+// the label of this test process, a cleanup that removes what carries
+// that label and nothing else (both are testrun's, which the docker
+// package's own daemon tests use too), and a small test image that holds
+// programs of this repository. Tests are skipped when no daemon answers.
 package dockerlive
 
 import (
@@ -10,11 +11,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,81 +21,51 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/executor/docker"
+	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 )
 
 // Busybox is busybox 1.37.0, by the digest of its image index on Docker
 // Hub: the image the docker package's own daemon tests run.
 const Busybox = "busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
 
-// Labels of what the tests create: Label marks all of it, RunLabel this
-// test process's own. They are not the labels of the docker package's
-// own daemon tests, so neither kind of test removes what the other made.
-const (
-	Label    = "javo.dockertest"
-	RunLabel = "javo.dockertest.run"
-)
-
-// run is this test process, in RunLabel.
-var run = strings.ToLower(rand.Text())
-
 // Daemon is the Docker daemon of this machine.
 type Daemon struct {
-	// Client stamps Label and RunLabel on everything it creates.
+	// Client stamps this test process's label on everything it creates.
 	Client *docker.Client
 	// Arch is the daemon's processor, as Go names it.
 	Arch string
 
-	raw *http.Client
+	socket string
 }
 
 // Mark is the label filter that finds what this test process made.
-func Mark() string { return RunLabel + "=" + run }
+func Mark() string { return testrun.Mark() }
 
 // Stamp is the labels every creation of this test process carries.
-func Stamp() map[string]string { return map[string]string{Label: "1", RunLabel: run} }
+func Stamp() map[string]string { return testrun.Stamp() }
 
 // New finds the daemon and makes it hold Busybox, or skips the test. When
 // the test ends, everything this process made is removed.
 func New(t *testing.T) *Daemon {
 	t.Helper()
-	home, _ := os.UserHomeDir()
-	sockets := []string{"/var/run/docker.sock", filepath.Join(home, ".colima/default/docker.sock"), filepath.Join(home, ".docker/run/docker.sock")}
-	if h, ok := strings.CutPrefix(os.Getenv("DOCKER_HOST"), "unix://"); ok {
-		sockets = []string{h}
+	d := &Daemon{socket: testrun.Socket(t)}
+	d.Client = docker.New(d.socket)
+	d.Client.Labels = Stamp()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if _, err := d.Client.Daemon(ctx); err != nil {
+		t.Skipf("the Docker daemon at %s: %v", d.socket, err)
 	}
-	for _, sock := range sockets {
-		c := docker.New(sock)
-		c.Labels = Stamp()
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_, err := c.Daemon(ctx)
-		cancel()
-		if errors.Is(err, docker.ErrTooOld) {
-			t.Skipf("the Docker daemon at %s is too old: %v", sock, err)
-		}
-		if err != nil {
-			continue
-		}
-		d := &Daemon{Client: c, raw: &http.Client{Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var dialer net.Dialer
-				return dialer.DialContext(ctx, "unix", sock)
-			},
-		}}}
-		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := docker.EnsureImage(ctx, c, Busybox, false, nil); err != nil {
-			t.Skipf("cannot pull %s: %v", Busybox, err)
-		}
-		var v struct{ Arch string }
-		if err := d.Call(ctx, http.MethodGet, "/version", nil, nil, &v); err != nil {
-			t.Fatal(err)
-		}
-		d.Arch = v.Arch
-		t.Cleanup(func() { d.sweep(t) })
-		return d
+	if err := docker.EnsureImage(ctx, d.Client, Busybox, false, nil); err != nil {
+		t.Skipf("cannot pull %s: %v", Busybox, err)
 	}
-	t.Skip("no Docker daemon answers")
-	return nil
+	var v struct{ Arch string }
+	if err := d.Call(ctx, http.MethodGet, "/version", nil, nil, &v); err != nil {
+		t.Fatal(err)
+	}
+	d.Arch = v.Arch
+	t.Cleanup(func() { testrun.Sweep(t, d.socket) })
+	return d
 }
 
 // Call sends one request of the Engine API as it is, for what the docker
@@ -107,80 +73,7 @@ func New(t *testing.T) *Daemon {
 // as JSON, or as a tar stream when it is a reader, and the answer is read
 // into out unless that is nil.
 func (d *Daemon) Call(ctx context.Context, method, path string, query url.Values, body, out any) error {
-	var send io.Reader
-	contentType := "application/json"
-	switch b := body.(type) {
-	case nil:
-	case io.Reader:
-		send, contentType = b, "application/x-tar"
-	default:
-		raw, err := json.Marshal(b)
-		if err != nil {
-			return err
-		}
-		send = bytes.NewReader(raw)
-	}
-	u := "http://docker/v" + docker.MinAPI + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u, send)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", contentType)
-	resp, err := d.raw.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("docker: %s %s: HTTP %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal(raw, out)
-}
-
-// sweep removes what this test process created, and only that.
-func (d *Daemon) sweep(t *testing.T) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	del := func(path string, query url.Values) {
-		if err := d.Call(ctx, http.MethodDelete, path, query, nil, nil); err != nil && !strings.Contains(err.Error(), "HTTP 404") {
-			t.Errorf("cleanup of %s: %v", path, err)
-		}
-	}
-	containers, err := d.Client.ContainerList(ctx, Mark())
-	if err != nil {
-		t.Errorf("cleanup: %v", err)
-	}
-	for _, x := range containers {
-		del("/containers/"+x.ID, url.Values{"force": {"1"}, "v": {"1"}})
-	}
-	networks, err := d.Client.NetworkList(ctx, Mark())
-	if err != nil {
-		t.Errorf("cleanup: %v", err)
-	}
-	for _, x := range networks {
-		del("/networks/"+x.ID, nil)
-	}
-	var images []struct {
-		ID string `json:"Id"`
-	}
-	filter, _ := json.Marshal(map[string][]string{"label": {Mark()}})
-	if err := d.Call(ctx, http.MethodGet, "/images/json", url.Values{"filters": {string(filter)}}, nil, &images); err != nil {
-		t.Errorf("cleanup: %v", err)
-	}
-	for _, x := range images {
-		del("/images/"+x.ID, url.Values{"force": {"1"}})
-	}
+	return testrun.Call(ctx, d.socket, method, path, query, body, out)
 }
 
 // Image builds an image for this test process alone: Busybox plus, at
@@ -221,7 +114,7 @@ func (d *Daemon) Image(t *testing.T, programs map[string]string) string {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	repo := "javo-test-" + run
+	repo := "javo-test-" + testrun.ID
 	tag := strings.ToLower(rand.Text())
 	if err := d.commit(ctx, files.Bytes(), repo, tag); err != nil {
 		t.Fatal(err)

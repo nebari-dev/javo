@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/executor"
+	"github.com/nebari-dev/javo/internal/executor/docker/testrun"
 	"github.com/nebari-dev/javo/internal/executor/executortest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/reasons"
@@ -85,7 +86,7 @@ func javoGateway(t *testing.T, c *Client, name string) string {
 	}
 	body.HostConfig.NetworkMode = "bridge"
 	body.Labels = nil
-	id, err := c.ContainerCreate(ctx, "javo-test-gateway."+testRun[:10]+"."+name, body)
+	id, err := c.ContainerCreate(ctx, "javo-test-gateway."+testrun.ID[:10]+"."+name, body)
 	if err != nil {
 		t.Fatal(err)
 	}

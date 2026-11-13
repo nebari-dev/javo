@@ -13,6 +13,10 @@ import (
 // TestImage is the image of the daemon tests.
 const TestImage = testImage
 
+// TestPool is where the networks of this test process take their
+// addresses.
+var TestPool = testPool
+
 // TestPause stands in for the runner image's "javo pause".
 var TestPause = testPause
 
