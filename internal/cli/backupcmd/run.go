@@ -2,6 +2,7 @@ package backupcmd
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -53,7 +54,8 @@ type apiClient struct {
 	base, host, token string
 	http              *http.Client
 	// retryFor is how long a GET is tried again while the gateway does not
-	// answer (it restarts); retryEvery how often. Zero: two minutes, 3s.
+	// answer (it restarts), zero being two minutes; retryEvery how often,
+	// zero being 3s.
 	retryFor, retryEvery time.Duration
 }
 
@@ -79,10 +81,7 @@ func (c apiClient) do(ctx context.Context, method, path string, body any, out an
 	if method != http.MethodGet {
 		return c.once(ctx, method, path, body, out)
 	}
-	retryFor, every := c.retryFor, c.retryEvery
-	if retryFor == 0 {
-		retryFor, every = 2*time.Minute, 3*time.Second
-	}
+	retryFor, every := cmp.Or(c.retryFor, 2*time.Minute), cmp.Or(c.retryEvery, 3*time.Second)
 	deadline := time.Now().Add(retryFor)
 	for {
 		err := c.once(ctx, method, path, body, out)
@@ -270,7 +269,7 @@ func newBackupRunCmds() []*cobra.Command {
 		Use: "run", Short: "Back up the database, every home folder and every shared folder to the bucket (the backup job runs this)",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, id, err := runIdentity()
+			c, id, err := runIdentity(poll)
 			if err != nil {
 				return err
 			}
@@ -290,7 +289,7 @@ func newBackupRunCmds() []*cobra.Command {
 		Use: "restore-run", Short: "Restore a full backup for everyone or one person (the restore job runs this; parameters from, person, mode)",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, id, err := runIdentity()
+			c, id, err := runIdentity(poll)
 			if err != nil {
 				return err
 			}
@@ -321,11 +320,14 @@ func newBackupRunCmds() []*cobra.Command {
 	return []*cobra.Command{run, restore}
 }
 
-func runIdentity() (apiClient, string, error) {
+func runIdentity(poll time.Duration) (apiClient, string, error) {
 	c, err := apiFromEnv()
 	if err != nil {
 		return c, "", err
 	}
+	// A gateway that does not answer is asked again as often as the run
+	// looks for progress, and no less often than every 3s.
+	c.retryEvery = min(poll, 3*time.Second)
 	id := os.Getenv("JAVO_RUN_ID")
 	if id == "" {
 		return c, "", errors.New("JAVO_RUN_ID is not set: run this as a job")
