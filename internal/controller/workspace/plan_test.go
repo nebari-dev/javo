@@ -9,8 +9,8 @@ import (
 )
 
 func homeSpec() workload.Spec {
-	s := workload.Spec{Main: mainUnit("alice", "example.com/app:1")}
-	addLayout(&s, testLayout(FixedUID))
+	s := workload.Spec{Main: MainUnit("alice", "example.com/app:1")}
+	AddLayout(&s, testLayout(FixedUID))
 	return s
 }
 
@@ -51,5 +51,22 @@ func TestScratchHomeKeepsTheHomeForAStepThatReadsIt(t *testing.T) {
 	}
 	if slices.ContainsFunc(s.Main.Mounts, func(m workload.Mount) bool { return m.Volume == homeVolume }) {
 		t.Fatal("the app still mounts the home")
+	}
+}
+
+// Images set no HOME a workload can rely on (some run as a passwd user with
+// another home): "~" must be the mounted volume. pod-user.sh names an
+// allocated uid's passwd entry after JAVO_USER, so the shell prompt, whoami
+// and git show the person, not "I have no name!".
+func TestTheMainUnitNamesTheHomeAndTheOwner(t *testing.T) {
+	u := MainUnit("alice-1a2b3c4d", "example.com/lab:1")
+	if u.Name != workload.MainUnit || u.Image != "example.com/lab:1" || u.Command != nil || u.Args != nil {
+		t.Fatalf("unit = %+v", u)
+	}
+	if got := u.EnvValue("HOME"); got != homeDir {
+		t.Errorf("HOME = %q, want %q", got, homeDir)
+	}
+	if got := u.EnvValue("JAVO_USER"); got != "alice" {
+		t.Errorf("JAVO_USER = %q, want alice", got)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/nebari-dev/javo/internal/executor"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/secrets"
@@ -41,7 +40,7 @@ const (
 // NebiTokenSecretName is the Secret holding the Nebi token of the app whose
 // Pod and Service are called objectName (see SecretName).
 func NebiTokenSecretName(objectName string) string {
-	return kube.SecretName(objectName, executor.UseNebi)
+	return SecretName(objectName, "nebi")
 }
 
 // addNebi gives the main unit the owner's Nebi token file, the Nebi
@@ -52,7 +51,7 @@ func addNebi(s *workload.Spec, nebiURL string, runner podspec.Image) {
 	app := &s.Main
 	s.Volumes = append(s.Volumes,
 		workload.Volume{Name: nebiVolume, Secret: &workload.SecretFiles{
-			Holder: s.Ref.Name, Use: executor.UseNebi, Keys: []string{NebiTokenKey}, Optional: true, WorldReadable: true,
+			Bundle: NebiTokenSecretName(s.Ref.Name), Keys: []string{NebiTokenKey}, Optional: true, WorldReadable: true,
 		}},
 		workload.Volume{Name: nebiCLIVolume},
 	)
@@ -90,9 +89,9 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	if r.SecretKeys == nil || r.Secrets == nil {
 		return errors.New("the app gets a Nebi token, but the controller has no secrets key")
 	}
-	ref := refOf(app)
+	ref, name := refOf(app), NebiTokenSecretName(app.ObjectName())
 	stamp := expires.UTC().Format(time.RFC3339Nano)
-	have, err := r.vault().Get(ctx, ref, executor.UseNebi)
+	have, err := r.vault().Get(ctx, ref, name)
 	switch {
 	case err != nil:
 		return err
@@ -107,7 +106,7 @@ func (r *Reconciler) syncNebiToken(ctx context.Context, app *model.App) error {
 	if err != nil {
 		return fmt.Errorf("open the app's Nebi token: %w", err)
 	}
-	err = r.vault().Put(ctx, ref, executor.UseNebi, executor.Bundle{
+	err = r.vault().Put(ctx, ref, name, executor.Bundle{
 		Data: map[string][]byte{NebiTokenKey: tok}, Meta: map[string]string{annotationNebiExpires: stamp},
 	})
 	if err != nil {

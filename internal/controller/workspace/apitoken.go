@@ -9,7 +9,6 @@ import (
 
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/executor"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/workload"
 )
@@ -44,7 +43,7 @@ type TokenMinter interface {
 // APITokenSecretName is the Secret holding the API token of the app whose Pod
 // and Service are called objectName (see SecretName).
 func APITokenSecretName(objectName string) string {
-	return kube.SecretName(objectName, executor.UseAPI)
+	return SecretName(objectName, "api")
 }
 
 // addAPIToken gives the main unit the owner's API token from the app's
@@ -61,13 +60,13 @@ func addAPIToken(s *workload.Spec, t *model.Template, in Inputs) {
 	}
 	app.Env = append(app.Env,
 		workload.Env{Name: envURL, Value: in.APIURL},
-		workload.Env{Name: envToken, From: &workload.SecretRef{Holder: s.Ref.Name, Use: executor.UseAPI, Key: APITokenKey}},
+		workload.Env{Name: envToken, From: &workload.SecretRef{Bundle: APITokenSecretName(s.Ref.Name), Key: APITokenKey}},
 	)
 	for _, p := range append([]string{APIGuidePath}, t.Spec.APIGuidePaths...) {
 		app.Mounts = append(app.Mounts, workload.Mount{Volume: apiGuideVolume, Path: p, SubPath: APIGuideKey, ReadOnly: true})
 	}
 	s.Volumes = append(s.Volumes, workload.Volume{Name: apiGuideVolume, Secret: &workload.SecretFiles{
-		Holder: s.Ref.Name, Use: executor.UseAPI, Keys: []string{APIGuideKey},
+		Bundle: APITokenSecretName(s.Ref.Name), Keys: []string{APIGuideKey},
 	}})
 }
 
@@ -86,7 +85,7 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 		return "", errors.New("the template gives apps an API token, but the controller has no token store")
 	}
 	name, ref := APITokenSecretName(app.ObjectName()), refOf(app)
-	have, err := r.vault().Get(ctx, ref, executor.UseAPI)
+	have, err := r.vault().Get(ctx, ref, name)
 	if err != nil {
 		return "", err
 	}
@@ -110,7 +109,7 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 			}
 			// A newer guide ships with this controller; the token stays.
 			have.Data[APIGuideKey] = apiGuide
-			return name, r.vault().Put(ctx, ref, executor.UseAPI, *have)
+			return name, r.vault().Put(ctx, ref, name, *have)
 		}
 	}
 	text, tok, err := r.Tokens.Create(ctx, model.Actor{System: model.SystemController}, token.Token{
@@ -120,7 +119,7 @@ func (r *Reconciler) ensureAPIToken(ctx context.Context, app *model.App, scope t
 	if err != nil {
 		return "", fmt.Errorf("make the app's API token: %w", err)
 	}
-	err = r.vault().Put(ctx, ref, executor.UseAPI, executor.Bundle{
+	err = r.vault().Put(ctx, ref, name, executor.Bundle{
 		Data: map[string][]byte{APITokenKey: []byte(text), APIGuideKey: apiGuide},
 		Meta: map[string]string{model.AnnotationTokenID: tok.ID, model.AnnotationTokenScope: string(scope)},
 	})
@@ -147,5 +146,5 @@ func bundleScope(b *executor.Bundle) token.Scope {
 // removeAPIToken deletes the app's token Secret, if any. Its token record
 // is the gateway's to revoke (see ensureAPIToken).
 func (r *Reconciler) removeAPIToken(ctx context.Context, app *model.App) error {
-	return r.vault().Delete(ctx, refOf(app), executor.UseAPI)
+	return r.vault().Delete(ctx, refOf(app), APITokenSecretName(app.ObjectName()))
 }

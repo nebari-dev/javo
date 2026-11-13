@@ -35,7 +35,7 @@ func testInputs(mutate func(*model.Job)) Inputs {
 				{Name: "region", Type: "string", Default: "emea"},
 				{Name: "days", Type: "integer", Default: "7"},
 			},
-			Env: []model.EnvVar{{Name: "TZ", Value: "UTC"}},
+			Env: []model.EnvVar{{Name: "REPORT_MODE", Value: "full"}},
 			Schedule: &model.JobSchedule{
 				Cron: "0 6 * * 1-5", TimeZone: "Europe/Berlin", Concurrency: "Forbid",
 				StartingDeadline: &metav1.Duration{Duration: 10 * time.Minute},
@@ -268,7 +268,7 @@ func TestJobPodShape(t *testing.T) {
 		runID.ValueFrom.FieldRef.FieldPath != "metadata.labels['batch.kubernetes.io/job-name']" {
 		t.Fatalf("JAVO_RUN_ID = %+v", runID)
 	}
-	if !slices.ContainsFunc(app.Env, func(e corev1.EnvVar) bool { return e.Name == "TZ" && e.Value == "UTC" }) {
+	if !slices.ContainsFunc(app.Env, func(e corev1.EnvVar) bool { return e.Name == "REPORT_MODE" && e.Value == "full" }) {
 		t.Fatalf("definition env missing: %+v", app.Env)
 	}
 	if jt.Labels[model.LabelOwner] != in.Job.Owner || jt.Labels[model.LabelJob] != "job-1" {
@@ -549,5 +549,29 @@ func TestJobRunsGetTheIsolation(t *testing.T) {
 	pod := jt.Spec.Template.Spec
 	if pod.HostUsers == nil || *pod.HostUsers || pod.RuntimeClassName == nil || *pod.RuntimeClassName != "gvisor" {
 		t.Fatalf("hostUsers %v, runtimeClass %v", pod.HostUsers, pod.RuntimeClassName)
+	}
+}
+
+// The API refuses a variable the platform sets. One written straight into
+// the database is left out of the run, as it is for an app: it never
+// replaces the platform's own.
+func TestARunNeverGetsAReservedVariableFromItsJob(t *testing.T) {
+	t.Parallel()
+	in := testInputs(func(d *model.Job) {
+		d.Spec.Env = []model.EnvVar{{Name: "HOME", Value: "/elsewhere"}, {Name: "JAVO_RUN", Value: "x"}, {Name: "TZ", Value: "UTC"}}
+	})
+	jt, err := BuildJobTemplate(in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, e := range jt.Spec.Template.Spec.Containers[0].Env {
+		seen[e.Name]++
+		if (e.Name == "HOME" && e.Value != "/home/user") || (e.Name == "JAVO_RUN" && e.Value == "x") || e.Name == "TZ" {
+			t.Errorf("%s = %q", e.Name, e.Value)
+		}
+	}
+	if seen["HOME"] != 1 || seen["JAVO_RUN"] != 1 {
+		t.Errorf("HOME is set %d times and JAVO_RUN %d", seen["HOME"], seen["JAVO_RUN"])
 	}
 }

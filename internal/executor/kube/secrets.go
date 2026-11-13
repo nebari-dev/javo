@@ -16,15 +16,8 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// SecretName is the name of an app's Secret of the given use (api, secrets,
-// git, nebi): "<objectName>.app-<use>". Object names are DNS labels and never
-// hold a ".", so the part after it says whose Secret it is: no name a person
-// picks for an app or a job makes another app's or a job's Secret (jobs use
-// ".job-" and ".run-").
-func SecretName(objectName, use string) string { return objectName + ".app-" + use }
-
-// Secrets keeps each bundle in a Secret of the app's namespace, labelled
-// as the app's, with the bundle's notes as annotations.
+// Secrets keeps each bundle in the Secret of that name in the app's
+// namespace, labelled as the app's, with the bundle's notes as annotations.
 type Secrets struct {
 	// Reader reads Secrets live: they are never cached.
 	Reader client.Reader
@@ -33,16 +26,15 @@ type Secrets struct {
 
 var _ executor.Secrets = Secrets{}
 
-func (s Secrets) Get(ctx context.Context, of workload.Ref, use string) (*executor.Bundle, error) {
-	sec, err := OwnedSecret(ctx, s.Reader, of, SecretName(of.Name, use))
+func (s Secrets) Get(ctx context.Context, of workload.Ref, name string) (*executor.Bundle, error) {
+	sec, err := OwnedSecret(ctx, s.Reader, of, name)
 	if err != nil || sec == nil {
 		return nil, err
 	}
 	return &executor.Bundle{Data: sec.Data, Meta: sec.Annotations}, nil
 }
 
-func (s Secrets) Put(ctx context.Context, of workload.Ref, use string, b executor.Bundle) error {
-	name := SecretName(of.Name, use)
+func (s Secrets) Put(ctx context.Context, of workload.Ref, name string, b executor.Bundle) error {
 	sec, err := OwnedSecret(ctx, s.Reader, of, name)
 	if err != nil {
 		return err
@@ -51,11 +43,10 @@ func (s Secrets) Put(ctx context.Context, of workload.Ref, use string, b executo
 	if create {
 		sec = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: of.Namespace}}
 	}
-	// The app's Service owns the Secret of its secrets: Kubernetes deletes
-	// it with the Service, also when the sweep removes an orphaned one. Its
-	// values can be made again from the database; the other Secrets hold
-	// the only copy of a token.
-	if use == executor.UseSecrets {
+	// The app's Service owns a Secret that can be made again: Kubernetes
+	// deletes it with the Service, also when the sweep removes an orphaned
+	// one.
+	if b.Rebuildable {
 		svc := &corev1.Service{}
 		if err := s.Client.Get(ctx, client.ObjectKey{Namespace: of.Namespace, Name: of.Name}, svc); err != nil {
 			return err
@@ -74,8 +65,7 @@ func (s Secrets) Put(ctx context.Context, of workload.Ref, use string, b executo
 	return s.Client.Update(ctx, sec)
 }
 
-func (s Secrets) Delete(ctx context.Context, of workload.Ref, use string) error {
-	name := SecretName(of.Name, use)
+func (s Secrets) Delete(ctx context.Context, of workload.Ref, name string) error {
 	sec, err := OwnedSecret(ctx, s.Reader, of, name)
 	if errors.Is(err, executor.ErrForeign) {
 		log.FromContext(ctx).Info("not deleting a Secret of another owner", "secret", name)

@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
-	"github.com/nebari-dev/javo/internal/naming"
 	"github.com/nebari-dev/javo/internal/storage/podstorage"
 )
 
@@ -50,33 +49,6 @@ func ReadOnlyRootContext() *corev1.SecurityContext {
 	sc := RestrictedContext()
 	sc.ReadOnlyRootFilesystem = ptr.To(true)
 	return sc
-}
-
-// Base returns the pod spec for owner (a person's name) running image with
-// resources. It carries no storage and sets no ids or fsGroup;
-// podstorage.Layout.Apply adds the volumes, ids and groups.
-func Base(owner, image string, resources corev1.ResourceRequirements) corev1.PodSpec {
-	return corev1.PodSpec{
-		AutomountServiceAccountToken: ptr.To(false),
-		EnableServiceLinks:           ptr.To(false),
-		SecurityContext: &corev1.PodSecurityContext{
-			RunAsNonRoot:   ptr.To(true),
-			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-		},
-		Containers: []corev1.Container{{
-			Name:            ContainerName,
-			Image:           image,
-			Resources:       resources,
-			SecurityContext: RestrictedContext(),
-			// Images name other homes (the passwd entry, a baked ENV), where
-			// writes would be lost with the pod; "~" is the volume. JAVO_USER
-			// is the name pod-user.sh gives a uid the image does not list.
-			Env: append([]corev1.EnvVar{
-				{Name: "HOME", Value: HomeDir},
-				{Name: "JAVO_USER", Value: naming.IdentityReadable(owner)},
-			}, ColorEnv()...),
-		}},
-	}
 }
 
 // ColorEnv asks the programs in an app or a run to print colours as they do

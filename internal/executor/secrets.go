@@ -18,27 +18,24 @@ type Bundle struct {
 	// Meta says which values these are (a token's id, a generation), so a
 	// caller can tell whether they are current without reading them.
 	Meta map[string]string
+	// Rebuildable is for values that can be made again from the database:
+	// an executor may then let the bundle go with the workload. Any other
+	// bundle holds the only copy of a token and stays until deleted.
+	Rebuildable bool
 }
-
-// The uses an app's bundles have.
-const (
-	UseAPI     = "api"     // its owner's API token and the API guide
-	UseSecrets = "secrets" // the values of the secrets it is given
-	UseGit     = "git"     // the token its clone reads
-	UseNebi    = "nebi"    // its Nebi token
-)
 
 // ErrForeign means the place a workload's bundle is kept holds something
 // that is not that workload's. It is never read, replaced or deleted.
 var ErrForeign = errors.New("exists and does not belong to the app")
 
-// Secrets keeps the bundles workloads read. A bundle outlives the workload
-// and is replaced in place; for some values it is the only copy.
+// Secrets keeps the bundles workloads read, each under a name that is
+// unique where the workload runs (workload.SecretRef names one). A bundle
+// outlives the workload and is replaced in place.
 type Secrets interface {
-	// Get returns the workload's bundle for use, or nil when it has none.
-	Get(ctx context.Context, of workload.Ref, use string) (*Bundle, error)
-	// Put makes the workload's bundle for use hold b.
-	Put(ctx context.Context, of workload.Ref, use string, b Bundle) error
-	// Delete removes the workload's bundle for use, if there is one.
-	Delete(ctx context.Context, of workload.Ref, use string) error
+	// Get returns the workload's bundle name, or nil when there is none.
+	Get(ctx context.Context, of workload.Ref, name string) (*Bundle, error)
+	// Put makes the workload's bundle name hold b.
+	Put(ctx context.Context, of workload.Ref, name string, b Bundle) error
+	// Delete removes the workload's bundle name, if there is one.
+	Delete(ctx context.Context, of workload.Ref, name string) error
 }

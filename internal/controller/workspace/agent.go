@@ -8,7 +8,6 @@ import (
 
 	"github.com/nebari-dev/javo/internal/ai/agentproxy"
 	"github.com/nebari-dev/javo/internal/controller/secretenv"
-	"github.com/nebari-dev/javo/internal/executor"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/workload"
@@ -84,7 +83,7 @@ func addAgent(s *workload.Spec, ws *model.App, t *model.Template, m agentModel, 
 		c.Env = append(c.Env, workload.Env{Name: envAgentModel, Value: m.model}, workload.Env{Name: envAgentBaseURL, Value: m.baseURL})
 	}
 	if m.mode == model.AgentModePlatform && hasToken {
-		c.Env = append(c.Env, workload.Env{Name: envAgentKey, From: &workload.SecretRef{Holder: s.Ref.Name, Use: executor.UseAPI, Key: APITokenKey}})
+		c.Env = append(c.Env, workload.Env{Name: envAgentKey, From: &workload.SecretRef{Bundle: APITokenSecretName(s.Ref.Name), Key: APITokenKey}})
 	}
 	if prompt := model.PrintableText(ws.AgentPrompt); prompt != "" {
 		c.Env = append(c.Env, workload.Env{Name: envAgentPrompt, Value: prompt})

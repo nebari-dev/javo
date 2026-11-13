@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"slices"
 
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/nebari-dev/javo/internal/authz"
@@ -135,16 +134,4 @@ func (s Set) Open(ctx context.Context, keys *secrets.Keys) (data map[string][]by
 		data[b.Env] = v
 	}
 	return data, ""
-}
-
-// Env is one variable per binding, each read from its key in the Secret
-// secretName: by reference, so no value is ever in a pod or Job spec.
-func (s Set) Env(secretName string) []corev1.EnvVar {
-	out := make([]corev1.EnvVar, 0, len(s.Bindings))
-	for _, b := range s.Bindings {
-		out = append(out, corev1.EnvVar{Name: b.Env, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: b.Env,
-		}}})
-	}
-	return out
 }

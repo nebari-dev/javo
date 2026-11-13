@@ -8,20 +8,21 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
-func appPod() *corev1.PodSpec {
-	s := podspec.Base("alice", "example.com/app:1", corev1.ResourceRequirements{})
+func appPod() *workload.Spec {
+	s := workload.Spec{Main: workload.Unit{Name: workload.MainUnit, Image: "example.com/app:1", Env: []workload.Env{
+		{Name: "HOME", Value: podspec.HomeDir}, {Name: "JAVO_USER", Value: "alice"},
+	}}}
 	return &s
 }
 
-func initNamed(spec *corev1.PodSpec, name string) *corev1.Container {
-	for i := range spec.InitContainers {
-		if spec.InitContainers[i].Name == name {
-			return &spec.InitContainers[i]
+func initNamed(spec *workload.Spec, name string) *workload.Unit {
+	for i := range spec.Steps {
+		if spec.Steps[i].Name == name {
+			return &spec.Steps[i]
 		}
 	}
 	return nil
@@ -63,15 +64,15 @@ func TestCopyKeepsTheTreeAndTheModes(t *testing.T) {
 // whose /etc it starts from.
 func TestThePodGetsTheFilesAndAnIdentity(t *testing.T) {
 	spec := appPod()
-	Apply(spec, podspec.Image{Ref: "example.com/javo:1"})
+	Add(spec, podspec.Image{Ref: "example.com/javo:1"})
 
 	cp, id := initNamed(spec, CopyContainer), initNamed(spec, IdentityContainer)
 	if cp == nil || cp.Image != "example.com/javo:1" || id == nil || id.Image != "example.com/app:1" {
-		t.Fatalf("init containers: %+v", spec.InitContainers)
+		t.Fatalf("init containers: %+v", spec.Steps)
 	}
-	mounts := map[string]corev1.VolumeMount{}
-	for _, m := range spec.Containers[0].VolumeMounts {
-		mounts[m.MountPath] = m
+	mounts := map[string]workload.Mount{}
+	for _, m := range spec.Main.Mounts {
+		mounts[m.Path] = m
 	}
 	if _, ok := mounts[Dir]; !ok {
 		t.Fatalf("the app container does not see %s: %+v", Dir, mounts)
@@ -82,8 +83,8 @@ func TestThePodGetsTheFilesAndAnIdentity(t *testing.T) {
 			t.Fatalf("/etc/%s is not the written file, read-only: %+v", f, m)
 		}
 	}
-	if got := Mount(); got.MountPath != Dir || !got.ReadOnly {
-		t.Fatalf("Mount() = %+v", got)
+	if got := ReadOnly(); got.Path != Dir || !got.ReadOnly {
+		t.Fatalf("ReadOnly() = %+v", got)
 	}
 }
 
@@ -100,7 +101,7 @@ func identityStep(t *testing.T, passwd, group, bashrc string, env ...string) map
 			t.Fatal(err)
 		}
 	}
-	step := initNamed(func() *corev1.PodSpec { s := appPod(); Apply(s, podspec.Image{Ref: "javo"}); return s }(), IdentityContainer)
+	step := initNamed(func() *workload.Spec { s := appPod(); Add(s, podspec.Image{Ref: "javo"}); return s }(), IdentityContainer)
 	argv := append(append([]string{}, step.Command...), step.Args...)
 	for i, a := range argv {
 		argv[i] = strings.NewReplacer("/etc/", etc+"/", etcDir, out).Replace(a)
@@ -156,10 +157,10 @@ func TestTheIdentityReplacesTheImagesEntryForTheUID(t *testing.T) {
 // on the pod is not listed twice, and a public image adds none.
 func TestApplyPullsAPrivateImageWithItsSecrets(t *testing.T) {
 	spec := appPod()
-	spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "app-registry"}, {Name: "ghcr"}}
-	Apply(spec, podspec.Image{Ref: "ghcr.io/example/javo:1", PullSecrets: []string{"ghcr", "mirror"}})
-	got := spec.ImagePullSecrets
-	want := []corev1.LocalObjectReference{{Name: "app-registry"}, {Name: "ghcr"}, {Name: "mirror"}}
+	spec.PullSecrets = []string{"app-registry", "ghcr"}
+	Add(spec, podspec.Image{Ref: "ghcr.io/example/javo:1", PullSecrets: []string{"ghcr", "mirror"}})
+	got := spec.PullSecrets
+	want := []string{"app-registry", "ghcr", "mirror"}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatalf("imagePullSecrets = %v, want %v", got, want)
 	}
@@ -168,8 +169,8 @@ func TestApplyPullsAPrivateImageWithItsSecrets(t *testing.T) {
 	}
 
 	public := appPod()
-	Apply(public, podspec.Image{Ref: "javo:1"})
-	if public.ImagePullSecrets != nil {
-		t.Fatalf("public image: imagePullSecrets = %v, want none", public.ImagePullSecrets)
+	Add(public, podspec.Image{Ref: "javo:1"})
+	if public.PullSecrets != nil {
+		t.Fatalf("public image: imagePullSecrets = %v, want none", public.PullSecrets)
 	}
 }

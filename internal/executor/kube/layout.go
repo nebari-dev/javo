@@ -11,6 +11,9 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
+// LabelJobName is the label the Job controller puts on a Job's pods.
+const LabelJobName = "batch.kubernetes.io/job-name"
+
 // SafeToEvictAnnotation lets the cluster autoscaler drain a node whose only
 // local volumes are scratch space.
 const SafeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes"
@@ -92,7 +95,7 @@ func volume(v workload.Volume) corev1.Volume {
 	out := corev1.Volume{Name: v.Name}
 	switch {
 	case v.Secret != nil:
-		src := &corev1.SecretVolumeSource{SecretName: SecretName(v.Secret.Holder, v.Secret.Use)}
+		src := &corev1.SecretVolumeSource{SecretName: v.Secret.Bundle}
 		for _, k := range v.Secret.Keys {
 			src.Items = append(src.Items, corev1.KeyToPath{Key: k, Path: k})
 		}
@@ -119,10 +122,15 @@ func mount(m workload.Mount) corev1.VolumeMount {
 }
 
 func env(e workload.Env) corev1.EnvVar {
-	if e.From == nil {
+	switch {
+	case e.RunID:
+		// A run is named after its Job, which its pods carry as a label.
+		return corev1.EnvVar{Name: e.Name, ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+			FieldPath: "metadata.labels['" + LabelJobName + "']"}}}
+	case e.From == nil:
 		return corev1.EnvVar{Name: e.Name, Value: e.Value}
 	}
 	return corev1.EnvVar{Name: e.Name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: SecretName(e.From.Holder, e.From.Use)}, Key: e.From.Key,
+		LocalObjectReference: corev1.LocalObjectReference{Name: e.From.Bundle}, Key: e.From.Key,
 	}}}
 }

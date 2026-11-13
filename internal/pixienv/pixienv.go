@@ -25,8 +25,6 @@ import (
 	"strings"
 	"unicode"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/podspec"
@@ -179,92 +177,6 @@ if [ -n "$picked" ] && [ -n "${JAVO_ENV_BESIDE:-}" ]; then
   printf 'export JUPYTER_PATH="%s${JUPYTER_PATH:+:$JUPYTER_PATH}"\n' "$JAVO_ENV_DIR/` + KernelsDir + `" >> "$JAVO_ENV_DIR/` + ActivateFile + `"
 fi`
 
-// Apply makes spec's first container run in the environment src names,
-// installed by an init container running image (one with pixi, sh, flock,
-// sha256sum, base64 and gunzip), after one running toolsImage (the
-// platform's, with its binary at /<product>) copies that binary into Dir. The step sees the home exactly as the
-// container does (a preview's scratch home stays scratch), the pod files
-// when it installs one of theirs, and the repository when it may hold the
-// lockfile. Files too large to carry, or no image, are an error.
-func Apply(spec *corev1.PodSpec, image string, toolsImage podspec.Image, src Source) error {
-	if src.Files == nil && src.Default == "" {
-		return nil
-	}
-	if image == "" {
-		return errors.New("environment: the platform has no image to install environments with (environments.pixiImage)")
-	}
-	if toolsImage.Ref == "" {
-		return errors.New("environment: the platform's own image is not set (the controller's --runner-image)")
-	}
-	app := &spec.Containers[0]
-	home, ok := mountAt(app, podspec.HomeDir)
-	if !ok {
-		return errors.New("environment: the pod has no home folder to install into")
-	}
-	home.ReadOnly = false
-	root := path.Join(podspec.HomeDir, HomeFolder)
-	tool := path.Join(Dir, model.ProductName)
-	mount := corev1.VolumeMount{Name: volume, MountPath: Dir}
-	env := []corev1.EnvVar{
-		{Name: "HOME", Value: podspec.HomeDir},
-		{Name: "PIXI_CACHE_DIR", Value: root + "/pixi-cache"},
-		{Name: "JAVO_ENV_ROOT", Value: root + "/envs"},
-		{Name: "JAVO_ENV_DIR", Value: Dir},
-		{Name: "JAVO_TOOL", Value: tool},
-	}
-	mounts := []corev1.VolumeMount{mount, home}
-	for _, v := range []struct{ name, value string }{
-		{"JAVO_ENV_NAME", src.Name}, {"JAVO_ENV_FROM", src.From}, {"JAVO_ENV_PROGRAM", src.Program},
-	} {
-		if v.value != "" {
-			env = append(env, corev1.EnvVar{Name: v.name, Value: v.value})
-		}
-	}
-	beside := src.Beside && src.Files != nil && src.Default != ""
-	if beside {
-		env = append(env, corev1.EnvVar{Name: "JAVO_ENV_BESIDE", Value: "1"}, corev1.EnvVar{Name: "JAVO_ENV_SLUG", Value: Slug(src.Name)})
-	}
-	if src.Files != nil {
-		toml, lock, err := check(src.Files)
-		if err != nil {
-			return err
-		}
-		env = append(env, corev1.EnvVar{Name: "JAVO_PIXI_TOML", Value: toml}, corev1.EnvVar{Name: "JAVO_PIXI_LOCK", Value: lock})
-	}
-	if src.Files == nil || beside {
-		env = append(env, corev1.EnvVar{Name: "JAVO_ENV_DEFAULT", Value: path.Join(podfiles.Dir, "envs", src.Default)})
-		mounts = append(mounts, podfiles.Mount())
-		if src.RepoDir != "" {
-			if m, ok := mountAt(app, src.RepoDir); ok {
-				m.ReadOnly = true
-				mounts = append(mounts, m)
-				env = append(env, corev1.EnvVar{Name: "JAVO_ENV_REPO", Value: src.RepoDir})
-			}
-		}
-	}
-	for _, v := range spec.Volumes {
-		if v.Name == podspec.TmpVolume {
-			mounts = append(mounts, corev1.VolumeMount{Name: podspec.TmpVolume, MountPath: "/tmp"})
-		}
-	}
-	spec.Volumes = append(spec.Volumes, corev1.Volume{Name: volume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
-	spec.InitContainers = append(spec.InitContainers, corev1.Container{
-		Name: ToolsContainer, Image: toolsImage.Ref, SecurityContext: podspec.ReadOnlyRootContext(),
-		Command:                  []string{"/" + model.ProductName},
-		Args:                     []string{"runner", "install", "--to", tool},
-		VolumeMounts:             []corev1.VolumeMount{mount},
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-	}, corev1.Container{
-		Name: InstallContainer, Image: image, SecurityContext: podspec.RestrictedContext(),
-		Command: []string{"sh", "-c", script}, Env: env, VolumeMounts: mounts,
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-	})
-	toolsImage.Pull(spec)
-	mount.ReadOnly = true
-	app.VolumeMounts = append(app.VolumeMounts, mount)
-	return nil
-}
-
 // Add makes s's main unit run in the environment src names, installed by a
 // step running image (one with pixi, sh, flock, sha256sum, base64 and
 // gunzip), after one running toolsImage (the platform's, with its binary at
@@ -362,18 +274,6 @@ func Slug(name string) string {
 		return "environment"
 	}
 	return out
-}
-
-// mountAt is c's mount that shows p: the one at p or the deepest above it.
-func mountAt(c *corev1.Container, p string) (corev1.VolumeMount, bool) {
-	var best corev1.VolumeMount
-	found := false
-	for _, m := range c.VolumeMounts {
-		if (p == m.MountPath || strings.HasPrefix(p, strings.TrimSuffix(m.MountPath, "/")+"/")) && len(m.MountPath) > len(best.MountPath) {
-			best, found = m, true
-		}
-	}
-	return best, found
 }
 
 // Fits is nil when files are small enough to hand to a pod.

@@ -11,7 +11,9 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// Render is the Pod that runs s, kept from the node as far as iso says.
+// Render is the Pod that runs s, kept from the node as far as iso says. For
+// a run (s.Batch) it is the pod of each attempt: the caller names and labels
+// it and wraps it in the Job that retries and times it out.
 // Every pod gets the same hardening, whatever s asks for: no service
 // account token, no root, no capabilities, no privilege escalation and the
 // runtime's seccomp profile.
@@ -61,7 +63,11 @@ func Render(s workload.Spec, iso podspec.Isolation) *corev1.Pod {
 	s.Size.Apply(spec, &spec.Containers[0], s.Resources)
 
 	evictable(pod)
-	Mark(pod, s.Fingerprint)
+	if s.Batch == nil {
+		Mark(pod, s.Fingerprint)
+	} else {
+		spec.RestartPolicy = corev1.RestartPolicyNever
+	}
 	iso.Apply(spec)
 	return pod
 }

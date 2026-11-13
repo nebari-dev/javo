@@ -12,7 +12,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 )
 
@@ -93,7 +92,7 @@ func legacyPod(pod *corev1.Pod, objectName string) *corev1.Pod {
 	old.Status = corev1.PodStatus{}
 	rename := func(n string) string {
 		for i, use := range secretUses {
-			if n == kube.SecretName(objectName, use) {
+			if n == SecretName(objectName, use) {
 				return legacySecretNames(objectName)[i]
 			}
 		}

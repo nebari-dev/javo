@@ -3,6 +3,7 @@ package workload
 import (
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -47,6 +48,20 @@ type Spec struct {
 	// PullSecrets name the registry credentials the platform's own images
 	// are pulled with. They are never offered for an image a person named.
 	PullSecrets []string
+
+	// Batch makes the workload a run: Main runs to completion once. Nil is
+	// an app, which is kept running.
+	Batch *Batch
+}
+
+// Batch is how a run ends.
+type Batch struct {
+	// Retries is how many times a failed run is started again.
+	Retries int32
+	// Timeout ends the run after that long; zero is no limit.
+	Timeout time.Duration
+	// FailNow are the exit codes of Main that a retry cannot fix.
+	FailNow []int32
 }
 
 // User is who a workload runs as.
@@ -91,20 +106,21 @@ type Check struct {
 	Tries int32
 }
 
-// Env is one variable of a unit: a plain Value, or a value read from a
-// bundle (From), which is then never part of the Spec.
+// Env is one variable of a unit: a plain Value, a value read from a bundle
+// (From), which is then never part of the Spec, or the id the executor
+// gives this run (RunID).
 type Env struct {
 	Name  string
 	Value string
 	From  *SecretRef
+	RunID bool
 }
 
 // SecretRef names one value of a bundle (executor.Secrets).
 type SecretRef struct {
-	// Holder is the Name of the workload whose bundle it is: the app's
-	// own, or its parent's for a preview.
-	Holder string
-	Use    string
+	// Bundle is the bundle's name: the app's own, or its parent's for a
+	// preview's repository token.
+	Bundle string
 	Key    string
 }
 
@@ -131,8 +147,8 @@ type Volume struct {
 
 // SecretFiles are values of one bundle as files, each named after its key.
 type SecretFiles struct {
-	Holder, Use string
-	Keys        []string
+	Bundle string
+	Keys   []string
 	// WorldReadable lets a unit that does not run as the files' owner read
 	// them.
 	WorldReadable bool

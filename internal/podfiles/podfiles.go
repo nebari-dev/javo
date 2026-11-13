@@ -17,8 +17,6 @@ import (
 	"os"
 	"path/filepath"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/workload"
@@ -66,39 +64,6 @@ cp /etc/group "$out/group"
 grep -q "^[^:]*:[^:]*:$gid:" /etc/group || echo "$name:x:$gid:" >> "$out/group"
 { cat /etc/bash.bashrc 2>/dev/null || true; echo '[ -r ` + Dir + `/javo.bashrc ] && . ` + Dir + `/javo.bashrc'; } > "$out/bash.bashrc"`
 
-// Apply gives spec's first container the files at Dir, copied by image (the
-// platform's own, which has the javo binary; spec gets its pull secrets),
-// and the identity files over /etc, written by the first container's own
-// image.
-func Apply(spec *corev1.PodSpec, image podspec.Image) {
-	image.Pull(spec)
-	empty := corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}
-	spec.Volumes = append(spec.Volumes,
-		corev1.Volume{Name: volume, VolumeSource: empty},
-		corev1.Volume{Name: etcVolume, VolumeSource: empty})
-	app := &spec.Containers[0]
-	step := func(name, image string, mount corev1.VolumeMount) corev1.Container {
-		return corev1.Container{
-			Name: name, Image: image, SecurityContext: podspec.ReadOnlyRootContext(),
-			Env:                      []corev1.EnvVar{{Name: "HOME", Value: podspec.HomeDir}},
-			VolumeMounts:             []corev1.VolumeMount{mount},
-			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-		}
-	}
-	cp := step(CopyContainer, image.Ref, corev1.VolumeMount{Name: volume, MountPath: Dir})
-	cp.Command = []string{"/" + model.ProductName, "pod-files", "--to", Dir}
-	id := step(IdentityContainer, app.Image, corev1.VolumeMount{Name: etcVolume, MountPath: etcDir})
-	id.Command = []string{"sh", "-c", identityScript, "sh", etcDir}
-	id.Env = append(id.Env, corev1.EnvVar{Name: "JAVO_USER", Value: envValue(app, "JAVO_USER")})
-	spec.InitContainers = append(spec.InitContainers, cp, id)
-
-	// Not read-only: the API guide is mounted at a file inside it.
-	app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: volume, MountPath: Dir})
-	for _, f := range []string{"passwd", "group", "bash.bashrc"} {
-		app.VolumeMounts = append(app.VolumeMounts, corev1.VolumeMount{Name: etcVolume, MountPath: "/etc/" + f, SubPath: f, ReadOnly: true})
-	}
-}
-
 // Add gives s's main unit the files at Dir, copied by image (the platform's
 // own, which has the javo binary; s gets its pull secrets), and the
 // identity files over /etc, written by the main unit's own image.
@@ -131,21 +96,6 @@ func Add(s *workload.Spec, image podspec.Image) {
 // copy, the environment install).
 func ReadOnly() workload.Mount {
 	return workload.Mount{Volume: volume, Path: Dir, ReadOnly: true}
-}
-
-// Mount shows the files at Dir, read-only, to another init container (the
-// sample copy, the environment install).
-func Mount() corev1.VolumeMount {
-	return corev1.VolumeMount{Name: volume, MountPath: Dir, ReadOnly: true}
-}
-
-func envValue(c *corev1.Container, name string) string {
-	for _, e := range c.Env {
-		if e.Name == name {
-			return e.Value
-		}
-	}
-	return ""
 }
 
 // Copy copies the tree at from into to, keeping modes and symbolic links.

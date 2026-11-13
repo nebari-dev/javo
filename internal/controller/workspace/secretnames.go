@@ -16,10 +16,17 @@ import (
 	"github.com/nebari-dev/javo/internal/workload"
 )
 
-// secretUses are the uses of an app's Secrets.
-var secretUses = []string{executor.UseAPI, executor.UseSecrets, executor.UseGit, executor.UseNebi}
+// SecretName is the name of an app's Secret of the given use (api, secrets,
+// git, nebi): "<objectName>.app-<use>". Object names are DNS labels and never
+// hold a ".", so the part after it says whose Secret it is: no name a person
+// picks for an app or a job makes another app's or a job's Secret (jobs use
+// ".job-" and ".run-").
+func SecretName(objectName, use string) string { return objectName + ".app-" + use }
 
-// legacySecretNames are the names an app's Secrets had before kube.SecretName,
+// secretUses are the uses of an app's Secrets.
+var secretUses = []string{"api", "secrets", "git", "nebi"}
+
+// legacySecretNames are the names an app's Secrets had before SecretName,
 // "<objectName>-javo-<use>", in the order of secretUses. A job of the same
 // owner could produce them, so they are only cleaned up, and only when
 // labelled as the app's.
@@ -51,7 +58,7 @@ func (r *Reconciler) vault() executor.Secrets {
 }
 
 // dropLegacySecrets deletes the app's Secrets under their names before
-// kube.SecretName; the caller makes sure no pod of the app reads them any more.
+// SecretName; the caller makes sure no pod of the app reads them any more.
 // The token the old API Secret holds is revoked when its record is the app's.
 func (r *Reconciler) dropLegacySecrets(ctx context.Context, app *model.App) error {
 	for i, name := range legacySecretNames(app.ObjectName()) {
@@ -62,7 +69,7 @@ func (r *Reconciler) dropLegacySecrets(ctx context.Context, app *model.App) erro
 		if err != nil {
 			return err
 		}
-		if id := sec.Annotations[model.AnnotationTokenID]; secretUses[i] == executor.UseAPI && id != "" && r.Tokens != nil {
+		if id := sec.Annotations[model.AnnotationTokenID]; secretUses[i] == "api" && id != "" && r.Tokens != nil {
 			switch tok, err := r.Tokens.Get(ctx, id); {
 			case errors.Is(err, token.ErrNotFound):
 			case err != nil:
@@ -88,7 +95,7 @@ func tokenOfApp(tok token.Token, app *model.App) bool {
 }
 
 // readsOtherSecrets is true when pod reads a Secret that is not one of want,
-// the names the app's pod is built with now: a pod built before kube.SecretName
+// the names the app's pod is built with now: a pod built before SecretName
 // reads the old names and must be built again.
 func readsOtherSecrets(pod *corev1.Pod, want ...string) bool {
 	other := func(name string) bool { return !slices.Contains(want, name) }

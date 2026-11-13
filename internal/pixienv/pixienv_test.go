@@ -8,32 +8,33 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podfiles"
 	"github.com/nebari-dev/javo/internal/podspec"
+	"github.com/nebari-dev/javo/internal/workload"
 )
 
 var files = model.EnvironmentFiles{Manifest: "[workspace]\nname = \"sales\"\nplatforms = [\"linux-64\"]\n", Lock: "version: 6\nenvironments: {}\n"}
 
-func appPod() *corev1.PodSpec {
-	s := podspec.Base("alice", "example.com/app:1", corev1.ResourceRequirements{})
-	s.Containers[0].VolumeMounts = []corev1.VolumeMount{
-		{Name: podspec.HomeVolume, MountPath: podspec.HomeDir, SubPath: "alice"},
-		{Name: "src", MountPath: "/srv/src"},
+func appPod() *workload.Spec {
+	s := workload.Spec{Main: workload.Unit{Name: workload.MainUnit, Image: "example.com/app:1", Env: []workload.Env{
+		{Name: "HOME", Value: podspec.HomeDir}, {Name: "JAVO_USER", Value: "alice"},
+	}}}
+	s.Main.Mounts = []workload.Mount{
+		{Volume: podspec.HomeVolume, Path: podspec.HomeDir, SubPath: "alice"},
+		{Volume: "src", Path: "/srv/src"},
 	}
 	return &s
 }
 
-func installStep(t *testing.T, spec *corev1.PodSpec) *corev1.Container {
+func installStep(t *testing.T, spec *workload.Spec) *workload.Unit {
 	t.Helper()
-	for i := range spec.InitContainers {
-		if spec.InitContainers[i].Name == InstallContainer {
-			return &spec.InitContainers[i]
+	for i := range spec.Steps {
+		if spec.Steps[i].Name == InstallContainer {
+			return &spec.Steps[i]
 		}
 	}
-	t.Fatalf("no install step: %+v", spec.InitContainers)
+	t.Fatalf("no install step: %+v", spec.Steps)
 	return nil
 }
 
@@ -120,7 +121,7 @@ func (m *machine) run(src Source) string {
 func (m *machine) step(src Source) ([]byte, error) {
 	m.t.Helper()
 	spec := appPod()
-	m.must(Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, src))
+	m.must(Add(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, src))
 	step := installStep(m.t, spec)
 	paths := strings.NewReplacer(podspec.HomeDir, m.home, Dir, m.envDir, podfiles.Dir, m.files, "/srv/src/current", m.repo)
 	cmd := exec.Command(step.Command[0], step.Command[1:]...)
@@ -206,7 +207,7 @@ func TestAFailedInstallIsNotMarkedReady(t *testing.T) {
 	m := newMachine(t)
 	m.write(filepath.Join(m.files, "envs", "streamlit", "fail"), "", 0o644)
 	spec := appPod()
-	m.must(Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}))
+	m.must(Add(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}))
 	step := installStep(t, spec)
 	paths := strings.NewReplacer(podspec.HomeDir, m.home, Dir, m.envDir, podfiles.Dir, m.files)
 	cmd := exec.Command(step.Command[0], step.Command[1:]...)
@@ -247,17 +248,17 @@ func TestAPickBeatsTheRepositoryWhichBeatsTheTemplate(t *testing.T) {
 // stays scratch), and the app sees the activation file.
 func TestTheStepMountsTheAppsHome(t *testing.T) {
 	spec := appPod()
-	spec.Containers[0].VolumeMounts[0].Name = podspec.HomeScratchVolume
-	if err := Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
+	spec.Main.Mounts[0].Volume = podspec.HomeScratchVolume
+	if err := Add(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
 		t.Fatal(err)
 	}
 	home := false
-	for _, mt := range installStep(t, spec).VolumeMounts {
-		home = home || (mt.MountPath == podspec.HomeDir && mt.Name == podspec.HomeScratchVolume && mt.SubPath == "alice")
+	for _, mt := range installStep(t, spec).Mounts {
+		home = home || (mt.Path == podspec.HomeDir && mt.Volume == podspec.HomeScratchVolume && mt.SubPath == "alice")
 	}
 	sees := false
-	for _, mt := range spec.Containers[0].VolumeMounts {
-		sees = sees || mt.MountPath == Dir
+	for _, mt := range spec.Main.Mounts {
+		sees = sees || mt.Path == Dir
 	}
 	if !home || !sees {
 		t.Fatalf("step mounts the app's home: %v, app sees %s: %v", home, Dir, sees)
@@ -268,13 +269,13 @@ func TestTheStepMountsTheAppsHome(t *testing.T) {
 // folder, copied by a step that runs the platform's image first.
 func TestTheToolsStepCopiesThePlatformsBinaryFirst(t *testing.T) {
 	spec := appPod()
-	if err := Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
+	if err := Add(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(spec.InitContainers); n != 2 || spec.InitContainers[0].Name != ToolsContainer || spec.InitContainers[1].Name != InstallContainer {
-		t.Fatalf("init containers: %+v", spec.InitContainers)
+	if n := len(spec.Steps); n != 2 || spec.Steps[0].Name != ToolsContainer || spec.Steps[1].Name != InstallContainer {
+		t.Fatalf("init containers: %+v", spec.Steps)
 	}
-	tools := spec.InitContainers[0]
+	tools := spec.Steps[0]
 	if tools.Image != "example.com/javo:1" || !strings.HasSuffix(strings.Join(tools.Args, " "), "--to "+Dir+"/"+model.ProductName) {
 		t.Fatalf("tools step: %s %v %v", tools.Image, tools.Command, tools.Args)
 	}
@@ -283,27 +284,27 @@ func TestTheToolsStepCopiesThePlatformsBinaryFirst(t *testing.T) {
 // A private platform image brings its pull secrets to the pod.
 func TestTheToolsStepPullsAPrivateImage(t *testing.T) {
 	spec := appPod()
-	if err := Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1", PullSecrets: []string{"ghcr"}}, Source{Default: "streamlit"}); err != nil {
+	if err := Add(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1", PullSecrets: []string{"ghcr"}}, Source{Default: "streamlit"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(spec.ImagePullSecrets) != 1 || spec.ImagePullSecrets[0].Name != "ghcr" {
-		t.Fatalf("pull secrets: %v", spec.ImagePullSecrets)
+	if len(spec.PullSecrets) != 1 || spec.PullSecrets[0] != "ghcr" {
+		t.Fatalf("pull secrets: %v", spec.PullSecrets)
 	}
 }
 
 func TestNothingToInstallAddsNothing(t *testing.T) {
 	spec := appPod()
-	if err := Apply(spec, "", podspec.Image{Ref: "example.com/javo:1"}, Source{RepoDir: "/srv/src/current"}); err != nil || len(spec.InitContainers) != 0 {
-		t.Fatalf("a repository alone, on a template with no environment: %v, %+v", err, spec.InitContainers)
+	if err := Add(spec, "", podspec.Image{Ref: "example.com/javo:1"}, Source{RepoDir: "/srv/src/current"}); err != nil || len(spec.Steps) != 0 {
+		t.Fatalf("a repository alone, on a template with no environment: %v, %+v", err, spec.Steps)
 	}
 }
 
 func TestAnEnvironmentTooLargeForThePodIsRefused(t *testing.T) {
 	big := model.EnvironmentFiles{Manifest: "x", Lock: randomText(MaxEncoded * 2)}
-	if err := Apply(appPod(), "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Files: &big}); err == nil {
+	if err := Add(appPod(), "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Files: &big}); err == nil {
 		t.Fatal("a lockfile larger than a pod may carry was accepted")
 	}
-	if err := Apply(appPod(), "", podspec.Image{Ref: "example.com/javo:1"}, Source{Files: &files}); err == nil {
+	if err := Add(appPod(), "", podspec.Image{Ref: "example.com/javo:1"}, Source{Files: &files}); err == nil {
 		t.Fatal("an environment was accepted with no image to install it")
 	}
 }
@@ -414,13 +415,12 @@ func TestTheInstallLogsEachPackage(t *testing.T) {
 // writable one.
 func TestToolsStepHasAReadOnlyRoot(t *testing.T) {
 	spec := appPod()
-	if err := Apply(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
+	if err := Add(spec, "example.com/pixi:1", podspec.Image{Ref: "example.com/javo:1"}, Source{Default: "streamlit"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range spec.InitContainers {
-		ro := c.SecurityContext.ReadOnlyRootFilesystem != nil && *c.SecurityContext.ReadOnlyRootFilesystem
-		if ro != (c.Name == ToolsContainer) {
-			t.Errorf("%s: read-only root %v", c.Name, ro)
+	for _, c := range spec.Steps {
+		if c.ReadOnlyRoot != (c.Name == ToolsContainer) {
+			t.Errorf("%s: read-only root %v", c.Name, c.ReadOnlyRoot)
 		}
 	}
 }

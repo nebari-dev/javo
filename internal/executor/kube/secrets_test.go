@@ -35,14 +35,14 @@ func TestABundleIsKeptInTheAppsOwnSecret(t *testing.T) {
 	s, c := secretsOn()
 	ctx := context.Background()
 	want := executor.Bundle{Data: map[string][]byte{"token": []byte("v1")}, Meta: map[string]string{model.AnnotationGitToken: "3"}}
-	if err := s.Put(ctx, sales, "git", want); err != nil {
+	if err := s.Put(ctx, sales, "alice-sales.app-git", want); err != nil {
 		t.Fatal(err)
 	}
 	sec := stored(t, c, "alice-sales.app-git")
 	if sec.Labels[model.LabelApp] != "app-1" || sec.Labels[model.LabelOwner] != "alice" {
 		t.Errorf("labels = %v", sec.Labels)
 	}
-	got, err := s.Get(ctx, sales, "git")
+	got, err := s.Get(ctx, sales, "alice-sales.app-git")
 	if err != nil || got == nil {
 		t.Fatalf("Get = %v, %v", got, err)
 	}
@@ -52,7 +52,7 @@ func TestABundleIsKeptInTheAppsOwnSecret(t *testing.T) {
 
 	// Replaced in place: the same Secret, the new values.
 	want.Data["token"], want.Meta[model.AnnotationGitToken] = []byte("v2"), "4"
-	if err := s.Put(ctx, sales, "git", want); err != nil {
+	if err := s.Put(ctx, sales, "alice-sales.app-git", want); err != nil {
 		t.Fatal(err)
 	}
 	if again := stored(t, c, "alice-sales.app-git"); again.UID != sec.UID || string(again.Data["token"]) != "v2" || again.Annotations[model.AnnotationGitToken] != "4" {
@@ -62,10 +62,10 @@ func TestABundleIsKeptInTheAppsOwnSecret(t *testing.T) {
 
 func TestAnAppWithoutABundleHasNone(t *testing.T) {
 	s, _ := secretsOn()
-	if got, err := s.Get(context.Background(), sales, "api"); got != nil || err != nil {
+	if got, err := s.Get(context.Background(), sales, "alice-sales.app-api"); got != nil || err != nil {
 		t.Fatalf("Get = %v, %v", got, err)
 	}
-	if err := s.Delete(context.Background(), sales, "api"); err != nil {
+	if err := s.Delete(context.Background(), sales, "alice-sales.app-api"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -73,13 +73,13 @@ func TestAnAppWithoutABundleHasNone(t *testing.T) {
 func TestDeleteRemovesTheBundle(t *testing.T) {
 	s, _ := secretsOn()
 	ctx := context.Background()
-	if err := s.Put(ctx, sales, "api", executor.Bundle{Data: map[string][]byte{"token": []byte("v")}}); err != nil {
+	if err := s.Put(ctx, sales, "alice-sales.app-api", executor.Bundle{Data: map[string][]byte{"token": []byte("v")}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Delete(ctx, sales, "api"); err != nil {
+	if err := s.Delete(ctx, sales, "alice-sales.app-api"); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.Get(ctx, sales, "api"); got != nil || err != nil {
+	if got, err := s.Get(ctx, sales, "alice-sales.app-api"); got != nil || err != nil {
 		t.Fatalf("after Delete: %v, %v", got, err)
 	}
 }
@@ -93,13 +93,13 @@ func TestASecretOfAnotherAppIsLeftAlone(t *testing.T) {
 	}
 	s, c := secretsOn(theirs)
 	ctx := context.Background()
-	if got, err := s.Get(ctx, sales, "api"); got != nil || !errors.Is(err, executor.ErrForeign) {
+	if got, err := s.Get(ctx, sales, "alice-sales.app-api"); got != nil || !errors.Is(err, executor.ErrForeign) {
 		t.Errorf("Get = %v, %v", got, err)
 	}
-	if err := s.Put(ctx, sales, "api", executor.Bundle{Data: map[string][]byte{"token": []byte("mine")}}); !errors.Is(err, executor.ErrForeign) {
+	if err := s.Put(ctx, sales, "alice-sales.app-api", executor.Bundle{Data: map[string][]byte{"token": []byte("mine")}}); !errors.Is(err, executor.ErrForeign) {
 		t.Errorf("Put = %v", err)
 	}
-	if err := s.Delete(ctx, sales, "api"); err != nil {
+	if err := s.Delete(ctx, sales, "alice-sales.app-api"); err != nil {
 		t.Errorf("Delete = %v", err)
 	}
 	if got := stored(t, c, "alice-sales.app-api"); string(got.Data["token"]) != "theirs" {
@@ -107,15 +107,15 @@ func TestASecretOfAnotherAppIsLeftAlone(t *testing.T) {
 	}
 }
 
-// The values of people's secrets can be made again from the database, so
-// their Secret goes with the app's Service, also when the sweep removes an
-// orphaned one. The others hold the only copy of a token and stay.
-func TestOnlyTheSecretsBundleGoesWithTheService(t *testing.T) {
+// Values that can be made again from the database go with the app's
+// Service, also when the sweep removes an orphaned one. Any other bundle
+// holds the only copy of a token and stays.
+func TestOnlyABundleThatCanBeRebuiltGoesWithTheService(t *testing.T) {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "javo", Name: "alice-sales", UID: "svc-1"}}
 	s, c := secretsOn(svc)
 	ctx := context.Background()
-	for _, use := range []string{"secrets", "api"} {
-		if err := s.Put(ctx, sales, use, executor.Bundle{Data: map[string][]byte{"K": []byte("v")}}); err != nil {
+	for name, rebuildable := range map[string]bool{"alice-sales.app-secrets": true, "alice-sales.app-api": false} {
+		if err := s.Put(ctx, sales, name, executor.Bundle{Data: map[string][]byte{"K": []byte("v")}, Rebuildable: rebuildable}); err != nil {
 			t.Fatal(err)
 		}
 	}

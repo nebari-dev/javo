@@ -15,12 +15,12 @@ func someSpec() workload.Spec {
 		User: workload.User{UID: 100123, GID: 100},
 		Port: 8080,
 		Main: workload.Unit{Name: workload.MainUnit, Image: "example.com/app:1", Ready: &workload.Check{HTTPPath: "/healthz"},
-			Env: []workload.Env{{Name: "JAVO_TOKEN", From: &workload.SecretRef{Holder: "alice-sales", Use: "api", Key: "token"}}}},
+			Env: []workload.Env{{Name: "JAVO_TOKEN", From: &workload.SecretRef{Bundle: "alice-sales.app-api", Key: "token"}}}},
 		Steps: []workload.Unit{
 			{Name: "copy", Image: "example.com/javo:1", ReadOnlyRoot: true},
 			{Name: "helper", Image: "example.com/javo:1", Stays: true, Ready: &workload.Check{Exec: []string{"true"}, Tries: 30}},
 		},
-		Volumes: []workload.Volume{{Name: "token", Secret: &workload.SecretFiles{Holder: "alice-sales", Use: "nebi", Keys: []string{"token"}, Optional: true, WorldReadable: true}}},
+		Volumes: []workload.Volume{{Name: "token", Secret: &workload.SecretFiles{Bundle: "alice-sales.app-nebi", Keys: []string{"token"}, Optional: true, WorldReadable: true}}},
 	}
 }
 
@@ -33,8 +33,15 @@ func TestEveryPodIsHardened(t *testing.T) {
 	if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken {
 		t.Error("the pod mounts a service account token")
 	}
+	// Service links put every Service of the namespace (other people's app
+	// names and addresses, in a shared namespace) into the environment.
+	if spec.EnableServiceLinks == nil || *spec.EnableServiceLinks {
+		t.Error("service-link variables are on")
+	}
 	sc := spec.SecurityContext
-	if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot || *sc.RunAsUser != 100123 || *sc.RunAsGroup != 100 {
+	// No pod sets fsGroup: on drivers with fsGroupPolicy File it would
+	// re-group every file of a shared folder the pod mounts.
+	if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot || *sc.RunAsUser != 100123 || *sc.RunAsGroup != 100 || sc.FSGroup != nil {
 		t.Errorf("pod security context = %+v", sc)
 	}
 	if sc.SeccompProfile == nil || sc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {

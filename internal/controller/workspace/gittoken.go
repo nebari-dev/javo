@@ -77,7 +77,7 @@ func (r *Reconciler) syncGitToken(ctx context.Context, app *model.App, pod *core
 	switch {
 	case !has:
 		if app.ParentID == "" && (pod == nil || pod.Annotations[model.AnnotationGitToken] != "") {
-			if err := r.vault().Delete(ctx, refOf(app), executor.UseGit); err != nil {
+			if err := r.vault().Delete(ctx, refOf(app), GitTokenSecretName(app.ObjectName())); err != nil {
 				return "", "", "", err
 			}
 		}
@@ -116,7 +116,7 @@ func (r *Reconciler) writeBoundGitSecret(ctx context.Context, app *model.App, ge
 	if r.Secrets == nil {
 		return secretenv.ErrNoKey.Error(), nil
 	}
-	have, err := r.vault().Get(ctx, refOf(app), executor.UseGit)
+	have, err := r.vault().Get(ctx, refOf(app), GitTokenSecretName(app.ObjectName()))
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +158,7 @@ func (r *Reconciler) writeGitSecret(ctx context.Context, app *model.App, token, 
 	if r.Secrets == nil {
 		return errors.New("the app has a repository token, but the controller has no Secret reader")
 	}
-	err := r.vault().Put(ctx, refOf(app), executor.UseGit, executor.Bundle{
+	err := r.vault().Put(ctx, refOf(app), GitTokenSecretName(app.ObjectName()), executor.Bundle{
 		Data: map[string][]byte{gitTokenKey: []byte(token)}, Meta: map[string]string{model.AnnotationGitToken: gen},
 	})
 	if err != nil {
@@ -186,7 +186,7 @@ func commitOf(pod *corev1.Pod) string {
 // from its Secret, or "" when the app has none. A Secret of that name that is
 // not labelled as the app's is an error. Callers must never log the token.
 func ReadGitToken(ctx context.Context, secrets client.Reader, app *model.App) (string, error) {
-	have, err := kube.Secrets{Reader: secrets}.Get(ctx, refOf(app), executor.UseGit)
+	have, err := kube.Secrets{Reader: secrets}.Get(ctx, refOf(app), GitTokenSecretName(app.ObjectName()))
 	if err != nil || have == nil {
 		return "", err
 	}

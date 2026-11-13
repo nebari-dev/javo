@@ -1370,7 +1370,7 @@ func TestAppPodAsksForColourUnlessTheAppSetsItsOwn(t *testing.T) {
 			t.Errorf("%s = %q, want 1", n, v)
 		}
 	}
-	addEnv(&s.Main, []model.EnvVar{{Name: "FORCE_COLOR", Value: "0"}})
+	AddEnv(&s.Main, []model.EnvVar{{Name: "FORCE_COLOR", Value: "0"}})
 	if v := effectiveEnv(t, podOf(s).Spec.Containers[0], "FORCE_COLOR"); v != "0" {
 		t.Fatalf("FORCE_COLOR = %q, want the app's own 0", v)
 	}

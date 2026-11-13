@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/nebari-dev/javo/internal/executor"
-	"github.com/nebari-dev/javo/internal/executor/kube"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/podspec"
 	"github.com/nebari-dev/javo/internal/source"
@@ -57,7 +55,7 @@ type Images struct {
 // GitTokenSecretName is the Secret holding the repository token of the app
 // whose Pod and Service are called objectName (see SecretName).
 func GitTokenSecretName(objectName string) string {
-	return kube.SecretName(objectName, executor.UseGit)
+	return SecretName(objectName, "git")
 }
 
 // sourceFolder is the folder of the clone the app runs from.
@@ -222,7 +220,7 @@ func addGitToken(s *workload.Spec, ws *model.App, holder, generation string) {
 		return
 	}
 	s.Volumes = append(s.Volumes, workload.Volume{Name: gitTokenVolume, Secret: &workload.SecretFiles{
-		Holder: holder, Use: executor.UseGit, Keys: []string{gitTokenKey},
+		Bundle: GitTokenSecretName(holder), Keys: []string{gitTokenKey},
 	}})
 	if c := s.Step(source.CloneContainer); c != nil {
 		c.Args = append(c.Args, "--username="+gitTokenUser, "--password-file="+gitTokenDir+"/"+gitTokenKey)

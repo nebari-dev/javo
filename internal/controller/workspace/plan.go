@@ -82,7 +82,7 @@ func Plan(in Inputs) (workload.Spec, error) {
 	}
 	addAPIToken(&s, t, in)
 	addGitToken(&s, ws, in.GitHolder, in.GitGen)
-	addEnv(&s.Main, ws.Env)
+	AddEnv(&s.Main, ws.Env)
 	addAppSecrets(&s, in.Secrets)
 	addAgent(&s, ws, t, in.Agent, in.HasToken)
 	if err := addEnvironment(&s, ws, t, in); err != nil {
@@ -140,7 +140,7 @@ func planRun(in Inputs) (workload.Spec, error) {
 		Resources:   t.Spec.Resources,
 		Size:        in.Size,
 		Port:        p.port,
-		Main:        mainUnit(ws.Owner, p.image),
+		Main:        MainUnit(ws.Owner, p.image),
 		Steps:       inits,
 	}
 	app := &s.Main
@@ -158,7 +158,7 @@ func planRun(in Inputs) (workload.Spec, error) {
 	if Shared(ws) {
 		layout = layout.ReadOnlyFiles()
 	}
-	addLayout(&s, layout)
+	AddLayout(&s, layout)
 	if t.Spec.UserImage {
 		// The owner's uid and gid run it, as every other app: the image's
 		// USER could be another person's uid or gid 0, which would open
@@ -190,9 +190,9 @@ func planRun(in Inputs) (workload.Spec, error) {
 	return s, nil
 }
 
-// mainUnit is the unit every workload exists to run, for owner (a person's
-// name) on image.
-func mainUnit(owner, image string) workload.Unit {
+// MainUnit is the unit every workload exists to run, for owner (a person's
+// name) on image. Apps and job runs share it.
+func MainUnit(owner, image string) workload.Unit {
 	return workload.Unit{
 		Name:  workload.MainUnit,
 		Image: image,
@@ -217,9 +217,9 @@ func colorEnv() []workload.Env {
 	return out
 }
 
-// addLayout gives s the storage l lays out: its volumes, the mounts and
+// AddLayout gives s the storage l lays out: its volumes, the mounts and
 // variables of the main unit, and who the workload runs as.
-func addLayout(s *workload.Spec, l podstorage.Layout) {
+func AddLayout(s *workload.Spec, l podstorage.Layout) {
 	s.Volumes = append(s.Volumes, l.Volumes...)
 	s.Main.Mounts = append(s.Main.Mounts, l.Mounts...)
 	s.Main.Env = append(s.Main.Env, l.Env...)
