@@ -16,6 +16,7 @@ const (
 	MsgWrongCredentials   MessageCode = "WrongCredentials"
 	MsgCredentialsMissing MessageCode = "CredentialsMissing"
 	MsgTooManyAttempts    MessageCode = "TooManyAttempts"
+	MsgTooManyWrongLogins MessageCode = "TooManyWrongLogins" // arg: minutes until the account can be tried again
 	MsgTooManyAppOpens    MessageCode = "TooManyAppOpens"
 	MsgTooManySearches    MessageCode = "TooManySearches"
 	MsgNotAllowedFromApp  MessageCode = "NotAllowedFromApp"
@@ -348,6 +349,7 @@ var messages = map[MessageCode]string{
 	MsgWrongCredentials:   "Wrong username or password",
 	MsgCredentialsMissing: "Enter your username and password.",
 	MsgTooManyAttempts:    "Too many sign-in attempts. Wait a minute, then try again.",
+	MsgTooManyWrongLogins: "Too many wrong passwords for this account. Try again in %d minutes.",
 	MsgTooManyAppOpens:    "Too many apps opened in a short time. Wait a moment, then try again.",
 	MsgTooManySearches:    "Too many searches in a short time. Wait a moment, then try again.",
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",

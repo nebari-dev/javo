@@ -625,7 +625,7 @@ func (m *mounter) Reject(status int, code reasons.MessageCode) error {
 // sharedPeerWarning logs once that per-address sign-in limits are off.
 var sharedPeerWarning sync.Once
 
-// LimitLogin counts one attempt and waits out recent failures at the
+// LimitLogin counts one attempt at the caller's address and at the
 // username; the peer is logged because behind a proxy it is the address to
 // list in --trusted-proxies.
 func (m *mounter) LimitLogin(ctx context.Context, username string) (func(bool), error) {
@@ -633,26 +633,32 @@ func (m *mounter) LimitLogin(ctx context.Context, username string) (func(bool), 
 	peer, _ := ctx.Value(peerKey{}).(string)
 	slog.Info("login attempt", "client", ip, "peer", peer)
 	username = strings.ToLower(username)
+	tooMany := func(msg string, wait time.Duration) error {
+		return problem.New(http.StatusTooManyRequests, msg).WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	}
 	// An address shared by every client (an untrusted ingress) keys no
-	// bucket: one client would spend it for all. The per-username delays and
-	// the hashing cap still apply.
+	// bucket: one client would spend it for all. The count of wrong
+	// passwords at the username and the hashing cap still apply.
 	if shared, _ := ctx.Value(sharedPeerKey{}).(bool); shared {
 		sharedPeerWarning.Do(func() {
 			slog.Warn("sign-ins come from a private address and no proxy is trusted, so per-address sign-in limits are off; "+
 				"list the ingress or load balancer in trustedProxies", "peer", peer)
 		})
 	} else if wait, ok := m.a.Limiter.Allow(ip, username); !ok {
-		return nil, problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgTooManyAttempts)).
-			WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		return nil, tooMany(reasons.Msg(reasons.MsgTooManyAttempts), wait)
 	}
-	if err := m.a.Limiter.Wait(ctx, username); err != nil {
-		return nil, err
+	settle, wait, ok := m.a.Limiter.Attempt(username)
+	if !ok {
+		return nil, tooMany(reasons.Msg(reasons.MsgTooManyWrongLogins, int(wait.Minutes())+1), wait)
 	}
+	// A request that ends with its password unchecked gives its place back.
+	stop := context.AfterFunc(ctx, func() { settle(ratelimit.Unchecked) })
 	return func(right bool) {
+		stop()
 		if right {
-			m.a.Limiter.Succeeded(username)
+			settle(ratelimit.Right)
 		} else {
-			m.a.Limiter.Failed(username)
+			settle(ratelimit.Wrong)
 		}
 	}, nil
 }

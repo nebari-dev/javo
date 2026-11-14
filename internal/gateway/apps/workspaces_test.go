@@ -520,29 +520,6 @@ func TestLoginGuessesLimitOnlyTheGuessingAddress(t *testing.T) {
 	}
 }
 
-// Wrong passwords spread over many addresses slow the next attempts at that
-// username instead of refusing them, so the right password still signs in.
-func TestGuessesFromManyAddressesSlowButDoNotLockOut(t *testing.T) {
-	t.Parallel()
-	f := apitest.New(t, apitest.Options{})
-	for i := 0; i < 6; i++ {
-		if w := f.LoginFrom(fmt.Sprintf("192.0.2.%d", i+1), "alice", "wrong"); w.Code != http.StatusUnauthorized {
-			t.Fatalf("guess %d: %d", i, w.Code)
-		}
-	}
-	start := time.Now()
-	if w := f.LoginFrom("198.51.100.1", "alice", "alice-password"); w.Code != http.StatusOK {
-		t.Fatalf("alice after the guesses: %d", w.Code)
-	}
-	if waited := time.Since(start); waited < 500*time.Millisecond {
-		t.Fatalf("alice waited only %v after six wrong guesses", waited)
-	}
-	start = time.Now()
-	if w := f.LoginFrom("198.51.100.2", "bob", "wrong"); w.Code != http.StatusUnauthorized || time.Since(start) > 400*time.Millisecond {
-		t.Fatalf("other user: %d after %v", w.Code, time.Since(start))
-	}
-}
-
 func TestLoginIsRateLimitedPerClientIP(t *testing.T) {
 	t.Parallel()
 	f := apitest.New(t, apitest.Options{})
