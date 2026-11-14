@@ -50,6 +50,10 @@ type Inputs struct {
 	Secrets secretenv.Set
 	// Agent is where a coding agent gets its model.
 	Agent agentModel
+	// Maker is the coding agent app that made App or last changed what it
+	// runs (App.MadeBy); nil for an app no agent made, and for one whose
+	// agent is gone or is no coding agent any more.
+	Maker *model.App
 	// EnvFiles are the files of the environment picked for the app; nil
 	// when none is.
 	EnvFiles *model.EnvironmentFiles
@@ -92,11 +96,14 @@ func Plan(in Inputs) (workload.Spec, error) {
 		// Nothing runs the pixi image: its units run on the machine.
 		in.Images.Pixi = ""
 	}
+	if err := madeProblem(in); err != nil {
+		return workload.Spec{}, err
+	}
 	s, err := planRun(in, at)
 	if err != nil {
 		return workload.Spec{}, err
 	}
-	addAgentLock(&s, ws, t, in.Images.LockAgents, at)
+	addAgentLock(&s, in, at)
 	if in.NebiURL != "" {
 		addNebi(&s, in.NebiURL, in.Images.Runner)
 	}
@@ -116,6 +123,10 @@ func Plan(in Inputs) (workload.Spec, error) {
 		return s, nil
 	}
 	addSSHAgent(&s, t)
+	if ws.MadeBy != "" && t.Spec.Category != model.CategoryAgents {
+		// A coding agent's template has the step above instead.
+		hideSSH(&s, at.home)
+	}
 	addAgentHelper(&s, t, in.Images.Runner)
 	return s, nil
 }

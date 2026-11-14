@@ -191,6 +191,8 @@ type pass struct {
 	// fingerprint; empty when the owner's uid is not known now.
 	layout   podstorage.Layout
 	layoutFP string
+	// maker is the coding agent that made the app (Inputs.Maker).
+	maker *model.App
 }
 
 // verdict is what one step of a pass decided.
@@ -377,7 +379,10 @@ func (r *Reconciler) house(ctx context.Context, p *pass) (verdict, error) {
 			if p.layout, err = r.layout(ctx, app, uid); err != nil {
 				return verdict{}, err
 			}
-			p.layoutFP = r.layoutFingerprint(app, p.tpl, p.layout)
+			if p.maker, err = r.makerOf(ctx, app); err != nil {
+				return verdict{}, err
+			}
+			p.layoutFP = r.layoutFingerprint(app, p.tpl, p.layout, p.maker)
 		case p.have == nil:
 			p.obs.IdentityPending = true
 			return verdict{done: true}, nil
@@ -457,7 +462,7 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 		App: app, Template: tpl, Layout: p.layout, Size: size, Fingerprint: built,
 		Images:    Images{Clone: r.CloneImage, Runner: r.RunnerImage, Pixi: r.PixiImage, GitConfig: r.CloneGitConfig, AllowedRegistries: r.AllowedRegistries, LockAgents: r.LockAgents},
 		APIAccess: access, HasToken: hasToken, APIURL: r.APIURL, APIInternalURL: r.APIInternalURL,
-		GitHolder: p.gitHolder, GitGen: p.gitGen, Secrets: appSecrets, Agent: agent,
+		GitHolder: p.gitHolder, GitGen: p.gitGen, Secrets: appSecrets, Agent: agent, Maker: p.maker,
 		Port: port,
 	}
 	if r.Host != nil {
@@ -566,13 +571,54 @@ func (r *Reconciler) platform() Platform {
 // replaces the running agents, once, and no other app. The folders its
 // owner added are part of that command (lockGrants), so a change of them
 // replaces the agent too. With the lock off it is LayoutFingerprint itself.
-func (r *Reconciler) layoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layout) string {
-	fp := LayoutFingerprint(app, t, layout)
-	if !locksAgent(t, r.LockAgents) {
+//
+// An app a coding agent made (app.MadeBy, maker the agent) has another
+// fingerprint than the same app made by its owner, lock on or off: it is
+// built without the SSH keys. Locked, it starts in the agent's lock, so
+// the agent's folder and added folders are part of its fingerprint, and a
+// change of them, or of who made the app, replaces it.
+func (r *Reconciler) layoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layout, maker *model.App) string {
+	fp, more := LayoutFingerprint(app, t, layout), ""
+	if app.MadeBy != "" {
+		more = " made by an agent"
+	}
+	switch as := lockedAs(app, maker); {
+	case !locksIn(app, t, r.LockAgents):
+	case as == nil:
+		more += " landlock, its agent gone"
+	case app.MadeBy != "":
+		more += " landlock" + strings.Join(containerPlaces.lockAgent(as, nil), "\x00")
+	default:
+		more += " landlock" + strings.Join(containerPlaces.lockGrants(as), "\x00")
+	}
+	if more == "" {
 		return fp
 	}
-	sum := sha256.Sum256([]byte(fp + " landlock" + strings.Join(containerPlaces.lockGrants(app), "\x00")))
+	sum := sha256.Sum256([]byte(fp + more))
 	return hex.EncodeToString(sum[:8])
+}
+
+// makerOf is the coding agent app that made app (Inputs.Maker): its
+// owner's app of that name, while it is there and its template is a coding
+// agent's. Nil for an app no agent made and for one whose agent is gone.
+func (r *Reconciler) makerOf(ctx context.Context, app *model.App) (*model.App, error) {
+	if app.MadeBy == "" {
+		return nil, nil
+	}
+	maker, err := r.Store.Apps().GetByOwnerName(ctx, app.Owner, app.MadeBy)
+	switch {
+	case errors.Is(err, store.ErrNotFound), err == nil && !maker.DeletedAt.IsZero():
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	switch t, err := r.Store.Templates().Get(ctx, maker.Template); {
+	case errors.Is(err, store.ErrNotFound), err == nil && t.Spec.Category != model.CategoryAgents:
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return &maker, nil
 }
 
 // fingerprint is what a pod built for app now would be marked with: its

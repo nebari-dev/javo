@@ -286,11 +286,11 @@ func TestFlippingTheLockRestartsRunningAgentsAndNothingElse(t *testing.T) {
 		tpl := shippedTemplate(t, name)
 		app := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "demo", Owner: "alice", Template: name}
 		was := LayoutFingerprint(app, tpl, layout)
-		if got := off.layoutFingerprint(app, tpl, layout); got != was {
+		if got := off.layoutFingerprint(app, tpl, layout, nil); got != was {
 			t.Errorf("%s, lock off: fingerprint %s, want %s as before", name, got, was)
 		}
 		running := workload.Fingerprint{Layout: was}
-		restarts := workload.Fingerprint{Layout: on.layoutFingerprint(app, tpl, layout)}.Outdated(running)
+		restarts := workload.Fingerprint{Layout: on.layoutFingerprint(app, tpl, layout, nil)}.Outdated(running)
 		if agent := tpl.Spec.Category == model.CategoryAgents; restarts != agent {
 			t.Errorf("%s, lock turned on: restarts = %v, want %v", name, restarts, agent)
 		}
@@ -353,8 +353,8 @@ func TestChangingAnAgentsFoldersRestartsIt(t *testing.T) {
 	}
 	outdated := func(r *Reconciler, template string, was, now []model.FolderGrant) bool {
 		tpl := shippedTemplate(t, template)
-		running := workload.Fingerprint{Layout: r.layoutFingerprint(app(template, was), tpl, layout)}
-		return workload.Fingerprint{Layout: r.layoutFingerprint(app(template, now), tpl, layout)}.Outdated(running)
+		running := workload.Fingerprint{Layout: r.layoutFingerprint(app(template, was), tpl, layout, nil)}
+		return workload.Fingerprint{Layout: r.layoutFingerprint(app(template, now), tpl, layout, nil)}.Outdated(running)
 	}
 	for name, tc := range map[string]struct {
 		was, now []model.FolderGrant
