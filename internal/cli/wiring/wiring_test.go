@@ -2,13 +2,17 @@ package wiring
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/nebari-dev/javo/internal/ai/aitest"
 	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/auth/local"
+	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/config"
+	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
 	"github.com/nebari-dev/javo/internal/store"
@@ -163,5 +167,26 @@ func TestStoreLimitsFollowTheConfig(t *testing.T) {
 	want := store.Limits{RunningApps: 1, Apps: 2, Previews: 3, Jobs: 4, RunsPerJob: 5, RunsPerPerson: 6, APITokens: 7, PendingPlans: 8}
 	if got != want {
 		t.Fatalf("StoreLimits = %+v, want %+v", got, want)
+	}
+}
+
+// sessions.ttl is how long a sign-in lasts: the gateway refuses a session
+// once that long has passed since it was made.
+func TestASessionEndsAfterSessionsTTL(t *testing.T) {
+	var p config.Platform
+	p.Sessions.TTL.Duration = time.Hour
+	now := time.Now()
+	f := apitest.New(t, apitest.Options{
+		Now:      func() time.Time { return now },
+		Sessions: func(db *store.Store) *session.DBStore { return Sessions(p, db, nil) },
+	})
+	alice := f.Session(apitest.AliceID)
+	now = now.Add(59 * time.Minute)
+	if w := f.Do("GET", "/api/me", "", alice); w.Code != http.StatusOK {
+		t.Fatalf("after 59m: %d %s", w.Code, w.Body)
+	}
+	now = now.Add(time.Minute)
+	if w := f.Do("GET", "/api/me", "", alice); w.Code != http.StatusUnauthorized {
+		t.Fatalf("after 1h: %d %s", w.Code, w.Body)
 	}
 }

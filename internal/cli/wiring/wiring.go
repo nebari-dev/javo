@@ -21,6 +21,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/auth/local"
+	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
 	"github.com/nebari-dev/javo/internal/buildinfo"
@@ -186,6 +187,12 @@ func Engines() *engine.Registry {
 
 // DiagnoseEngine is the only place diagnosis rules are wired in.
 func DiagnoseEngine() *diagnose.Engine { return diagnose.NewEngine(diagnose.DefaultRules()...) }
+
+// Sessions is the gateway's session store: a session lasts sessions.ttl,
+// and key seals its identity provider tokens.
+func Sessions(p config.Platform, db *store.Store, key tink.AEAD) *session.DBStore {
+	return &session.DBStore{Sessions: db.Sessions(), Key: key, TTL: p.Sessions.TTL.Duration}
+}
 
 // AISettings is the AI settings in force (the config's, with what a
 // platform admin set in Settings > AI in their place), or nil when AI is

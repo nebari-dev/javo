@@ -20,7 +20,6 @@ import (
 	"github.com/nebari-dev/javo/internal/activity"
 	"github.com/nebari-dev/javo/internal/ai/aisettings"
 	"github.com/nebari-dev/javo/internal/auth/local"
-	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
@@ -194,7 +193,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		return err
 	}
 	sessionsKey := on.sessionsKey
-	sessions := &session.DBStore{Sessions: db.Sessions(), Key: sessionsKey}
+	sessions := wiring.Sessions(platform, db, sessionsKey)
 	// Webhook secrets are sealed with the same key (each bound to its hook),
 	// so a copy of the database cannot sign deliveries.
 	db.SetHookKey(sessionsKey)
