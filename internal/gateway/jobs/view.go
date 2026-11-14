@@ -83,6 +83,7 @@ type JobView struct {
 	LastRun     *RunView      `json:"lastRun,omitempty"`
 	Recent      []string      `json:"recent" doc:"Outcomes of the latest runs, oldest first"`
 	Problem     *Problem      `json:"problem,omitempty"`
+	AgentMade   bool          `json:"agentMade,omitempty" doc:"A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs"`
 }
 
 // JobRunBody bounds one run. Durations are Go durations such as 90m.
@@ -224,7 +225,7 @@ func jobView(j *model.Job, runs []model.Run) JobView {
 	v := JobView{
 		Name: j.Name, DisplayName: j.Spec.DisplayName, Engine: j.Spec.Engine,
 		Source: j.Spec.Source.Path, Template: j.Spec.Template, Schedule: scheduleView(j.Spec.Schedule),
-		NextRuns: []time.Time{}, Phase: phase, Recent: []string{},
+		NextRuns: []time.Time{}, Phase: phase, Recent: []string{}, AgentMade: j.MadeBy != "",
 	}
 	// Words that cannot be quoted (invalid UTF-8) only come from a
 	// definition written by hand; the job then shows no command line.

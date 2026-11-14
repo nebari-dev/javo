@@ -35,6 +35,8 @@ type appSpec struct {
 	Env []model.EnvVar `json:"env,omitempty"`
 	// Folders: see model.App.
 	Folders []model.FolderGrant `json:"folders,omitempty"`
+	// MadeBy: see model.App.
+	MadeBy string `json:"madeBy,omitempty"`
 	// StoppedIdleAfter: see model.App.
 	StoppedIdleAfter int32 `json:"stoppedIdleAfter,omitempty"`
 	StoppedByAdmin   bool  `json:"stoppedByAdmin,omitempty"`
@@ -139,6 +141,7 @@ func (a *Apps) create(ctx context.Context, actor model.Actor, in *model.App, als
 	if err := app.Validate(); err != nil {
 		return model.App{}, err
 	}
+	appKind.madeBy(actor, &app, nil)
 	spec, err := marshal(specOf(app), "{}")
 	if err != nil {
 		return model.App{}, err
@@ -194,6 +197,7 @@ var appKind = rowKind[model.App]{
 	},
 	prepare:  func(a *model.App) { a.ApplyDefaults() },
 	validate: func(next, old *model.App) error { return next.ValidateUpdate(old) },
+	madeBy:   appMadeBy,
 	// Starting a stopped app (not a preview) counts against RunningApps.
 	guard: func(ctx context.Context, s *Store, q *sqlcgen.Queries, next, old *model.App) error {
 		if !old.Paused || next.Paused || next.ParentID != "" {
@@ -289,7 +293,7 @@ func resourcesOf(cpuMillis, memoryBytes int64) *model.AppResources {
 }
 
 func specOf(a model.App) appSpec {
-	return appSpec{DisplayName: a.DisplayName, File: a.File, Sample: a.Sample, Command: a.Command, Image: a.Image, Port: a.Port, APIAccess: a.APIAccess, AgentPrompt: a.AgentPrompt, Env: a.Env, Folders: a.Folders,
+	return appSpec{DisplayName: a.DisplayName, File: a.File, Sample: a.Sample, Command: a.Command, Image: a.Image, Port: a.Port, APIAccess: a.APIAccess, AgentPrompt: a.AgentPrompt, Env: a.Env, Folders: a.Folders, MadeBy: a.MadeBy,
 		StoppedIdleAfter: a.StoppedIdleAfter, Source: a.Source, StoppedByAdmin: a.StoppedByAdmin, Environment: a.Environment}
 }
 
@@ -570,7 +574,7 @@ func appOf(r sqlcgen.App, shares []sqlcgen.AppShare) (model.App, error) {
 	app := model.App{
 		ID: r.ID, Namespace: r.Namespace, Name: r.Name, Owner: r.Owner, DisplayName: spec.DisplayName,
 		Template: r.Template, File: spec.File, Sample: spec.Sample, Size: r.Size, Resources: resourcesOf(r.CpuMillis, r.MemoryBytes), Command: spec.Command,
-		Image: spec.Image, Port: spec.Port, APIAccess: spec.APIAccess, AgentPrompt: spec.AgentPrompt, Env: spec.Env, Folders: spec.Folders, Source: spec.Source, Environment: spec.Environment, ParentID: r.ParentID.String, PullNumber: int32(r.PullNumber), Paused: r.Paused, Sharing: model.Sharing{Access: r.Access},
+		Image: spec.Image, Port: spec.Port, APIAccess: spec.APIAccess, AgentPrompt: spec.AgentPrompt, Env: spec.Env, Folders: spec.Folders, MadeBy: spec.MadeBy, Source: spec.Source, Environment: spec.Environment, ParentID: r.ParentID.String, PullNumber: int32(r.PullNumber), Paused: r.Paused, Sharing: model.Sharing{Access: r.Access},
 		RestartRequestedAt: timeOf(r.RestartRequestedAt), TokenRevoked: r.TokenRevoked, TrustedUntil: timeOf(r.TrustedUntil), Version: r.Version, CreatedAt: r.CreatedAt.Time(),
 		DeletedAt: timeOf(r.DeletedAt), IdleStopMinutes: r.IdleStopMinutes, StoppedIdleAfter: spec.StoppedIdleAfter, StoppedByAdmin: spec.StoppedByAdmin,
 		LastActiveAt: timeOf(r.LastActiveAt), RestoreHold: r.RestoreHold, ReleaseAt: timeOf(r.RestoreReleaseAt),

@@ -37,8 +37,9 @@ var jobKind = rowKind[model.Job]{
 	},
 	prepare:  func(j *model.Job) { j.ApplyDefaults() },
 	validate: func(next, old *model.Job) error { return next.ValidateUpdate(old) },
+	madeBy:   jobMadeBy,
 	writeSpec: func(ctx context.Context, q *sqlcgen.Queries, id string, version int64, next *model.Job) (int64, error) {
-		spec, err := marshal(next.Spec, "{}")
+		spec, err := marshal(jobSpecOf(next), "{}")
 		if err != nil {
 			return 0, err
 		}
@@ -56,6 +57,16 @@ var jobKind = rowKind[model.Job]{
 		return q.SetJobStatus(ctx, sqlcgen.SetJobStatusParams{Status: status, ObservedVersion: observed, StatusAt: nullTime(at), ID: id})
 	},
 }
+
+// jobSpec is a job's spec column: what the person wrote and, beside it,
+// what is not theirs to write.
+type jobSpec struct {
+	model.JobSpec
+	// MadeBy: see model.Job.
+	MadeBy string `json:"madeBy,omitempty"`
+}
+
+func jobSpecOf(j *model.Job) jobSpec { return jobSpec{JobSpec: j.Spec, MadeBy: j.MadeBy} }
 
 func paused(s model.JobSpec) bool { return s.Schedule != nil && s.Schedule.Paused }
 
@@ -84,7 +95,8 @@ func (j *Jobs) CreateWith(ctx context.Context, actor model.Actor, in *model.Job,
 	if err := job.Validate(); err != nil {
 		return model.Job{}, err
 	}
-	spec, err := marshal(job.Spec, "{}")
+	jobKind.madeBy(actor, &job, nil)
+	spec, err := marshal(jobSpecOf(&job), "{}")
 	if err != nil {
 		return model.Job{}, err
 	}
@@ -567,9 +579,11 @@ func jobOf(r sqlcgen.Job) (model.Job, error) {
 		Size: r.Size, Resources: resourcesOf(r.CpuMillis, r.MemoryBytes),
 		CreatedAt: r.CreatedAt.Time(), DeletedAt: timeOf(r.DeletedAt),
 	}
-	if err := unmarshal(r.Spec, &job.Spec); err != nil {
+	var spec jobSpec
+	if err := unmarshal(r.Spec, &spec); err != nil {
 		return model.Job{}, err
 	}
+	job.Spec, job.MadeBy = spec.JobSpec, spec.MadeBy
 	if err := unmarshal(r.Status, &job.Status); err != nil {
 		return model.Job{}, err
 	}

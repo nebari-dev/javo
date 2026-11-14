@@ -139,6 +139,8 @@ type Workspace struct {
 	// Folders is what a coding agent that starts locked in can open; absent
 	// for any other app, and while the platform does not lock agents in.
 	Folders *FoldersView `json:"folders,omitempty"`
+	// AgentMade is model.App.MadeBy as a yes or no.
+	AgentMade bool `json:"agentMade,omitempty" doc:"A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs"`
 }
 
 // Workspaces is the app API: /api/workspaces and every route about one app.
@@ -846,6 +848,7 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 		Environment:  environments.ViewOf(app.Environment),
 		Run:          run,
 		AgentPrompt:  app.AgentPrompt,
+		AgentMade:    app.MadeBy != "",
 		Trust:        s.trustView(ctx, app, tpls[app.Template]),
 		Folders:      s.foldersView(app, tpls[app.Template]),
 	}

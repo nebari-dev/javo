@@ -177,7 +177,7 @@ func (s *Workspaces) RestoreCheck(ctx context.Context, owner authz.Principal, sa
 	if err != nil {
 		return nil, "", err
 	}
-	app.Namespace, app.Name, app.Paused = saved.Namespace, saved.Name, saved.Paused
+	app.Namespace, app.Name, app.Paused, app.MadeBy = saved.Namespace, saved.Name, saved.Paused, saved.MadeBy
 	t, err := s.db.Templates().Get(ctx, saved.Template)
 	if err != nil {
 		return nil, "", err

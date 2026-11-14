@@ -750,12 +750,17 @@ type People interface {
 }
 
 // Actor is who a change is made by, for the audit row: the person, and the
-// API token when the request came with one; for a Trusted agent, its app too.
+// API token when the request came with one; for a Trusted agent, its app
+// too, and for a coding agent that is not, its name (model.Actor.Agent).
 func Actor(ctx context.Context) model.Actor {
 	id, _ := ctx.Value(apiTokenKey{}).(string)
 	a := model.Actor{Person: User(ctx).ID, Token: id}
-	if tok, ok := APIToken(ctx); ok && tok.App != nil && Trusted(ctx) {
+	switch tok, ok := APIToken(ctx); {
+	case !ok || tok.App == nil:
+	case Trusted(ctx):
 		a.App = tok.App.Name
+	case ViaAgentToken(ctx):
+		a.Agent = tok.App.Short
 	}
 	return a
 }

@@ -27,6 +27,10 @@ type rowKind[T any] struct {
 	info     func(T) rowInfo
 	prepare  func(*T)                 // fills defaults
 	validate func(next, old *T) error // next is already prepared
+	// madeBy records on next, a row about to be stored, which coding agent
+	// decides what it runs after actor's write (madeBy); old is the row
+	// as it was, nil for a new one.
+	madeBy func(actor model.Actor, next, old *T)
 	// guard, when set, runs after validate in the update's transaction and
 	// may refuse the change (a per-person cap it would pass).
 	guard func(ctx context.Context, s *Store, q *sqlcgen.Queries, next, old *T) error
@@ -94,6 +98,7 @@ func (k rowKind[T]) updateWith(ctx context.Context, s *Store, actor model.Actor,
 		if err := k.validate(&next, &old); err != nil {
 			return effect{}, err
 		}
+		k.madeBy(actor, &next, &old)
 		if k.guard != nil {
 			if err := k.guard(ctx, s, q, &next, &old); err != nil {
 				return effect{}, err

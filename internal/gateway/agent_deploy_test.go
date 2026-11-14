@@ -152,3 +152,65 @@ func TestAgentTokenProposesWhatItMayNotDo(t *testing.T) {
 	w := f.agent("POST", "/api/plans", `{"source":"rules","proposal":{"action":"restart","target":"keyed"}}`)
 	wantCode(t, "propose a restart of a secret-holding app", w, http.StatusCreated)
 }
+
+// madeByAgent reads from the API whether the app or job at path is marked
+// as made, or last changed in what it runs, by a coding agent.
+func (f agentFixture) madeByAgent(path string) bool {
+	f.T.Helper()
+	w := f.Do("GET", path, "", f.alice)
+	wantCode(f.T, "read "+path, w, http.StatusOK)
+	return apitest.Decode[struct {
+		AgentMade bool `json:"agentMade"`
+	}](f.T, w).AgentMade
+}
+
+// An app or job a coding agent's token made, or whose command, file or
+// variables it changed, says so, and keeps saying so until its owner, in
+// the browser, changes what it runs: no token takes the mark off, and a
+// change of something else leaves it as it is.
+func TestWhatAnAgentMakesOrChangesIsMarkedUntilItsOwnerChangesIt(t *testing.T) {
+	f := newAgentFixture(t, true)
+	personal, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{
+		Name: "laptop", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark := func(what, path string, want bool) {
+		t.Helper()
+		if got := f.madeByAgent(path); got != want {
+			t.Fatalf("%s: made by an agent %v, want %v", what, got, want)
+		}
+	}
+
+	wantCode(t, "create an app", f.agent("POST", "/api/workspaces", `{"displayName":"Random number","template":"streamlit","file":"agents/random/app.py"}`), http.StatusCreated)
+	mark("the app the agent made", "/api/workspaces/random-number", true)
+	mark("alice's own app", "/api/workspaces/plain", false)
+
+	// What does not decide what it runs leaves alice's app hers.
+	wantCode(t, "the agent sets its idle stop", f.agent("PUT", "/api/workspaces/plain/idle-stop", `{"idleStopMinutes":0}`), http.StatusOK)
+	wantCode(t, "the agent restarts it", f.agent("POST", "/api/workspaces/plain/restart", ""), http.StatusOK)
+	mark("after an idle stop and a restart by the agent", "/api/workspaces/plain", false)
+	wantCode(t, "the agent sets its variables", f.agent("PUT", "/api/workspaces/plain/env", `{"env":[{"name":"LEVEL","value":"2"}]}`), http.StatusOK)
+	mark("after the agent set its variables", "/api/workspaces/plain", true)
+
+	// Alice's own token changes it and the mark stays; in the browser it goes.
+	env := `{"env":[{"name":"LEVEL","value":"3"}]}`
+	wantCode(t, "alice's token sets its variables", f.Bearer("PUT", "/api/workspaces/plain/env", env, personal, nil), http.StatusOK)
+	mark("after alice's token changed it", "/api/workspaces/plain", true)
+	wantCode(t, "alice stops it in the browser", f.Do("POST", "/api/workspaces/plain/stop", "", f.alice), http.StatusOK)
+	mark("after alice stopped it", "/api/workspaces/plain", true)
+	wantCode(t, "alice sets its variables in the browser", f.Do("PUT", "/api/workspaces/plain/env", `{"env":[{"name":"LEVEL","value":"4"}]}`, f.alice), http.StatusOK)
+	mark("after alice changed it in the browser", "/api/workspaces/plain", false)
+
+	job := `{"displayName":"Morning summary","template":"lab","engine":"command","command":"python summary.py"}`
+	wantCode(t, "create a job", f.agent("POST", "/api/jobs", job), http.StatusCreated)
+	mark("the job the agent made", "/api/jobs/morning-summary", true)
+	mark("alice's own job", "/api/jobs/plainjob", false)
+	wantCode(t, "the agent changes alice's job", f.agent("PUT", "/api/jobs/plainjob", `{"displayName":"plainjob","template":"lab","engine":"command","command":"python other.py"}`), http.StatusOK)
+	mark("after the agent changed its command", "/api/jobs/plainjob", true)
+	wantCode(t, "alice renames the agent's job", f.Do("PUT", "/api/jobs/morning-summary", `{"displayName":"Summary","template":"lab","engine":"command","command":"python summary.py"}`, f.alice), http.StatusOK)
+	mark("after alice renamed it", "/api/jobs/morning-summary", true)
+	wantCode(t, "alice changes its command", f.Do("PUT", "/api/jobs/morning-summary", `{"displayName":"Summary","template":"lab","engine":"command","command":"python summary.py --short"}`, f.alice), http.StatusOK)
+	mark("after alice changed its command in the browser", "/api/jobs/morning-summary", false)
+}

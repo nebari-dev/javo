@@ -2632,6 +2632,10 @@
       "JobDetail": {
         "additionalProperties": false,
         "properties": {
+          "agentMade": {
+            "description": "A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs",
+            "type": "boolean"
+          },
           "command": {
             "description": "The command line of a command job",
             "type": "string"
@@ -2867,6 +2871,10 @@
       "JobView": {
         "additionalProperties": false,
         "properties": {
+          "agentMade": {
+            "description": "A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs",
+            "type": "boolean"
+          },
           "command": {
             "description": "The command line of a command job",
             "type": "string"
@@ -5580,6 +5588,10 @@
       "Workspace": {
         "additionalProperties": false,
         "properties": {
+          "agentMade": {
+            "description": "A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs",
+            "type": "boolean"
+          },
           "agentPrompt": {
             "type": "string"
           },

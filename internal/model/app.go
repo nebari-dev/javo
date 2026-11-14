@@ -256,6 +256,15 @@ type App struct {
 	// project. They are checked when set and again when the app is planned
 	// (workspace.LockFolders). Changing them restarts a running app.
 	Folders []FolderGrant
+	// MadeBy is the short name of the coding agent app, of the same owner,
+	// whose token made the app or last changed what it runs (its template,
+	// file, command, image, variables, repository or environment); empty
+	// when a person did. Such an app reaches no more than that agent does:
+	// it gets no private SSH key, and where agents start locked in
+	// (workloads.landlock) it starts in that agent's lock. Only the store
+	// sets it (madeBy): it stays until the owner, in the browser, changes
+	// what the app runs. Changing it restarts a running app.
+	MadeBy string
 	// Env are the variables with a plain value the app's container gets
 	// values from secrets are bindings beside the app.
 	// Changing them restarts a running app.

@@ -978,6 +978,10 @@ export type JobBody = {
 
 export type JobDetail = {
     /**
+     * A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs
+     */
+    agentMade?: boolean;
+    /**
      * The command line of a command job
      */
     command?: string;
@@ -1055,6 +1059,10 @@ export type JobScheduleBody = {
 };
 
 export type JobView = {
+    /**
+     * A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs
+     */
+    agentMade?: boolean;
     /**
      * The command line of a command job
      */
@@ -2063,6 +2071,10 @@ export type WebhookOutputBody = {
 };
 
 export type Workspace = {
+    /**
+     * A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs
+     */
+    agentMade?: boolean;
     agentPrompt?: string;
     apiAccess: 'None' | 'Read' | 'ReadWrite';
     canShare: boolean;
@@ -2234,6 +2246,10 @@ export type JobBodyWritable = {
 
 export type JobDetailWritable = {
     /**
+     * A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs
+     */
+    agentMade?: boolean;
+    /**
      * The command line of a command job
      */
     command?: string;
@@ -2276,6 +2292,10 @@ export type JobDetailWritable = {
 };
 
 export type WorkspaceWritable = {
+    /**
+     * A coding agent made it or last changed what it runs: it gets no private SSH key and, where agents start locked in, opens only what that agent can. It stays so until its owner, in the browser, changes what it runs
+     */
+    agentMade?: boolean;
     agentPrompt?: string;
     apiAccess: 'None' | 'Read' | 'ReadWrite';
     canShare: boolean;
