@@ -23,4 +23,9 @@ type Actor struct {
 	// App is the object name of the coding agent whose token acted while
 	// its owner trusted it (it acted without asking); empty otherwise.
 	App string
+	// Agent is the short name of the coding agent app whose token acted
+	// within an agent's own limits (it is not trusted); empty otherwise.
+	// What such a token makes, or changes in what an app or job runs, is
+	// marked with it (App.MadeBy, Job.MadeBy).
+	Agent string
 }

@@ -50,6 +50,9 @@ const (
 	StoppedByAdmin     Code = "StoppedByAdmin"
 	RestoreHeld        Code = "RestoreHeld"
 	SecretsUnreadable  Code = "SecretsUnreadable"
+	// AgentLockUnavailable: an app or job a coding agent made cannot start
+	// in that agent's lock, and is not started outside it.
+	AgentLockUnavailable Code = "AgentLockUnavailable"
 	// An app or a job in a pixi environment (model.Environment).
 	EnvironmentUnavailable   Code = "EnvironmentUnavailable"
 	EnvironmentInstallFailed Code = "EnvironmentInstallFailed"
@@ -410,6 +413,11 @@ var catalog = []Reason{
 		Todo:  "Tell your platform admin. The evidence says what failed; no secret value is ever shown.",
 		Blame: "The platform: its secrets key is missing or does not match the database. Not your app or job.",
 		Who:   "Your platform admin.", Blamed: PartyPlatform},
+	{Code: AgentLockUnavailable, Title: "Cannot run inside the agent's lock",
+		What:  "A coding agent made it, or changed what it runs, so it runs only locked in the way that agent is: it opens the agent's folders and nothing else of your home. It cannot be locked in, so it does not run. The agent may be gone, or it uses an image, a repository, a built site or an environment of its own, parts of which run outside the lock.",
+		Todo:  "To run it as your own, outside the lock, change what it runs here in the browser (its command, file or variables). Read it first: it is the agent's. Or have the agent make it on a template with the platform's own environment.",
+		Blame: "Nothing is broken: the platform keeps what an agent starts inside that agent's limits.",
+		Who:   "You, in the browser.", Blamed: PartyUser},
 	{Code: EnvironmentUnavailable, Title: "Environment not available",
 		What:  "It runs in an environment picked from an environment manager, and the platform cannot use it: its stored files are missing or too large to hand to a pod, or no image to install environments with is set.",
 		Todo:  "Tell your platform admin; the evidence says which. Files that are missing or too large need a new pick: create it again with the environment, or a smaller one.",

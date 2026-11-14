@@ -41,11 +41,30 @@ var AgentDeployWrites = []string{
 	"createJob", "updateJob", "deleteJob", "setJobSize", "setJobEnv",
 }
 
+// HomeFiles are the operations that read or change the files of the
+// caller's home and group folders through the gateway. No app's or job's
+// own token may call them, a Trusted agent's included: an app or a job has
+// its owner's home as far as it is let into it (a coding agent's ~/.ssh
+// holds no private key, and one that starts locked in opens only its
+// folders), and these would hand it the rest. A files route added later
+// goes here.
+var HomeFiles = []string{"listFiles", "getRawFile", "saveRawFile", "uploadArchive"}
+
 // WorkloadTokensReadOnly is API middleware that refuses a workload token on
-// every operation that is not a read and not in WorkloadTokenWrites. It runs
-// before the operation's input is read. A Trusted agent's token passes.
+// every operation that is not a read and not in WorkloadTokenWrites, and on
+// HomeFiles. It runs before the operation's input is read. A Trusted
+// agent's token passes, but for HomeFiles.
 func WorkloadTokensReadOnly(api huma.API) func(huma.Context, func(huma.Context)) {
+	refuse := func(hctx huma.Context, code reasons.MessageCode) {
+		hctx.SetHeader("Content-Type", "application/problem+json")
+		hctx.SetStatus(http.StatusForbidden)
+		_ = api.Marshal(hctx.BodyWriter(), "application/problem+json", problem.New(http.StatusForbidden, reasons.Msg(code)))
+	}
 	return func(hctx huma.Context, next func(huma.Context)) {
+		if viaAppToken(hctx.Context()) && slices.Contains(HomeFiles, hctx.Operation().OperationID) {
+			refuse(hctx, reasons.MsgFilesNotForAppTokens)
+			return
+		}
 		switch m := hctx.Method(); {
 		case m == http.MethodGet, m == http.MethodHead, m == http.MethodOptions,
 			!restricted(hctx.Context()), slices.Contains(WorkloadTokenWrites, hctx.Operation().OperationID),
@@ -53,8 +72,6 @@ func WorkloadTokensReadOnly(api huma.API) func(huma.Context, func(huma.Context))
 			next(hctx)
 			return
 		}
-		hctx.SetHeader("Content-Type", "application/problem+json")
-		hctx.SetStatus(http.StatusForbidden)
-		_ = api.Marshal(hctx.BodyWriter(), "application/problem+json", problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgWorkloadTokenReadOnly)))
+		refuse(hctx, reasons.MsgWorkloadTokenReadOnly)
 	}
 }

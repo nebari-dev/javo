@@ -33,6 +33,24 @@ func locksAgent(t *model.Template, lock bool) bool {
 	return lock && t.Spec.Category == model.CategoryAgents
 }
 
+// locksIn reports whether an app ws of t starts locked in: a coding agent
+// (locksAgent), or an app a coding agent made (ws.MadeBy), which starts in
+// that agent's lock (lockedAs).
+func locksIn(ws *model.App, t *model.Template, lock bool) bool {
+	return locksAgent(t, lock) || lock && ws.MadeBy != ""
+}
+
+// lockedAs is the app whose lock ws starts in: its own, or for an app a
+// coding agent made that agent's (maker), so that it opens the agent's
+// folder and what its owner added to the agent, and nothing the app names
+// itself. Plan refuses such an app whose agent is gone (madeProblem).
+func lockedAs(ws, maker *model.App) *model.App {
+	if ws.MadeBy != "" {
+		return maker
+	}
+	return ws
+}
+
 // ownProject is the folder a locked agent app with no folder of its own
 // works in: ~/projects/<app name>, which agent-lock.sh makes if missing.
 func (p places) ownProject(ws *model.App) string {
@@ -43,12 +61,15 @@ func (p places) ownProject(ws *model.App) string {
 // the one it opens, else one of its own. Locked to the whole home the lock
 // would keep nothing out, so a path that names the home itself ("." in an
 // app made past the gateway, which stores that as no folder) is no folder
-// either. filePath keeps every other path under the home.
+// either, and neither is what no agent may be let into (neverProblem,
+// the rule for the folders an owner adds): the lock folder is opened to
+// read and change. filePath keeps every other path under the home.
 func (p places) lockFolder(ws *model.App) string {
-	if folder := p.filePath(ws); folder != "" && folder != p.home {
-		return folder
+	folder := p.filePath(ws)
+	if in, inHome := strings.CutPrefix(folder, p.home+"/"); folder == "" || folder == p.home || inHome && neverProblem(in) != nil {
+		return p.ownProject(ws)
 	}
-	return p.ownProject(ws)
+	return folder
 }
 
 // lockAgent is command run under the agent lock of an app ws planned at
@@ -58,6 +79,16 @@ func (p places) lockFolder(ws *model.App) string {
 // inherit it.
 func (p places) lockAgent(ws *model.App, command []string) []string {
 	return slices.Concat([]string{p.agentLock(), p.lockFolder(ws)}, p.lockGrants(ws), []string{"--"}, command)
+}
+
+// lockMain runs the whole command of the main unit of s under words, the
+// agent lock in front of it (lockAgent). On a host the lock is told where
+// the scratch folder is, to grant it.
+func (p places) lockMain(s *workload.Spec, words []string) {
+	s.Main.Command = words
+	if p.host != nil {
+		s.Main.SetEnv(workload.Env{Name: envScratchDir, Value: p.volume(podstorage.ScratchVolume)})
+	}
 }
 
 // lockGrants are the folders the owner of ws added to what its agent can
@@ -81,21 +112,19 @@ func (p places) lockGrants(ws *model.App) []string {
 // Landlock when the platform turns the lock on (Images.LockAgents): its
 // whole command runs under agent-lock.sh, locked to the folder the app
 // works in (lockFolder, where runOf already started it) and let into the
-// folders its owner added (lockAgent). Nothing else of
+// folders its owner added (lockAgent). An app a coding agent made starts
+// the same way, in that agent's lock (lockedAs). Nothing else of
 // the workload changes: javo-sandbox comes with the platform's files, which
 // every coding agent's template has, and agent-lock.sh grants by path what
 // the other steps mount; on a host it is told where the scratch folder is.
 // Every other app, and every app while the lock is
 // off, is left as it is. It runs before the steps that read the command
 // (addEnvironment).
-func addAgentLock(s *workload.Spec, ws *model.App, t *model.Template, lock bool, at places) {
-	if !locksAgent(t, lock) {
+func addAgentLock(s *workload.Spec, in Inputs, at places) {
+	if !locksIn(in.App, in.Template, in.Images.LockAgents) {
 		return
 	}
-	s.Main.Command = at.lockAgent(ws, s.Main.Command)
-	if at.host != nil {
-		s.Main.SetEnv(workload.Env{Name: envScratchDir, Value: at.volume(podstorage.ScratchVolume)})
-	}
+	at.lockMain(s, at.lockAgent(lockedAs(in.App, in.Maker), s.Main.Command))
 }
 
 // envScratchDir tells agent-lock.sh where a host has the workload's scratch
@@ -108,9 +137,17 @@ const envScratchDir = "JAVO_SCRATCH_DIR"
 // Linux's: on another system javo-sandbox refuses every command, and the
 // agent is not run without the lock instead.
 func lockProblem(in Inputs) error {
-	if !locksAgent(in.Template, in.Images.LockAgents) || strings.HasPrefix(in.Host.Platform, "linux-") {
+	if !locksIn(in.App, in.Template, in.Images.LockAgents) {
+		return nil
+	}
+	return needsLandlock(in.Host)
+}
+
+// needsLandlock is why nothing starts locked in on host; nil on Linux.
+func needsLandlock(host *workload.Host) error {
+	if strings.HasPrefix(host.Platform, "linux-") {
 		return nil
 	}
 	return &executor.UnsupportedError{Why: "coding agents start locked in with Landlock (workloads.landlock), which needs Linux, and this machine is " +
-		cmp.Or(in.Host.Platform, "not one pixi has a name for")}
+		cmp.Or(host.Platform, "not one pixi has a name for")}
 }

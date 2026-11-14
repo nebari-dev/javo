@@ -35,6 +35,19 @@ wrong and `errors` names the field.
   off: propose a plan as above.
 - Files: the owner's home folder is your home folder (`/home/user`), so write
   files there directly. Every app and job sees the same home.
+- What you make runs within your own limits. An app or job you create, or
+  whose command, file or variables you change, is marked as yours
+  (`agentMade` in its view): it gets no SSH keys at all (use them here, not
+  in the app). If you are locked in to your project folder (`ls ~` fails),
+  it is locked in the same way and opens only what you can open: keep its
+  files inside your own project folder, not `~/agents/`, use a template
+  that runs in the platform's environment, and do not give it an image, a
+  repository or an environment of its own (it then fails with
+  `AgentLockUnavailable`). Only the owner, by changing what it runs in the
+  browser, makes it their own.
+- Home files are yours to read and write here, in the folders you can open.
+  The files API (`/api/files`) and the export (`/api/workspaces/export`)
+  answer 403 to you.
 - SSH: `git clone git@github.com:...` and `ssh` work through an ssh-agent
   (`$SSH_AUTH_SOCK`) that holds the owner's keys. The private keys are not
   readable here: `~/.ssh` is a folder of this app with only `known_hosts`,

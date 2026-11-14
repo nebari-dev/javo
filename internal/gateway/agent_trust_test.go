@@ -12,6 +12,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/reasons"
 )
 
 // trustFixture is the agent fixture on a clock the test moves.
@@ -218,4 +219,38 @@ func TestOnlyAgentsCanBeTrusted(t *testing.T) {
 	}
 	wantCode(t, "read-only agent", f.Do("PUT", "/api/workspaces/pi/api-access", `{"apiAccess":"Read"}`, f.alice), http.StatusOK)
 	wantCode(t, "trust a read-only agent", f.Do("PUT", "/api/workspaces/pi/trust", `{"trusted":true}`, f.alice), http.StatusUnprocessableEntity)
+}
+
+// No app's own token reaches its owner's home through the files API, not
+// even a trusted agent's: the app has the home as far as it may open it (a
+// coding agent's ~/.ssh holds no private key, and a locked one sees only
+// its folders), and the files API would hand it the rest.
+func TestNoAppTokenReachesTheHomeThroughTheFilesAPI(t *testing.T) {
+	f := newTrustFixture(t, apitest.Options{})
+	refused := reasons.Msg(reasons.MsgFilesNotForAppTokens)
+	calls := []struct{ what, method, path, body string }{
+		{"list the home", "GET", "/api/files", ""},
+		{"read a private key", "GET", "/api/files/raw?path=.ssh/key", ""},
+		{"save a file", "PUT", "/api/files/raw?path=notes.txt", "hi"},
+		{"upload a folder", "PUT", "/api/files/archive?path=deploys/x", ""},
+	}
+	for _, trusted := range []bool{false, true} {
+		if trusted {
+			f.trust(f.alice, 1)
+		}
+		for _, c := range calls {
+			w := f.agent(c.method, c.path, c.body)
+			if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != refused {
+				t.Errorf("%s with the agent's token (trusted: %v): %d %s", c.what, trusted, w.Code, w.Body)
+			}
+		}
+	}
+	// The person's own token still reads their files.
+	personal, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{
+		Name: "laptop", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, "list the home with a personal token", f.Bearer("GET", "/api/files", "", personal, nil), http.StatusOK)
 }

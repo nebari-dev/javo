@@ -168,6 +168,7 @@ func (o *controllerOptions) jobReconciler(common *commonFlags, platform config.P
 		Sizes:  appSizes,
 		Tokens: &token.DBStore{Tokens: db.Tokens()}, APIURL: publicURL(platform.URLs, common.publicHost),
 		MaxTimeout: platform.Limits.JobMaxTimeout.Duration,
+		LockAgents: wiring.LockAgents(platform),
 	}
 }
 

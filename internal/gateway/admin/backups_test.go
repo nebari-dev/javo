@@ -78,7 +78,7 @@ func TestRestorePreviewAndRestore(t *testing.T) {
 	dir := t.TempDir()
 	alice := apitest.PersonID("alice")
 	gone, kept := gatewaytest.App(alice, "gone"), gatewaytest.App(alice, "kept")
-	gone.File = "app.py"
+	gone.File, gone.MadeBy = "app.py", "pi" // a coding agent made it
 	ghost := gatewaytest.App("ghost-00000000", "orphan")
 	noTpl := gatewaytest.App(alice, "old")
 	noTpl.Template = "retired"
@@ -118,6 +118,9 @@ func TestRestorePreviewAndRestore(t *testing.T) {
 	back := f.GetWorkspace(alice, "gone")
 	if back.RestoreHold != name || !back.Held(now) {
 		t.Errorf("restored app hold = %q", back.RestoreHold)
+	}
+	if back.MadeBy != "pi" {
+		t.Errorf("the restored app is made by %q, want the agent it was made by: a restore must not let it out", back.MadeBy)
 	}
 	if f.WorkspaceCount() != 2 {
 		t.Errorf("apps after restore = %d, want kept and gone", f.WorkspaceCount())

@@ -50,7 +50,9 @@ func (p Platform) RunOf(app *model.App, t *model.Template) (Run, error) {
 		return Run{}, err
 	}
 	run := Run{Image: r.image, Command: slices.Concat(r.command, r.args)}
-	if locksAgent(t, p.LockAgents) {
+	// An app a coding agent made starts in that agent's lock, which is
+	// not the app's to show.
+	if locksAgent(t, p.LockAgents) && app.MadeBy == "" {
 		run.Command = containerPlaces.lockAgent(app, run.Command)
 	}
 	if t.Spec.UserImage {
@@ -61,10 +63,11 @@ func (p Platform) RunOf(app *model.App, t *model.Template) (Run, error) {
 
 // LockedTo is the folder app's agent on t works in and is locked to
 // (lockFolder), as its owner reads it: with ~ for the home. It is false
-// when the app does not start locked in: the lock is off, t is no coding
-// agent or is gone.
+// when the app does not start locked in a lock of its own: the lock is
+// off, t is no coding agent or is gone, or a coding agent made the app
+// (it then starts in that agent's lock, and has no folders to add).
 func (p Platform) LockedTo(app *model.App, t *model.Template) (string, bool) {
-	if t == nil || !locksAgent(t, p.LockAgents) {
+	if t == nil || !locksAgent(t, p.LockAgents) || app.MadeBy != "" {
 		return "", false
 	}
 	folder := containerPlaces.lockFolder(app)

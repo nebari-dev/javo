@@ -170,7 +170,11 @@ type Job struct {
 	// the admin allows; nil runs at Size. A change applies from the next run.
 	Size      string
 	Resources *AppResources
-	Version   int64
+	// MadeBy is App.MadeBy for a job: the coding agent whose token made it
+	// or last changed what its runs execute. It is not part of the spec a
+	// person writes; only the store sets it.
+	MadeBy  string
+	Version int64
 	// CreatedAt orders lists newest first.
 	CreatedAt time.Time
 	// DeletedAt is set when the owner deletes the job; the controller removes

@@ -2,7 +2,8 @@
 # agent-lock.sh FOLDER [--ro PATH | --rw PATH]... -- COMMAND ARGS...: runs a
 # coding agent's container command locked in with Landlock (javo-sandbox,
 # beside this folder in bin/) when the platform turns the lock on (config
-# workloads.landlock). The agent, and every command it runs, may then write
+# workloads.landlock), and so the command of an app or job that an agent
+# made, in that agent's lock. The agent, and every command it runs, may then write
 # only FOLDER (its project, made if missing), the agents' own state and
 # caches, /tmp and /dev, and read and run only the system, the pod files and
 # the installed environments. The rest of the home (other projects, the
@@ -147,10 +148,14 @@ fi
 # there), and one with Nebi access the Nebi CLI and its token. The folders
 # of the person's groups (/shared) are other people's files too, and are
 # not granted.
+#
+# A run of a job that a coding agent made starts here too, so that its
+# command opens no more than that agent: the platform says where the run has
+# its runner (JAVO_RUNNER_DIR, a folder of the run's own), to read and run.
 ssh=$HOME/.ssh
 [ -z "${JAVO_FILES_DIR:-}" ] || ssh=
 for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc "${JAVO_FILES_DIR:-/opt/javo}" "${JAVO_ENV_DIR:-/opt/javo-env}" /proc /sys /home/AGENTS.md \
-  /srv/src /opt/javo-nebi /var/run/javo/nebi \
+  "${JAVO_RUNNER_DIR:-}" /srv/src /opt/javo-nebi /var/run/javo/nebi \
   "$HOME/.javo/envs" "$ssh" "$HOME/.gitconfig" "$HOME/.config/git"; do
   [ ! -e "$p" ] || set -- --ro "$p" "$@"
 done

@@ -45,7 +45,7 @@ func TestWorkloadTokensCannotWriteTheHomeOrCreateWhatRuns(t *testing.T) {
 	refused := reasons.Msg(reasons.MsgWorkloadTokenReadOnly)
 
 	w := f.Bearer("PUT", "/api/files/raw?path=reports/sales.ipynb", "print(1)", text, nil, "Content-Type", "text/plain", "If-None-Match", "*")
-	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != refused {
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgFilesNotForAppTokens) {
 		t.Fatalf("save a home file with an app token: %d %s", w.Code, w.Body)
 	}
 	if len(l.Saved) != 0 {
@@ -130,5 +130,31 @@ func TestEveryWriteRouteRefusesWorkloadTokensUnlessListed(t *testing.T) {
 		if !seen[id] {
 			t.Errorf("WorkloadTokenWrites names %q, which is not an operation", id)
 		}
+	}
+}
+
+// The export holds every plain variable as typed, also those the app view
+// hides from an app's own token (a password typed in instead of picked as a
+// secret), so that token gets no export; the person's own token does.
+func TestAnAppTokenGetsNoExport(t *testing.T) {
+	f, text := workloadFixture(t, nil)
+	sales := gatewaytest.Workspace("sales", apitest.LocalAlice(), "Sales")
+	sales.Env = []model.EnvVar{{Name: "DB_PASSWORD", Value: "placeholder-value-1"}}
+	gatewaytest.Seed(t, f.Db, []any{sales})
+	if w := f.Bearer("GET", "/api/workspaces/sales", "", text, nil); w.Code != http.StatusOK || strings.Contains(w.Body.String(), "placeholder-value-1") {
+		t.Fatalf("the app view with an app token: %d %s", w.Code, w.Body)
+	}
+	w := f.Bearer("GET", "/api/workspaces/export", "", text, nil)
+	if w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), "placeholder-value-1") {
+		t.Fatalf("export with an app token: %d %s", w.Code, w.Body)
+	}
+	personal, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{
+		Name: "laptop", Owner: apitest.LocalAlice(), Scope: token.ScopeRead,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := f.Bearer("GET", "/api/workspaces/export", "", personal, nil); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "placeholder-value-1") {
+		t.Fatalf("export with a personal token: %d %s", w.Code, w.Body)
 	}
 }
