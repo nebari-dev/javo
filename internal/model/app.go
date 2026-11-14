@@ -120,6 +120,21 @@ func lowerAPIAccess(a, b string) string {
 	return apiAccessLevels[min(APIAccessRank(a), APIAccessRank(b))]
 }
 
+// How a locked coding agent may open a folder its owner added: read it, or
+// read and change it.
+const (
+	FolderRead  = "read"
+	FolderWrite = "write"
+)
+
+// FolderGrant is one folder or file of the owner's home a locked coding
+// agent may open besides its project.
+type FolderGrant struct {
+	// Path is relative to the home.
+	Path string `json:"path"`
+	Mode string `json:"mode" enum:"read,write"`
+}
+
 // Sharing says who besides the owner may open the app. The zero value means
 // owner only.
 // +kubebuilder:object:generate=true
@@ -236,6 +251,11 @@ type App struct {
 	// agentModel) starts working on: its pod gets it as JAVO_AGENT_PROMPT,
 	// and the agent runs it on the app's first start only. Empty for none.
 	AgentPrompt string
+	// Folders are the folders and files of the owner's home a coding agent
+	// that starts locked in (workloads.landlock) may open besides its
+	// project. They are checked when set and again when the app is planned
+	// (workspace.LockFolders). Changing them restarts a running app.
+	Folders []FolderGrant
 	// Env are the variables with a plain value the app's container gets
 	// values from secrets are bindings beside the app.
 	// Changing them restarts a running app.

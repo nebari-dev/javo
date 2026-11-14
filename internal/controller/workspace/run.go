@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/nebari-dev/javo/internal/ext/exposure"
 	"github.com/nebari-dev/javo/internal/homepath"
@@ -50,12 +51,27 @@ func (p Platform) RunOf(app *model.App, t *model.Template) (Run, error) {
 	}
 	run := Run{Image: r.image, Command: slices.Concat(r.command, r.args)}
 	if locksAgent(t, p.LockAgents) {
-		run.Command = lockAgent(agentLock, containerPlaces.lockFolder(app), run.Command)
+		run.Command = containerPlaces.lockAgent(app, run.Command)
 	}
 	if t.Spec.UserImage {
 		run.Image = app.Image
 	}
 	return run, nil
+}
+
+// LockedTo is the folder app's agent on t works in and is locked to
+// (lockFolder), as its owner reads it: with ~ for the home. It is false
+// when the app does not start locked in: the lock is off, t is no coding
+// agent or is gone.
+func (p Platform) LockedTo(app *model.App, t *model.Template) (string, bool) {
+	if t == nil || !locksAgent(t, p.LockAgents) {
+		return "", false
+	}
+	folder := containerPlaces.lockFolder(app)
+	if in, ok := strings.CutPrefix(folder, homeDir+"/"); ok {
+		folder = "~/" + in
+	}
+	return folder, true
 }
 
 // runPlan is the part of an app's pod its run decides: the port, the

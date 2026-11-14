@@ -296,3 +296,85 @@ func TestFlippingTheLockRestartsRunningAgentsAndNothingElse(t *testing.T) {
 		}
 	}
 }
+
+// The folders a person added to their agent go to agent-lock.sh in front of
+// the command, each with how it may be opened and as a path of the home
+// the app is planned for. The stored list is checked again here: a grant
+// the API would refuse (written past it) opens nothing. With the lock off
+// there is nothing to add to.
+func TestLockedAgentIsToldTheFoldersItsOwnerAdded(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "pi")
+	ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name, File: "projects/api", Folders: []model.FolderGrant{
+		{Path: "data/sales-2026", Mode: model.FolderRead},
+		{Path: ".ssh", Mode: model.FolderRead},
+		{Path: "../bob", Mode: model.FolderWrite},
+		{Path: "notes.md", Mode: model.FolderWrite},
+	}}
+	unlocked := argvOf(t, ws, tpl, testImages)
+	if slices.Contains(unlocked, "--ro") || slices.Contains(unlocked, "--rw") {
+		t.Fatalf("lock off: argv = %q, want no folders", unlocked)
+	}
+	want := slices.Concat([]string{agentLock, "/home/user/projects/api", "--ro", "/home/user/data/sales-2026", "--rw", "/home/user/notes.md", "--"}, unlocked)
+	if got := argvOf(t, ws, tpl, lockedImages()); !slices.Equal(got, want) {
+		t.Fatalf("argv =\n%q\nwant\n%q", got, want)
+	}
+	run, err := (Platform{Exposure: pathExposure, PixiImage: testPixiImage, LockAgents: true}).RunOf(ws, tpl)
+	if err != nil || !slices.Equal(run.Command, want) {
+		t.Fatalf("RunOf = %q, %v, want %q", run.Command, err, want)
+	}
+
+	// On a machine the home is a folder of that machine.
+	in := hostInputs(t, "pi")
+	in.Images.LockAgents, in.Host.Platform = true, "linux-64"
+	in.App.Folders = ws.Folders
+	s, err := Plan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onHost := []string{hostFiles + "/agents/agent-lock.sh", hostHome + "/projects/demo", "--ro", hostHome + "/data/sales-2026", "--rw", hostHome + "/notes.md", "--"}
+	if len(s.Main.Command) < len(onHost) || !slices.Equal(s.Main.Command[:len(onHost)], onHost) {
+		t.Fatalf("on a host: command = %q, want it to start with %q", s.Main.Command, onHost)
+	}
+}
+
+// Landlock is set when the agent starts, so a running agent cannot be let
+// into more, or less: adding a folder, taking one away or changing how one
+// may be opened leaves its pod out of date, and it restarts. A list that
+// grants the same, and any list while the lock is off or on an app that is
+// no agent, leaves the pod as it is.
+func TestChangingAnAgentsFoldersRestartsIt(t *testing.T) {
+	t.Parallel()
+	layout := testLayout(FixedUID)
+	on := &Reconciler{LockAgents: true}
+	read := []model.FolderGrant{{Path: "data", Mode: model.FolderRead}}
+	app := func(template string, folders []model.FolderGrant) *model.App {
+		return &model.App{ID: "app-1", Namespace: "javo-apps", Name: "demo", Owner: "alice", Template: template, Folders: folders}
+	}
+	outdated := func(r *Reconciler, template string, was, now []model.FolderGrant) bool {
+		tpl := shippedTemplate(t, template)
+		running := workload.Fingerprint{Layout: r.layoutFingerprint(app(template, was), tpl, layout)}
+		return workload.Fingerprint{Layout: r.layoutFingerprint(app(template, now), tpl, layout)}.Outdated(running)
+	}
+	for name, tc := range map[string]struct {
+		was, now []model.FolderGrant
+		want     bool
+	}{
+		"added":         {nil, read, true},
+		"removed":       {read, nil, true},
+		"another mode":  {read, []model.FolderGrant{{Path: "data", Mode: model.FolderWrite}}, true},
+		"another path":  {read, []model.FolderGrant{{Path: "data2", Mode: model.FolderRead}}, true},
+		"the same":      {read, []model.FolderGrant{{Path: "./data/", Mode: model.FolderRead}}, false},
+		"none it keeps": {nil, []model.FolderGrant{{Path: ".ssh", Mode: model.FolderRead}}, false},
+	} {
+		if got := outdated(on, "pi", tc.was, tc.now); got != tc.want {
+			t.Errorf("%s: restarts = %v, want %v", name, got, tc.want)
+		}
+	}
+	if outdated(&Reconciler{}, "pi", nil, read) {
+		t.Error("lock off: a folder restarts the agent")
+	}
+	if outdated(on, "jupyterlab", nil, read) {
+		t.Error("an app that is no agent: a folder restarts it")
+	}
+}

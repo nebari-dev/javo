@@ -563,14 +563,15 @@ func (r *Reconciler) platform() Platform {
 // A coding agent that starts locked in (LockAgents) runs another command
 // than the same app not locked in, which no other part of the fingerprint
 // covers: it has another fingerprint, so turning the lock on or off
-// replaces the running agents, once, and no other app. With the lock off
-// it is LayoutFingerprint itself.
+// replaces the running agents, once, and no other app. The folders its
+// owner added are part of that command (lockGrants), so a change of them
+// replaces the agent too. With the lock off it is LayoutFingerprint itself.
 func (r *Reconciler) layoutFingerprint(app *model.App, t *model.Template, layout podstorage.Layout) string {
 	fp := LayoutFingerprint(app, t, layout)
 	if !locksAgent(t, r.LockAgents) {
 		return fp
 	}
-	sum := sha256.Sum256([]byte(fp + " landlock"))
+	sum := sha256.Sum256([]byte(fp + " landlock" + strings.Join(containerPlaces.lockGrants(app), "\x00")))
 	return hex.EncodeToString(sum[:8])
 }
 

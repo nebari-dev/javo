@@ -13,7 +13,8 @@ import (
 )
 
 // agentLock is the pod file that starts a coding agent's container command
-// locked in with Landlock: agent-lock.sh FOLDER -- COMMAND ARGS... It knows
+// locked in with Landlock: agent-lock.sh FOLDER [--ro PATH | --rw PATH]...
+// -- COMMAND ARGS... It knows
 // which folders the agents keep their state in and grants them, the folder
 // and the system, through javo-sandbox (cmd/javo-sandbox), which the
 // platform's image carries with the pod files (bin/javo-sandbox).
@@ -50,17 +51,37 @@ func (p places) lockFolder(ws *model.App) string {
 	return p.ownProject(ws)
 }
 
-// lockAgent is command run under the agent lock at lock (agentLock),
-// locked to folder. The lock wraps the container's whole command, so the
-// agent's terminal and every process the agent starts inherit it.
-func lockAgent(lock, folder string, command []string) []string {
-	return slices.Concat([]string{lock, folder, "--"}, command)
+// lockAgent is command run under the agent lock of an app ws planned at
+// p, locked to the folder ws works in (lockFolder) and let into the folders
+// its owner added (lockGrants). The lock wraps the container's whole
+// command, so the agent's terminal and every process the agent starts
+// inherit it.
+func (p places) lockAgent(ws *model.App, command []string) []string {
+	return slices.Concat([]string{p.agentLock(), p.lockFolder(ws)}, p.lockGrants(ws), []string{"--"}, command)
+}
+
+// lockGrants are the folders the owner of ws added to what its agent can
+// open, as agent-lock.sh takes them: --ro PATH to read, --rw PATH to read
+// and change, each a path of the home at p. What LockFolders refuses is
+// left out: the stored list is not trusted.
+func (p places) lockGrants(ws *model.App) []string {
+	var flags []string
+	added, _ := LockFolders(ws, ws.Folders)
+	for _, g := range added {
+		flag := "--ro"
+		if g.Mode == model.FolderWrite {
+			flag = "--rw"
+		}
+		flags = append(flags, flag, path.Join(p.home, g.Path))
+	}
+	return flags
 }
 
 // addAgentLock starts the main unit of a coding agent locked in with
 // Landlock when the platform turns the lock on (Images.LockAgents): its
 // whole command runs under agent-lock.sh, locked to the folder the app
-// works in (lockFolder, where runOf already started it). Nothing else of
+// works in (lockFolder, where runOf already started it) and let into the
+// folders its owner added (lockAgent). Nothing else of
 // the workload changes: javo-sandbox comes with the platform's files, which
 // every coding agent's template has, and agent-lock.sh grants by path what
 // the other steps mount; on a host it is told where the scratch folder is.
@@ -71,7 +92,7 @@ func addAgentLock(s *workload.Spec, ws *model.App, t *model.Template, lock bool,
 	if !locksAgent(t, lock) {
 		return
 	}
-	s.Main.Command = lockAgent(at.agentLock(), at.lockFolder(ws), s.Main.Command)
+	s.Main.Command = at.lockAgent(ws, s.Main.Command)
 	if at.host != nil {
 		s.Main.SetEnv(workload.Env{Name: envScratchDir, Value: at.volume(podstorage.ScratchVolume)})
 	}
