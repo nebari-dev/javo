@@ -6,6 +6,7 @@ package ids
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/nebari-dev/javo/internal/identity"
 	"github.com/nebari-dev/javo/internal/model"
@@ -75,16 +76,29 @@ func (p People) UID(ctx context.Context, ownerID string) (int64, int64, error) {
 }
 
 // PersonGroups is Memberships backed by the groups a person had at last
-// sign-in (store.People).
-type PersonGroups struct{ People identity.PersonByName }
+// sign-in (store.People), for as long as API tokens act with them.
+type PersonGroups struct {
+	People identity.PersonByName
+	// MaxAge is api.tokens.groupsMaxAge (identity.GroupsStale).
+	MaxAge time.Duration
+	Now    func() time.Time // nil means time.Now
+}
 
 var _ Memberships = PersonGroups{}
 
-// Groups returns ownerID's groups; someone who never signed in has none.
+// Groups returns ownerID's groups; someone who never signed in has none,
+// nor has someone whose groups are older than MaxAge, until they sign in.
 func (g PersonGroups) Groups(ctx context.Context, ownerID string) ([]string, error) {
 	p, err := g.People.ByName(ctx, ownerID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
-	return p.Groups, err
+	now := time.Now
+	if g.Now != nil {
+		now = g.Now
+	}
+	if err != nil || identity.GroupsStale(p, now(), g.MaxAge) {
+		return nil, err
+	}
+	return p.Groups, nil
 }

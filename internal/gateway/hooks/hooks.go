@@ -78,6 +78,11 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, http.StatusInternalServerError, reasons.Msg(reasons.MsgServerError))
 		return
 	}
+	// A check against an empty secret passes a delivery with no signature.
+	if len(secret) == 0 {
+		problem.Write(w, http.StatusUnauthorized, reasons.Msg(reasons.MsgWebhookSignature))
+		return
+	}
 	event, err := host.VerifyWebhook(r, secret)
 	var tooBig *http.MaxBytesError
 	switch {

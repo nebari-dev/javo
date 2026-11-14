@@ -579,6 +579,51 @@ func TestAccessRankOrdersLeastToMostOpen(t *testing.T) {
 	}
 }
 
+// Only the owner may let more people into an app, so "more" is decided in
+// one place.
+func TestSharingIsWiderWhenItLetsMorePeopleIn(t *testing.T) {
+	sh := func(access string, names ...string) model.Sharing {
+		var users, groups []string
+		for _, n := range names {
+			if strings.HasPrefix(n, "/") {
+				groups = append(groups, n)
+			} else {
+				users = append(users, n)
+			}
+		}
+		return model.Sharing{Access: access, Users: users, Groups: groups}
+	}
+	for name, c := range map[string]struct {
+		old, next model.Sharing
+		wider     bool
+	}{
+		"unchanged":                        {sh("Restricted", "bob", "/ml"), sh("Restricted", "bob", "/ml"), false},
+		"same people in another order":     {sh("Restricted", "bob", "carol"), sh("Restricted", "carol", "bob"), false},
+		"a person removed":                 {sh("Restricted", "bob", "carol"), sh("Restricted", "bob"), false},
+		"a group removed":                  {sh("Restricted", "bob", "/ml"), sh("Restricted", "bob"), false},
+		"made private":                     {sh("Public"), sh("Private"), false},
+		"private stays private":            {sh(""), sh("Private"), false},
+		"private, with names it ignores":   {sh("Restricted", "bob"), sh("Private", "bob", "carol"), false},
+		"a lower level":                    {sh("Public", "bob"), sh("SignedIn", "bob"), false},
+		"a lower level, a person removed":  {sh("SignedIn", "bob", "carol"), sh("Restricted", "bob"), false},
+		"a person added":                   {sh("Restricted", "bob"), sh("Restricted", "bob", "carol"), true},
+		"a group added":                    {sh("Restricted", "bob"), sh("Restricted", "bob", "/ml"), true},
+		"a person swapped for another":     {sh("Restricted", "bob"), sh("Restricted", "carol"), true},
+		"a higher level":                   {sh("Restricted", "bob"), sh("SignedIn", "bob"), true},
+		"a higher level with fewer people": {sh("Restricted", "bob"), sh("Public"), true},
+		"first share":                      {sh(""), sh("Restricted", "bob"), true},
+		"private with stale names, shared": {sh("Private", "bob"), sh("Restricted", "bob"), true},
+		"unknown level, shared":            {sh("Everyone", "bob"), sh("Restricted", "bob"), true},
+		"unknown level to private":         {sh("Everyone", "bob"), sh("Private"), false},
+		"a lower level, but someone new":   {sh("SignedIn"), sh("Restricted", "bob"), true},
+		"a user named like an old group":   {sh("Restricted", "/ml"), model.Sharing{Access: "Restricted", Users: []string{"/ml"}}, true},
+	} {
+		if got := c.next.WiderThan(c.old); got != c.wider {
+			t.Errorf("%s: wider %v, want %v", name, got, c.wider)
+		}
+	}
+}
+
 // The Helm chart cannot import Go constants, so its one copy of the group
 // must match Group.
 func TestHelmChartGroupMatchesGroup(t *testing.T) {

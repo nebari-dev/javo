@@ -40,7 +40,7 @@ type aiSettingsInput struct {
 	Body struct {
 		BaseURL   string `json:"baseURL,omitempty" maxLength:"512" doc:"https address of an OpenAI-compatible API; empty is OpenAI's own"`
 		Model     string `json:"model" maxLength:"200"`
-		APIKey    string `json:"apiKey,omitempty" maxLength:"4096" doc:"Write-only: replaces the stored key; leave out to keep it"`
+		APIKey    string `json:"apiKey,omitempty" maxLength:"4096" doc:"Write-only: replaces the stored key; leave out to keep it, which only works while baseURL stays on the same server (scheme, host and port)"`
 		RemoveKey bool   `json:"removeKey,omitempty" doc:"Remove the stored key"`
 	}
 }

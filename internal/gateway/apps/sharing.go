@@ -196,6 +196,7 @@ func (s *sharing) register(api huma.API) {
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "searchDirectory", Method: http.MethodGet, Path: "/api/directory",
 		Summary: "People and the caller's own groups matching a search",
+		Errors:  []int{http.StatusForbidden},
 	}), s.directory)
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "listShared", Method: http.MethodGet, Path: "/api/shared",
@@ -328,6 +329,11 @@ func (s *sharing) set(ctx context.Context, in *sharingInput) (*sharingOutput, er
 	if b.Access != model.AccessPrivate {
 		next.Users, next.Groups = dedupe(b.Users), dedupe(b.Groups)
 	}
+	if p := authn.User(ctx); next.WiderThan(app.Sharing) {
+		if d := authz.Decide(p, authz.RolesOf(p, s.roles), authz.ActWidenSharing, authz.Object{App: app}); !d.Allowed {
+			return nil, problem.New(http.StatusForbidden, reasons.Msg(d.Code))
+		}
+	}
 	saved, err := s.ws.updateApp(ctx, app, func(a *model.App) { a.Sharing = next })
 	if err != nil {
 		return nil, err
@@ -345,7 +351,15 @@ func dedupe(in []string) []string {
 	return out
 }
 
+// directory answers the people who can share an app: members, in the
+// browser or with a personal token.
 func (s *sharing) directory(ctx context.Context, in *directoryInput) (*directoryOutput, error) {
+	if err := s.ws.mayCreate(authn.User(ctx)); err != nil {
+		return nil, err
+	}
+	if authn.NoAppTokens(ctx) != nil {
+		return nil, problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgAgentBrowserOnly))
+	}
 	out := &directoryOutput{}
 	out.Body.People = []DirectoryPerson{}
 	out.Body.Groups = []struct {

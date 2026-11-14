@@ -127,7 +127,7 @@ export type AgentSettings = {
 
 export type AgentSettingsInputBody = {
     /**
-     * Write-only; leave out to keep the stored key
+     * Write-only; leave out to keep the stored key, which only works while baseURL stays on the same server
      */
     apiKey?: string;
     /**
@@ -159,7 +159,7 @@ export type AgentStatus = {
 
 export type AiSettingsInputBody = {
     /**
-     * Write-only: replaces the stored key; leave out to keep it
+     * Write-only: replaces the stored key; leave out to keep it, which only works while baseURL stays on the same server (scheme, host and port)
      */
     apiKey?: string;
     /**
@@ -3904,6 +3904,10 @@ export type SearchDirectoryErrors = {
      * Unauthorized
      */
     401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
     /**
      * Unprocessable Entity
      */

@@ -614,8 +614,9 @@ func (l APILimitsCfg) WithDefaults() APILimitsCfg {
 // TokensCfg limits personal API tokens.
 type TokensCfg struct {
 	// GroupsMaxAge is how long after the owner's last sign-in a token keeps
-	// working. A token acts with the groups seen at that sign-in, so a
-	// group the provider removed cannot live on through a token.
+	// working; default 7 days. A token acts with the groups seen at that
+	// sign-in, so a group the provider removed, or a person it removed,
+	// cannot live on through a token for longer.
 	GroupsMaxAge metav1.Duration `json:"groupsMaxAge"`
 	// MaxLifetime is the longest expiry a new token may have; zero allows
 	// tokens that never expire.

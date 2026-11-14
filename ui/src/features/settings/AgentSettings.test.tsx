@@ -34,6 +34,19 @@ describe('Settings, AI agent', () => {
     expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('')
   })
 
+  it('asks for the key again when the address moves to another server', async () => {
+    const own = { ...status, mode: 'own', model: 'vendor/m1', baseURL: 'https://llm.example.com/v1', keyLast4: '9876' }
+    mockApi({ 'GET /api/me': { body: me }, 'GET /api/secrets': { body: [] }, 'GET /api/ai/agent': { body: own } })
+    renderApp('/settings/secrets')
+    const address = await screen.findByLabelText('API address')
+    await userEvent.type(address, 'https://llm.example.com/v2')
+    expect(screen.getByText(/ending in 9876\. Leave empty to keep it/)).toBeTruthy()
+    await userEvent.clear(address)
+    await userEvent.type(address, 'https://llm.example.net/v1')
+    expect(screen.getByText(/another server.*Paste the key for it/)).toBeTruthy()
+    expect(screen.queryByText(/Leave empty to keep it/)).toBeNull()
+  })
+
   it('says when the admin’s model is in effect, with no form', async () => {
     mockApi({ 'GET /api/me': { body: me }, 'GET /api/secrets': { body: [] }, 'GET /api/ai/agent': { body: { ...status, mode: 'platform', model: 'admin/model' } } })
     renderApp('/settings/secrets')

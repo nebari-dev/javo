@@ -409,7 +409,7 @@ export const deleteAgentSettings = <ThrowOnError extends boolean = false>(option
 /**
  * Use your own model and key for your coding agents
  *
- * Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps.
+ * Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps. A change of the address to another server (scheme, host or port) needs the key again.
  */
 export const setAgentSettings = <ThrowOnError extends boolean = false>(options: Options<SetAgentSettingsData, ThrowOnError>): RequestResult<SetAgentSettingsResponses, SetAgentSettingsErrors, ThrowOnError> => (options.client ?? client).put<SetAgentSettingsResponses, SetAgentSettingsErrors, ThrowOnError>({
     security: [{

@@ -21,6 +21,7 @@ import (
 	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/ai/redact"
 	"github.com/nebari-dev/javo/internal/auth/local"
+	"github.com/nebari-dev/javo/internal/auth/session"
 	"github.com/nebari-dev/javo/internal/backup"
 	"github.com/nebari-dev/javo/internal/backup/restic"
 	"github.com/nebari-dev/javo/internal/buildinfo"
@@ -187,6 +188,12 @@ func Engines() *engine.Registry {
 // DiagnoseEngine is the only place diagnosis rules are wired in.
 func DiagnoseEngine() *diagnose.Engine { return diagnose.NewEngine(diagnose.DefaultRules()...) }
 
+// Sessions is the gateway's session store: a session lasts sessions.ttl,
+// and key seals its identity provider tokens.
+func Sessions(p config.Platform, db *store.Store, key tink.AEAD) *session.DBStore {
+	return &session.DBStore{Sessions: db.Sessions(), Key: key, TTL: p.Sessions.TTL.Duration}
+}
+
 // AISettings is the AI settings in force (the config's, with what a
 // platform admin set in Settings > AI in their place), or nil when AI is
 // off: then no factory ever runs and nothing connects to a model. The
@@ -302,6 +309,12 @@ func StorageBackendsByMode() map[model.HomeMode]storage.Backend {
 	return out
 }
 
+// PersonGroups is the groups a person's pods and file listings act with:
+// those of their last sign-in, while api.tokens.groupsMaxAge allows.
+func PersonGroups(db *store.Store, platform config.Platform) ids.PersonGroups {
+	return ids.PersonGroups{People: db.People(store.IDRange{}), MaxAge: platform.API.Tokens.GroupsMaxAge.Duration}
+}
+
 // StorageResolver is what every pod of a person mounts (apps, job runs, file
 // pods), read from the database: the home, the ready folders of the
 // person's groups, the scratch limit and co-location.
@@ -309,7 +322,7 @@ func StorageResolver(db *store.Store, platform config.Platform) podstorage.Resol
 	return podstorage.Resolver{
 		Homes: db.Homes(), Folders: db.SharedFolders(),
 		Cluster:  store.StorageView{Storage: db.Storage(), Config: platform.Storage.Spec()},
-		Groups:   ids.PersonGroups{People: db.People(store.IDRange{})},
+		Groups:   PersonGroups(db, platform),
 		Backends: StorageBackendsByMode(),
 	}
 }

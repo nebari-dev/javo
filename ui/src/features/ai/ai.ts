@@ -111,6 +111,24 @@ export function useAskAdmin() {
   return useMutation({ mutationFn: async (question: string) => (await askAdmin({ body: { question }, throwOnError: true })).data })
 }
 
+/**
+ * Whether the address typed is on another server (scheme, host or port) than the one
+ * a key is stored for. The API sends a stored key only to the server it was saved
+ * for, so the form then asks for the key again. An address still being typed is not.
+ */
+export function onAnotherServer(typed: string, stored: string): boolean {
+  try {
+    return new URL(typed.trim()).origin !== new URL(stored).origin
+  } catch {
+    return false
+  }
+}
+
+/** What the key field says while onAnotherServer. */
+export function keyNeededAgain(last4?: string): string {
+  return `This address is on another server, so the stored key ending in ${last4 || '****'} is not sent there. Paste the key for it.`
+}
+
 const agentKey = ['ai', 'agent'] as const
 
 /** Where the person's coding agents get their model, and whether they may start one. */

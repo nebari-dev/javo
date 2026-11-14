@@ -75,7 +75,7 @@ kubectl -n javo-system exec deploy/javo -- /javo storage folder add /org/data-sc
 kubectl -n javo-system exec deploy/javo -- /javo storage folder list
 ```
 
-Name the group the way the identity provider does. `config.storage.sharedFolders.defaultSize` (20Gi) is the default size. `folder remove` stops offering a folder; its claim and files stay.
+Name the group the way the identity provider does. An app that starts and a job that runs mount the folders of the groups their owner had when the identity provider last confirmed them (a sign-in, or a check of their session), and none once that is older than `config.api.tokens.groupsMaxAge` (7 days by default), as for API tokens: someone taken out of a group does not keep its folder through a scheduled job for longer than that. A scheduled job that needs a group folder runs with it only while its owner signs in at least that often, so a lower value takes folders away sooner and makes people sign in more often. `config.storage.sharedFolders.defaultSize` (20Gi) is the default size. `folder remove` stops offering a folder; its claim and files stay.
 
 ## Scratch
 

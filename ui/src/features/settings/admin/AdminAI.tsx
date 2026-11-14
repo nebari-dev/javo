@@ -5,6 +5,7 @@ import { Button } from '../../../components/Button'
 import { Card } from '../../../components/Card'
 import { Select } from '../../../components/Select'
 import { fieldErrors, problemText } from '../../../lib/http'
+import { keyNeededAgain, onAnotherServer } from '../../ai/ai'
 import { addressOf, AI_PROVIDERS, providerAt } from './aiProviders'
 import { useAISettings, useIsAdmin, useResetAISettings, useSaveAISettings } from './queries'
 
@@ -13,7 +14,8 @@ const CUSTOM = 'custom'
 const FORM_FIELDS = new Set(['baseURL', 'model', 'apiKey'])
 
 /** What the key in force is, in a line under the key field. */
-function keyHint(s: AiSettings): string {
+function keyHint(s: AiSettings, baseURL: string): string {
+  if (s.keyStored && onAnotherServer(baseURL, addressOf(s.provider, s.baseURL))) return keyNeededAgain(s.keyLast4)
   if (s.keyStored) return `Stored encrypted, ending in ${s.keyLast4 || '****'}. Leave empty to keep it.`
   if (s.keyFrom === 'config') return "The platform config's key is used. It is sent only to the provider and address set there."
   return 'No key is sent. Paste one to store it encrypted; only its last four characters are shown again.'
@@ -142,7 +144,7 @@ function AIForm({ s }: { s: AiSettings }) {
             onChange={(e) => setApiKey(e.target.value)}
             aria-invalid={errs.fields.apiKey ? true : undefined}
           />
-          <span className="hint">{keyHint(s)}</span>
+          <span className="hint">{keyHint(s, baseURL)}</span>
           {errs.fields.apiKey && <span className="hint err">{errs.fields.apiKey}</span>}
         </div>
         <div className="row">

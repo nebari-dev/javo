@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/model"
@@ -49,7 +50,7 @@ func TestAllocatedModeWithoutAUIDIsPending(t *testing.T) {
 }
 
 func TestPersonGroupsReadsTheGroupsOfLastLogin(t *testing.T) {
-	g := PersonGroups{People: people{"alice-1a2b3c4d": {Name: "alice-1a2b3c4d", Groups: []string{"research", "/ops"}}}}
+	g := PersonGroups{People: people{"alice-1a2b3c4d": {Name: "alice-1a2b3c4d", Groups: []string{"research", "/ops"}, LastLoginAt: time.Now()}}, MaxAge: time.Hour}
 	got, err := g.Groups(bg, "alice-1a2b3c4d")
 	if err != nil || len(got) != 2 || got[0] != "research" || got[1] != "/ops" {
 		t.Fatalf("groups, err = %v, %v", got, err)

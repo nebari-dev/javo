@@ -16,6 +16,7 @@ const (
 	MsgWrongCredentials   MessageCode = "WrongCredentials"
 	MsgCredentialsMissing MessageCode = "CredentialsMissing"
 	MsgTooManyAttempts    MessageCode = "TooManyAttempts"
+	MsgTooManyWrongLogins MessageCode = "TooManyWrongLogins" // arg: minutes until the account can be tried again
 	MsgTooManyAppOpens    MessageCode = "TooManyAppOpens"
 	MsgTooManySearches    MessageCode = "TooManySearches"
 	MsgNotAllowedFromApp  MessageCode = "NotAllowedFromApp"
@@ -290,6 +291,7 @@ const (
 	MsgAgentBaseURLInvalid    MessageCode = "AgentBaseURLInvalid"
 	MsgAgentModelInvalid      MessageCode = "AgentModelInvalid"
 	MsgAgentKeyRequired       MessageCode = "AgentKeyRequired"
+	MsgKeyForNewAddress       MessageCode = "KeyForNewAddress"
 	MsgAgentRequestInvalid    MessageCode = "AgentRequestInvalid"
 	MsgAgentUnavailable       MessageCode = "AgentUnavailable"
 	MsgAgentPromptNotTaken    MessageCode = "AgentPromptNotTaken"
@@ -350,6 +352,7 @@ var messages = map[MessageCode]string{
 	MsgWrongCredentials:   "Wrong username or password",
 	MsgCredentialsMissing: "Enter your username and password.",
 	MsgTooManyAttempts:    "Too many sign-in attempts. Wait a minute, then try again.",
+	MsgTooManyWrongLogins: "Too many wrong passwords for this account. Try again in %d minutes.",
 	MsgTooManyAppOpens:    "Too many apps opened in a short time. Wait a moment, then try again.",
 	MsgTooManySearches:    "Too many searches in a short time. Wait a moment, then try again.",
 	MsgNotAllowedFromApp:  "Changes cannot be made from inside an app or from another site. Use the web UI, or an API token from Settings.",
@@ -612,6 +615,7 @@ var messages = map[MessageCode]string{
 	MsgAgentBaseURLInvalid:    "Give the https address of an OpenAI-compatible API, such as https://openrouter.ai/api/v1.",
 	MsgAgentModelInvalid:      "Name the model in up to 200 characters, such as anthropic/claude-sonnet-5.5.",
 	MsgAgentKeyRequired:       "Paste the API key.",
+	MsgKeyForNewAddress:       "This address is on another server, so paste the API key again. A stored key is only sent to the server it was saved for.",
 	MsgAgentRequestInvalid:    "Say what to build in up to 4000 characters of text.",
 	MsgAgentUnavailable:       "The coding agent is not available to you. Ask your admin to turn it on.",
 	MsgAISettingsBaseURL:      "Give the https address of the provider's API, such as https://openrouter.ai/api/v1, or leave it empty for the provider's own.",

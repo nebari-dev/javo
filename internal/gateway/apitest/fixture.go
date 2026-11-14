@@ -104,6 +104,9 @@ type Options struct {
 	Extra []authprovider.Provider
 	// Now is the gateway's clock; nil means the real one.
 	Now func() time.Time
+	// Sessions builds the session store in place of the fixture's own, as
+	// the server command does; its clock is set to Now.
+	Sessions func(*store.Store) *session.DBStore
 	// Urls and staleAfter are the platform settings sharing reads.
 	Urls         config.URLs
 	AllowOneHost bool
@@ -220,6 +223,10 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 	}
 	// The store shares the fixture's clock, so expiry follows the test's time.
 	sessions := &session.DBStore{Sessions: db.Sessions(), Now: o.Now}
+	if o.Sessions != nil {
+		sessions = o.Sessions(db)
+		sessions.Now = o.Now
+	}
 	people := &FailablePeople{People: db.People(o.Uids)}
 	for _, p := range o.People {
 		p.SignIn(t, db, people)

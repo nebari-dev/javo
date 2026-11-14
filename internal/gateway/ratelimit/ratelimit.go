@@ -3,7 +3,7 @@
 package ratelimit
 
 import (
-	"context"
+	"hash/maphash"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -22,15 +22,19 @@ var (
 	perUserIPLimit = Spec{Every: 12 * time.Second, Burst: 5}
 )
 
-// Failed sign-ins at one username, from any address, slow its next attempts
-// instead of refusing them: after freeFailures, each attempt waits
-// firstDelay, doubling with every further failure up to maxDelay. A refusal
-// would let anyone keep the person out by guessing wrong from a few
-// addresses; a capped wait still lets the right password in.
+// Wrong passwords at one username, from any address: after LoginFailures
+// of them every attempt at it is refused, the right password included, until
+// loginWindow has passed since the first. A refusal is not a failure, so the
+// username opens again when the window ends however often it was tried
+// meanwhile, and a right password empties the count. (OWASP ASVS 2.2.1.)
+//
+// Usernames are counted in loginSlots slots by a keyed hash, so someone
+// cycling usernames cannot grow the table past that; two usernames in one
+// slot share its count.
 const (
-	freeFailures = 5
-	firstDelay   = 500 * time.Millisecond
-	maxDelay     = 8 * time.Second
+	LoginFailures = 10
+	loginWindow   = 15 * time.Minute
+	loginSlots    = 1 << 16
 )
 
 const (
@@ -109,24 +113,28 @@ func (b *Buckets) reserve(key string, spec Spec, now time.Time) *rate.Reservatio
 }
 
 // Login limits sign-in attempts: token buckets per client address and per
-// (username, client address), and a growing wait per username after failures.
+// (username, client address), and a count of wrong passwords per username.
 type Login struct {
 	*Buckets
-	sleep func(ctx context.Context, d time.Duration) error
+	seed maphash.Seed
 
 	mu     sync.Mutex
-	failed map[string]failures
+	failed map[uint64]*failures
 }
 
-// failures is the recent failed sign-ins at one username.
+// failures is the recent wrong passwords in one slot of usernames.
 type failures struct {
-	n    int
-	last time.Time
+	n     int
+	first time.Time
+	// checking is the attempts admitted and not settled yet. Each holds a
+	// place as if it will fail, so attempts made together cannot overrun
+	// the count.
+	checking int
 }
 
 // NewLogin returns an empty login limiter.
 func NewLogin() *Login {
-	return &Login{Buckets: NewBuckets(), sleep: sleepCtx, failed: map[string]failures{}}
+	return &Login{Buckets: NewBuckets(), seed: maphash.MakeSeed(), failed: map[uint64]*failures{}}
 }
 
 // Allow takes one attempt from the per-address buckets.
@@ -138,70 +146,62 @@ func (l *Login) Allow(ip, username string) (time.Duration, bool) {
 	)
 }
 
-// Delay is how long the next attempt at username waits before its password
-// is checked.
-func (l *Login) Delay(username string) time.Duration {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	f := l.current(username)
-	if f.n < freeFailures {
-		return 0
-	}
-	if k := f.n - freeFailures; k < 8 {
-		return min(firstDelay<<k, maxDelay)
-	}
-	return maxDelay
-}
+// Outcome is how an admitted sign-in attempt ended.
+type Outcome int
 
-// Wait sleeps for Delay(username), or until ctx ends.
-func (l *Login) Wait(ctx context.Context, username string) error {
-	if d := l.Delay(username); d > 0 {
-		return l.sleep(ctx, d)
-	}
-	return nil
-}
+const (
+	// Unchecked: the password was never compared (the request ended, the
+	// server was busy), so the attempt counts for nothing.
+	Unchecked Outcome = iota
+	Wrong
+	Right
+)
 
-// Failed records a wrong password for username.
-func (l *Login) Failed(username string) {
+// Attempt admits one sign-in at username, or says how long until one is
+// admitted. The caller reports the outcome through settle; only its first
+// call counts.
+func (l *Login) Attempt(username string) (settle func(Outcome), wait time.Duration, ok bool) {
+	slot := maphash.String(l.seed, username) % loginSlots
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	f := l.current(username)
-	l.failed[username] = failures{n: f.n + 1, last: now}
-	if len(l.failed) > 1024 {
-		for k, f := range l.failed {
-			if now.Sub(f.last) >= limiterIdle {
-				delete(l.failed, k)
-			}
+	f := l.failed[slot]
+	if f == nil {
+		f = &failures{}
+		l.failed[slot] = f
+	}
+	if f.n > 0 && now.Sub(f.first) >= loginWindow {
+		f.n = 0
+	}
+	if f.n >= LoginFailures {
+		return nil, f.first.Add(loginWindow).Sub(now), false
+	}
+	if f.n+f.checking >= LoginFailures {
+		return nil, time.Second, false
+	}
+	f.checking++
+	settled := false
+	return func(o Outcome) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if settled {
+			return
 		}
-	}
-}
-
-// Succeeded ends the wait for username.
-func (l *Login) Succeeded(username string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.failed, username)
-}
-
-// current is username's failures; none after limiterIdle without one.
-func (l *Login) current(username string) failures {
-	f := l.failed[username]
-	if l.now().Sub(f.last) >= limiterIdle {
-		return failures{}
-	}
-	return f
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
+		settled = true
+		f.checking--
+		switch o {
+		case Wrong:
+			if f.n == 0 {
+				f.first = l.now()
+			}
+			f.n++
+		case Right:
+			f.n = 0
+		}
+		if f.n == 0 && f.checking == 0 {
+			delete(l.failed, slot)
+		}
+	}, 0, true
 }
 
 // addrKey is the key of a client address: an IPv6 address by its /64, which

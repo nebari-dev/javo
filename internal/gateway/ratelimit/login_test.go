@@ -1,123 +1,111 @@
 package ratelimit
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
 )
 
-// fakeLogin is a Login on a clock the test moves; waiting moves it too.
+// fakeLogin is a Login on a clock the test moves.
 func fakeLogin() (*Login, *time.Time) {
 	now := time.Unix(0, 0)
 	l := NewLogin()
 	l.now = func() time.Time { return now }
-	l.sleep = func(_ context.Context, d time.Duration) error {
-		now = now.Add(d)
-		return nil
-	}
 	return l, &now
 }
 
-// attempt is one sign-in: the per-address check, the wait, then the outcome.
-func attempt(l *Login, ip, username string, right bool) (time.Duration, bool) {
-	if _, ok := l.Allow(ip, username); !ok {
-		return 0, false
+// fail is n wrong passwords at username; it reports how many were admitted.
+func fail(l *Login, username string, n int) (admitted int) {
+	for range n {
+		if settle, _, ok := l.Attempt(username); ok {
+			settle(Wrong)
+			admitted++
+		}
 	}
-	wait := l.Delay(username)
-	if right {
-		l.Succeeded(username)
-	} else {
-		l.Failed(username)
-	}
-	return wait, true
+	return admitted
 }
 
-// Eight addresses guessing alice's password every second, for ten minutes,
-// do not keep alice out: from her own address she is never refused, and
-// waits at most maxDelay.
-func TestGuessesFromManyAddressesDoNotLockTheUserOut(t *testing.T) {
+// After LoginFailures wrong passwords a username is refused, with the time
+// left, until loginWindow has passed since the first of them. Attempts
+// refused meanwhile do not keep it shut: nobody is locked out for good.
+func TestAUsernameIsRefusedAfterItsFailuresUntilTheWindowEnds(t *testing.T) {
 	t.Parallel()
 	l, now := fakeLogin()
-	start := *now
-	for sec := 0; sec < 600; sec++ {
-		*now = start.Add(time.Duration(sec) * time.Second)
-		for i := 0; i < 8; i++ {
-			attempt(l, fmt.Sprintf("203.0.113.%d", i), "alice", false)
+	if got := fail(l, "alice", LoginFailures-1); got != LoginFailures-1 {
+		t.Fatalf("admitted %d of the first %d", got, LoginFailures-1)
+	}
+	*now = now.Add(5 * time.Minute)
+	fail(l, "alice", 1)
+	for elapsed := 5 * time.Minute; elapsed < loginWindow; elapsed += time.Minute {
+		_, wait, ok := l.Attempt("alice")
+		if ok || wait != loginWindow-elapsed {
+			t.Fatalf("%v after the first failure: admitted %v, wait %v", elapsed, ok, wait)
 		}
-		if sec%30 == 0 && sec > 60 {
-			wait, ok := attempt(l, "198.51.100.7", "alice", true)
-			if !ok {
-				t.Fatalf("alice refused at %ds", sec)
-			}
-			if wait > maxDelay {
-				t.Fatalf("alice waited %v at %ds", wait, sec)
-			}
-		}
+		*now = now.Add(time.Minute)
 	}
-}
-
-// Failures at one username make every next attempt at it wait longer,
-// doubling up to maxDelay; a success, or a quiet spell, ends the wait.
-func TestFailuresAtAUsernameSlowItsNextAttempts(t *testing.T) {
-	t.Parallel()
-	l, now := fakeLogin()
-	for i := 0; i < freeFailures; i++ {
-		if d := l.Delay("alice"); d != 0 {
-			t.Fatalf("failure %d: delay %v", i, d)
-		}
-		l.Failed("alice")
+	if _, _, ok := l.Attempt("bob"); !ok {
+		t.Fatal("another username was refused")
 	}
-	var last time.Duration
-	for i := 0; i < 20; i++ {
-		d := l.Delay("alice")
-		if d < last || d > maxDelay || d == 0 {
-			t.Fatalf("failure %d: delay %v after %v", freeFailures+i, d, last)
-		}
-		last = d
-		l.Failed("alice")
+	settle, _, ok := l.Attempt("alice")
+	if !ok {
+		t.Fatal("still refused when the window has ended")
 	}
-	if last != maxDelay {
-		t.Fatalf("delay stops at %v", last)
-	}
-	if d := l.Delay("bob"); d != 0 {
-		t.Fatalf("another username waits %v", d)
-	}
-	l.Succeeded("alice")
-	if d := l.Delay("alice"); d != 0 {
-		t.Fatalf("after a success: %v", d)
-	}
-	for i := 0; i < freeFailures+3; i++ {
-		l.Failed("alice")
-	}
-	*now = now.Add(limiterIdle)
-	if d := l.Delay("alice"); d != 0 {
-		t.Fatalf("after a quiet spell: %v", d)
+	settle(Wrong)
+	if got := fail(l, "alice", LoginFailures); got != LoginFailures-1 {
+		t.Fatalf("the new window admitted %d more failures", got)
 	}
 }
 
-// Wait sleeps for the username's delay, and stops when the request ends.
-func TestWaitSleepsForTheDelay(t *testing.T) {
+// The right password empties the count; an attempt whose password was never
+// compared leaves it as it was.
+func TestOnlyWrongPasswordsCount(t *testing.T) {
 	t.Parallel()
-	l, now := fakeLogin()
-	for i := 0; i < freeFailures+1; i++ {
-		l.Failed("alice")
+	l, _ := fakeLogin()
+	fail(l, "alice", LoginFailures-1)
+	for range 3 {
+		settle, _, ok := l.Attempt("alice")
+		if !ok {
+			t.Fatal("refused before the last failure")
+		}
+		settle(Unchecked)
 	}
-	before := *now
-	if err := l.Wait(context.Background(), "alice"); err != nil {
-		t.Fatal(err)
+	settle, _, _ := l.Attempt("alice")
+	settle(Right)
+	if got := fail(l, "alice", LoginFailures+1); got != LoginFailures {
+		t.Fatalf("after a right password %d failures were admitted", got)
 	}
-	if got := now.Sub(before); got != firstDelay*2 {
-		t.Fatalf("slept %v", got)
+}
+
+// Attempts made at once each hold a place until their password is checked,
+// so a burst cannot try more passwords than one attempt after another.
+func TestAttemptsInFlightCountTowardsTheBudget(t *testing.T) {
+	t.Parallel()
+	l, _ := fakeLogin()
+	var settles []func(Outcome)
+	for range LoginFailures + 5 {
+		if settle, _, ok := l.Attempt("alice"); ok {
+			settles = append(settles, settle)
+		}
 	}
-	real := NewLogin()
-	for i := 0; i < freeFailures+1; i++ {
-		real.Failed("alice")
+	if len(settles) != LoginFailures {
+		t.Fatalf("%d attempts were being checked at once", len(settles))
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := real.Wait(ctx, "alice"); err == nil {
-		t.Fatal("a cancelled request still waited")
+	settles[0](Unchecked)
+	settles[0](Wrong) // only the first report counts
+	if _, _, ok := l.Attempt("alice"); !ok {
+		t.Fatal("an unchecked attempt kept its place")
+	}
+}
+
+// Someone failing at ever new usernames cannot grow the table without limit.
+func TestTheFailureTableIsBounded(t *testing.T) {
+	t.Parallel()
+	l, _ := fakeLogin()
+	for i := range 3 * loginSlots {
+		fail(l, fmt.Sprintf("user%d", i), 1)
+	}
+	if len(l.failed) > loginSlots {
+		t.Fatalf("%d entries", len(l.failed))
 	}
 }
 

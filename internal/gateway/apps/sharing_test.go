@@ -1,10 +1,12 @@
 package apps_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
@@ -367,6 +369,35 @@ func TestDirectorySearchesAreRateLimited(t *testing.T) {
 	}
 }
 
+// The directory lists people's names and emails, so it answers the people
+// who can share something (members), and not an app's or job's own token,
+// which anyone the app is shared with can make act.
+func TestDirectoryAnswersOnlyMembersInPerson(t *testing.T) {
+	t.Parallel()
+	f := apitest.NewSharingFixture(t, apitest.Options{Roles: apitest.RolesConfig()})
+	w := f.Do("GET", "/api/directory?q=bob", "", f.Session(apitest.CarolID))
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgNotAMember) {
+		t.Fatalf("someone who is not a member: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("GET", "/api/directory?q=bob", "", f.Session(apitest.CarolID, "/org/members")); w.Code != http.StatusOK {
+		t.Fatalf("a member: %d %s", w.Code, w.Body)
+	}
+
+	agent := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
+	agent.Template = "agent"
+	f = apitest.New(t, apitest.Options{}, apitest.AgentTemplate(), agent)
+	f.LoginAlice()
+	tok, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{Name: "agent", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+		App: &token.App{Namespace: agent.Namespace, Name: agent.ObjectName(), Short: "agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = f.Bearer("GET", "/api/directory?q=bob", "", tok, nil)
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgAgentBrowserOnly) {
+		t.Fatalf("an app's own token: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestDirectoryReturnsAtMostTenPeople(t *testing.T) {
 	t.Parallel()
 	var people []apitest.TestPerson
@@ -533,5 +564,41 @@ func TestCodeEditorsShareOnlyWithChosenPeople(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A platform admin cannot open someone's code editor, so they must not be
+// able to share it with themselves either: only the owner lets more people
+// in. An admin can still shut an app that is shared too far.
+func TestOnlyTheOwnerSharesAnAppWithMorePeople(t *testing.T) {
+	t.Parallel()
+	f := shareFixture(t, gatewaytest.Template("streamlit", "vscode"))
+	alice, root := f.Session(apitest.AliceID), f.Session(admin, "javo-admins")
+	path := apitest.SharePath + "?owner=" + apitest.AliceID
+	if w := f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":["/org/ml"]}`, alice); w.Code != http.StatusOK {
+		t.Fatalf("owner shares: %d %s", w.Code, w.Body)
+	}
+
+	for _, body := range []string{
+		`{"access":"Restricted","users":["` + apitest.BobID + `"],"groups":["/org/ml","javo-admins"]}`,
+		`{"access":"Restricted","users":["` + apitest.BobID + `","` + apitest.AliceID + `"],"groups":["/org/ml"]}`,
+	} {
+		w := f.Do("PUT", path, body, root)
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgShareNotAllowed) {
+			t.Fatalf("admin widens with %s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	if got := f.GetWorkspace(apitest.AliceID, "report").Sharing; len(got.Users) != 1 || len(got.Groups) != 1 {
+		t.Fatalf("sharing changed to %+v", got)
+	}
+
+	if w := f.Do("PUT", path, `{"access":"Restricted","users":[],"groups":["/org/ml"]}`, root); w.Code != http.StatusOK {
+		t.Fatalf("admin removes a person: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("PUT", path, `{"access":"Private","users":[],"groups":[]}`, root); w.Code != http.StatusOK {
+		t.Fatalf("admin ends the sharing: %d %s", w.Code, w.Body)
+	}
+	if got := f.GetWorkspace(apitest.AliceID, "report").Sharing; got.Access != model.AccessPrivate || len(got.Groups) != 0 {
+		t.Fatalf("stored %+v", got)
 	}
 }
