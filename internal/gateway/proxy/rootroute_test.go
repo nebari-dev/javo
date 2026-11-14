@@ -44,7 +44,7 @@ type rootFixture struct {
 	hits  chan string
 }
 
-func newRoot(t *testing.T, exp exposure.Backend, host string) *rootFixture {
+func newRoot(t *testing.T, exp exposure.Backend, host string, with ...func(*Config)) *rootFixture {
 	t.Helper()
 	db := storetest.New(t)
 	strip := gatewaytest.Template("strip", "streamlit")
@@ -101,7 +101,7 @@ func newRoot(t *testing.T, exp exposure.Backend, host string) *rootFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.p = New(Config{
+	cfg := Config{
 		Store: db, Sessions: f.store, Revalidator: confirming(f.store), Exposure: exp, Seal: seal,
 		DialWait: 200 * time.Millisecond, Activity: activity.NewTracker(nil),
 		Resolve: func(ctx context.Context, a *model.App, tpl *model.Template) (Backend, error) {
@@ -113,7 +113,11 @@ func newRoot(t *testing.T, exp exposure.Backend, host string) *rootFixture {
 			b.Headers.Set("X-App", a.Owner+"/"+a.Name)
 			return b, err
 		},
-	})
+	}
+	for _, w := range with {
+		w(&cfg)
+	}
+	f.p = New(cfg)
 	return f
 }
 
@@ -498,6 +502,66 @@ func TestAnAppNeverWidensAServiceWorkersScope(t *testing.T) {
 			}
 			for range 3 {
 				f.reached()
+			}
+		}
+	}
+}
+
+// The cookies the proxy sets are Secure when the gateway's session cookie
+// is: with https, and with http when secure cookies are forced (TLS ends in
+// front of a gateway that is told http). That holds for the ticket nonce
+// cookie of a visitor sent to sign in, the app cookie a ticket gives, and
+// the route and root session cookies of an opened page.
+func TestTheProxysCookiesAreSecureWhenTheSessionCookieIs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		scheme string
+		force  bool
+		secure bool
+	}{
+		{"http", "http", false, false},
+		{"http with secure cookies forced", "http", true, true},
+		{"https", "https", false, true},
+	} {
+		urls := config.URLs{Mode: "path", Scheme: tc.scheme, UIHost: oneHost, AppsHost: appsHost}
+		f := newRoot(t, exposurepath.New(urls), appsHost, func(c *Config) { c.URLs, c.SecureCookies = urls, tc.force })
+		page := "/u/" + rootAlice + "/web/"
+		nav := []string{"Sec-Fetch-Site", "none", "Sec-Fetch-Mode", "navigate", "Sec-Fetch-Dest", "document"}
+
+		// Not signed in: sent to the UI host for a ticket, with a nonce.
+		w := f.send(page, nil, nav...)
+		nonce := w.Result().Cookies()
+		if w.Code != http.StatusFound || len(nonce) != 1 {
+			t.Fatalf("%s: sign-in redirect: %d, cookies %v", tc.name, w.Code, nonce)
+		}
+		// The UI host mints the ticket; the app's ticket address spends it.
+		ui := f.ui(rootAlice)
+		ticket, err := f.store.Create(context.Background(), session.Session{Principal: authz.Principal{ID: rootAlice}, Provider: "local",
+			Kind: session.KindTicket, Parent: session.ID(ui.Value), Workspace: gatewaytest.Namespace + "/" + gatewaytest.App(rootAlice, "web").ObjectName(),
+			Expires: time.Now().Add(time.Minute)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w = f.send(page+ticketPath+"?t="+ticket+"&"+ticketNonceParam+"="+nonce[0].Value, nonce, nav...)
+		var app *http.Cookie
+		for _, c := range w.Result().Cookies() {
+			if c.MaxAge >= 0 {
+				app = c
+			}
+		}
+		if w.Code != http.StatusFound || app == nil {
+			t.Fatalf("%s: redeem: %d %s", tc.name, w.Code, w.Body)
+		}
+		w = f.send(page, []*http.Cookie{app}, nav...)
+		f.reached()
+		opened := w.Result().Cookies()
+		if w.Code != 200 || len(opened) != 2 {
+			t.Fatalf("%s: open: %d, cookies %v", tc.name, w.Code, opened)
+		}
+		for what, c := range map[string]*http.Cookie{"ticket nonce": nonce[0], "app": app, "route or root session": opened[0], "root session or route": opened[1]} {
+			if c.Secure != tc.secure {
+				t.Errorf("%s: the %s cookie %s has Secure %v, want %v", tc.name, what, c.Name, c.Secure, tc.secure)
 			}
 		}
 	}
