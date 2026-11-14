@@ -178,7 +178,7 @@ func TestArchiveUploadNeedsAWriteToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	if w := putArchive(f, nil, app, "/api/files/archive?path=deploys/site", "x"); w.Code != http.StatusForbidden ||
-		apitest.DecodeFilesBody(t, w)["title"] != apitest.WorkloadRefusal(http.MethodPut) {
+		apitest.DecodeFilesBody(t, w)["title"] != reasons.Msg(reasons.MsgFilesNotForAppTokens) {
 		t.Fatalf("app token: got %d %s", w.Code, w.Body)
 	}
 	read := f.NewToken(c, `{"name":"laptop","scope":"read"}`).Token

@@ -361,3 +361,17 @@ func TestASlowRequestBodyToMcpIsCutOff(t *testing.T) {
 		t.Fatalf("connection held %s (%v)", took, err)
 	}
 }
+
+// The files tool is the files API: an app's own token gets no listing of
+// its owner's home through MCP either.
+func TestMCPGivesAnAppTokenNoHomeFiles(t *testing.T) {
+	t.Parallel()
+	agent := newAgentFixtureWith(t, true, apitest.Options{Mcp: true})
+	s := httptest.NewServer(agent.Srv)
+	t.Cleanup(s.Close)
+	f := &mcpFixture{Fixture: agent.Fixture, url: s.URL, alice: agent.alice}
+	res, text := callTool(t, f.connect(t, agent.token), "list_files", map[string]any{})
+	if !res.IsError || text != reasons.Msg(reasons.MsgFilesNotForAppTokens) {
+		t.Fatalf("list_files with an app token: error %v, %q", res.IsError, text)
+	}
+}

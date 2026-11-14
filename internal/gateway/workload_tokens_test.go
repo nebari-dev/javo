@@ -45,7 +45,7 @@ func TestWorkloadTokensCannotWriteTheHomeOrCreateWhatRuns(t *testing.T) {
 	refused := reasons.Msg(reasons.MsgWorkloadTokenReadOnly)
 
 	w := f.Bearer("PUT", "/api/files/raw?path=reports/sales.ipynb", "print(1)", text, nil, "Content-Type", "text/plain", "If-None-Match", "*")
-	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != refused {
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgFilesNotForAppTokens) {
 		t.Fatalf("save a home file with an app token: %d %s", w.Code, w.Body)
 	}
 	if len(l.Saved) != 0 {

@@ -452,7 +452,8 @@ func viaAppToken(ctx context.Context) bool {
 // Trusted reports whether the request came with the token of a coding agent
 // its owner lets act without asking (AgentCaps.Trusted): it may do what its
 // owner's read-write token may. Token routes, plan decisions and NoTokens
-// routes refuse it like any token.
+// routes refuse it like any token, and the files routes like any app's
+// token (HomeFiles).
 func Trusted(ctx context.Context) bool {
 	caps, _ := ctx.Value(agentKey{}).(AgentCaps)
 	return caps.Trusted && viaAppToken(ctx)
