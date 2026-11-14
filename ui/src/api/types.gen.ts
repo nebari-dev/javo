@@ -6028,6 +6028,10 @@ export type ExportWorkspacesErrors = {
      */
     401: ErrorModel;
     /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
      * Internal Server Error
      */
     500: ErrorModel;

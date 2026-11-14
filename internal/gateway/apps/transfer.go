@@ -78,11 +78,17 @@ func (s *Workspaces) registerTransfer(api huma.API) {
 	huma.Register(api, tagged(huma.Operation{
 		OperationID: "exportWorkspaces", Method: http.MethodGet, Path: "/api/workspaces/export",
 		Summary: "The user's apps as a YAML file to keep or import elsewhere",
+		Errors:  []int{http.StatusForbidden},
 		Responses: map[string]*huma.Response{"200": {
 			Description: "One YAML document per app",
 			Content:     map[string]*huma.MediaType{"application/yaml": {Schema: &huma.Schema{Type: "string"}}},
 		}},
 	}), func(ctx context.Context, _ *struct{}) (*exportOutput, error) {
+		// The file holds every plain value as typed, which the app view
+		// keeps from an app's own token (envvars.View).
+		if err := authn.NoAppTokens(ctx); err != nil {
+			return nil, err
+		}
 		u := authn.User(ctx)
 		apps, err := s.db.Apps().List(ctx, u.ID, false)
 		if err != nil {
