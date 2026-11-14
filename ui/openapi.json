@@ -2317,8 +2317,12 @@
               "null"
             ]
           },
+          "hidden": {
+            "description": "Why nothing else hidden at the top of the home can be added either: any path whose first name starts with a dot",
+            "type": "string"
+          },
           "never": {
-            "description": "Places of a home no agent can be let into, nor a folder that holds one, each with why",
+            "description": "Places of a home no agent can be let into, each with why",
             "items": {
               "$ref": "#/components/schemas/NeverFolder"
             },
@@ -2335,7 +2339,8 @@
         "required": [
           "project",
           "grants",
-          "never"
+          "never",
+          "hidden"
         ],
         "type": "object"
       },
@@ -13606,7 +13611,7 @@
     },
     "/api/workspaces/{name}/folders": {
       "put": {
-        "description": "For a coding agent on a platform that starts agents locked to their project. The agent, and every command it runs, can then also read (read) or read and change (write) the folders and files listed. The places in folders.never of the app, and any folder that holds one, are always refused. The lock is set when the agent starts, so a running agent restarts.",
+        "description": "For a coding agent on a platform that starts agents locked to their project. The agent, and every command it runs, can then also read (read) or read and change (write) the folders and files listed. The places in folders.never of the app, and every other hidden file or folder at the top of the home, are always refused. The lock is set when the agent starts, so a running agent restarts.",
         "operationId": "setWorkspaceFolders",
         "parameters": [
           {

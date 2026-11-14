@@ -30,7 +30,8 @@ import (
 type FoldersView struct {
 	Project string                  `json:"project" doc:"The folder the agent works in and is locked to, always open to read and change; ~ is the home"`
 	Grants  []model.FolderGrant     `json:"grants" doc:"What the owner added, as paths relative to the home"`
-	Never   []workspace.NeverFolder `json:"never" doc:"Places of a home no agent can be let into, nor a folder that holds one, each with why"`
+	Never   []workspace.NeverFolder `json:"never" doc:"Places of a home no agent can be let into, each with why"`
+	Hidden  string                  `json:"hidden" doc:"Why nothing else hidden at the top of the home can be added either: any path whose first name starts with a dot"`
 }
 
 // foldersView is the view of what app's agent can open; nil when it does
@@ -46,7 +47,7 @@ func (s *Workspaces) foldersView(app *model.App, t *model.Template) *FoldersView
 	if grants == nil {
 		grants = []model.FolderGrant{}
 	}
-	return &FoldersView{Project: project, Grants: grants, Never: workspace.NeverFolders()}
+	return &FoldersView{Project: project, Grants: grants, Never: workspace.NeverFolders(), Hidden: workspace.HiddenFolderWhy}
 }
 
 type foldersInput struct {
@@ -63,7 +64,8 @@ func (s *Workspaces) registerFolders(api huma.API) {
 		Summary: "Change what a locked coding agent can open besides its project (browser session only; a running agent restarts)",
 		Description: "For a coding agent on a platform that starts agents locked to their project. The agent, and every " +
 			"command it runs, can then also read (read) or read and change (write) the folders and files listed. The " +
-			"places in folders.never of the app, and any folder that holds one, are always refused. The lock is set when " +
+			"places in folders.never of the app, and every other hidden file or folder at the top of the home, are always " +
+			"refused. The lock is set when " +
 			"the agent starts, so a running agent restarts.",
 		Tags: []string{"workspaces"}, Security: authn.SessionOnly,
 		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity},

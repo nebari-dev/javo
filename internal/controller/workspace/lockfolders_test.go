@@ -41,8 +41,9 @@ func TestLockFolders(t *testing.T) {
 		{name: "the folder the project is in", asked: []model.FolderGrant{read("projects")}, want: []model.FolderGrant{read("projects")}},
 		{name: "a folder inside another one granted", asked: []model.FolderGrant{read("data"), write("data/out")},
 			want: []model.FolderGrant{read("data"), write("data/out")}},
-		{name: "a name that only starts like a refused one", asked: []model.FolderGrant{read(".sshfs"), read("projects/api-docs"), read(".config/ghostty")},
-			want: []model.FolderGrant{read(".sshfs"), read("projects/api-docs"), read(".config/ghostty")}},
+		{name: "a name that only starts like the project's", asked: []model.FolderGrant{read("projects/api-docs")}, want: []model.FolderGrant{read("projects/api-docs")}},
+		{name: "a hidden name below the top of the home", asked: []model.FolderGrant{read("projects/web/.github"), write("data/.cache")},
+			want: []model.FolderGrant{read("projects/web/.github"), write("data/.cache")}},
 		{name: "the rest is kept", asked: []model.FolderGrant{read("data"), read(".ssh"), write("notes.md")},
 			want: []model.FolderGrant{read("data"), write("notes.md")}, refused: "SSH keys"},
 
@@ -69,9 +70,10 @@ func TestLockFolders(t *testing.T) {
 
 		{name: "the SSH keys", asked: []model.FolderGrant{read(".ssh")}, refused: "SSH keys"},
 		{name: "one of the SSH keys", asked: []model.FolderGrant{read(".ssh/a-private-key")}, refused: "SSH keys"},
-		{name: "a folder that holds a refused one", asked: []model.FolderGrant{read(".config")}, refused: "~/.config/"},
+		{name: "a folder that holds a listed one", asked: []model.FolderGrant{read(".config")}, refused: "hidden files and folders"},
 		{name: "the agents' own state", asked: []model.FolderGrant{write(".claude/projects")}, refused: "already open"},
 		{name: "all of the platform's folder", asked: []model.FolderGrant{read(".javo/envs")}, refused: "~/.javo"},
+		{name: "a listed place says its own reason", asked: []model.FolderGrant{read(".config/gh/hosts.yml")}, refused: "GitHub sign-in"},
 
 		{name: "as many as allowed", asked: many(MaxLockFolders), want: many(MaxLockFolders)},
 		{name: "one too many", asked: many(MaxLockFolders + 1), want: many(MaxLockFolders), refused: "at most 16"},
@@ -121,6 +123,25 @@ func TestNoAgentIsLetIntoTheNeverFolders(t *testing.T) {
 				if got, err := LockFolders(app, []model.FolderGrant{{Path: a, Mode: mode}}); err == nil || len(got) != 0 {
 					t.Errorf("%s to %s: kept %v, err %v; want it refused", a, mode, got, err)
 				}
+			}
+		}
+	}
+}
+
+// The list of places with a reason of their own cannot name every file a
+// tool reads its sign-in from or runs at its start, so nothing hidden at
+// the top of the home can be added at all, to read (a token) or to change
+// (a command that then runs as the person, outside the lock): whatever is,
+// or is in, a name there that starts with a dot.
+func TestNothingHiddenAtTheTopOfTheHomeIsAdded(t *testing.T) {
+	t.Parallel()
+	app := &model.App{Name: "api", Owner: "alice", File: "projects/api"}
+	for _, p := range []string{".npmrc", ".pypirc", ".condarc", ".jupyter", ".ipython/profile_default/startup", ".local/bin", ".vscode-server",
+		".config/systemd", ".config/autostart", ".config/fish/config.fish", ".config/ghostty", ".sshfs", ".x", "./.npmrc", "/home/user/.local"} {
+		for _, mode := range []string{model.FolderRead, model.FolderWrite} {
+			got, err := LockFolders(app, []model.FolderGrant{{Path: p, Mode: mode}})
+			if len(got) != 0 || err == nil || !strings.Contains(err.Error(), HiddenFolderWhy) {
+				t.Errorf("%s to %s: kept %v, err %v; want it refused as hidden", p, mode, got, err)
 			}
 		}
 	}

@@ -22,17 +22,16 @@ const within = (dir: string, path: string) => path === dir || path.startsWith(`$
 
 /**
  * Why the path of the home cannot be added to what the agent can open, or
- * undefined when it can: it is open already, or (never) is, is in or holds one
- * of the places the API says no agent is let into. The API decides again on save.
+ * undefined when it can: it is open already, or (never) the API says no agent
+ * is let into it: a place it lists with a reason of its own, else anything
+ * hidden at the top of the home, for the one reason it gives for those. The
+ * API decides again on save.
  */
 function whyNot(view: FoldersView, path: string): { why: string; never?: boolean } | undefined {
   if (view.project.startsWith('~/') && within(view.project.slice(2), path)) return { why: 'already open' }
   if ((view.grants ?? []).some((g) => g.path === path)) return { why: 'already added' }
-  for (const n of view.never ?? []) {
-    if (within(n.path, path)) return { why: n.why, never: true }
-    if (within(path, n.path)) return { why: `holds ~/${n.path}, which no agent can open`, never: true }
-  }
-  return undefined
+  if (!path.startsWith('.')) return undefined
+  return { why: (view.never ?? []).find((n) => within(n.path, path))?.why ?? view.hidden, never: true }
 }
 
 function ModeTag({ mode }: { mode: Mode }) {

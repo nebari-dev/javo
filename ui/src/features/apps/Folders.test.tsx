@@ -12,7 +12,9 @@ const never = [
   { path: '.config/gh', why: 'holds your GitHub sign-in' },
 ]
 
-const folders = (grants: FolderGrant[]): FoldersView => ({ project: '~/projects/sales-dashboard', grants, never })
+const hidden = 'hidden files and folders hold settings and sign-ins'
+
+const folders = (grants: FolderGrant[]): FoldersView => ({ project: '~/projects/sales-dashboard', grants, never, hidden })
 
 const pi = (view: FoldersView | undefined) =>
   ws('pi', 'Pi', 'Running', allReady(), { template: 'pi', kind: 'pi', file: 'projects/sales-dashboard', apiAccess: 'None', folders: view })
@@ -30,7 +32,7 @@ const HOME: Record<string, [string, 'folder' | 'file'][]> = {
   '': [['.config', 'folder'], ['.ssh', 'folder'], ['data', 'folder'], ['projects', 'folder'], ['.bashrc', 'file'], ['notes.md', 'file']],
   '.config': [['gh', 'folder'], ['ghostty', 'folder']],
   data: [['customers', 'folder'], ['sales-2026', 'folder']],
-  projects: [['marketing-site', 'folder'], ['sales-dashboard', 'folder'], ['shared-lib', 'folder']],
+  projects: [['.github', 'folder'], ['marketing-site', 'folder'], ['sales-dashboard', 'folder'], ['shared-lib', 'folder']],
 }
 
 /** The answer of GET /api/files for the folder the request names. */
@@ -130,21 +132,24 @@ describe('What a locked coding agent can open', () => {
       await userEvent.click(r)
       expect(within(dialog).getByRole('button', { name: 'Pick a folder or file' }).hasAttribute('disabled')).toBe(true)
     }
-    // The list of what is never allowed is the API's: the page holds none of its own.
+    // What is never allowed, and why, is the API's to say: a reason of its own
+    // for the places it lists, and one reason for everything else hidden at
+    // the top of the home.
     await refused(/^\.ssh/, 'holds your SSH keys')
-    await refused(/^\.config/, 'holds ~/.config/gh, which no agent can open')
-    expect(within(dialog).queryByText(/runs every time/)).toBeNull()
-    expect((await row(/^\.bashrc/)).getAttribute('aria-disabled')).toBeNull()
+    await refused(/^\.config/, hidden)
+    await refused(/^\.bashrc/, hidden)
 
-    // A folder that holds one can still be looked into, for what else is in it.
+    // Inside a hidden folder nothing can be picked either.
     await userEvent.click(within(dialog).getByRole('button', { name: 'Open .config' }))
     await refused(/^gh(?!ostty)/, 'holds your GitHub sign-in')
-    await userEvent.click(await row(/^ghostty/))
-    expect(within(dialog).getByRole('button', { name: 'Let Pi read ~/.config/ghostty' }).hasAttribute('disabled')).toBe(false)
+    await refused(/^ghostty/, hidden)
 
     await userEvent.click(home())
     await userEvent.click(await within(dialog).findByRole('button', { name: 'Open projects' }))
     await refused(/^sales-dashboard/, 'already open', false)
+    // A hidden name further down is a project's own.
+    await userEvent.click(await row(/^\.github/))
+    expect(within(dialog).getByRole('button', { name: 'Let Pi read ~/projects/.github' }).hasAttribute('disabled')).toBe(false)
     await userEvent.click(home())
     await userEvent.click(await within(dialog).findByRole('button', { name: 'Open data' }))
     await refused(/^sales-2026/, 'already added', false)

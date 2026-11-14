@@ -1502,7 +1502,7 @@ export const listWorkspaceEvents = <ThrowOnError extends boolean = false>(option
 /**
  * Change what a locked coding agent can open besides its project (browser session only; a running agent restarts)
  *
- * For a coding agent on a platform that starts agents locked to their project. The agent, and every command it runs, can then also read (read) or read and change (write) the folders and files listed. The places in folders.never of the app, and any folder that holds one, are always refused. The lock is set when the agent starts, so a running agent restarts.
+ * For a coding agent on a platform that starts agents locked to their project. The agent, and every command it runs, can then also read (read) or read and change (write) the folders and files listed. The places in folders.never of the app, and every other hidden file or folder at the top of the home, are always refused. The lock is set when the agent starts, so a running agent restarts.
  */
 export const setWorkspaceFolders = <ThrowOnError extends boolean = false>(options: Options<SetWorkspaceFoldersData, ThrowOnError>): RequestResult<SetWorkspaceFoldersResponses, SetWorkspaceFoldersErrors, ThrowOnError> => (options.client ?? client).put<SetWorkspaceFoldersResponses, SetWorkspaceFoldersErrors, ThrowOnError>({
     security: [{

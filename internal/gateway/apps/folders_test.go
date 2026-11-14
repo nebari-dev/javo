@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nebari-dev/javo/internal/auth/token"
+	"github.com/nebari-dev/javo/internal/controller/workspace"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
@@ -33,6 +34,7 @@ type foldersJSON struct {
 		Project string
 		Grants  []model.FolderGrant
 		Never   []struct{ Path, Why string }
+		Hidden  string
 	}
 }
 
@@ -47,8 +49,8 @@ func TestOwnerAddsFoldersToALockedAgent(t *testing.T) {
 	if got == nil || got.Project != "~/projects/api" || len(got.Grants) != 0 {
 		t.Fatalf("before: folders = %+v, want the project and nothing added", got)
 	}
-	if !neverHas(got.Never, ".ssh") {
-		t.Fatalf("never = %+v, want ~/.ssh on it", got.Never)
+	if !neverHas(got.Never, ".ssh") || got.Hidden != workspace.HiddenFolderWhy {
+		t.Fatalf("never = %+v, hidden = %q, want ~/.ssh on the list and the reason for every other hidden name", got.Never, got.Hidden)
 	}
 	w := f.Do("PUT", "/api/workspaces/agent/folders", `{"folders":[{"path":"/home/user/data/sales-2026/","mode":"read"},{"path":"notes.md","mode":"write"}]}`, alice)
 	if w.Code != http.StatusOK {
@@ -85,7 +87,7 @@ func TestRefusedFolderIsNotSaved(t *testing.T) {
 	alice := f.LoginAlice()
 	for body, why := range map[string]string{
 		`{"folders":[{"path":"data","mode":"read"},{"path":".ssh","mode":"read"}]}`: "SSH keys",
-		`{"folders":[{"path":".config","mode":"read"}]}`:                            "~/.config/",
+		`{"folders":[{"path":".npmrc","mode":"read"}]}`:                             "hidden files and folders",
 		`{"folders":[{"path":"projects/api/src","mode":"write"}]}`:                  "already open",
 		`{"folders":[{"path":"../bob","mode":"read"}]}`:                             `".."`,
 		`{"folders":[{"path":"/","mode":"write"}]}`:                                 "inside your home",

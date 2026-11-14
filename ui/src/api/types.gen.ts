@@ -846,7 +846,11 @@ export type FoldersView = {
      */
     grants: Array<FolderGrant> | null;
     /**
-     * Places of a home no agent can be let into, nor a folder that holds one, each with why
+     * Why nothing else hidden at the top of the home can be added either: any path whose first name starts with a dot
+     */
+    hidden: string;
+    /**
+     * Places of a home no agent can be let into, each with why
      */
     never: Array<NeverFolder> | null;
     /**

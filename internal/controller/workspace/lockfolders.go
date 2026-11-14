@@ -19,13 +19,16 @@ type NeverFolder struct {
 	Why  string `json:"why"`
 }
 
-// neverFolders are the places of a home a person cannot let a locked agent
-// open, to read or to change: what signs in as them elsewhere, the files
-// their shell and git run or read at every start (an agent that wrote one
-// would run commands outside its lock), the platform's own folder, and
-// what the agents keep, which agent-lock.sh grants already. A folder that
-// holds one of them is refused too (LockFolders). It is the one list: the
-// API hands it to the page that marks them.
+// neverFolders are places of a home a person cannot let a locked agent
+// open, to read or to change, each with a reason of its own to show: what
+// signs in as them elsewhere, the files their shell and git run or read at
+// every start (an agent that wrote one would run commands outside its
+// lock), the platform's own folder, and what the agents keep, which
+// agent-lock.sh grants already. No list names every such file (~/.npmrc,
+// ~/.local/bin, ~/.config/autostart...), so nothing hidden at the top of
+// the home is granted at all (neverProblem): each of these is hidden, and
+// the list only says why. It is the one list: the API hands it to the page
+// that marks them.
 var neverFolders = []NeverFolder{
 	{".ssh", "holds your SSH keys"},
 	{".gnupg", "holds your GPG keys"},
@@ -51,6 +54,11 @@ var neverFolders = []NeverFolder{
 	{".config/herdr", "the agent's own settings, already open"},
 }
 
+// HiddenFolderWhy is why nothing hidden at the top of a home (a name that
+// starts with a dot) can be added, in words the person is shown, when
+// neverFolders has no reason of its own for it.
+const HiddenFolderWhy = "hidden files and folders hold settings and sign-ins"
+
 // NeverFolders are the places of a home no coding agent is let into.
 func NeverFolders() []NeverFolder { return slices.Clone(neverFolders) }
 
@@ -70,7 +78,8 @@ const maxLockFolderPath = 1024
 // A path is a folder or file inside the home: relative to it, or from / in
 // the home as a container has it. It names no "..", is not the home or a
 // folder the home is in, is not in the app's project (open already), is
-// neither in nor around one of neverFolders, and is on the list once. A
+// nothing hidden at the top of the home (a name there that starts with a
+// dot, or anything in one: neverProblem), and is on the list once. A
 // folder inside another granted one is kept: the wider of the two modes
 // then holds inside it. Whether the path is, or is reached through, a
 // symbolic link is known only where the agent starts, and refused there
@@ -132,18 +141,23 @@ func lockFolderPath(asked string) (string, error) {
 	return p, nil
 }
 
-// neverProblem is why the path p of a home is not one to grant: it is one
-// of neverFolders, is in one, or is a folder that holds one.
+// neverProblem is why the path p of a home is not one to grant: its first
+// name starts with a dot. Such a file or folder at the top of a home holds
+// a tool's settings or sign-in, and the reason is the one neverFolders
+// gives for it, else HiddenFolderWhy. A hidden name further down
+// (projects/api/.github) is a project's own and is granted.
 func neverProblem(p string) error {
+	if !strings.HasPrefix(p, ".") {
+		return nil
+	}
+	top, _, _ := strings.Cut(p, "/")
+	why := HiddenFolderWhy
 	for _, n := range neverFolders {
-		switch {
-		case within(n.Path, p):
-			return fmt.Errorf("no agent can open ~/%s: %s", n.Path, n.Why)
-		case within(p, n.Path):
-			return fmt.Errorf("it holds ~/%s, which no agent can open: %s", n.Path, n.Why)
+		if within(n.Path, p) {
+			top, why = n.Path, n.Why
 		}
 	}
-	return nil
+	return fmt.Errorf("no agent can open ~/%s: %s", top, why)
 }
 
 // within reports whether p is dir or a path inside it.

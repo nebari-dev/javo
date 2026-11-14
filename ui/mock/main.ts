@@ -178,7 +178,7 @@ const aiSettingsFromConfig: Record<string, unknown> & { keyStored: boolean; keyL
 let aiSettings = { ...aiSettingsFromConfig }
 let agentSettings = { allowTrusted: true, configAllows: true }
 
-// A few of the places the API says no agent can open, as an app's folders.never carries them.
+// A few of the places the API gives a reason of its own for, as an app's folders.never carries them.
 const NEVER_FOLDERS = [
   { path: '.ssh', why: 'holds your SSH keys' },
   { path: '.config/gh', why: 'holds your GitHub sign-in' },
@@ -210,7 +210,7 @@ const apps = [
   // A coding agent that starts locked in, with one folder its owner added.
   ws('sales-agent', 'Sales dashboard agent', 'Running', allReady(), {
     kind: 'pi', template: 'pi', file: 'projects/sales-dashboard', apiAccess: 'ReadWrite', trust: { allowed: true },
-    folders: { project: '~/projects/sales-dashboard', grants: [{ path: 'data/sales-2026', mode: 'read' }], never: NEVER_FOLDERS },
+    folders: { project: '~/projects/sales-dashboard', grants: [{ path: 'data/sales-2026', mode: 'read' }], never: NEVER_FOLDERS, hidden: 'hidden files and folders hold settings and sign-ins' },
   }),
   ws('churn-notebook', 'Churn analysis notebook', 'Stopped', allStopped(), {
     kind: 'pi', template: 'pi', file: '', apiAccess: 'ReadWrite', trust: { allowed: true },
