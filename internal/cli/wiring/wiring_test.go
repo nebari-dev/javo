@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/nebari-dev/javo/internal/ai/aitest"
 	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/auth/local"
@@ -15,6 +17,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/secrets"
+	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/store/storetest"
 )
@@ -188,5 +191,65 @@ func TestASessionEndsAfterSessionsTTL(t *testing.T) {
 	now = now.Add(time.Minute)
 	if w := f.Do("GET", "/api/me", "", alice); w.Code != http.StatusUnauthorized {
 		t.Fatalf("after 1h: %d %s", w.Code, w.Body)
+	}
+}
+
+// What a person's job runs and apps mount follows their groups only while
+// the identity provider confirmed them within api.tokens.groupsMaxAge, as
+// for their API tokens: someone taken out of a group, who never signs in
+// again, does not keep the group's folder through a scheduled job.
+func TestStaleGroupsMountNoGroupFolder(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.New(t)
+	var p config.Platform
+	p.API.Tokens.GroupsMaxAge.Duration = 24 * time.Hour
+	claims := store.Claims{Issuer: "https://idp.example.com", Subject: "s-a", Username: "alice", Groups: []string{"research"}}
+	alice, err := db.People(store.IDRange{}).Ensure(ctx, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := db.SharedFolders().Create(ctx, model.Actor{Person: "admin-1"}, model.SharedFolder{Namespace: "javo-apps", Name: "research", Spec: model.SharedFolderSpec{Group: "research"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Status = model.SharedFolderStatus{ClaimName: "folder-research", GID: 5001, Prepared: true,
+		Conditions: []metav1.Condition{{Type: model.ConditionReady, Status: metav1.ConditionTrue, Reason: "Ready", LastTransitionTime: metav1.Now()}}}
+	if _, err := db.SharedFolders().Update(ctx, f, f.Version); err != nil {
+		t.Fatal(err)
+	}
+
+	r := StorageResolver(db, p)
+	groups := r.Groups.(ids.PersonGroups)
+	now := time.Now()
+	groups.Now = func() time.Time { return now }
+	r.Groups = groups
+	mounted := func() int {
+		t.Helper()
+		in, err := r.Input(ctx, "javo-apps", alice.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gids, err := r.FolderGIDs(ctx, "javo-apps", alice.Name)
+		if err != nil || len(gids) != len(in.Folders) {
+			t.Fatalf("gids %v for %d folders, %v", gids, len(in.Folders), err)
+		}
+		return len(in.Folders)
+	}
+	now = now.Add(23 * time.Hour)
+	if n := mounted(); n != 1 {
+		t.Fatalf("23 hours after sign-in: %d group folders", n)
+	}
+	now = now.Add(2 * time.Hour)
+	if n := mounted(); n != 0 {
+		t.Fatalf("25 hours after sign-in: %d group folders", n)
+	}
+	// Signing in again (the people table records it on the real clock)
+	// brings the folder back.
+	if _, err := db.People(store.IDRange{}).Ensure(ctx, claims); err != nil {
+		t.Fatal(err)
+	}
+	now = time.Now().Add(time.Minute)
+	if n := mounted(); n != 1 {
+		t.Fatalf("after signing in again: %d group folders", n)
 	}
 }

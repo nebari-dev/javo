@@ -376,13 +376,12 @@ func (a *Authenticator) liveToken(ctx context.Context, tok token.Token) (tokenOw
 	case err != nil:
 		return out, "", err
 	}
-	age := a.now().Sub(person.LastLoginAt)
-	if age > a.GroupsMaxAge {
+	if identity.GroupsStale(person, a.now(), a.GroupsMaxAge) {
 		return out, reasons.MsgTokenSignInAgain, nil
 	}
 	out.Principal = identity.PrincipalOf(person)
 	// Admin roles last only a day past the provider's last word on them.
-	out.MemberOnly = age > ElevatedGroupsMaxAge
+	out.MemberOnly = identity.GroupsStale(person, a.now(), ElevatedGroupsMaxAge)
 	return out, "", nil
 }
 

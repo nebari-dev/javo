@@ -32,7 +32,6 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/proxy"
 	"github.com/nebari-dev/javo/internal/plans"
 	"github.com/nebari-dev/javo/internal/sizes"
-	"github.com/nebari-dev/javo/internal/storage/ids"
 	"github.com/nebari-dev/javo/internal/store"
 	"github.com/nebari-dev/javo/internal/templates"
 )
@@ -247,7 +246,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		Branding:          look,
 		Homes:             on.homes,
 		Usage:             on.usage,
-		Groups:            ids.PersonGroups{People: db.People(store.IDRange{})},
+		Groups:            wiring.PersonGroups(db, platform),
 		Storage:           platform.Storage.Spec(),
 		Executor:          workloads,
 		Runs:              on.runs,

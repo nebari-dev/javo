@@ -585,6 +585,8 @@ config:
       # identity provider keeps working tokens for at most this long. Set
       # higher, an admin token still acts as a member one day after it.
       # Tokens stop at once when the provider says the person is gone.
+      # After it the owner's apps and job runs also start without their
+      # group folders.
       groupsMaxAge: 24h
       # The longest expiry a new token may have; 0s allows tokens that never
       # expire. A leaked token works until it expires or is revoked, so keep

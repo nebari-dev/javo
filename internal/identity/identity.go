@@ -5,6 +5,8 @@
 package identity
 
 import (
+	"time"
+
 	"github.com/nebari-dev/javo/internal/authz"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
@@ -28,6 +30,15 @@ func (c Claims) ForStore() store.Claims {
 		Issuer: c.Issuer, Subject: c.Subject, Username: c.Username, Email: c.Email,
 		DisplayName: c.DisplayName, Groups: c.Groups, ProviderRoles: c.ProviderRoles,
 	}
+}
+
+// GroupsStale reports whether p's groups were last confirmed by their
+// provider (a sign-in or a revalidated session) more than maxAge before
+// now. Whatever acts for a person with no sign-in at hand (an API token, a
+// job run, an app starting) uses their groups only while it is false, so a
+// group the provider removed, or a person it removed, does not live on.
+func GroupsStale(p model.Person, now time.Time, maxAge time.Duration) bool {
+	return now.Sub(p.LastLoginAt) > maxAge
 }
 
 // PrincipalOf is who a person is when no sign-in is at hand (an API token,

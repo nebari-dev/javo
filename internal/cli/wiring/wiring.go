@@ -309,6 +309,12 @@ func StorageBackendsByMode() map[model.HomeMode]storage.Backend {
 	return out
 }
 
+// PersonGroups is the groups a person's pods and file listings act with:
+// those of their last sign-in, while api.tokens.groupsMaxAge allows.
+func PersonGroups(db *store.Store, platform config.Platform) ids.PersonGroups {
+	return ids.PersonGroups{People: db.People(store.IDRange{}), MaxAge: platform.API.Tokens.GroupsMaxAge.Duration}
+}
+
 // StorageResolver is what every pod of a person mounts (apps, job runs, file
 // pods), read from the database: the home, the ready folders of the
 // person's groups, the scratch limit and co-location.
@@ -316,7 +322,7 @@ func StorageResolver(db *store.Store, platform config.Platform) podstorage.Resol
 	return podstorage.Resolver{
 		Homes: db.Homes(), Folders: db.SharedFolders(),
 		Cluster:  store.StorageView{Storage: db.Storage(), Config: platform.Storage.Spec()},
-		Groups:   ids.PersonGroups{People: db.People(store.IDRange{})},
+		Groups:   PersonGroups(db, platform),
 		Backends: StorageBackendsByMode(),
 	}
 }
