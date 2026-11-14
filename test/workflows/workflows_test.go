@@ -5,7 +5,9 @@
 //   - the workflow-wide token is read-only: write scopes go on the job that
 //     needs them;
 //   - only main writes caches, so no branch, pull request or tag can plant
-//     a cache that main or a release then restores;
+//     a cache that main then restores;
+//   - a job in the release environment restores no cache (Actions cache or
+//     image layer cache): what it signs is built from the tagged commit alone;
 //   - repository and organisation secrets (anything but GITHUB_TOKEN) and
 //     OIDC tokens reach only jobs bound to an environment, whose deployment
 //     rules say which refs may run them (release: tags v*);
@@ -166,6 +168,10 @@ func problems(file string, src []byte) []string {
 			}
 			action, _, _ := strings.Cut(s.Uses, "@")
 			cond, _ := s.If.(string)
+			_, layerCache := s.With["cache-from"]
+			if env == "release" && (layerCache || action == "actions/cache" || action == "actions/cache/restore") {
+				add("%s: restores a cache in the release environment; what is signed is built from the tagged commit alone", where)
+			}
 			switch action {
 			case "actions/cache":
 				add("%s: actions/cache saves from every ref; use actions/cache/restore and a main-only actions/cache/save", where)
@@ -242,6 +248,14 @@ func TestTheRulesCatchWhatTheyAreFor(t *testing.T) {
 		"cache saved from pull requests too": {
 			"permissions: {contents: read}\njobs:\n  a:\n    steps:\n      - uses: actions/cache/save@" + sha + "\n        if: github.ref != 'refs/heads/main'\n",
 			"saves a cache outside main",
+		},
+		"release built on a restored cache": {
+			"permissions: {contents: read}\njobs:\n  a:\n    environment: release\n    steps:\n      - uses: actions/cache/restore@" + sha + "\n",
+			"restores a cache in the release environment",
+		},
+		"release image built on a layer cache": {
+			"permissions: {contents: read}\njobs:\n  a:\n    environment: release\n    steps:\n      - uses: docker/build-push-action@" + sha + "\n        with:\n          cache-from: type=registry,ref=ghcr.io/o/r\n",
+			"restores a cache in the release environment",
 		},
 		"secret outside an environment": {
 			"permissions: {contents: read}\njobs:\n  a:\n    steps:\n      - run: echo\n        env:\n          T: ${{ secrets.QUAY_TOKEN }}\n",

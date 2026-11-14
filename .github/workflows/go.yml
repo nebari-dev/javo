@@ -32,7 +32,7 @@ concurrency:
 # Each job reads one of two Go caches (Go's build cache and the module
 # downloads it used), each holding only what its jobs compile:
 #   go-test   the linux/amd64 packages the tests and go vet compile
-#   go-cross  javo for linux/amd64 and linux/arm64 (also read by the release)
+#   go-cross  javo for linux/amd64 and linux/arm64
 # One job saves each, on main only, at most once a week per go.mod and
 # go.sum (the key's last part is the ISO week), trimmed to what that run
 # used; every branch, pull request and tag reads main's. A weekly key
