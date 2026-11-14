@@ -27,6 +27,7 @@ const (
 	// A platform admin and someone else's app that runs code as its owner.
 	MsgOwnerOnlyOpens        MessageCode = "OwnerOnlyOpens"
 	MsgOpenedFromAnotherApp  MessageCode = "OpenedFromAnotherApp"
+	MsgWorkerOutsideApp      MessageCode = "WorkerOutsideApp"
 	MsgAppNotFound           MessageCode = "AppNotFound"
 	MsgAppChanged            MessageCode = "AppChanged"
 	MsgTemplateChanged       MessageCode = "TemplateChanged"
@@ -359,6 +360,7 @@ var messages = map[MessageCode]string{
 		"Ask the owner to show you, or ask your platform admin to give apps their own address (urls.appsDomain).",
 	MsgOwnerOnlyOpens:        "Only its owner opens this app: it runs code as its owner, with their files and secrets. You can still start, stop, delete it and see its logs. Ask the owner to show you.",
 	MsgOpenedFromAnotherApp:  "This app cannot be opened from inside another app. Open it from its own address or from your list of apps.",
+	MsgWorkerOutsideApp:      "An app loads a service worker or a shared worker only from inside its own address, not from the top of the site.",
 	MsgAppNotFound:           "No app with that name.",
 	MsgAppChanged:            "The app changed while you were working on it. Reload and try again.",
 	MsgTemplateChanged:       "The template changed while you were working on it. Reload and try again.",

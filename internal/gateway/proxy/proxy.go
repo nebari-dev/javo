@@ -243,6 +243,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuseFromAnotherApp(w, r)
 		return
 	}
+	if workerOutsideApp(r, p.cfg.Exposure.BasePath(t.Owner, t.Name)) {
+		http.Error(w, reasons.Msg(reasons.MsgWorkerOutsideApp), http.StatusForbidden)
+		return
+	}
 	if p.cfg.Exposure.SeparateHost() && t.Rest == ticketPath {
 		p.redeem(w, r, t)
 		return

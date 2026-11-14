@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,12 @@ func newRoot(t *testing.T, exp exposure.Backend, host string) *rootFixture {
 		f.hits <- hit
 		// An app that keeps the prefix is asked for it too: name the last
 		// segment only.
+		if code, ok := strings.CutPrefix(path.Base(r.URL.Path), "widen-"); ok {
+			status, _ := strconv.Atoi(code)
+			w.Header().Set("Service-Worker-Allowed", "/")
+			w.WriteHeader(status)
+			return
+		}
 		switch "/" + strings.TrimPrefix(path.Base(r.URL.Path), "/") {
 		case "/":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -408,3 +415,90 @@ func TestNoRootRequestsWhenAnAppHasItsOwnHost(t *testing.T) {
 type subdomainLike struct{ exposure.Backend }
 
 func (subdomainLike) BasePath(string, string) string { return "/" }
+
+// worker asks for path as the script of a worker of the given kind, as a
+// browser does for a page whose address is referer ("" sends none).
+func (f *rootFixture) worker(path, dest, referer string, cookies []*http.Cookie, hdr ...string) *httptest.ResponseRecorder {
+	hdr = append(hdr, "Sec-Fetch-Site", "same-origin", "Sec-Fetch-Mode", "same-origin", "Sec-Fetch-Dest", dest)
+	if referer != "" {
+		hdr = append(hdr, "Referer", referer)
+	}
+	return f.send(path, cookies, hdr...)
+}
+
+// opened is the fixture's cookies after alice opened her app web.
+func (f *rootFixture) opened() []*http.Cookie {
+	if f.host == oneHost {
+		return f.navigate(rootAlice, "web", f.ui(rootAlice))
+	}
+	return f.navigate(rootAlice, "web", f.appSession(rootAlice, rootAlice, "web"))
+}
+
+// A service worker script at "/" may take the whole origin as its scope with
+// no header, and a shared worker at "/" is one every page of the origin
+// reaches by its address. So an app's page gets neither from outside the
+// app's own path: not by its Referer, not by the route cookie (how a browser
+// asks again for a registered script), and not from the app's bare address,
+// whose folder is its owner's "/u/<owner>/". The script never reaches the
+// app. A worker of the page alone has no scope and is served.
+func TestAWorkerScriptIsServedOnlyFromInsideItsApp(t *testing.T) {
+	t.Parallel()
+	for _, f := range []*rootFixture{oneHostRoot(t), appsHostRoot(t)} {
+		cookies := f.opened()
+		page := f.page(rootAlice, "web")
+		refused := func(what string, w *httptest.ResponseRecorder) {
+			t.Helper()
+			if got := f.reached(); w.Code != http.StatusForbidden || got != "" {
+				t.Errorf("%s, %s: %d, backend saw %q", f.host, what, w.Code, got)
+			}
+		}
+		refused("service worker at the root", f.worker("/sw.js", "serviceworker", page, cookies))
+		refused("service worker at the root, no Referer", f.worker("/sw.js", "serviceworker", "", cookies))
+		refused("shared worker at the root", f.worker("/sw.js", "sharedworker", page, cookies))
+		refused("Service-Worker header alone", f.worker("/sw.js", "script", page, cookies, "Service-Worker", "script"))
+		refused("Service-Worker header, no Fetch Metadata", f.send("/sw.js", cookies, "Service-Worker", "script", "Referer", page))
+		refused("the app's bare address", f.worker(strings.TrimSuffix("/u/"+rootAlice+"/web/", "/"), "serviceworker", page, cookies))
+
+		if w := f.worker("/u/"+rootAlice+"/web/sw.js", "serviceworker", page, cookies, "Service-Worker", "script"); w.Code != 200 {
+			t.Errorf("%s, service worker inside the app: %d %s", f.host, w.Code, w.Body)
+		}
+		if got := f.reached(); got != rootAlice+"/web /sw.js" {
+			t.Errorf("%s, service worker inside the app: backend saw %q", f.host, got)
+		}
+		if w := f.worker("/w.js", "worker", page, cookies); w.Code != 200 {
+			t.Errorf("%s, a page's own worker at the root: %d %s", f.host, w.Code, w.Body)
+		}
+		if got := f.reached(); got != rootAlice+"/web /w.js" {
+			t.Errorf("%s, a page's own worker at the root: backend saw %q", f.host, got)
+		}
+	}
+}
+
+// Service-Worker-Allowed, with which a script asks for a scope wider than
+// its own folder, never reaches the browser: not on a page, a 304, an error
+// of the app's, a root request, or from an app that keeps its prefix.
+func TestAnAppNeverWidensAServiceWorkersScope(t *testing.T) {
+	t.Parallel()
+	for _, f := range []*rootFixture{oneHostRoot(t), appsHostRoot(t)} {
+		cookies := f.opened()
+		lab := []*http.Cookie{f.ui(rootAlice)}
+		if f.host == appsHost {
+			lab = []*http.Cookie{f.appSession(rootAlice, rootAlice, "lab")}
+		}
+		for _, code := range []int{200, 304, 404, 500} {
+			name := "widen-" + strconv.Itoa(code)
+			for what, w := range map[string]*httptest.ResponseRecorder{
+				"inside the app":     f.worker("/u/"+rootAlice+"/web/"+name, "serviceworker", f.page(rootAlice, "web"), cookies),
+				"a root request":     f.asset("/"+name, f.page(rootAlice, "web"), cookies),
+				"an app with prefix": f.worker("/u/"+rootAlice+"/lab/"+name, "serviceworker", f.page(rootAlice, "lab"), lab),
+			} {
+				if w.Code != code || len(w.Header().Values("Service-Worker-Allowed")) != 0 {
+					t.Errorf("%s, %s: %d Service-Worker-Allowed %q, want %d and none", f.host, what, w.Code, w.Header().Values("Service-Worker-Allowed"), code)
+				}
+			}
+			for range 3 {
+				f.reached()
+			}
+		}
+	}
+}
