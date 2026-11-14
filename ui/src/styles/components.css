@@ -321,6 +321,16 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .pk-row .md,.pk-row .sz{font-size:var(--fs-xs);color:var(--text-3);white-space:nowrap}
 .pk-row .sz{text-align:right;font-family:var(--font-mono)}
 .pk-tag{display:block;font-size:var(--fs-xs);font-weight:400;color:var(--accent-text);white-space:normal}
+.pk-title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pk-row.no{cursor:not-allowed}
+.pk-row.no .fi,.pk-row.no .nm,.pk-tag.no{color:var(--err)}
+.pk-tag.off{color:inherit}
+.picker:has(.pk-options) .pk-foot{flex-wrap:wrap}
+.picker:has(.pk-options) .pk-actions{flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.picker:has(.pk-options) .pk-actions .btn{white-space:normal;text-align:left;overflow-wrap:anywhere;min-width:0;height:auto;min-height:var(--btn-h)}
+.pk-options{display:flex;flex-direction:column;gap:14px;padding:14px 20px;border-top:1px solid var(--border)}
+.picker:has(.pk-options){grid-template-rows:auto minmax(0,1fr) auto auto;height:min(760px,88vh)}
+.pk-failure{flex:1 1 0;min-width:0}
 .pk-item{display:grid;grid-template-columns:minmax(0,1fr) var(--btn-h-sm);gap:8px;align-items:center;padding-right:6px;border-radius:8px}
 .pk-item:has(> .pk-row.sel){background:var(--accent-soft)}
 .pk-item > .pk-row{background:transparent}

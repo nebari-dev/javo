@@ -135,6 +135,17 @@ a.btn{text-decoration:none}
 .trust-terms dt{font-weight:600;color:var(--text)}
 .trust-terms dd{margin:0 0 8px;color:var(--text-2)}
 .trust-terms dd:last-child{margin-bottom:0}
+.open-list{list-style:none;margin:14px 0;padding:0;border:1px solid var(--border);border-radius:10px}
+.open-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 14px}
+.open-row+.open-row{border-top:1px solid var(--border)}
+.open-row>svg{flex:none;color:var(--accent-text)}
+.open-what{flex:1 1 160px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.open-what code{font-weight:600;color:var(--text);overflow-wrap:anywhere}
+.open-row .chip{flex:none;margin-right:auto}
+.chip.acc{background:var(--accent-soft);color:var(--accent-text)}
+.chip.idle{background:var(--idle-soft);color:var(--text-2)}
+.open-fixed{flex:none;display:grid;place-items:center;width:var(--btn-min-w-sm);color:var(--text-3)}
+.open-card .errmsg{display:block;margin-top:8px}
 .trust-banner{margin-top:16px}
 .trust-banner .logo{flex:none}
 

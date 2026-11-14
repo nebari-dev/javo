@@ -58,6 +58,7 @@ import { startupSeconds, stepTimes } from './startup'
 import { appLink, heldStep, migratingStep, pillStatus, problemStep, stopNote } from './status'
 import { PromptBlock } from './AgentPrompt'
 import { AGENTS } from './agents'
+import { FoldersCard } from './Folders'
 import { TrustBanner, TrustCard } from './Trust'
 
 // What each startup step does, in the order the API sends them.
@@ -724,6 +725,7 @@ export function AppDetail() {
             </dl>
             <ScratchFolders />
           </Card>
+          {!managed && <FoldersCard ws={ws} />}
           {!managed && <TrustCard ws={ws} />}
           {ws.run && <WhatRuns run={ws.run} />}
           {ws.source?.previewsAvailable && !managed && <PreviewsCard ws={ws} />}

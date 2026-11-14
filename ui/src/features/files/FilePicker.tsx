@@ -27,7 +27,24 @@ export interface PickerEntry {
   tag?: string
 }
 
-export interface FilePickerProps {
+/** What a caller adds to make the picker a dialog of its own: its name, what cannot be chosen, and what choosing does. */
+export interface PickerExtras {
+  /** The dialog's name in place of "Choose a file", and a line under it. */
+  title?: string
+  subtitle?: string
+  /** Why the entry at this path cannot be chosen, or undefined when it can; its row says why, in red when it never can. */
+  refused?: (path: string) => { why: string; never?: boolean } | undefined
+  /** The label of the button that chooses path (null: nothing to choose yet); default Choose. */
+  chooseLabel?: (path: string | null) => string
+  /** More to decide with the choice, between the list and the buttons. */
+  options?: ReactNode
+  /** The choice is being saved: the button waits. */
+  busy?: boolean
+  /** Why saving the choice failed. */
+  failure?: string
+}
+
+export interface FilePickerProps extends PickerExtras {
   places: PickerPlace[]
   activePlace: string
   crumbs: PickerCrumb[]
@@ -36,8 +53,8 @@ export interface FilePickerProps {
   acceptExtensions: string[]
   /** Tooltip for disabled files, e.g. "Streamlit runs .py files". */
   acceptReason?: string
-  /** 'folder' chooses folders: a folder row selects it, its own button opens it, files are greyed out. */
-  choose?: 'file' | 'folder'
+  /** 'folder' chooses folders: a folder row selects it, its own button opens it, files are greyed out. 'any' is that with files chosen too, and nothing chosen until a row is selected. */
+  choose?: 'file' | 'folder' | 'any'
   /** The entry selected when the picker opens; it is scrolled into view. */
   initialSelected?: string
   /** Whether names starting with a dot are listed. */
@@ -136,8 +153,8 @@ function useModalFocus(onCancel: () => void) {
 
 export function FilePicker(p: FilePickerProps) {
   const modal = useModalFocus(p.onCancel)
-  const folders = p.choose === 'folder'
-  const title = folders ? 'Choose a folder' : 'Choose a file'
+  const folders = p.choose === 'folder' || p.choose === 'any'
+  const title = p.title ?? (folders ? 'Choose a folder' : 'Choose a file')
   const placeId = useId()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(p.initialSelected ?? null)
@@ -145,9 +162,12 @@ export function FilePicker(p: FilePickerProps) {
   const q = query.trim().toLowerCase()
   const shown = p.showHidden ? p.entries : p.entries.filter((e) => !e.name.startsWith('.'))
   const rows = q ? shown.filter((e) => e.name.toLowerCase().includes(q)) : shown
-  // With no folder selected, folder mode chooses the folder it stands in.
+  // With no folder selected, folder mode chooses the folder it stands in;
+  // 'any' chooses only what was selected.
   const here = p.crumbs[p.crumbs.length - 1]?.path ?? ''
-  const chosen = selected ?? (folders && !p.error ? here : null)
+  const chosen = selected ?? (p.choose === 'folder' && !p.error ? here : null)
+  const chosenRefused = chosen === null ? undefined : p.refused?.(chosen)
+  const choosable = chosen !== null && chosenRefused === undefined
 
   // Bring the starting selection into view once its row is listed.
   const start = useRef<HTMLButtonElement | null>(null)
@@ -169,7 +189,10 @@ export function FilePicker(p: FilePickerProps) {
   return (
     <div className="picker" role="dialog" aria-modal="true" aria-label={title} ref={modal.dialog} onKeyDown={modal.onKeyDown}>
       <div className="pk-head">
-        <h3>{title}</h3>
+        <div className="pk-title">
+          <h3>{title}</h3>
+          {p.subtitle && <p className="tight muted small">{p.subtitle}</p>}
+        </div>
         {p.updating && (
           <span className="pk-updating" role="status" aria-label="Updating this folder">
             <LoaderCircle size={14} aria-hidden="true" />
@@ -278,17 +301,18 @@ export function FilePicker(p: FilePickerProps) {
                   )
                 }
                 const dir = e.kind === 'dir'
-                const ok = folders ? dir : accepted(e.name, p.acceptExtensions)
+                const no = p.refused?.(e.path)
+                const ok = no === undefined && (p.choose === 'any' || (folders ? dir : accepted(e.name, p.acceptExtensions)))
                 const sel = ok && selected === e.path
                 const row = (
                   <button
                     key={e.path}
                     ref={startRef(e.path)}
                     type="button"
-                    className={`pk-row${ok ? '' : ' dim'}${sel ? ' sel' : ''}`}
+                    className={`pk-row${ok ? '' : no?.never ? ' no' : ' dim'}${sel ? ' sel' : ''}`}
                     aria-disabled={ok ? undefined : 'true'}
                     aria-pressed={ok ? sel : undefined}
-                    title={ok ? undefined : reason}
+                    title={ok ? undefined : (no?.why ?? reason)}
                     onClick={() => ok && setSelected(e.path)}
                     onDoubleClick={() => dir && navigate(e.path)}
                   >
@@ -296,6 +320,7 @@ export function FilePicker(p: FilePickerProps) {
                     <span className={`nm${dir ? ' dir' : ''}`}>
                       {e.name}
                       {tag(e)}
+                      {no !== undefined && <span className={no.never ? 'pk-tag no' : 'pk-tag off'}>{no.why}</span>}
                     </span>
                     <span className="md">{e.modified}</span>
                     <span className="sz">{e.size}</span>
@@ -318,12 +343,20 @@ export function FilePicker(p: FilePickerProps) {
           </div>
         </div>
       </div>
+      {p.options && <div className="pk-options">{p.options}</div>}
       <div className="pk-foot">
-        <span className="pk-chosen muted">{chosen === null ? 'Nothing chosen yet' : chosen || 'Home folder'}</span>
+        {p.failure ? (
+          <span className="pk-failure errmsg" role="alert">
+            {p.failure}
+          </span>
+        ) : (
+          // A button that names the choice says it already.
+          !p.chooseLabel && <span className="pk-chosen muted">{chosen === null ? 'Nothing chosen yet' : chosen || 'Home folder'}</span>
+        )}
         <span className="pk-actions">
           <Button onClick={p.onCancel}>Cancel</Button>
-          <Button variant="primary" disabled={chosen === null} onClick={() => chosen !== null && p.onChoose(chosen)}>
-            Choose
+          <Button variant="primary" disabled={!choosable || p.busy} onClick={() => choosable && p.onChoose(chosen)}>
+            {p.chooseLabel ? p.chooseLabel(choosable ? chosen : null) : 'Choose'}
           </Button>
         </span>
       </div>

@@ -39,6 +39,7 @@ import {
   setWorkspaceApiAccess,
   setWorkspaceIdleStop,
   setWorkspaceTrust,
+  setWorkspaceFolders,
   setWorkspaceThumbnail,
   removeWorkspaceThumbnail,
   previewPlacement,
@@ -51,6 +52,7 @@ import {
   startWorkspace,
   stopWorkspace,
   type EnvVar,
+  type FolderGrant,
   type StepLogRecord,
   type CreateInputBody,
   type SecretCreateInputBody,
@@ -383,6 +385,18 @@ export function useSetTrust(name: string) {
   return useMutation({
     mutationFn: async (hours: number | null) =>
       (await setWorkspaceTrust({ path: { name }, body: hours === null ? { trusted: false } : { trusted: true, hours }, throwOnError: true })).data,
+    onSuccess: (ws) => {
+      qc.setQueryData(keys.workspace(name), ws)
+      void qc.invalidateQueries({ queryKey: keys.workspaces, exact: true })
+    },
+  })
+}
+
+/** Set every folder and file a locked coding agent can open besides its project; a running agent restarts. */
+export function useSetFolders(name: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (folders: FolderGrant[]) => (await setWorkspaceFolders({ path: { name }, body: { folders }, throwOnError: true })).data,
     onSuccess: (ws) => {
       qc.setQueryData(keys.workspace(name), ws)
       void qc.invalidateQueries({ queryKey: keys.workspaces, exact: true })

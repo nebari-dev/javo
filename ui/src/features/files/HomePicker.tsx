@@ -5,7 +5,7 @@ import { useHomeFolder, useMe, useStorage } from '../../lib/queries'
 import { readStored, writeStored } from '../../lib/storage'
 import { Banner } from '../../components/Banner'
 import { FailureCard } from '../logs/FailureCard'
-import { FilePicker, type PickerEntry } from './FilePicker'
+import { FilePicker, type PickerEntry, type PickerExtras } from './FilePicker'
 
 function join(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name
@@ -81,14 +81,18 @@ export function HomePicker({
   extensions,
   acceptReason,
   folders = false,
+  filesToo = false,
   sample,
   onChoose,
   onClose,
-}: {
+  ...extras
+}: PickerExtras & {
   extensions: string[]
   acceptReason: string
   /** Choose a folder instead of a file. */
   folders?: boolean
+  /** With folders: a file can be chosen as well. */
+  filesToo?: boolean
   /** The template's sample (relative to the home): the picker opens where it is, with it selected. */
   sample?: string
   onChoose: (p: string) => void
@@ -148,7 +152,8 @@ export function HomePicker({
         entries={sample && inHome ? withSample(dir, listed, sample, folders ? 'dir' : 'file') : listed}
         acceptExtensions={inHome ? extensions : []}
         acceptReason={inHome ? acceptReason : 'An app runs a file from your home folder'}
-        choose={folders ? 'folder' : 'file'}
+        {...extras}
+        choose={folders ? (filesToo ? 'any' : 'folder') : 'file'}
         initialSelected={sample}
         showHidden={showHidden}
         onShowHiddenChange={toggleHidden}

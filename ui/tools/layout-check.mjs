@@ -187,6 +187,8 @@ const PAGES = [
   { path: '/apps?scenario=noshared', name: 'apps with storage banners' },
   { path: '/apps/new?scenario=noshared', name: 'new app placement banner', act: [click('label.choice', 'Streamlit')] },
   { path: '/apps/new?template=streamlit', name: 'file picker with group folder places', act: [click('button', 'Change'), click('.pk-side button', 'data-science')] },
+  { path: '/apps/sales-agent', name: 'locked agent with what it can open' },
+  { path: '/apps/sales-agent', name: 'adding a folder a locked agent can open', act: [click('button', 'Add a folder or file'), click('.pk-row', 'data')] },
   { path: '/apps/plots', name: 'app with the folders that are not saved', act: [click('button.more-toggle', 'Folders that are not saved')] },
   { path: '/settings/storage?admin=1', name: 'storage settings with things to fix', act: [click('button.more-toggle', 'Details')] },
   { path: '/settings/storage?admin=1&scenario=quiet', name: 'storage settings, nothing needs attention' },

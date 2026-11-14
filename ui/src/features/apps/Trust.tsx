@@ -12,7 +12,7 @@ import { Switch } from '../../components/Switch'
 import { brand } from '../../lib/brand'
 import { problemText } from '../../lib/http'
 import { useSetTrust } from '../../lib/queries'
-import { AGENTS } from './agents'
+import { agentOf } from './agents'
 
 // How long the owner may pick, in hours; the server allows 1 to 24 and picks 8.
 const HOURS = ['1', '4', '8', '24'] as const
@@ -28,9 +28,6 @@ export function untilText(at: Date, now = new Date()): string {
   const day = at.toDateString() === now.toDateString() ? '' : at.toDateString() === tomorrow.toDateString() ? ' tomorrow' : ''
   return CLOCK.format(at) + day
 }
-
-/** The agent's name as people know it ("Pi"), or "This agent" for a kind without one. */
-const agentOf = (ws: Workspace) => AGENTS[ws.kind] ?? 'This agent'
 
 /** When the agent acts without asking until, or undefined while it asks. */
 function trustedUntil(ws: Workspace): Date | undefined {

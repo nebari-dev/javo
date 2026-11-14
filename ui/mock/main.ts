@@ -178,6 +178,13 @@ const aiSettingsFromConfig: Record<string, unknown> & { keyStored: boolean; keyL
 let aiSettings = { ...aiSettingsFromConfig }
 let agentSettings = { allowTrusted: true, configAllows: true }
 
+// A few of the places the API says no agent can open, as an app's folders.never carries them.
+const NEVER_FOLDERS = [
+  { path: '.ssh', why: 'holds your SSH keys' },
+  { path: '.config/gh', why: 'holds your GitHub sign-in' },
+  { path: '.bashrc', why: 'runs every time you open a terminal' },
+]
+
 const adminStorage = quiet
   ? { summary: "Files are stored on this machine's disk. Nothing needs attention.", rows: facts }
   : {
@@ -199,6 +206,11 @@ const apps = [
     // Acts without asking for the next few hours.
     trust: { allowed: true, until: new Date(Date.now() + 3 * 3600_000).toISOString() },
     agentPrompt: 'Create a Streamlit app that lets me look at Nvidia stock prices over time, with a date range picker and a moving average.',
+  }),
+  // A coding agent that starts locked in, with one folder its owner added.
+  ws('sales-agent', 'Sales dashboard agent', 'Running', allReady(), {
+    kind: 'pi', template: 'pi', file: 'projects/sales-dashboard', apiAccess: 'ReadWrite', trust: { allowed: true },
+    folders: { project: '~/projects/sales-dashboard', grants: [{ path: 'data/sales-2026', mode: 'read' }], never: NEVER_FOLDERS },
   }),
   ws('churn-notebook', 'Churn analysis notebook', 'Stopped', allStopped(), {
     kind: 'pi', template: 'pi', file: '', apiAccess: 'ReadWrite', trust: { allowed: true },
@@ -277,11 +289,35 @@ const apps = [
 const folders: Record<string, { name: string; kind: 'file' | 'folder'; size: number; modified: string }[]> = {
   '': [
     { name: '.config', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
+    { name: '.ssh', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
+    { name: 'data', kind: 'folder', size: 0, modified: '2026-11-02T09:00:00Z' },
     { name: 'notebooks', kind: 'folder', size: 0, modified: '2026-10-27T09:00:00Z' },
+    { name: 'projects', kind: 'folder', size: 0, modified: '2026-11-04T09:00:00Z' },
     { name: 'sales', kind: 'folder', size: 0, modified: '2026-10-29T10:00:00Z' },
     { name: '.bashrc', kind: 'file', size: 220, modified: '2026-10-20T09:00:00Z' },
     { name: 'README.md', kind: 'file', size: 2048, modified: '2026-09-02T10:00:00Z' },
   ],
+  '.config': [
+    { name: 'gh', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
+    { name: 'ghostty', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
+  ],
+  '.config/gh': [],
+  '.config/ghostty': [],
+  '.ssh': [],
+  data: [
+    { name: 'customers', kind: 'folder', size: 0, modified: '2026-11-02T09:00:00Z' },
+    { name: 'sales-2026', kind: 'folder', size: 0, modified: '2026-11-02T09:00:00Z' },
+  ],
+  'data/customers': [],
+  'data/sales-2026': [],
+  projects: [
+    { name: 'marketing-site', kind: 'folder', size: 0, modified: '2026-10-12T09:00:00Z' },
+    { name: 'sales-dashboard', kind: 'folder', size: 0, modified: '2026-11-04T09:00:00Z' },
+    { name: 'shared-lib', kind: 'folder', size: 0, modified: '2026-10-30T09:00:00Z' },
+  ],
+  'projects/marketing-site': [],
+  'projects/sales-dashboard': [],
+  'projects/shared-lib': [],
   notebooks: [],
   plots: [{ name: 'app.py', kind: 'file', size: 92, modified: '2026-10-30T11:02:00Z' }],
   'sales/pages': [],
@@ -885,6 +921,13 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const w = apps.find((a) => a.name === access[1])
     if (!w) return reply(404, { title: 'No app with that name.' })
     w.apiAccess = (await req.json()).apiAccess
+    return reply(200, w)
+  }
+  const opens = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/folders$/)
+  if (req.method === 'PUT' && opens) {
+    const w = apps.find((a) => a.name === opens[1])
+    if (!w?.folders) return reply(404, { title: 'No app with that name.' })
+    w.folders = { ...w.folders, grants: (await req.json()).folders }
     return reply(200, w)
   }
   const trust = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/trust$/)
