@@ -376,7 +376,7 @@
         "additionalProperties": false,
         "properties": {
           "apiKey": {
-            "description": "Write-only: replaces the stored key; leave out to keep it",
+            "description": "Write-only: replaces the stored key; leave out to keep it, which only works while baseURL stays on the same server (scheme, host and port)",
             "maxLength": 4096,
             "type": "string"
           },

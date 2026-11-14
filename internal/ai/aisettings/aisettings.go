@@ -296,7 +296,12 @@ func (l *Live) Save(ctx context.Context, actor model.Actor, in Input) error {
 		next.KeySealed, next.KeyLast4, keyChanged = sealed, lastRunes(in.APIKey, 4), true
 	case in.RemoveKey:
 		keyChanged = prev != nil && prev.KeySealed != nil
-	case prev != nil:
+	case prev != nil && prev.KeySealed != nil:
+		// The stored key would be sent to the new address, where whoever
+		// set it could read it.
+		if !provider.SameServer(provider.Config{Provider: prev.Provider, BaseURL: prev.BaseURL}, provider.Config{Provider: next.Provider, BaseURL: next.BaseURL}) {
+			return &FieldError{"apiKey", reasons.MsgKeyForNewAddress}
+		}
 		next.KeySealed, next.KeyLast4 = prev.KeySealed, prev.KeyLast4
 	}
 	was := effective(l.Config, prev)

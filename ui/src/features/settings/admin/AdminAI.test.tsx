@@ -90,6 +90,15 @@ describe('AI settings', () => {
     expect(m.calls.find((c) => c.method === 'PUT')?.body).toEqual({ baseURL: 'https://api.anthropic.com/v1/', model: 'claude-sonnet-5-5' })
   })
 
+  it('asks for the key again when the address moves to another server', async () => {
+    api(saved)
+    renderApp('/settings/ai')
+    expect(await screen.findByText(/ending in 4321\. Leave empty to keep it/)).toBeTruthy()
+    await pick('Provider', 'OpenRouter')
+    expect(screen.getByText(/another server.*ending in 4321.*Paste the key for it/)).toBeTruthy()
+    expect(screen.queryByText(/Leave empty to keep it/)).toBeNull()
+  })
+
   it('keeps the stored key when it is left empty, and replaces it when one is typed', async () => {
     const m = api(saved)
     renderApp('/settings/ai')

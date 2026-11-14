@@ -3,7 +3,7 @@ import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { fieldErrors, problemText } from '../../lib/http'
-import { onAnotherServer, useAgentStatus, useDeleteAgentSettings, useSaveAgentSettings } from '../ai/ai'
+import { keyNeededAgain, onAnotherServer, useAgentStatus, useDeleteAgentSettings, useSaveAgentSettings } from '../ai/ai'
 
 const IN_EFFECT: Record<string, string> = {
   platform: 'Your coding agents use the model your admin set up',
@@ -13,7 +13,7 @@ const IN_EFFECT: Record<string, string> = {
 
 function keyHint(last4: string | undefined, moved: boolean): string {
   if (!last4) return 'Stored encrypted and never shown again; only your coding-agent apps get it.'
-  if (moved) return `This address is on another server, so the stored key ending in ${last4} is not sent there. Paste the key for it.`
+  if (moved) return keyNeededAgain(last4)
   return `Stored, ending in ${last4}. Leave empty to keep it.`
 }
 

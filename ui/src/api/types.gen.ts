@@ -159,7 +159,7 @@ export type AgentStatus = {
 
 export type AiSettingsInputBody = {
     /**
-     * Write-only: replaces the stored key; leave out to keep it
+     * Write-only: replaces the stored key; leave out to keep it, which only works while baseURL stays on the same server (scheme, host and port)
      */
     apiKey?: string;
     /**

@@ -124,6 +124,11 @@ export function onAnotherServer(typed: string, stored: string): boolean {
   }
 }
 
+/** What the key field says while onAnotherServer. */
+export function keyNeededAgain(last4?: string): string {
+  return `This address is on another server, so the stored key ending in ${last4 || '****'} is not sent there. Paste the key for it.`
+}
+
 const agentKey = ['ai', 'agent'] as const
 
 /** Where the person's coding agents get their model, and whether they may start one. */

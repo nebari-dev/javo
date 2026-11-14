@@ -135,6 +135,43 @@ func TestKeyIsSealedKeptAndRemoved(t *testing.T) {
 	}
 }
 
+// The stored key goes only to the server it was saved for. A platform admin
+// who could move the address and keep the key would have it sent to a
+// server of theirs, and read it there.
+func TestStoredKeyStaysWithTheServerItWasSavedFor(t *testing.T) {
+	ctx := context.Background()
+	l, b, _ := newLive(t, helm())
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.com/v1", Model: "m1", APIKey: uiKey}); err != nil {
+		t.Fatal(err)
+	}
+	for _, elsewhere := range []string{"https://llm.example.net/v1", "https://llm.example.com:8443/v1", ""} {
+		err := l.Save(ctx, admin, aisettings.Input{BaseURL: elsewhere, Model: "m1"})
+		if fe := (*aisettings.FieldError)(nil); !errors.As(err, &fe) || fe.Field != "apiKey" || fe.Code != reasons.MsgKeyForNewAddress {
+			t.Fatalf("%q without the key: %v", elsewhere, err)
+		}
+	}
+	if v, err := l.View(ctx); err != nil || v.BaseURL != "https://llm.example.com/v1" {
+		t.Fatalf("a refused save was stored: %+v, %v", v, err)
+	}
+	// Another path on the same server keeps the key.
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://LLM.example.com:443/v2", Model: "m1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != uiKey {
+		t.Fatalf("key not kept on the same server: %+v %v", b.last(), err)
+	}
+	// Elsewhere with its own key, or with the stored key removed.
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.net/v1", Model: "m1", RemoveKey: true}); err != nil {
+		t.Fatalf("moving without any key: %v", err)
+	}
+	if _, err := l.Backend(ctx); err != nil || b.last().APIKey != "" {
+		t.Fatalf("after moving with the key removed: %+v %v", b.last(), err)
+	}
+	if err := l.Save(ctx, admin, aisettings.Input{BaseURL: "https://llm.example.org/v1", Model: "m1"}); err != nil {
+		t.Fatalf("moving with no key stored: %v", err)
+	}
+}
+
 // The config's key goes only to the config's provider and address: with
 // another address and no key pasted, no key is sent.
 func TestConfigKeyStaysWithTheConfigsEndpoint(t *testing.T) {
