@@ -24,6 +24,17 @@ function lock(home, folder, ...command) {
 
 // lockWith is lock with the variables env set besides HOME.
 function lockWith(env, home, folder, ...command) {
+  return run(env, home, [folder, '--', ...command])
+}
+
+// lockAdding is lock with the folders the person added, as the platform
+// passes them between FOLDER and --: '--ro', PATH or '--rw', PATH.
+function lockAdding(home, folder, added, ...command) {
+  return run({}, home, [folder, ...added, '--', ...command])
+}
+
+// run runs agent-lock.sh with the arguments args.
+function run(env, home, args) {
   const opt = temp()
   mkdirSync(join(opt, 'agents'))
   mkdirSync(join(opt, 'bin'))
@@ -31,7 +42,7 @@ function lockWith(env, home, folder, ...command) {
   const calls = join(opt, 'calls')
   writeFileSync(join(opt, 'bin', 'javo-sandbox'), `#!/bin/sh\nfor a; do printf '%s\\n' "$a"; done > ${calls}\n`, { mode: 0o755 })
   // Run as the pod runs it: the file itself, so it must be executable.
-  execFileSync(join(opt, 'agents', 'agent-lock.sh'), [folder, '--', ...command], { env: { ...process.env, HOME: home, ...env }, stdio: 'pipe' })
+  execFileSync(join(opt, 'agents', 'agent-lock.sh'), args, { env: { ...process.env, HOME: home, ...env }, stdio: 'pipe' })
   const argv = readFileSync(calls, 'utf8').split('\n').slice(0, -1)
   const sep = argv.indexOf('--')
   const got = { rw: [], ro: [], make: [], noLinks: [], command: argv.slice(sep + 1) }
@@ -205,4 +216,72 @@ test('in a container grants nothing a host is told of', () => {
   } finally {
     process.env = saved
   }
+})
+
+// What the person added to what their agent can open comes between FOLDER
+// and --: a folder or file of the home to read (--ro) or to read and change
+// (--rw). It is granted as asked and no wider, and never made: one that is
+// not there is left out, as javo-sandbox refuses a path that does not exist.
+test('grants the folders the person added, to read or to change', () => {
+  const home = temp()
+  const data = join(home, 'data', 'sales-2026')
+  const notes = join(home, 'notes.md')
+  mkdirSync(data, { recursive: true })
+  writeFileSync(notes, 'hello')
+  const gone = join(home, 'gone')
+  const got = lockAdding(home, join(home, 'p'), ['--ro', data, '--rw', notes, '--rw', gone, '--ro', join(gone, 'too')], 'pi', '--ro', 'x')
+  assert.ok(got.ro.includes(data) && !covers(got.rw, data), `--ro ${got.ro} --rw ${got.rw}`)
+  assert.ok(got.rw.includes(notes) && !got.make.includes(notes), `--rw ${got.rw} --rw-make ${got.make}`)
+  assert.ok(!covers([...got.rw, ...got.ro], gone) && !existsSync(gone), `a folder that is not there: --rw ${got.rw} --ro ${got.ro}`)
+  assert.ok(!covers([...got.rw, ...got.ro], join(home, 'data', 'other')), `--rw ${got.rw} --ro ${got.ro}`)
+  // What follows -- is the command's own, whatever it reads as.
+  assert.deepEqual(got.command, ['pi', '--ro', 'x'])
+})
+
+// The platform checks what a person may add; the script takes no path that
+// is not plainly inside the home whatever it was handed: not the home, a
+// folder around it or outside it, and none with ".." or "." in it, which
+// would be another path than it reads as. The agent does not start.
+test('refuses an added path that is not a plain path inside the home', () => {
+  const home = temp()
+  mkdirSync(join(home, '.ssh'))
+  mkdirSync(join(home, 'data'))
+  for (const added of [home, home + '/', join(home, '..'), '/', '/etc', home + '/data/../.ssh', home + '/./.ssh', home + '//data', home + '/data/', 'data', '', home + '-other/data']) {
+    for (const mode of ['--ro', '--rw']) {
+      assert.throws(
+        () => lockAdding(home, join(home, 'p'), [mode, added], 'claude'),
+        (err) => err.status === 125 && err.stderr.toString().includes(`(${added})`),
+        `${mode} ${JSON.stringify(added)} was not refused`,
+      )
+    }
+  }
+})
+
+// Only --ro and --rw come before --, each with its path: anything else
+// there (javo-sandbox's own --rw-make or --no-links-under, a path with no
+// mode, no -- at all) is not a command line the platform writes.
+test('refuses a command line that is not FOLDER, added paths, -- and a command', () => {
+  const home = temp()
+  mkdirSync(join(home, 'data'))
+  const data = join(home, 'data')
+  for (const args of [[], [join(home, 'p')], [join(home, 'p'), '--ro', data], [join(home, 'p'), '--ro', '--', 'claude'], [join(home, 'p'), data, '--', 'claude'],
+    [join(home, 'p'), '--rw-make', data, '--', 'claude'], [join(home, 'p'), '--no-links-under', '/', '--', 'claude'], [join(home, 'p'), 'claude']]) {
+    assert.throws(() => run({}, home, args), (err) => err.status === 125 && err.stderr.toString().includes('usage:'), `${JSON.stringify(args)} was not refused`)
+  }
+})
+
+// A link under the home may lead anywhere in it. An added path that is one
+// (to ~/.ssh, or to nowhere yet) is not looked through and not left out:
+// it goes to javo-sandbox as the link it is, under --no-links-under, which
+// refuses it and does not run the agent (cmd/javo-sandbox proves that).
+test('hands an added path that is a link to javo-sandbox as the link, to be refused', () => {
+  const home = temp()
+  mkdirSync(join(home, '.ssh'))
+  const link = join(home, 'keys')
+  const dangling = join(home, 'later')
+  symlinkSync(join(home, '.ssh'), link)
+  symlinkSync(join(home, '.ssh', 'new'), dangling)
+  const got = lockAdding(home, join(home, 'p'), ['--ro', link, '--rw', dangling], 'claude')
+  assert.deepEqual(got.noLinks, [home])
+  assert.ok(got.ro.includes(link) && got.rw.includes(dangling), `--ro ${got.ro} --rw ${got.rw}`)
 })

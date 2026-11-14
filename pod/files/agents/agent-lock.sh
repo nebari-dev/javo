@@ -1,11 +1,16 @@
 #!/bin/sh
-# agent-lock.sh FOLDER -- COMMAND ARGS...: runs a coding agent's container
-# command locked in with Landlock (javo-sandbox, beside this folder in bin/)
-# when the platform turns the lock on (config workloads.landlock). The agent,
-# and every command it runs, may then write only FOLDER (its project, made
-# if missing), the agents' own state and caches, /tmp and /dev, and read and
-# run only the system, the pod files and the installed environments. The
-# rest of the home (other projects, the person's dotfiles) is refused.
+# agent-lock.sh FOLDER [--ro PATH | --rw PATH]... -- COMMAND ARGS...: runs a
+# coding agent's container command locked in with Landlock (javo-sandbox,
+# beside this folder in bin/) when the platform turns the lock on (config
+# workloads.landlock). The agent, and every command it runs, may then write
+# only FOLDER (its project, made if missing), the agents' own state and
+# caches, /tmp and /dev, and read and run only the system, the pod files and
+# the installed environments. The rest of the home (other projects, the
+# person's dotfiles) is refused, but for what the person added: each PATH,
+# a folder or file of the home, to read (--ro) or to read and change (--rw).
+# The platform checks what a person may add (not their keys, not the home);
+# here a PATH only has to be a plain path inside the home, and one that is
+# not there is left out, never made.
 #
 # The state folders are those of every agent in the environment, as any of
 # them may run in another's terminal: Claude Code (~/.claude and its
@@ -25,24 +30,36 @@
 # so none is made through a link either. The system's folders are not the
 # agent's to write and are followed, as /bin is a link to /usr/bin.
 set -eu
+usage() {
+  echo "usage: agent-lock.sh FOLDER [--ro PATH | --rw PATH]... -- COMMAND ARGS..." >&2
+  exit 125
+}
+# plain PATH: PATH is a whole path from /, with no ".." or "." in it to make
+# it another path than it reads as.
+plain() {
+  case $1/ in
+  /*) ;;
+  *) return 1 ;;
+  esac
+  case $1/ in
+  / | *//* | */./* | */../*) return 1 ;;
+  esac
+}
+[ $# -gt 0 ] || usage
 folder=$1
 asked=$1
 shift
-if [ "${1:-}" != -- ]; then
-  echo "usage: agent-lock.sh FOLDER -- COMMAND ARGS..." >&2
-  exit 125
-fi
+# The words up to -- are the added paths, each after its --ro or --rw.
+words=0
+for word; do
+  [ "$word" != -- ] || break
+  words=$((words + 1))
+done
+[ "$words" -lt $# ] && [ $((words % 2)) -eq 0 ] || usage
 here=${0%/*}
-# FOLDER is a whole path from /, with no ".." or "." in it to make it another
-# folder than it reads as, and is not the home or a folder the home is in:
+# FOLDER is a plain path, and is not the home or a folder the home is in:
 # locked to that the lock would keep nothing out.
-case $folder/ in
-/*) ;;
-*) folder= ;;
-esac
-case $folder/ in
-/ | *//* | */./* | */../*) folder= ;;
-esac
+plain "$folder" || folder=
 case $HOME/ in
 "$folder"/*) folder= ;;
 esac
@@ -50,6 +67,41 @@ if [ -z "$folder" ]; then
   echo "agent-lock.sh: the folder to lock the agent to ($asked) must be a path from / to a folder of its own, not the home ($HOME) or a folder around it; not running the command" >&2
   exit 125
 fi
+# An added PATH is a plain path inside the home. One that is there goes
+# behind the command for now, with its --ro or --rw, and the command line
+# is turned once all are read, so they come first: no path is ever split
+# or quoted again. A link is handed on too, there or not: javo-sandbox
+# refuses it (--no-links-under), and the agent does not start.
+added=0
+while [ "$words" -gt 0 ]; do
+  mode=$1
+  path=$2
+  shift 2
+  words=$((words - 2))
+  case $mode in
+  --ro | --rw) ;;
+  *) usage ;;
+  esac
+  inside=
+  case $path in
+  "$HOME"/?*) inside=1 ;;
+  esac
+  if [ -z "$inside" ] || ! plain "$path"; then
+    echo "agent-lock.sh: an added folder or file ($path) must be a path from / inside the home ($HOME); not running the command" >&2
+    exit 125
+  fi
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    set -- "$@" "$mode" "$path"
+    added=$((added + 2))
+  fi
+done
+turn=$(($# - added))
+while [ "$turn" -gt 0 ]; do
+  word=$1
+  shift
+  set -- "$@" "$word"
+  turn=$((turn - 1))
+done
 # Each grant goes in front of what is left of the command line (-- COMMAND
 # ARGS...) with set --, so no path is ever split or quoted again.
 for d in "$folder" "$HOME/.claude" "$HOME/.pi" "$HOME/.harf" "$HOME/.config/herdr" "$HOME/.javo/agent-prompts" "$HOME/.cache" "$HOME/.npm"; do

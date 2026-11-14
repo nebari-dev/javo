@@ -277,3 +277,80 @@ func TestPathNamingAParentFolderIsRefused(t *testing.T) {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 125 refusing ..", r.code, r.stdout, r.stderr)
 	}
 }
+
+// agentLock runs the pod's agent-lock.sh (pod/files/agents) as a pod does:
+// from a copy of the pod files with this javo-sandbox beside it in bin/,
+// and HOME home.
+func agentLock(t *testing.T, home string, args ...string) result {
+	t.Helper()
+	opt := t.TempDir()
+	script, err := os.ReadFile(filepath.Join("..", "..", "pod", "files", "agents", "agent-lock.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"agents", "bin"} {
+		if err := os.Mkdir(filepath.Join(opt, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lock := filepath.Join(opt, "agents", "agent-lock.sh")
+	if err := os.WriteFile(lock, script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, os.Args[0], filepath.Join(opt, "bin", "javo-sandbox"))
+	cmd := exec.Command(lock, args...)
+	cmd.Env = append(os.Environ(), "JAVO_SANDBOX_AS_MAIN=1", "HOME="+home)
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	code := 0
+	if ee, ok := cmd.Run().(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	}
+	return result{code, out.String(), errOut.String()}
+}
+
+// What a person added to what their agent can open is opened as they said:
+// a folder to read is read and not written, one to change is written, and
+// another project stays shut. One that is a link to ~/.ssh opens nothing:
+// the agent does not start at all, so it never reads through the link.
+// This is the whole way a pod goes, agent-lock.sh and javo-sandbox, in a
+// home outside /tmp (which the script grants).
+func TestAgentIsLetIntoAddedFoldersButNeverThroughALink(t *testing.T) {
+	home, err := os.MkdirTemp("/var/tmp", "javo-sandbox-home-")
+	if err != nil {
+		t.Skip("no folder outside /tmp to stand in for a home:", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	project, data := filepath.Join(home, "projects", "api"), filepath.Join(home, "data")
+	key, other := filepath.Join(home, ".ssh", "a-private-key"), filepath.Join(home, "projects", "other", "notes")
+	for _, d := range []string{project, data, filepath.Dir(key), filepath.Dir(other)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for file, text := range map[string]string{key: "s3cret", other: "private", filepath.Join(data, "sales.csv"): "q1,10"} {
+		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const try = `cat "$1/sales.csv"; echo new > "$1/new" && echo written; cat "$2" || true`
+
+	r := agentLock(t, home, project, "--", "sh", "-c", try, "sh", data, other)
+	if strings.Contains(r.stdout, "q1,10") || strings.Contains(r.stdout, "written") || strings.Contains(r.stdout, "private") {
+		t.Errorf("nothing added: the agent opened %q", r.stdout)
+	}
+	r = agentLock(t, home, project, "--ro", data, "--", "sh", "-c", try, "sh", data, other)
+	if !strings.Contains(r.stdout, "q1,10") || strings.Contains(r.stdout, "written") || strings.Contains(r.stdout, "private") {
+		t.Errorf("added to read: stdout %q, stderr %q; want the file read, nothing written and no other project", r.stdout, r.stderr)
+	}
+	r = agentLock(t, home, project, "--rw", data, "--", "sh", "-c", try, "sh", data, other)
+	if !strings.Contains(r.stdout, "q1,10") || !strings.Contains(r.stdout, "written") || strings.Contains(r.stdout, "private") {
+		t.Errorf("added to change: stdout %q, stderr %q; want the file read and written, and no other project", r.stdout, r.stderr)
+	}
+
+	link := filepath.Join(home, "keys")
+	symlink(t, filepath.Dir(key), link)
+	for _, mode := range []string{"--ro", "--rw"} {
+		wantLinkRefused(t, agentLock(t, home, project, mode, link, "--", "cat", filepath.Join(link, "a-private-key")))
+	}
+}
