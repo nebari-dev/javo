@@ -262,6 +262,13 @@ func TestLockedAgentIsLockedInsideTheHomeWhateverItsFolder(t *testing.T) {
 		"../../etc":       "/home/user/etc",
 		"/etc":            "/home/user/etc",
 		"projects/api/..": "/home/user/projects",
+		// What no agent may be let into is no folder to lock one to: it
+		// would be opened to read and change.
+		".aws":                 "/home/user/projects/todo-app",
+		".ssh":                 "/home/user/projects/todo-app",
+		".config/gh":           "/home/user/projects/todo-app",
+		".local/bin":           "/home/user/projects/todo-app",
+		"projects/api/.github": "/home/user/projects/api/.github",
 	} {
 		ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "todo-app", Owner: "alice", Template: tpl.Name, File: file}
 		argv := argvOf(t, ws, tpl, lockedImages())

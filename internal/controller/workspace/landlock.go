@@ -61,12 +61,15 @@ func (p places) ownProject(ws *model.App) string {
 // the one it opens, else one of its own. Locked to the whole home the lock
 // would keep nothing out, so a path that names the home itself ("." in an
 // app made past the gateway, which stores that as no folder) is no folder
-// either. filePath keeps every other path under the home.
+// either, and neither is what no agent may be let into (neverProblem,
+// the rule for the folders an owner adds): the lock folder is opened to
+// read and change. filePath keeps every other path under the home.
 func (p places) lockFolder(ws *model.App) string {
-	if folder := p.filePath(ws); folder != "" && folder != p.home {
-		return folder
+	folder := p.filePath(ws)
+	if in, inHome := strings.CutPrefix(folder, p.home+"/"); folder == "" || folder == p.home || inHome && neverProblem(in) != nil {
+		return p.ownProject(ws)
 	}
-	return p.ownProject(ws)
+	return folder
 }
 
 // lockAgent is command run under the agent lock of an app ws planned at
