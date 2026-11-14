@@ -1,10 +1,12 @@
 package apps_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/nebari-dev/javo/internal/auth/token"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/apps"
@@ -364,6 +366,35 @@ func TestDirectorySearchesAreRateLimited(t *testing.T) {
 	}
 	if w := f.Do("GET", "/api/directory?q=bob", "", f.Session(apitest.AliceID)); w.Code != http.StatusOK {
 		t.Fatalf("another person's search: %d", w.Code)
+	}
+}
+
+// The directory lists people's names and emails, so it answers the people
+// who can share something (members), and not an app's or job's own token,
+// which anyone the app is shared with can make act.
+func TestDirectoryAnswersOnlyMembersInPerson(t *testing.T) {
+	t.Parallel()
+	f := apitest.NewSharingFixture(t, apitest.Options{Roles: apitest.RolesConfig()})
+	w := f.Do("GET", "/api/directory?q=bob", "", f.Session(apitest.CarolID))
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgNotAMember) {
+		t.Fatalf("someone who is not a member: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("GET", "/api/directory?q=bob", "", f.Session(apitest.CarolID, "/org/members")); w.Code != http.StatusOK {
+		t.Fatalf("a member: %d %s", w.Code, w.Body)
+	}
+
+	agent := gatewaytest.Workspace("agent", apitest.LocalAlice(), "Agent")
+	agent.Template = "agent"
+	f = apitest.New(t, apitest.Options{}, apitest.AgentTemplate(), agent)
+	f.LoginAlice()
+	tok, _, err := f.Tokens.Create(context.Background(), model.Actor{Person: apitest.LocalAlice()}, token.Token{Name: "agent", Owner: apitest.LocalAlice(), Scope: token.ScopeReadWrite,
+		App: &token.App{Namespace: agent.Namespace, Name: agent.ObjectName(), Short: "agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = f.Bearer("GET", "/api/directory?q=bob", "", tok, nil)
+	if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgAgentBrowserOnly) {
+		t.Fatalf("an app's own token: %d %s", w.Code, w.Body)
 	}
 }
 

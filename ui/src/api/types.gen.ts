@@ -3882,6 +3882,10 @@ export type SearchDirectoryErrors = {
      */
     401: ErrorModel;
     /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
      * Unprocessable Entity
      */
     422: ErrorModel;
