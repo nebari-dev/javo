@@ -133,6 +133,9 @@ func TestDecide(t *testing.T) {
 		{"stranger shares private app: not found", bob, authz.ActShareApp, authz.Object{App: ws("Private", nil, nil), Template: open}, false, "", reasons.MsgAppNotFound},
 		{"anonymous shares private app: not found", anon, authz.ActShareApp, authz.Object{App: ws("", nil, nil), Template: open}, false, "", reasons.MsgAppNotFound},
 		{"share with no workspace: not found", alice, authz.ActShareApp, authz.Object{}, false, "", reasons.MsgAppNotFound},
+		{"owner shares with more people", alice, authz.ActWidenSharing, authz.Object{App: ws("", nil, nil)}, true, "owner", ""},
+		{"admin cannot share another's app with more people", admin, authz.ActWidenSharing, authz.Object{App: ws("", nil, nil)}, false, "", reasons.MsgShareNotAllowed},
+		{"widen with no workspace", alice, authz.ActWidenSharing, authz.Object{}, false, "", reasons.MsgShareNotAllowed},
 		{"zero principal opens signed-in app", authz.Principal{}, authz.ActOpenApp, authz.Object{App: ws("SignedIn", nil, nil), Template: open}, false, "", reasons.MsgAppNotFound},
 
 		// create

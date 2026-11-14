@@ -328,6 +328,11 @@ func (s *sharing) set(ctx context.Context, in *sharingInput) (*sharingOutput, er
 	if b.Access != model.AccessPrivate {
 		next.Users, next.Groups = dedupe(b.Users), dedupe(b.Groups)
 	}
+	if p := authn.User(ctx); next.WiderThan(app.Sharing) {
+		if d := authz.Decide(p, authz.RolesOf(p, s.roles), authz.ActWidenSharing, authz.Object{App: app}); !d.Allowed {
+			return nil, problem.New(http.StatusForbidden, reasons.Msg(d.Code))
+		}
+	}
 	saved, err := s.ws.updateApp(ctx, app, func(a *model.App) { a.Sharing = next })
 	if err != nil {
 		return nil, err

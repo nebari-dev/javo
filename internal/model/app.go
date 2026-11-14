@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -144,6 +145,23 @@ type Sharing struct {
 	Users []string `json:"users,omitempty"`
 	// Groups are group values kept verbatim from the provider.
 	Groups []string `json:"groups,omitempty"`
+}
+
+// WiderThan reports whether s lets in anyone old did not: a higher access
+// level, or a person or group old did not name. A name added while the level
+// drops counts, so a change is either wider or it only takes away.
+func (s Sharing) WiderThan(old Sharing) bool {
+	rank, was := AccessRank(s.Access), AccessRank(old.Access)
+	if rank <= AccessRank(AccessPrivate) {
+		return false
+	}
+	if rank > was {
+		return true
+	}
+	added := func(now, before []string) bool {
+		return slices.ContainsFunc(now, func(n string) bool { return !slices.Contains(before, n) })
+	}
+	return added(s.Users, old.Users) || added(s.Groups, old.Groups)
 }
 
 // AppResources is a custom CPU and memory for the app container, set as

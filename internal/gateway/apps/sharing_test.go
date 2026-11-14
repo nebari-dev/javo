@@ -535,3 +535,39 @@ func TestCodeEditorsShareOnlyWithChosenPeople(t *testing.T) {
 		}
 	}
 }
+
+// A platform admin cannot open someone's code editor, so they must not be
+// able to share it with themselves either: only the owner lets more people
+// in. An admin can still shut an app that is shared too far.
+func TestOnlyTheOwnerSharesAnAppWithMorePeople(t *testing.T) {
+	t.Parallel()
+	f := shareFixture(t, gatewaytest.Template("streamlit", "vscode"))
+	alice, root := f.Session(apitest.AliceID), f.Session(admin, "javo-admins")
+	path := apitest.SharePath + "?owner=" + apitest.AliceID
+	if w := f.Do("PUT", apitest.SharePath, `{"access":"Restricted","users":["`+apitest.BobID+`"],"groups":["/org/ml"]}`, alice); w.Code != http.StatusOK {
+		t.Fatalf("owner shares: %d %s", w.Code, w.Body)
+	}
+
+	for _, body := range []string{
+		`{"access":"Restricted","users":["` + apitest.BobID + `"],"groups":["/org/ml","javo-admins"]}`,
+		`{"access":"Restricted","users":["` + apitest.BobID + `","` + apitest.AliceID + `"],"groups":["/org/ml"]}`,
+	} {
+		w := f.Do("PUT", path, body, root)
+		if w.Code != http.StatusForbidden || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgShareNotAllowed) {
+			t.Fatalf("admin widens with %s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	if got := f.GetWorkspace(apitest.AliceID, "report").Sharing; len(got.Users) != 1 || len(got.Groups) != 1 {
+		t.Fatalf("sharing changed to %+v", got)
+	}
+
+	if w := f.Do("PUT", path, `{"access":"Restricted","users":[],"groups":["/org/ml"]}`, root); w.Code != http.StatusOK {
+		t.Fatalf("admin removes a person: %d %s", w.Code, w.Body)
+	}
+	if w := f.Do("PUT", path, `{"access":"Private","users":[],"groups":[]}`, root); w.Code != http.StatusOK {
+		t.Fatalf("admin ends the sharing: %d %s", w.Code, w.Body)
+	}
+	if got := f.GetWorkspace(apitest.AliceID, "report").Sharing; got.Access != model.AccessPrivate || len(got.Groups) != 0 {
+		t.Fatalf("stored %+v", got)
+	}
+}

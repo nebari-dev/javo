@@ -82,8 +82,9 @@ type Action string
 
 const (
 	ActOpenApp         Action = "OpenApp"
-	ActManageApp       Action = "ManageApp" // start, stop, delete, edit
-	ActShareApp        Action = "ShareApp"
+	ActManageApp       Action = "ManageApp"    // start, stop, delete, edit
+	ActShareApp        Action = "ShareApp"     // see who an app is shared with, and take people away
+	ActWidenSharing    Action = "WidenSharing" // let more people into an app (model.Sharing.WiderThan)
 	ActCreateApp       Action = "CreateApp"
 	ActUseTemplate     Action = "UseTemplate"
 	ActManageTemplates Action = "ManageTemplates"
@@ -168,6 +169,13 @@ func Decide(p Principal, roles []Role, act Action, obj Object) Decision {
 		// Someone who cannot open the app must not learn it exists.
 		if !openApp(p, admin, obj).Allowed {
 			return deny(reasons.MsgAppNotFound)
+		}
+		return deny(reasons.MsgShareNotAllowed)
+	case ActWidenSharing:
+		// Not a platform admin: sharing an app with themselves would open
+		// one that openApp keeps from them.
+		if obj.App != nil && isOwner(p, obj.App) {
+			return allow("owner")
 		}
 		return deny(reasons.MsgShareNotAllowed)
 	case ActCreateApp, ActCreateJob:
