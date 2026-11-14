@@ -201,8 +201,10 @@ func TestASessionEndsAfterSessionsTTL(t *testing.T) {
 func TestStaleGroupsMountNoGroupFolder(t *testing.T) {
 	ctx := context.Background()
 	db := storetest.New(t)
-	var p config.Platform
-	p.API.Tokens.GroupsMaxAge.Duration = 24 * time.Hour
+	p, err := config.Parse("config", []byte("auth:\n  local:\n    enabled: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	claims := store.Claims{Issuer: "https://idp.example.com", Subject: "s-a", Username: "alice", Groups: []string{"research"}}
 	alice, err := db.People(store.IDRange{}).Ensure(ctx, claims)
 	if err != nil {
@@ -235,13 +237,13 @@ func TestStaleGroupsMountNoGroupFolder(t *testing.T) {
 		}
 		return len(in.Folders)
 	}
-	now = now.Add(23 * time.Hour)
+	now = now.Add(6 * 24 * time.Hour)
 	if n := mounted(); n != 1 {
-		t.Fatalf("23 hours after sign-in: %d group folders", n)
+		t.Fatalf("6 days after sign-in: %d group folders", n)
 	}
-	now = now.Add(2 * time.Hour)
+	now = now.Add(2 * 24 * time.Hour)
 	if n := mounted(); n != 0 {
-		t.Fatalf("25 hours after sign-in: %d group folders", n)
+		t.Fatalf("8 days after sign-in: %d group folders", n)
 	}
 	// Signing in again (the people table records it on the real clock)
 	// brings the folder back.

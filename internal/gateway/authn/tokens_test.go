@@ -177,10 +177,10 @@ func TestExpiredToken(t *testing.T) {
 	}
 }
 
-// With nothing set in the config, a token stops a day after its owner's
+// With nothing set in the config, a token stops a week after its owner's
 // groups were last confirmed, so someone removed at the identity provider
 // does not keep working tokens for longer than that.
-func TestATokenStopsADayAfterItsOwnersLastSignInByDefault(t *testing.T) {
+func TestATokenStopsAWeekAfterItsOwnersLastSignInByDefault(t *testing.T) {
 	t.Parallel()
 	p, err := config.Parse("config", []byte("auth:\n  local:\n    enabled: true\n"))
 	if err != nil {
@@ -189,14 +189,14 @@ func TestATokenStopsADayAfterItsOwnersLastSignInByDefault(t *testing.T) {
 	now := time.Now()
 	f := apitest.New(t, apitest.Options{Now: func() time.Time { return now }, GroupsMaxAge: p.API.Tokens.GroupsMaxAge.Duration})
 	tok := f.NewToken(f.LoginAlice(), `{"name":"ci","scope":"read"}`)
-	now = now.Add(23 * time.Hour)
+	now = now.Add(6 * 24 * time.Hour)
 	if w := f.Bearer("GET", "/api/me", "", tok.Token, nil); w.Code != http.StatusOK {
-		t.Fatalf("23 hours after sign-in: %d %s", w.Code, w.Body)
+		t.Fatalf("6 days after sign-in: %d %s", w.Code, w.Body)
 	}
-	now = now.Add(2 * time.Hour)
+	now = now.Add(2 * 24 * time.Hour)
 	w := f.Bearer("GET", "/api/me", "", tok.Token, nil)
 	if w.Code != http.StatusUnauthorized || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgTokenSignInAgain) {
-		t.Fatalf("25 hours after sign-in: %d %s", w.Code, w.Body)
+		t.Fatalf("8 days after sign-in: %d %s", w.Code, w.Body)
 	}
 }
 
