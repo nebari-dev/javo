@@ -136,6 +136,9 @@ type Workspace struct {
 	// Trust is whether a coding agent acts without asking; absent for any
 	// app that cannot (not a coding agent with read-write API access).
 	Trust *TrustView `json:"trust,omitempty"`
+	// Folders is what a coding agent that starts locked in can open; absent
+	// for any other app, and while the platform does not lock agents in.
+	Folders *FoldersView `json:"folders,omitempty"`
 }
 
 // Workspaces is the app API: /api/workspaces and every route about one app.
@@ -844,6 +847,7 @@ func (s *Workspaces) View(ctx context.Context, app *model.App, tpls map[string]*
 		Run:          run,
 		AgentPrompt:  app.AgentPrompt,
 		Trust:        s.trustView(ctx, app, tpls[app.Template]),
+		Folders:      s.foldersView(app, tpls[app.Template]),
 	}
 }
 
@@ -950,6 +954,7 @@ func (s *Workspaces) Register(api huma.API) {
 	s.registerWorkspaces(api)
 	s.registerAgent(api)
 	s.registerTrust(api)
+	s.registerFolders(api)
 	s.registerDiagnosis(api)
 	pa := &plansAPI{ws: s, plans: c.Plans}
 	pa.register(api)

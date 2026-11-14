@@ -828,6 +828,33 @@ export type FileListing = {
     truncated: boolean;
 };
 
+export type FolderGrant = {
+    mode: 'read' | 'write';
+    path: string;
+};
+
+export type FoldersInputBody = {
+    /**
+     * Every folder and file of your home the agent can open besides its project: the whole list, each with a path relative to the home and read or write
+     */
+    folders: Array<FolderGrant> | null;
+};
+
+export type FoldersView = {
+    /**
+     * What the owner added, as paths relative to the home
+     */
+    grants: Array<FolderGrant> | null;
+    /**
+     * Places of a home no agent can be let into, nor a folder that holds one, each with why
+     */
+    never: Array<NeverFolder> | null;
+    /**
+     * The folder the agent works in and is locked to, always open to read and change; ~ is the home
+     */
+    project: string;
+};
+
 export type Group = {
     label: string;
     value: string;
@@ -1088,6 +1115,11 @@ export type Me = {
     picture?: string;
     roles: Array<string> | null;
     username: string;
+};
+
+export type NeverFolder = {
+    path: string;
+    why: string;
 };
 
 export type NewWebhookInputBody = {
@@ -2037,6 +2069,7 @@ export type Workspace = {
     environment?: EnvironmentView;
     file: string;
     filePath?: string;
+    folders?: FoldersView;
     idleStopMinutes: number;
     image: string;
     kind: string;
@@ -2249,6 +2282,7 @@ export type WorkspaceWritable = {
     environment?: EnvironmentView;
     file: string;
     filePath?: string;
+    folders?: FoldersView;
     idleStopMinutes: number;
     image: string;
     kind: string;
@@ -6411,6 +6445,58 @@ export type ListWorkspaceEventsResponses = {
 };
 
 export type ListWorkspaceEventsResponse = ListWorkspaceEventsResponses[keyof ListWorkspaceEventsResponses];
+
+export type SetWorkspaceFoldersData = {
+    body: FoldersInputBody;
+    path: {
+        name: string;
+    };
+    query?: {
+        /**
+         * Identity name of the app's owner; default the caller
+         */
+        owner?: string;
+    };
+    url: '/api/workspaces/{name}/folders';
+};
+
+export type SetWorkspaceFoldersErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type SetWorkspaceFoldersError = SetWorkspaceFoldersErrors[keyof SetWorkspaceFoldersErrors];
+
+export type SetWorkspaceFoldersResponses = {
+    /**
+     * OK
+     */
+    200: Workspace;
+};
+
+export type SetWorkspaceFoldersResponse = SetWorkspaceFoldersResponses[keyof SetWorkspaceFoldersResponses];
 
 export type SetWorkspaceIdleStopData = {
     body: IdleStopInputBody;

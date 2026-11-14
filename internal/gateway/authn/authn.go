@@ -420,6 +420,7 @@ var sessionOnlyRoutes = []struct {
 	{isTokenRoute, reasons.MsgTokenCannotManageTokens},
 	{IsPlanDecision, reasons.MsgPlanSessionOnly},
 	{IsTrustChange, reasons.MsgTrustSessionOnly},
+	{IsFoldersChange, reasons.MsgFoldersOwnerOnly},
 	{IsDeviceDecision, reasons.MsgDeviceSessionOnly},
 }
 
@@ -779,13 +780,23 @@ func IsPlanDecision(p string) bool {
 // browser may use: no token, so no agent, can give itself or another agent
 // that. The path is cleaned first, as IsPlanDecision does. OpenAPI path
 // templates ({name}) match too.
-func IsTrustChange(p string) bool {
+func IsTrustChange(p string) bool { return isAppRoute(p, "trust") }
+
+// IsFoldersChange is true for the route that changes what a locked coding
+// agent can open, which only a signed-in person in the browser may use: no
+// token, so no agent, can open its own lock. Paths match as for
+// IsTrustChange.
+func IsFoldersChange(p string) bool { return isAppRoute(p, "folders") }
+
+// isAppRoute is true for the route /api/workspaces/<name>/<verb>, with the
+// path cleaned first.
+func isAppRoute(p, verb string) bool {
 	rest, ok := strings.CutPrefix(path.Clean("/"+p), "/api/workspaces/")
 	if !ok {
 		return false
 	}
-	name, verb, ok := strings.Cut(rest, "/")
-	return ok && name != "" && verb == "trust"
+	name, got, ok := strings.Cut(rest, "/")
+	return ok && name != "" && got == verb
 }
 
 // NoTokens refuses a request made with any API token: for the routes only a

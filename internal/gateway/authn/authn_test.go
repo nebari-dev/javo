@@ -296,6 +296,19 @@ func TestIsPlanDecisionCleansThePath(t *testing.T) {
 	}
 }
 
+func TestIsFoldersChangeCleansThePath(t *testing.T) {
+	for _, p := range []string{"/api/workspaces/pi/folders", "/api/workspaces//pi/folders", "/api/workspaces/x/../pi/folders", "api/workspaces/pi/folders/"} {
+		if !authn.IsFoldersChange(p) {
+			t.Errorf("%q is not a change of an agent's folders", p)
+		}
+	}
+	for _, p := range []string{"/api/workspaces/folders", "/api/workspaces/pi/folder", "/api/workspaces/pi/folders/x", "/api/jobs/pi/folders"} {
+		if authn.IsFoldersChange(p) {
+			t.Errorf("%q is a change of an agent's folders", p)
+		}
+	}
+}
+
 func TestIsTrustChangeCleansThePath(t *testing.T) {
 	for _, p := range []string{"/api/workspaces/pi/trust", "/api/workspaces//pi/trust", "/api/workspaces/x/../pi/trust", "api/workspaces/pi/trust/"} {
 		if !authn.IsTrustChange(p) {

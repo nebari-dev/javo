@@ -298,6 +298,10 @@ const (
 	MsgAISettingsKey          MessageCode = "AISettingsKey"
 	MsgAISettingsKeyOrRemove  MessageCode = "AISettingsKeyOrRemove"
 	// Letting a coding agent act without asking (model.App.TrustedUntil).
+	// What a locked coding agent can open besides its project.
+	MsgFoldersOwnerOnly MessageCode = "FoldersOwnerOnly"
+	MsgFoldersNotLocked MessageCode = "FoldersNotLocked"
+	MsgFolderRefused    MessageCode = "FolderRefused" // arg: why, a sentence without its full stop
 	MsgTrustSessionOnly MessageCode = "TrustSessionOnly"
 	MsgTrustOwnerOnly   MessageCode = "TrustOwnerOnly"
 	MsgTrustNotAgent    MessageCode = "TrustNotAgent"
@@ -612,6 +616,9 @@ var messages = map[MessageCode]string{
 	MsgAISettingsModel:        "Name the model in up to 200 characters, such as claude-opus-5-5.",
 	MsgAISettingsKey:          "Paste the key as it is, at most 4096 characters, with no spaces or line breaks.",
 	MsgAISettingsKeyOrRemove:  "Paste a new key or remove the stored one, not both.",
+	MsgFoldersOwnerOnly:       "Only the owner, signed in in the browser, can change what an agent can open. No API token can, not even the agent's own.",
+	MsgFoldersNotLocked:       "Only a coding agent that starts locked to its project has a list of what it can open.",
+	MsgFolderRefused:          "Not added. %s.",
 	MsgTrustSessionOnly:       "Only the owner, signed in in the browser, can let an agent act without asking. No API token can, not even the agent's own.",
 	MsgTrustOwnerOnly:         "Only the app's owner can let its agent act without asking: the agent would act as them.",
 	MsgTrustNotAgent:          "Only a coding agent that can read and change your apps through the API can act without asking.",

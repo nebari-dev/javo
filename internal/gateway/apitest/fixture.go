@@ -174,6 +174,8 @@ type Options struct {
 	Environments envsource.Source
 	// PublicHost and PixiImage are Config.PublicHost and Config.PixiImage.
 	PublicHost, PixiImage string
+	// LockAgents is Config.LockAgents (workloads.landlock).
+	LockAgents bool
 	// Nebi, when set, gives the gateway a nebi.Tokens over it (Nebi on).
 	Nebi nebi.TokenSource
 	// Limits are the store's per-person caps; the zero value is none.
@@ -306,7 +308,7 @@ func New(t *testing.T, o Options, objs ...any) *Fixture {
 		Diagnose: diagnose.NewEngine(diagnose.DefaultRules()...),
 		AI:       o.Ai, AgentModel: o.AgentModel, AISettings: live, Agent: o.Agent, MCP: config.MCPCfg{Enabled: o.Mcp, PublicURL: o.PublicURL}, AIFeatures: config.AIFeatures{Explain: true, Draft: true, Palette: true, Admin: true},
 		NetworkPolicy: policy, Engines: o.Engines, ContainerImages: o.Images, Ready: o.Ready, PreviewsEnabled: o.Previews, Thumbnails: o.Thumbnails, PreviewsMaxPerApp: o.PreviewsMax, CodeHosts: o.CodeHosts, Backups: o.Backups,
-		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage,
+		Environments: o.Environments, PublicHost: o.PublicHost, PixiImage: o.PixiImage, LockAgents: o.LockAgents,
 		TrustedAgents: !o.NoTrustedAgents,
 	})
 	return &Fixture{AI: live, T: t, Client: c, Db: db, People: people, Store: sessions, Tokens: tokens, Srv: srv, Revalidator: rv, secure: o.Urls.SecureCookies(o.Secure)}

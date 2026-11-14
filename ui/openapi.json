@@ -2264,6 +2264,81 @@
         ],
         "type": "object"
       },
+      "FolderGrant": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "read",
+              "write"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "mode"
+        ],
+        "type": "object"
+      },
+      "FoldersInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "folders": {
+            "description": "Every folder and file of your home the agent can open besides its project: the whole list, each with a path relative to the home and read or write",
+            "items": {
+              "$ref": "#/components/schemas/FolderGrant"
+            },
+            "maxItems": 16,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "folders"
+        ],
+        "type": "object"
+      },
+      "FoldersView": {
+        "additionalProperties": false,
+        "properties": {
+          "grants": {
+            "description": "What the owner added, as paths relative to the home",
+            "items": {
+              "$ref": "#/components/schemas/FolderGrant"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "never": {
+            "description": "Places of a home no agent can be let into, nor a folder that holds one, each with why",
+            "items": {
+              "$ref": "#/components/schemas/NeverFolder"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "project": {
+            "description": "The folder the agent works in and is locked to, always open to read and change; ~ is the home",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "grants",
+          "never"
+        ],
+        "type": "object"
+      },
       "Group": {
         "additionalProperties": false,
         "properties": {
@@ -2981,6 +3056,22 @@
           "displayName",
           "groups",
           "roles"
+        ],
+        "type": "object"
+      },
+      "NeverFolder": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "why"
         ],
         "type": "object"
       },
@@ -5525,6 +5616,9 @@
           },
           "filePath": {
             "type": "string"
+          },
+          "folders": {
+            "$ref": "#/components/schemas/FoldersView"
           },
           "idleStopMinutes": {
             "format": "int32",
@@ -13505,6 +13599,125 @@
           }
         },
         "summary": "Kubernetes events of an app's pod and home folder (with the Job that readies it), oldest first; the home step's warnings come before its other events",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/workspaces/{name}/folders": {
+      "put": {
+        "description": "For a coding agent on a platform that starts agents locked to their project. The agent, and every command it runs, can then also read (read) or read and change (write) the folders and files listed. The places in folders.never of the app, and any folder that holds one, are always refused. The lock is set when the agent starts, so a running agent restarts.",
+        "operationId": "setWorkspaceFolders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Identity name of the app's owner; default the caller",
+            "explode": false,
+            "in": "query",
+            "name": "owner",
+            "schema": {
+              "description": "Identity name of the app's owner; default the caller",
+              "maxLength": 253,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FoldersInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Change what a locked coding agent can open besides its project (browser session only; a running agent restarts)",
         "tags": [
           "workspaces"
         ]
