@@ -614,8 +614,9 @@ func (l APILimitsCfg) WithDefaults() APILimitsCfg {
 // TokensCfg limits personal API tokens.
 type TokensCfg struct {
 	// GroupsMaxAge is how long after the owner's last sign-in a token keeps
-	// working. A token acts with the groups seen at that sign-in, so a
-	// group the provider removed cannot live on through a token.
+	// working; default 24h. A token acts with the groups seen at that
+	// sign-in, so a group the provider removed, or a person it removed,
+	// cannot live on through a token for longer.
 	GroupsMaxAge metav1.Duration `json:"groupsMaxAge"`
 	// MaxLifetime is the longest expiry a new token may have; zero allows
 	// tokens that never expire.
@@ -801,7 +802,7 @@ func (p *Platform) applyDefaults() {
 	setDur(&p.Identity.StaleAfter, 90*24*time.Hour)
 	setDur(&p.Sessions.TTL, 12*time.Hour)
 	setDur(&p.Sessions.SweepEvery, 5*time.Minute)
-	setDur(&p.API.Tokens.GroupsMaxAge, 7*24*time.Hour)
+	setDur(&p.API.Tokens.GroupsMaxAge, 24*time.Hour)
 	p.API.Limits = p.API.Limits.WithDefaults()
 	setDur(&p.AI.Timeout, 60*time.Second)
 	setDur(&p.Plans.TTL, 10*time.Minute)
