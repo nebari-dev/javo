@@ -300,7 +300,7 @@
         "additionalProperties": false,
         "properties": {
           "apiKey": {
-            "description": "Write-only; leave out to keep the stored key",
+            "description": "Write-only; leave out to keep the stored key, which only works while baseURL stays on the same server",
             "maxLength": 4096,
             "type": "string"
           },
@@ -7634,7 +7634,7 @@
         ]
       },
       "put": {
-        "description": "Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps.",
+        "description": "Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps. A change of the address to another server (scheme, host or port) needs the key again.",
         "operationId": "setAgentSettings",
         "requestBody": {
           "content": {

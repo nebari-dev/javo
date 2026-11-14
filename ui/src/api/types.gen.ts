@@ -127,7 +127,7 @@ export type AgentSettings = {
 
 export type AgentSettingsInputBody = {
     /**
-     * Write-only; leave out to keep the stored key
+     * Write-only; leave out to keep the stored key, which only works while baseURL stays on the same server
      */
     apiKey?: string;
     /**

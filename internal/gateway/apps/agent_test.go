@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/apps"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/reasons"
 )
 
 const ownKey = "sk-own-PLACEHOLDER-key-9876"
@@ -130,6 +132,47 @@ func TestOwnAgentKeyIsSealedAndWriteOnly(t *testing.T) {
 	}
 	if _, err := f.Db.Secrets().Get(context.Background(), apitest.LocalAlice(), model.AgentKeySecret); err == nil {
 		t.Fatal("the key secret is still stored")
+	}
+}
+
+// The stored key goes only to the server it was saved for: an address on
+// another scheme, host or port needs the key typed again, or whoever holds
+// the session could have it sent to a server of theirs.
+func TestOwnAgentKeyStaysWithTheServerItWasSavedFor(t *testing.T) {
+	t.Parallel()
+	f := agentFixture(t, "", nil)
+	alice := f.LoginAlice()
+	put := func(baseURL, key string) *httptest.ResponseRecorder {
+		body := `{"baseURL":"` + baseURL + `","model":"m"`
+		if key != "" {
+			body += `,"apiKey":"` + key + `"`
+		}
+		return f.Do("PUT", "/api/ai/agent/settings", body+"}", alice)
+	}
+	if w := put("https://llm.example.com/v1", ownKey); w.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", w.Code, w.Body)
+	}
+	for _, elsewhere := range []string{"https://llm.example.net/v1", "https://llm.example.com:8443/v1", "https://api.llm.example.com/v1"} {
+		w := put(elsewhere, "")
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("%s without the key: %d %s", elsewhere, w.Code, w.Body)
+		}
+		if msg, _ := apitest.Decode[apitest.Problem](t, w).FieldMessage("body.apiKey"); msg != reasons.Msg(reasons.MsgKeyForNewAddress) {
+			t.Fatalf("%s: message %q", elsewhere, msg)
+		}
+	}
+	if s := status(t, f, alice); s.BaseURL != "https://llm.example.com/v1" {
+		t.Fatalf("a refused change was saved: %+v", s)
+	}
+	// Another path on the same server, however it is written, keeps the key.
+	if w := put("https://LLM.example.com:443/v2", ""); w.Code != http.StatusOK {
+		t.Fatalf("another path on the same server: %d %s", w.Code, w.Body)
+	}
+	if w := put("https://llm.example.net/v1", "k-other-1234"); w.Code != http.StatusOK {
+		t.Fatalf("another server with its key: %d %s", w.Code, w.Body)
+	}
+	if s := status(t, f, alice); s.BaseURL != "https://llm.example.net/v1" || s.KeyLast4 != "1234" {
+		t.Fatalf("after moving with a new key: %+v", s)
 	}
 }
 

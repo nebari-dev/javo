@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -84,6 +85,34 @@ type Config struct {
 // server (internal/ai/provider/openai). It is named here so that what
 // needs only the name does not link that adapter's SDK.
 const OpenAI = "openai"
+
+// ownAPI is each provider's address when the base URL is empty.
+var ownAPI = map[string]string{"anthropic": "https://api.anthropic.com", OpenAI: "https://api.openai.com"}
+
+// SameServer reports whether a and b send to one server: the same scheme,
+// host and port. A key saved for one may go to the other only then; an
+// address that cannot be read is the same as nothing.
+func SameServer(a, b Config) bool {
+	o := origin(a)
+	return o != "" && o == origin(b)
+}
+
+// origin is the scheme, host and port that c connects to; "" when unknown.
+func origin(c Config) string {
+	baseURL := c.BaseURL
+	if baseURL == "" {
+		baseURL = ownAPI[c.Provider]
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "http": "80"}[u.Scheme]
+	}
+	return u.Scheme + "://" + strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")) + ":" + port
+}
 
 // Factory builds a provider from its config.
 type Factory func(Config) (Provider, error)

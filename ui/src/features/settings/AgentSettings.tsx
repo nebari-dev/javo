@@ -3,12 +3,18 @@ import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { fieldErrors, problemText } from '../../lib/http'
-import { useAgentStatus, useDeleteAgentSettings, useSaveAgentSettings } from '../ai/ai'
+import { onAnotherServer, useAgentStatus, useDeleteAgentSettings, useSaveAgentSettings } from '../ai/ai'
 
 const IN_EFFECT: Record<string, string> = {
   platform: 'Your coding agents use the model your admin set up',
   own: 'Your coding agents use your own key',
   login: 'Your coding agents have no model yet: sign in inside the agent (pi: /login), or add your own key here',
+}
+
+function keyHint(last4: string | undefined, moved: boolean): string {
+  if (!last4) return 'Stored encrypted and never shown again; only your coding-agent apps get it.'
+  if (moved) return `This address is on another server, so the stored key ending in ${last4} is not sent there. Paste the key for it.`
+  return `Stored, ending in ${last4}. Leave empty to keep it.`
 }
 
 /**
@@ -59,7 +65,7 @@ export function AgentSettings() {
             <div className="field">
               <label htmlFor={ids.key}>API key</label>
               <input id={ids.key} className="input mono" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-              <span className="hint">{s.keyLast4 ? `Stored, ending in ${s.keyLast4}. Leave empty to keep it.` : 'Stored encrypted and never shown again; only your coding-agent apps get it.'}</span>
+              <span className="hint">{keyHint(s.keyLast4, onAnotherServer(baseURL, s.baseURL ?? ''))}</span>
               {errs.fields.apiKey && <span className="hint err">{errs.fields.apiKey}</span>}
             </div>
             <div className="row">

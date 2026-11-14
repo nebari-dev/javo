@@ -158,32 +158,10 @@ func effective(c config.AICfg, row *store.AISetting) config.AICfg {
 	return c
 }
 
-// ownAPI is each provider's address when the base URL is empty.
-var ownAPI = map[string]string{"anthropic": "https://api.anthropic.com", provider.OpenAI: "https://api.openai.com"}
-
-// sameEndpoint is whether settings for provider at baseURL send to the
-// server the config sends to (same scheme, host and port), where the
-// config's key may go.
-func (l *Live) sameEndpoint(provider, baseURL string) bool {
-	o := origin(provider, baseURL)
-	return o != "" && o == origin(l.Config.Provider, l.Config.BaseURL)
-}
-
-// origin is the scheme, host and port that provider at baseURL connects
-// to; "" when unknown.
-func origin(provider, baseURL string) string {
-	if baseURL == "" {
-		baseURL = ownAPI[provider]
-	}
-	u, err := url.Parse(baseURL)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	port := u.Port()
-	if port == "" {
-		port = map[string]string{"https": "443", "http": "80"}[u.Scheme]
-	}
-	return u.Scheme + "://" + strings.ToLower(strings.TrimSuffix(u.Hostname(), ".")) + ":" + port
+// sameEndpoint is whether settings for name at baseURL send to the server
+// the config sends to, where the config's key may go.
+func (l *Live) sameEndpoint(name, baseURL string) bool {
+	return provider.SameServer(provider.Config{Provider: name, BaseURL: baseURL}, provider.Config{Provider: l.Config.Provider, BaseURL: l.Config.BaseURL})
 }
 
 func (l *Live) resolve(row *store.AISetting) *state {

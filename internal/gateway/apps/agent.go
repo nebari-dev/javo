@@ -12,6 +12,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/nebari-dev/javo/internal/ai/provider"
 	"github.com/nebari-dev/javo/internal/gateway/authn"
 	"github.com/nebari-dev/javo/internal/gateway/problem"
 	"github.com/nebari-dev/javo/internal/gateway/secrets"
@@ -59,7 +60,7 @@ type agentSettingsInput struct {
 	Body struct {
 		BaseURL string `json:"baseURL" maxLength:"512" doc:"https address of an OpenAI-compatible API, such as https://openrouter.ai/api/v1"`
 		Model   string `json:"model" maxLength:"200" doc:"The model, such as anthropic/claude-sonnet-5.5"`
-		APIKey  string `json:"apiKey,omitempty" maxLength:"4096" doc:"Write-only; leave out to keep the stored key"`
+		APIKey  string `json:"apiKey,omitempty" maxLength:"4096" doc:"Write-only; leave out to keep the stored key, which only works while baseURL stays on the same server"`
 	}
 }
 
@@ -84,7 +85,7 @@ func (s *Workspaces) registerAgent(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "setAgentSettings", Method: http.MethodPut, Path: "/api/ai/agent/settings",
 		Summary:     "Use your own model and key for your coding agents",
-		Description: "Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps.",
+		Description: "Used while the admin gives no agent model. The key is stored encrypted, shown again only as its last four characters, and given only to your coding-agent apps. A change of the address to another server (scheme, host or port) needs the key again.",
 		Tags:        tag, Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusUnprocessableEntity, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, in *agentSettingsInput) (*agentStatusOutput, error) {
 		if err := personOnly(ctx); err != nil {
@@ -106,6 +107,11 @@ func (s *Workspaces) registerAgent(api huma.API) {
 		if b.APIKey == "" {
 			if _, err := s.db.Secrets().Get(ctx, u.ID, model.AgentKeySecret); err != nil {
 				return nil, problem.FieldError("apiKey", reasons.MsgAgentKeyRequired)
+			}
+			// Or whoever holds the session could have the key sent to a
+			// server of theirs.
+			if !provider.SameServer(provider.Config{BaseURL: prev.BaseURL}, provider.Config{BaseURL: b.BaseURL}) {
+				return nil, problem.FieldError("apiKey", reasons.MsgKeyForNewAddress)
 			}
 		} else {
 			if err := secrets.Put(ctx, s.db, authn.Actor(ctx), u.ID, model.AgentKeySecret, agentKeyNote, b.APIKey); err != nil {
