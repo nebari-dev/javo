@@ -16,7 +16,9 @@ import (
 // device code, so the code itself is never stored, and neither is the token
 // the approval leads to. State is pending, approved, denied or spent; Owner
 // is the person who approved or denied. LastPollAt is zero until the agent
-// first polls.
+// first polls. AskedFrom is the client address it was started from, empty
+// when the gateway could not tell clients apart; ClientName is what the
+// device called itself.
 type DeviceLogin struct {
 	ID         string
 	UserCode   string
@@ -26,6 +28,8 @@ type DeviceLogin struct {
 	LastPollAt time.Time
 	State      string
 	Owner      string
+	AskedFrom  string
+	ClientName string
 }
 
 // The states of a DeviceLogin.
@@ -50,6 +54,7 @@ func (d *DeviceLogins) Create(ctx context.Context, l DeviceLogin) error {
 		return q.InsertDeviceLogin(ctx, sqlcgen.InsertDeviceLoginParams{
 			ID: newID(), UserCode: l.UserCode, CodeHash: l.CodeHash, CreatedAt: dbtime.From(l.CreatedAt),
 			ExpiresAt: dbtime.From(l.ExpiresAt), LastPollAt: dbtime.From(l.LastPollAt), State: l.State, Owner: l.Owner,
+			AskedFrom: l.AskedFrom, ClientName: l.ClientName,
 		})
 	})
 }
@@ -123,6 +128,6 @@ func deviceLoginOf(r sqlcgen.DeviceLogin, err error) (DeviceLogin, error) {
 	}
 	return DeviceLogin{
 		ID: r.ID, UserCode: r.UserCode, CodeHash: r.CodeHash, CreatedAt: r.CreatedAt.Time(), ExpiresAt: r.ExpiresAt.Time(),
-		LastPollAt: r.LastPollAt.Time(), State: r.State, Owner: r.Owner,
+		LastPollAt: r.LastPollAt.Time(), State: r.State, Owner: r.Owner, AskedFrom: r.AskedFrom, ClientName: r.ClientName,
 	}, nil
 }

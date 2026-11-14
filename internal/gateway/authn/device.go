@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -38,8 +39,14 @@ const (
 )
 
 // deviceStartLimit is how many device logins one client address may start:
-// ten a minute.
-var deviceStartLimit = ratelimit.Spec{Every: 6 * time.Second, Burst: 10}
+// ten a minute. deviceStartLimitAll is how many every address together may:
+// sixty, then one a second, which also bounds the requests waiting at once.
+// An address every client shares (ratelimit.SharedPeer) has only the second:
+// one caller would spend a bucket of ten for everybody.
+var (
+	deviceStartLimit    = ratelimit.Spec{Every: 6 * time.Second, Burst: 10}
+	deviceStartLimitAll = ratelimit.Spec{Every: time.Second, Burst: 60}
+)
 
 // The RFC 8628 error names a poll answers with.
 const (
@@ -79,13 +86,18 @@ type DeviceToken struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// DeviceView is a device login as the approval page shows it.
+// DeviceView is a device login as the approval page shows it. AskedFrom and
+// ClientName are what the gateway recorded when the request was started;
+// the name is the device's own word, which anyone may choose.
 type DeviceView struct {
-	UserCode   string    `json:"userCode"`
-	CreatedAt  time.Time `json:"createdAt"`
-	ExpiresAt  time.Time `json:"expiresAt"`
-	TokenHours int       `json:"tokenHours" doc:"How many hours the token an approval gives lasts"`
-	State      string    `json:"state" enum:"pending,approved,denied,spent"`
+	UserCode           string    `json:"userCode"`
+	CreatedAt          time.Time `json:"createdAt"`
+	ExpiresAt          time.Time `json:"expiresAt"`
+	TokenHours         int       `json:"tokenHours" doc:"How many hours the token an approval gives lasts"`
+	State              string    `json:"state" enum:"pending,approved,denied,spent"`
+	AskedFrom          string    `json:"askedFrom" doc:"The address the request was started from; empty when the gateway cannot tell clients apart"`
+	ClientName         string    `json:"clientName" doc:"What the device called itself when it asked; empty when it gave no name. Not checked: anyone can choose it"`
+	FromAnotherAddress bool      `json:"fromAnotherAddress" doc:"True when askedFrom is known and is not the address this request came from"`
 }
 
 // deviceProblem is a poll's answer while there is no token: a problem with
@@ -115,6 +127,18 @@ func deviceSessionRequired(ctx context.Context) error {
 		return problem.New(http.StatusForbidden, reasons.Msg(reasons.MsgDeviceSessionOnly))
 	}
 	return nil
+}
+
+// clientAddress is the address the request came from (ratelimit.ClientIP)
+// and, as known, the same address when it is one client's: empty when it is
+// an address every client shares (ratelimit.SharedPeer), which says nothing
+// about who asked.
+func clientAddress(ctx context.Context) (ip, known string) {
+	ip, _ = ctx.Value(clientKey{}).(string)
+	if shared, _ := ctx.Value(sharedPeerKey{}).(bool); shared {
+		return ip, ""
+	}
+	return ip, ip
 }
 
 // tokenLifetime is how long the token of an approved login lasts.
@@ -167,9 +191,27 @@ func (d *DeviceAPI) Register(api huma.API) {
 		Description: "For a coding agent without a browser. Show the person userCode and verificationURL, then poll " +
 			"POST /api/auth/device/token with deviceCode every interval seconds until the person approves or the request expires.",
 		Errors: []int{http.StatusTooManyRequests},
-	}, func(ctx context.Context, _ *struct{}) (*struct{ Body DeviceStart }, error) {
-		ip, _ := ctx.Value(clientKey{}).(string)
-		if wait, ok := d.Limiter.Take(ratelimit.Bucket{Key: "device:" + ip, Spec: deviceStartLimit}); !ok {
+	}, func(ctx context.Context, in *struct {
+		// A pointer makes the body optional.
+		Body *struct {
+			ClientName string `json:"clientName,omitempty" maxLength:"64" doc:"What the device calls itself on the approval page, such as coding agent on Linux. Letters, numbers, punctuation and plain spaces. Leave out the computer's and the person's name."`
+		}
+	}) (*struct{ Body DeviceStart }, error) {
+		ip, askedFrom := clientAddress(ctx)
+		var name string
+		if in.Body != nil {
+			name = in.Body.ClientName
+		}
+		// The approval page shows the name: nothing in it may hide, reorder
+		// or break what the person reads there.
+		if strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) }) {
+			return nil, problem.FieldError("clientName", reasons.MsgDeviceNameInvalid)
+		}
+		buckets := []ratelimit.Bucket{{Key: "device", Spec: deviceStartLimitAll}}
+		if askedFrom != "" {
+			buckets = append(buckets, ratelimit.Bucket{Key: "device:" + ip, Spec: deviceStartLimit})
+		}
+		if wait, ok := d.Limiter.Take(buckets...); !ok {
 			return nil, problem.New(http.StatusTooManyRequests, reasons.Msg(reasons.MsgDeviceTooManyStarts)).
 				WithHeader("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		}
@@ -185,7 +227,7 @@ func (d *DeviceAPI) Register(api huma.API) {
 		now := d.Now()
 		err = d.DB.DeviceLogins().Create(ctx, store.DeviceLogin{
 			UserCode: userCode, CodeHash: deviceCodeHash(deviceCode), CreatedAt: now, ExpiresAt: now.Add(deviceLifetime),
-			State: store.DevicePending,
+			State: store.DevicePending, AskedFrom: askedFrom, ClientName: name,
 		})
 		if err != nil {
 			return nil, problem.Internal("start device login", err)
@@ -264,9 +306,12 @@ func (d *DeviceAPI) Register(api huma.API) {
 		if err != nil {
 			return nil, err
 		}
+		_, here := clientAddress(ctx)
 		return &struct{ Body DeviceView }{Body: DeviceView{
 			UserCode: l.UserCode, CreatedAt: l.CreatedAt, ExpiresAt: l.ExpiresAt,
 			TokenHours: int(d.tokenLifetime() / time.Hour), State: l.State,
+			AskedFrom: l.AskedFrom, ClientName: l.ClientName,
+			FromAnotherAddress: l.AskedFrom != "" && here != "" && here != l.AskedFrom,
 		}}, nil
 	})
 

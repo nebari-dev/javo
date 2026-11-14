@@ -17,7 +17,7 @@ A coding agent on your computer (Claude Code, Codex, Cursor and the like) can de
 
    Copy it.
 2. Start your coding agent in the app's folder and paste the line. The agent reads the guide at `/llms.txt` on your Javo and follows it.
-3. The agent shows a link and a code such as `BDFG-HJKL`. Open the link in the browser where you are signed in to Javo. The page shows the code: check it matches the one the agent showed, then press **Approve**. Press **Deny** when you did not start this yourself just now. The link works for 10 minutes.
+3. The agent shows a link and a code such as `BDFG-HJKL`. Open the link in the browser where you are signed in to Javo. The page shows the code: check it matches the one the agent showed. It also shows the address the request came from, when Javo knows it, and says so when that is not the address of your browser, and the name the agent gave itself, which anyone can choose. Then press **Approve**. Press **Deny** when you did not start this yourself just now: a link someone sent you signs their computer in as you. The link works for 10 minutes.
 4. The agent uploads the folder to `deploys/<name>` in your home folder, picks a template that fits the files, creates the app and waits for it to run. It reads the app's logs and fixes what it can when the app does not start.
 5. The agent gives you the app's link. The app is in your app list like any other, private to you until you [share it](/using/sharing/).
 
@@ -34,6 +34,8 @@ Approving gives the agent an API token that acts as you, with read and write acc
 The token is kept on your computer, readable only by you, under `~/.config/javo/<your Javo host>/` (or `$XDG_CONFIG_HOME/javo/` when that is set). It shows under **Settings, API tokens** as **Agent login**; revoke it there to cut the agent off at once.
 
 ## For admins
+
+`config.auth.deviceLogin.enabled: false` turns this sign-in off: Javo then serves no `/llms.txt` and no approval, and an agent works only with a token a person makes under **Settings, API tokens**. See [configuration](/admin/configuration/#security-defaults-to-keep) for what bounds it while it is on.
 
 Folder uploads (`PUT /api/files/archive`) are bounded by `config.api.limits` in the Helm values:
 

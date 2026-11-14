@@ -1,6 +1,6 @@
 -- name: InsertDeviceLogin :exec
-INSERT INTO device_logins (id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+INSERT INTO device_logins (id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner, asked_from, client_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: GetDeviceLoginByUserCode :one
 SELECT * FROM device_logins WHERE user_code = $1;

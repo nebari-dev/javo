@@ -468,6 +468,12 @@ config:
   auth:
     local:
       enabled: true
+    # A coding agent on a person's computer signs in by showing them a link
+    # and a code they approve in the browser (/llms.txt, /api/auth/device);
+    # it gets a read-write token of that person for 8 hours. false turns
+    # that off: agents then work only with a token made in Settings.
+    deviceLogin:
+      enabled: true
     # oidc:
     #   issuer: https://idp.example.com/auth/realms/javo
     #   clientID: javo

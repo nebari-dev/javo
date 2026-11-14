@@ -42,18 +42,20 @@ poll below. Otherwise start a login. It needs no token:
 
     D="${XDG_CONFIG_HOME:-$HOME/.config}/javo/{{.Host}}"
     umask 077; mkdir -p "$D"
-    ANSWER=$(curl -sS -w '\n%{http_code}' -X POST -H "X-Javo-Request: 1" "{{.URL}}/api/auth/device")
+    ANSWER=$(curl -sS -w '\n%{http_code}' -X POST -H "X-Javo-Request: 1" -H "Content-Type: application/json" -d "{\"clientName\":\"coding agent on $(uname -s)\"}" "{{.URL}}/api/auth/device")
     printf '%s' "$ANSWER" | sed -n 's/.*"deviceCode":"\([^"]*\)".*/{"deviceCode":"\1"}/p' > "$D/device"
     printf '%s\n' "$ANSWER" | sed 's/"deviceCode":"[^"]*",//'
 
 On status 200 this saves the device code in `$D/device` and prints the
 rest: `userCode`, `verificationURL`, `verificationURLComplete`, `expiresIn`
 (seconds, 600) and `interval` (seconds between polls, 5). On 429 too many
-logins were started from here: wait a minute and start again.
+logins were started: wait a minute and start again.
 
 Show the person the link `verificationURLComplete` and the code `userCode`.
 Ask them to open the link, check that the page shows the same code, and
-approve. They have `expiresIn` seconds.
+approve. The page also shows the name sent above (`coding agent on` and
+this computer's system, never its name or the person's) and the address
+the login was started from. They have `expiresIn` seconds.
 
 Then poll for the token. One run polls every `interval` seconds for at
 most 90 seconds. Put `interval` in the `INTERVAL` line:

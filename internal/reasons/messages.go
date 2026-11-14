@@ -317,6 +317,7 @@ const (
 	MsgDeviceUnknown       MessageCode = "DeviceUnknown"
 	MsgDeviceDecided       MessageCode = "DeviceDecided"
 	MsgDeviceSessionOnly   MessageCode = "DeviceSessionOnly"
+	MsgDeviceNameInvalid   MessageCode = "DeviceNameInvalid"
 	MsgAISettingsOff       MessageCode = "AISettingsOff"
 	MsgRewriteOwnerOnly    MessageCode = "RewriteOwnerOnly"
 	MsgEnvValueInvalid     MessageCode = "EnvValueInvalid"
@@ -626,13 +627,14 @@ var messages = map[MessageCode]string{
 	MsgTrustNotAgent:          "Only a coding agent that can read and change your apps through the API can act without asking.",
 	MsgTrustHours:             "Choose between 1 and 24 hours.",
 	MsgTrustTurnedOff:         "Letting agents act without asking is turned off on this platform. Ask your admin.",
-	MsgDeviceTooManyStarts:    "Too many sign-ins started from this address. Wait a minute and try again.",
+	MsgDeviceTooManyStarts:    "Too many sign-ins were started. Wait a minute and try again.",
 	MsgDevicePending:          "Waiting for the person to approve this sign-in in the browser.",
 	MsgDeviceSlowDown:         "Polling too fast. Wait the interval between polls.",
 	MsgDeviceDenied:           "The person denied this sign-in.",
 	MsgDeviceExpired:          "This sign-in code has expired or was already used. Start a new sign-in.",
 	MsgDeviceUnknown:          "No sign-in has this code. Check the code your agent showed.",
 	MsgDeviceDecided:          "This sign-in was already approved or denied.",
+	MsgDeviceNameInvalid:      "Use a name of letters, numbers, punctuation and plain spaces, with no line breaks or hidden characters.",
 	MsgDeviceSessionOnly:      "Only a person signed in in the browser can approve or deny an agent's sign-in. No API token can.",
 	MsgAISettingsOff:          "AI is off in the platform config (ai.enabled), so there is nothing to set here.",
 	MsgAgentPromptNotTaken:    "This kind of app takes no first prompt.",

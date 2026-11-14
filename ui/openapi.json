@@ -1458,6 +1458,14 @@
       "DeviceView": {
         "additionalProperties": false,
         "properties": {
+          "askedFrom": {
+            "description": "The address the request was started from; empty when the gateway cannot tell clients apart",
+            "type": "string"
+          },
+          "clientName": {
+            "description": "What the device called itself when it asked; empty when it gave no name. Not checked: anyone can choose it",
+            "type": "string"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -1465,6 +1473,10 @@
           "expiresAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "fromAnotherAddress": {
+            "description": "True when askedFrom is known and is not the address this request came from",
+            "type": "boolean"
           },
           "state": {
             "enum": [
@@ -1489,7 +1501,10 @@
           "createdAt",
           "expiresAt",
           "tokenHours",
-          "state"
+          "state",
+          "askedFrom",
+          "clientName",
+          "fromAnotherAddress"
         ],
         "type": "object"
       },
@@ -4667,6 +4682,17 @@
           "previewsAvailable",
           "webhookConfigured"
         ],
+        "type": "object"
+      },
+      "StartDeviceLoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "clientName": {
+            "description": "What the device calls itself on the approval page, such as coding agent on Linux. Letters, numbers, punctuation and plain spaces. Leave out the computer's and the person's name.",
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "StartRunInputBody": {
@@ -8031,6 +8057,15 @@
       "post": {
         "description": "For a coding agent without a browser. Show the person userCode and verificationURL, then poll POST /api/auth/device/token with deviceCode every interval seconds until the person approves or the request expires.",
         "operationId": "startDeviceLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartDeviceLoginRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -8041,6 +8076,16 @@
               }
             },
             "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
           },
           "429": {
             "content": {

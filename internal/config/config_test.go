@@ -572,3 +572,21 @@ func TestAgentLockIsOffByDefault(t *testing.T) {
 		t.Fatal("workloads.landlock true left the agents unlocked")
 	}
 }
+
+// A coding agent may sign in by a person's approval in the browser unless
+// auth.deviceLogin.enabled is false.
+func TestDeviceLoginDefaultsToOn(t *testing.T) {
+	p, err := load(t, "auth:\n  local:\n    enabled: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Auth.DeviceLogin.IsEnabled() {
+		t.Fatal("auth.deviceLogin.enabled unset turns device login off")
+	}
+	if p, err = load(t, "auth:\n  local:\n    enabled: true\n  deviceLogin:\n    enabled: false\n"); err != nil {
+		t.Fatal(err)
+	}
+	if p.Auth.DeviceLogin.IsEnabled() {
+		t.Fatal("auth.deviceLogin.enabled false leaves device login on")
+	}
+}
