@@ -354,3 +354,74 @@ func TestAgentIsLetIntoAddedFoldersButNeverThroughALink(t *testing.T) {
 		wantLinkRefused(t, agentLock(t, home, project, mode, link, "--", "cat", filepath.Join(link, "a-private-key")))
 	}
 }
+
+// A run of a job a coding agent made starts as the job planner plans it
+// (workspace.MadeRun): the runner, in a folder of the run's own, under
+// agent-lock.sh, locked to the folder of the job's runs and let into the
+// agent's project. The runner starts, keeps its log in the run folder,
+// and the job's command runs from the home with the tools of its
+// environment and writes its scratch folder; it reads the agent's project
+// and neither the person's keys nor another project, also not by having
+// the runner copy them for it. Without the runner's folder named, nothing runs.
+func TestARunOfAnAgentsJobStartsInTheLockAndStaysInTheAgentsProject(t *testing.T) {
+	root, err := os.MkdirTemp("/var/tmp", "javo-sandbox-run-")
+	if err != nil {
+		t.Skip("no folder outside /tmp to stand in for a home:", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	home, runnerDir, envDir, scratch := filepath.Join(root, "home"), filepath.Join(root, "javo-run"), filepath.Join(root, "env"), filepath.Join(root, "scratch")
+	project, runs := filepath.Join(home, "projects", "api"), filepath.Join(home, "jobs", "summary")
+	// In a container the run's ~/.ssh is an empty folder of its own
+	// (workspace.MadeRun), so the keys here are the cloud's.
+	key, other := filepath.Join(home, ".aws", "access-keys"), filepath.Join(home, "projects", "other", "notes")
+	for _, d := range []string{project, runnerDir, envDir, filepath.Dir(key), filepath.Dir(other)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The runner: makes the run folder, copies the job's source into it,
+	// and runs the command in the home with the environment's tools.
+	const runner = `#!/bin/sh
+run="$HOME/jobs/summary/run-1"
+mkdir -p "$run" && echo started > "$run/run.log" || exit 70
+cp "$1" "$run/input" 2>/dev/null && echo copied
+cd "$HOME" && PATH="$JAVO_ENV_DIR:$PATH" tool projects/api/summary.sh
+`
+	const tool = `#!/bin/sh
+exec sh "$@"
+`
+	const summary = `echo summary ran
+echo cached > "$JAVO_SCRATCH_DIR/cache" && echo scratch written
+cat "$HOME/.aws/access-keys" "$HOME/projects/other/notes" 2>/dev/null
+echo out > "$HOME/projects/other/out" 2>/dev/null && echo escaped
+true
+`
+	for file, text := range map[string]string{
+		key: "s3cret", other: "private", filepath.Join(runnerDir, "javo"): runner,
+		filepath.Join(envDir, "tool"): tool, filepath.Join(project, "summary.sh"): summary,
+	} {
+		if err := os.WriteFile(file, []byte(text), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("JAVO_ENV_DIR", envDir)
+	t.Setenv("JAVO_SCRATCH_DIR", scratch)
+	planned := []string{runs, "--rw", project, "--", filepath.Join(runnerDir, "javo"), key}
+
+	if r := agentLock(t, home, planned...); r.code == 0 || strings.Contains(r.stdout, "summary ran") {
+		t.Fatalf("the runner's folder not named: exit %d, stdout %q; want nothing run", r.code, r.stdout)
+	}
+	t.Setenv("JAVO_RUNNER_DIR", runnerDir)
+	r := agentLock(t, home, planned...)
+	if r.code != 0 || !strings.Contains(r.stdout, "summary ran") || !strings.Contains(r.stdout, "scratch written") {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want the job's command run", r.code, r.stdout, r.stderr)
+	}
+	if log, err := os.ReadFile(filepath.Join(runs, "run-1", "run.log")); err != nil || string(log) != "started\n" {
+		t.Fatalf("the run's log: %q, %v", log, err)
+	}
+	for _, leak := range []string{"s3cret", "private", "copied", "escaped"} {
+		if strings.Contains(r.stdout, leak) {
+			t.Errorf("stdout %q: the run got out of the agent's project (%s)", r.stdout, leak)
+		}
+	}
+}

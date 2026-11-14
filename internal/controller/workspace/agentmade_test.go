@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/nebari-dev/javo/internal/model"
+	"github.com/nebari-dev/javo/internal/reasons"
 )
 
 // madeApp is alice's streamlit app that her coding agent pi made, and pi
@@ -184,6 +185,13 @@ func TestAnAgentsChangeReplacesThePodInsideTheAgentsLimits(t *testing.T) {
 	}
 	if pod := fx.settle(t, app); pod != nil {
 		t.Fatalf("the app still runs %q with its agent gone", pod.Spec.Containers[0].Command)
+	}
+	got, err := fx.s.Apps().Get(bg, app.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := condition(got, model.ConditionScheduled); got.Status.Phase != "Failed" || c == nil || c.Reason != string(reasons.AgentLockUnavailable) {
+		t.Fatalf("phase %q, scheduled condition %+v, want it failed as %s", got.Status.Phase, c, reasons.AgentLockUnavailable)
 	}
 }
 

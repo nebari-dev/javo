@@ -78,6 +78,10 @@ func DefaultExec(ctx context.Context, argv []string, dir string, env []string, o
 // pod's environment as the pod's user.
 const PodUserScript = "/opt/javo/pod-user.sh"
 
+// RunsDir is the folder of the home the runs are kept in: each in
+// RunsDir/<job>/<run id>, with its log and results.
+const RunsDir = "jobs"
+
 // PodUser is where this run has pod-user.sh: in the folder JAVO_FILES_DIR
 // names, on a machine that runs the run as plain processes and has the
 // platform's files in a folder of its own (the script reads the same
@@ -133,7 +137,7 @@ func Run(ctx context.Context, cfg Config, s Spec) int {
 			fmt.Sprintf("The job definition %q or run id %q is not a plain folder name", s.Definition, cfg.RunID))
 	}
 	started := time.Now().UTC()
-	rel := filepath.Join("jobs", s.Definition, cfg.RunID)
+	rel := filepath.Join(RunsDir, s.Definition, cfg.RunID)
 	runDir := filepath.Join(cfg.Home, rel)
 	res := result{Outcome: "Failed", StartedAt: started, Outputs: []string{}}
 

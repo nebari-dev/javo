@@ -379,7 +379,7 @@ func (r *Reconciler) house(ctx context.Context, p *pass) (verdict, error) {
 			if p.layout, err = r.layout(ctx, app, uid); err != nil {
 				return verdict{}, err
 			}
-			if p.maker, err = r.makerOf(ctx, app); err != nil {
+			if p.maker, err = MakerOf(ctx, r.Store, app.Owner, app.MadeBy); err != nil {
 				return verdict{}, err
 			}
 			p.layoutFP = r.layoutFingerprint(app, p.tpl, p.layout, p.maker)
@@ -479,7 +479,10 @@ func (r *Reconciler) run(ctx context.Context, p *pass) (verdict, error) {
 	spec, planErr := Plan(in)
 	var notAllowed *imageref.NotAllowedError
 	var noEnvironment *EnvironmentError
+	var noLock *AgentLockError
 	switch {
+	case errors.As(planErr, &noLock):
+		p.obs.AgentLock = noLock.Error()
 	case errors.As(planErr, &notAllowed):
 		p.obs.ImageNotAllowed = reasons.Msg(reasons.MsgImageRegistryNotAllowed, notAllowed.Registry, strings.Join(r.AllowedRegistries, ", "))
 	case errors.As(planErr, &noEnvironment):
@@ -596,29 +599,6 @@ func (r *Reconciler) layoutFingerprint(app *model.App, t *model.Template, layout
 	}
 	sum := sha256.Sum256([]byte(fp + more))
 	return hex.EncodeToString(sum[:8])
-}
-
-// makerOf is the coding agent app that made app (Inputs.Maker): its
-// owner's app of that name, while it is there and its template is a coding
-// agent's. Nil for an app no agent made and for one whose agent is gone.
-func (r *Reconciler) makerOf(ctx context.Context, app *model.App) (*model.App, error) {
-	if app.MadeBy == "" {
-		return nil, nil
-	}
-	maker, err := r.Store.Apps().GetByOwnerName(ctx, app.Owner, app.MadeBy)
-	switch {
-	case errors.Is(err, store.ErrNotFound), err == nil && !maker.DeletedAt.IsZero():
-		return nil, nil
-	case err != nil:
-		return nil, err
-	}
-	switch t, err := r.Store.Templates().Get(ctx, maker.Template); {
-	case errors.Is(err, store.ErrNotFound), err == nil && t.Spec.Category != model.CategoryAgents:
-		return nil, nil
-	case err != nil:
-		return nil, err
-	}
-	return &maker, nil
 }
 
 // fingerprint is what a pod built for app now would be marked with: its

@@ -34,6 +34,9 @@ type Observed struct {
 	// SecretsUnreadable is why the app's secrets could not be opened for its
 	// pod (never a value); empty when they could or it has none.
 	SecretsUnreadable string
+	// AgentLock is why the app, which a coding agent made, cannot start in
+	// that agent's lock; empty when it can or no agent made it.
+	AgentLock string
 	// EnvironmentProblem is why the app's environment cannot be handed to its
 	// pod; empty when it can or it has none.
 	EnvironmentProblem string
@@ -159,6 +162,9 @@ func Derive(ws *model.App, o Observed) (phase string, conds []metav1.Condition, 
 	}
 	if o.SecretsUnreadable != "" {
 		return build("Failed", model.ConditionScheduled, reasons.SecretsUnreadable, o.SecretsUnreadable)
+	}
+	if o.AgentLock != "" {
+		return build("Failed", model.ConditionScheduled, reasons.AgentLockUnavailable, o.AgentLock)
 	}
 	if o.EnvironmentProblem != "" {
 		return build("Failed", model.ConditionScheduled, reasons.EnvironmentUnavailable, o.EnvironmentProblem)

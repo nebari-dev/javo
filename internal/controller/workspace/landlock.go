@@ -81,6 +81,16 @@ func (p places) lockAgent(ws *model.App, command []string) []string {
 	return slices.Concat([]string{p.agentLock(), p.lockFolder(ws)}, p.lockGrants(ws), []string{"--"}, command)
 }
 
+// lockMain runs the whole command of the main unit of s under words, the
+// agent lock in front of it (lockAgent). On a host the lock is told where
+// the scratch folder is, to grant it.
+func (p places) lockMain(s *workload.Spec, words []string) {
+	s.Main.Command = words
+	if p.host != nil {
+		s.Main.SetEnv(workload.Env{Name: envScratchDir, Value: p.volume(podstorage.ScratchVolume)})
+	}
+}
+
 // lockGrants are the folders the owner of ws added to what its agent can
 // open, as agent-lock.sh takes them: --ro PATH to read, --rw PATH to read
 // and change, each a path of the home at p. What LockFolders refuses is
@@ -114,10 +124,7 @@ func addAgentLock(s *workload.Spec, in Inputs, at places) {
 	if !locksIn(in.App, in.Template, in.Images.LockAgents) {
 		return
 	}
-	s.Main.Command = at.lockAgent(lockedAs(in.App, in.Maker), s.Main.Command)
-	if at.host != nil {
-		s.Main.SetEnv(workload.Env{Name: envScratchDir, Value: at.volume(podstorage.ScratchVolume)})
-	}
+	at.lockMain(s, at.lockAgent(lockedAs(in.App, in.Maker), s.Main.Command))
 }
 
 // envScratchDir tells agent-lock.sh where a host has the workload's scratch
@@ -130,9 +137,17 @@ const envScratchDir = "JAVO_SCRATCH_DIR"
 // Linux's: on another system javo-sandbox refuses every command, and the
 // agent is not run without the lock instead.
 func lockProblem(in Inputs) error {
-	if !locksIn(in.App, in.Template, in.Images.LockAgents) || strings.HasPrefix(in.Host.Platform, "linux-") {
+	if !locksIn(in.App, in.Template, in.Images.LockAgents) {
+		return nil
+	}
+	return needsLandlock(in.Host)
+}
+
+// needsLandlock is why nothing starts locked in on host; nil on Linux.
+func needsLandlock(host *workload.Host) error {
+	if strings.HasPrefix(host.Platform, "linux-") {
 		return nil
 	}
 	return &executor.UnsupportedError{Why: "coding agents start locked in with Landlock (workloads.landlock), which needs Linux, and this machine is " +
-		cmp.Or(in.Host.Platform, "not one pixi has a name for")}
+		cmp.Or(host.Platform, "not one pixi has a name for")}
 }

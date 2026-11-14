@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"time"
 
@@ -79,6 +80,13 @@ type Inputs struct {
 	// MaxTimeout is the platform's longest run (limits.jobMaxTimeout); zero
 	// leaves the job's and the template's time limits as they are.
 	MaxTimeout time.Duration
+	// Maker is the coding agent app that made the job or last changed what
+	// its runs execute (Job.MadeBy), nil when no agent did or it is gone,
+	// and LockAgents says the platform locks coding agents in
+	// (workloads.landlock): such a job's runs stay within that agent's
+	// limits (workspace.MadeRun).
+	Maker      *model.App
+	LockAgents bool
 	// Host is the machine the run runs on as plain processes; nil plans it
 	// for a container. Such a run is planned with the machine's folders,
 	// as an app is (workspace.PlanRunOnHost): the runner is copied to a
@@ -271,6 +279,9 @@ func planRun(in Inputs, name, run, secretName string) (workload.Spec, error) {
 			return workload.Spec{}, err
 		}
 		host.Finish(&s)
+		if err := madeRun(in, host).Confine(&s); err != nil {
+			return workload.Spec{}, err
+		}
 		return s, nil
 	}
 	if t.Spec.UsesPodFiles() {
@@ -279,7 +290,19 @@ func planRun(in Inputs, name, run, secretName string) (workload.Spec, error) {
 	if err := pixienv.Add(&s, in.PixiImage, in.RunnerImage, src); err != nil {
 		return workload.Spec{}, err
 	}
+	if err := madeRun(in, nil).Confine(&s); err != nil {
+		return workload.Spec{}, err
+	}
 	return s, nil
+}
+
+// madeRun is what holds the runs of in's job to the limits of the coding
+// agent that made it, planned for host (nil: a container).
+func madeRun(in Inputs, host *workspace.RunOnHost) workspace.MadeRun {
+	return workspace.MadeRun{
+		By: in.Job.MadeBy, Maker: in.Maker, Template: in.Template, Picked: in.Environment != nil || in.Job.Spec.Environment != nil,
+		Lock: in.LockAgents, Folder: path.Join(runner.RunsDir, in.Job.Name), Host: host,
+	}
 }
 
 // plan is the workload of the job's run called name, with override over the

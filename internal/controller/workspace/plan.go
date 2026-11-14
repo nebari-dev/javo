@@ -80,7 +80,9 @@ func (e *EnvironmentError) Unwrap() error { return e.Err }
 // here and nowhere else: later ones read what earlier ones set.
 //
 // A registry that is not allowed is an *imageref.NotAllowedError, an
-// environment that cannot be installed an *EnvironmentError, and anything
+// environment that cannot be installed an *EnvironmentError, an app a
+// coding agent made that cannot start in its lock an *AgentLockError, and
+// anything
 // else is the template's to fix: an *executor.UnsupportedError when the
 // app is planned for a Host and cannot run without containers.
 func Plan(in Inputs) (workload.Spec, error) {

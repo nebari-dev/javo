@@ -54,6 +54,11 @@ type Reconciler struct {
 	// Required.
 	Store       *store.Store
 	RunnerImage podspec.Image
+	// LockAgents says the platform locks coding agents in
+	// (workloads.landlock): the runs of a job a coding agent made then
+	// start in that agent's lock, and a job whose runs cannot is Blocked
+	// as AgentLockUnavailable.
+	LockAgents bool
 	// PixiImage installs the environment of a job that runs in one
 	// (internal/pixienv). Without it such a job is Blocked.
 	PixiImage string
@@ -157,6 +162,8 @@ type verdict struct {
 	api API
 	// env is the files of the job's environment; nil when it names none.
 	env *model.EnvironmentFiles
+	// maker is the coding agent that made the job (Inputs.Maker).
+	maker *model.App
 	// active counts the job's runs still going and running the owner's runs
 	// that were started (store.Jobs.RunningRuns); held is RunLimitReached when either
 	// is at its cap (store.Limits), which holds the schedule (runCaps).
@@ -280,12 +287,14 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 	if v.size, ok = r.Sizes.For(job.Size, job.Resources); !ok {
 		return verdict{phase: model.JobPhaseInvalid, code: reasons.JobSizeUnknown}, nil
 	}
+	var onHost *workspace.RunOnHost
 	if r.Host != nil {
 		// As processes of this machine: its pixi installs environments,
 		// and a template that needs an image cannot run.
 		host := r.Host(jobRef(job))
 		var no *executor.UnsupportedError
-		if _, err := workspace.PlanRunOnHost(&host, v.layout, &tpl, job.Spec.Environment != nil); errors.As(err, &no) {
+		on, err := workspace.PlanRunOnHost(&host, v.layout, &tpl, job.Spec.Environment != nil)
+		if onHost = &on; errors.As(err, &no) {
 			log.FromContext(ctx).Info("job blocked: its runs cannot be processes of this machine", "job", job.Name, "why", no.Error())
 			return verdict{phase: model.JobPhaseBlocked, code: reasons.TemplateInvalid}, nil
 		}
@@ -301,6 +310,13 @@ func (r *Reconciler) assess(ctx context.Context, job *model.Job, now time.Time) 
 			return verdict{phase: model.JobPhaseBlocked, code: reasons.EnvironmentUnavailable}, nil
 		}
 		v.env = &files
+	}
+	if v.maker, err = workspace.MakerOf(ctx, r.Store, job.Owner, job.MadeBy); err != nil {
+		return verdict{}, err
+	}
+	if err := madeRun(r.inputs(job, v), onHost).Problem(); err != nil {
+		log.FromContext(ctx).Info("job blocked: a coding agent made it and its runs cannot start in that agent's lock", "job", job.Name, "why", err.Error())
+		return verdict{phase: model.JobPhaseBlocked, code: reasons.AgentLockUnavailable}, nil
 	}
 	if v.api, err = r.syncToken(ctx, job, &tpl); err != nil {
 		return verdict{}, err
@@ -352,7 +368,7 @@ func atRunCap(l store.Limits, active, running int64) bool {
 // inputs is what renders the job's runs under verdict v.
 func (r *Reconciler) inputs(job *model.Job, v verdict) Inputs {
 	return Inputs{Job: job, Template: v.tpl, RunnerImage: r.RunnerImage, Layout: v.layout, Secrets: v.secrets, Size: v.size, API: v.api,
-		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout}
+		Environment: v.env, PixiImage: r.PixiImage, MaxTimeout: r.MaxTimeout, Maker: v.maker, LockAgents: r.LockAgents}
 }
 
 func invalidCode(err error) reasons.Code {
