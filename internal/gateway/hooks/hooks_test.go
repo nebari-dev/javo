@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/nebari-dev/javo/internal/gateway/apitest"
 	"github.com/nebari-dev/javo/internal/gateway/gatewaytest"
 	"github.com/nebari-dev/javo/internal/reasons"
+	"github.com/nebari-dev/javo/internal/store/storetest"
 )
 
 func TestWebhookSetupShowsTheSecretOnceAndReplacesIt(t *testing.T) {
@@ -171,6 +173,22 @@ func TestWebhookWithoutOrWithBadSignatureIsRefused(t *testing.T) {
 		if w.Code != http.StatusUnauthorized || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgWebhookSignature) {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body)
 		}
+	}
+	if !f.PokedAt("site").IsZero() {
+		t.Fatal("a refused delivery poked the app")
+	}
+}
+
+// The signature is the only credential, and a signature check with an empty
+// secret passes a delivery that carries none. No address is stored with an
+// empty secret, but one that were must not be open to anyone who has it.
+func TestWebhookWithAnEmptyStoredSecretIsRefused(t *testing.T) {
+	t.Parallel()
+	f := apitest.NewHookFixture(t)
+	storetest.Exec(t, f.Db, "UPDATE app_previews SET hook_secret = '' WHERE hook_id = ?", path.Base(apitest.HookPath(t, f.Site)))
+	w := f.Deliver(apitest.HookPath(t, f.Site), "pull_request", apitest.PullRequestEvent, "")
+	if w.Code != http.StatusUnauthorized || apitest.Decode[apitest.Problem](t, w).Title != reasons.Msg(reasons.MsgWebhookSignature) {
+		t.Fatalf("unsigned delivery: %d %s", w.Code, w.Body)
 	}
 	if !f.PokedAt("site").IsZero() {
 		t.Fatal("a refused delivery poked the app")
