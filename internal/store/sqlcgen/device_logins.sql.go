@@ -31,7 +31,7 @@ func (q *Queries) DecideDeviceLogin(ctx context.Context, arg DecideDeviceLoginPa
 }
 
 const getDeviceLoginByCodeHash = `-- name: GetDeviceLoginByCodeHash :one
-SELECT id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner FROM device_logins WHERE code_hash = $1
+SELECT id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner, asked_from, client_name FROM device_logins WHERE code_hash = $1
 `
 
 func (q *Queries) GetDeviceLoginByCodeHash(ctx context.Context, codeHash []byte) (DeviceLogin, error) {
@@ -46,12 +46,14 @@ func (q *Queries) GetDeviceLoginByCodeHash(ctx context.Context, codeHash []byte)
 		&i.LastPollAt,
 		&i.State,
 		&i.Owner,
+		&i.AskedFrom,
+		&i.ClientName,
 	)
 	return i, err
 }
 
 const getDeviceLoginByUserCode = `-- name: GetDeviceLoginByUserCode :one
-SELECT id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner FROM device_logins WHERE user_code = $1
+SELECT id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner, asked_from, client_name FROM device_logins WHERE user_code = $1
 `
 
 func (q *Queries) GetDeviceLoginByUserCode(ctx context.Context, userCode string) (DeviceLogin, error) {
@@ -66,13 +68,15 @@ func (q *Queries) GetDeviceLoginByUserCode(ctx context.Context, userCode string)
 		&i.LastPollAt,
 		&i.State,
 		&i.Owner,
+		&i.AskedFrom,
+		&i.ClientName,
 	)
 	return i, err
 }
 
 const insertDeviceLogin = `-- name: InsertDeviceLogin :exec
-INSERT INTO device_logins (id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO device_logins (id, user_code, code_hash, created_at, expires_at, last_poll_at, state, owner, asked_from, client_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertDeviceLoginParams struct {
@@ -84,6 +88,8 @@ type InsertDeviceLoginParams struct {
 	LastPollAt dbtime.Time
 	State      string
 	Owner      string
+	AskedFrom  string
+	ClientName string
 }
 
 func (q *Queries) InsertDeviceLogin(ctx context.Context, arg InsertDeviceLoginParams) error {
@@ -96,6 +102,8 @@ func (q *Queries) InsertDeviceLogin(ctx context.Context, arg InsertDeviceLoginPa
 		arg.LastPollAt,
 		arg.State,
 		arg.Owner,
+		arg.AskedFrom,
+		arg.ClientName,
 	)
 	return err
 }

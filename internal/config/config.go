@@ -642,7 +642,21 @@ type Auth struct {
 		Enabled bool `json:"enabled"`
 	} `json:"local"`
 	OIDC *OIDC `json:"oidc,omitempty"`
+	// DeviceLogin is the sign-in of a coding agent that a person approves
+	// in the browser (/llms.txt, /api/auth/device, the page /device).
+	DeviceLogin DeviceLoginCfg `json:"deviceLogin"`
 }
+
+// DeviceLoginCfg turns the device login on or off.
+type DeviceLoginCfg struct {
+	// Enabled false serves no device login and no /llms.txt, which tells an
+	// agent to start one: agents then use a token a person makes in
+	// Settings. Default true.
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled is Enabled with its default.
+func (c DeviceLoginCfg) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
 
 // OIDC configures one OpenID Connect provider.
 type OIDC struct {

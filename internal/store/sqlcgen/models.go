@@ -166,6 +166,8 @@ type DeviceLogin struct {
 	LastPollAt dbtime.Time
 	State      string
 	Owner      string
+	AskedFrom  string
+	ClientName string
 }
 
 type Group struct {

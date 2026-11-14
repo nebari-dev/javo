@@ -277,6 +277,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 		AIIncludeOwners: platform.AI.Admin.IncludeOwners,
 		MCP:             platform.MCP,
 		TrustedAgents:   platform.Agents.TrustedAllowed(),
+		DeviceLoginOff:  !platform.Auth.DeviceLogin.IsEnabled(),
 		Environments:    wiring.EnvironmentSource(platform),
 		NebiTokens:      nebi,
 	})

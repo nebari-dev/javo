@@ -111,14 +111,14 @@ func (p *proxy) atApp(r *http.Request) (*http.Request, exposure.Target, bool) {
 
 // rootSessionCookie is the root session cookie of the app t, without its value.
 func (p *proxy) rootSessionCookie(t exposure.Target) http.Cookie {
-	secure := p.cfg.URLs.URLScheme() == "https"
+	secure := p.secureCookies()
 	return http.Cookie{Name: model.CookieName(rootSessionPrefix+t.ObjectName, secure), Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure}
 }
 
 // routeCookie is the route cookie without its value.
 func (p *proxy) routeCookie() http.Cookie {
-	secure := p.cfg.URLs.URLScheme() == "https"
+	secure := p.secureCookies()
 	return http.Cookie{Name: model.CookieName(routeCookieName, secure), Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure}
 }

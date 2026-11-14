@@ -160,3 +160,40 @@ func TestOneHostRootRequestsNeverShadowTheGatewaysRoutes(t *testing.T) {
 		t.Fatalf("websocket: %d %s", w.Code, w.Body)
 	}
 }
+
+// A page of an app cannot register a service worker over the whole origin:
+// the gateway refuses the script the browser asks for at "/", on one host
+// (where the worker would answer for the web UI) and on an apps host (for
+// every other app), and the app is never asked for it.
+func TestAnAppGetsNoServiceWorkerScriptAtTheRoot(t *testing.T) {
+	for name, urls := range map[string]config.URLs{"one host": {Mode: "path"}, "apps host": pathURLs} {
+		f := newApps(t, urls, model.AccessRestricted, salesApp(nil))
+		dir := ""
+		if !f.exp.SeparateHost() {
+			dir = t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>javo</html>"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		hits := stripServer(t, f, dir)
+		jar, _ := cookiejar.New(nil)
+		ui, _ := url.Parse("https://" + uiHost + "/")
+		jar.SetCookies(ui, []*http.Cookie{uiCookie(f.ui(alice()))})
+		host, page := appsHost, salesURL
+		if !f.exp.SeparateHost() {
+			host, page = uiHost, "https://"+uiHost+"/u/"+apitest.AliceID+"/sales-app/"
+		}
+		if w := f.browse(jar, page); w.Code != 200 {
+			t.Fatalf("%s: open: %d %s", name, w.Code, w.Body)
+		}
+		*hits = nil
+		for _, dest := range []string{"serviceworker", "sharedworker"} {
+			if w := fetch(f.srv, jar, "GET", "https://"+host+"/sw.js", page, "same-origin", dest); w.Code != http.StatusForbidden || len(*hits) != 0 {
+				t.Errorf("%s: %s at the root: %d, the app was asked for %v", name, dest, w.Code, *hits)
+			}
+		}
+		if w := fetch(f.srv, jar, "GET", page+"sw.js", page, "same-origin", "serviceworker"); w.Code != 200 || w.Body.String() != "app /sw.js" {
+			t.Errorf("%s: service worker inside the app: %d %s", name, w.Code, w.Body)
+		}
+	}
+}

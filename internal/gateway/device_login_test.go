@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -231,5 +232,147 @@ func TestDeviceStartWithoutPublicURL(t *testing.T) {
 	}
 	if want := "http://javo.example.com/device?code=" + s.UserCode; s.VerificationURLComplete != want {
 		t.Fatalf("verificationURLComplete %q, want %q", s.VerificationURLComplete, want)
+	}
+}
+
+// deviceFrom sends a request as Fixture.Do does, from the address ip.
+func deviceFrom(f *apitest.Fixture, ip, method, path, body string, c *http.Cookie) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		r.Header.Set("Content-Type", "application/json")
+	}
+	r.Header.Set("X-Javo-Request", "1")
+	r.RemoteAddr = ip + ":40000"
+	if c != nil {
+		r.AddCookie(c)
+	}
+	w := httptest.NewRecorder()
+	f.Srv.ServeHTTP(w, r)
+	return w
+}
+
+type deviceView struct {
+	UserCode           string `json:"userCode"`
+	AskedFrom          string `json:"askedFrom"`
+	ClientName         string `json:"clientName"`
+	FromAnotherAddress bool   `json:"fromAnotherAddress"`
+}
+
+// The approval page is told where the request came from and what the device
+// calls itself, as the gateway recorded them at the start, and whether that
+// address is another than the approver's own: the sign that someone else
+// started it and sent the link.
+func TestDeviceViewSaysWhoAsked(t *testing.T) {
+	f, _ := deviceFixture(t, apitest.Options{})
+	alice := f.LoginAlice()
+	w := deviceFrom(f, "203.0.113.7", "POST", "/api/auth/device", `{"clientName":"javo agent on Linux"}`, nil)
+	wantCode(t, "start", w, http.StatusOK)
+	s := apitest.Decode[deviceStart](t, w)
+
+	other := apitest.Decode[deviceView](t, deviceFrom(f, "198.51.100.4", "GET", "/api/auth/device/"+s.UserCode, "", alice))
+	if other.AskedFrom != "203.0.113.7" || other.ClientName != "javo agent on Linux" || !other.FromAnotherAddress {
+		t.Fatalf("seen from another address: %+v", other)
+	}
+	same := apitest.Decode[deviceView](t, deviceFrom(f, "203.0.113.7", "GET", "/api/auth/device/"+s.UserCode, "", alice))
+	if same.AskedFrom != "203.0.113.7" || same.FromAnotherAddress {
+		t.Fatalf("seen from the same address: %+v", same)
+	}
+}
+
+// The name a device gives is shown to the person who approves, so it is
+// plain visible text of at most 64 characters: nothing that hides, reorders
+// or breaks what the page shows. A start with no body still works.
+func TestDeviceClientNameIsPlainText(t *testing.T) {
+	f, _ := deviceFixture(t, apitest.Options{})
+	for what, name := range map[string]string{
+		"a line break":             `javo\nApproved by your admin`,
+		"a right-to-left override": `javo ‮gnp.exe`,
+		"a zero-width space":       `ja​vo`,
+		"an escape character":      `javo\u001b[2J`,
+		"65 characters":            strings.Repeat("a", 65),
+	} {
+		w := f.Do("POST", "/api/auth/device", `{"clientName":"`+name+`"}`, nil)
+		wantCode(t, what, w, http.StatusUnprocessableEntity)
+	}
+	wantCode(t, "64 characters", f.Do("POST", "/api/auth/device", `{"clientName":"`+strings.Repeat("é", 64)+`"}`, nil), http.StatusOK)
+	wantCode(t, "no body", f.Do("POST", "/api/auth/device", "", nil), http.StatusOK)
+}
+
+// Behind an ingress with no trustedProxies every start comes from the
+// ingress's address. That address keys no bucket of ten, which one caller
+// would spend for everyone; the starts of everyone together are still
+// bounded, at sixty and then one a second. Nor is it shown as where the
+// request came from: it is the proxy's, not the asker's.
+func TestDeviceStartsThroughAnUntrustedProxyShareOnlyTheWideLimit(t *testing.T) {
+	f, _ := deviceFixture(t, apitest.Options{})
+	alice := f.LoginAlice()
+	var last deviceStart
+	for i := range 60 {
+		w := deviceFrom(f, "10.42.0.9", "POST", "/api/auth/device", "", nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("start %d through the shared address: %d %s", i+1, w.Code, w.Body)
+		}
+		last = apitest.Decode[deviceStart](t, w)
+	}
+	// The bucket fills by one a second while the test runs: one of the next
+	// few is refused.
+	if w := startsUntilRefused(f, "10.42.0.9", 5); w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" {
+		t.Fatalf("starts 61 to 65: %d, Retry-After %q", w.Code, w.Header().Get("Retry-After"))
+	}
+	view := apitest.Decode[deviceView](t, deviceFrom(f, "10.42.0.10", "GET", "/api/auth/device/"+last.UserCode, "", alice))
+	if view.AskedFrom != "" || view.FromAnotherAddress {
+		t.Fatalf("view through the shared address: %+v", view)
+	}
+}
+
+// Many addresses together get no more starts than the wide limit: ten each
+// from six addresses spend it, and a seventh address gets none.
+func TestDeviceStartsFromManyAddressesAreBoundedTogether(t *testing.T) {
+	f, _ := deviceFixture(t, apitest.Options{})
+	for a := range 6 {
+		for i := range 10 {
+			ip := "203.0.113." + strconv.Itoa(a+1)
+			if w := deviceFrom(f, ip, "POST", "/api/auth/device", "", nil); w.Code != http.StatusOK {
+				t.Fatalf("start %d from %s: %d %s", i+1, ip, w.Code, w.Body)
+			}
+		}
+	}
+	if w := startsUntilRefused(f, "203.0.113.7", 5); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("a seventh address: %d", w.Code)
+	}
+}
+
+// startsUntilRefused starts up to n device logins from ip and returns the
+// first answer that is not 200, or the last.
+func startsUntilRefused(f *apitest.Fixture, ip string, n int) (w *httptest.ResponseRecorder) {
+	for range n {
+		if w = deviceFrom(f, ip, "POST", "/api/auth/device", "", nil); w.Code != http.StatusOK {
+			break
+		}
+	}
+	return w
+}
+
+// With auth.deviceLogin.enabled false there is no device login: none is
+// started, read, approved or polled, and the guide that tells an agent to
+// start one is not served.
+func TestDeviceLoginTurnedOff(t *testing.T) {
+	f, _ := deviceFixture(t, apitest.Options{NoDeviceLogin: true})
+	alice := f.LoginAlice()
+	for _, c := range []struct {
+		method, path string
+		cookie       *http.Cookie
+	}{
+		{"POST", "/api/auth/device", nil},
+		{"POST", "/api/auth/device/token", nil},
+		{"GET", "/api/auth/device/BCDF-GHJK", alice},
+		{"POST", "/api/auth/device/BCDF-GHJK/approve", alice},
+		{"GET", "/llms.txt", nil},
+	} {
+		body := ""
+		if c.path == "/api/auth/device/token" {
+			body = `{"deviceCode":"x"}`
+		}
+		wantCode(t, c.method+" "+c.path, f.Do(c.method, c.path, body, c.cookie), http.StatusNotFound)
 	}
 }

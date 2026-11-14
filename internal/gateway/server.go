@@ -201,6 +201,9 @@ type Config struct {
 	// TrustedAgents is agents.allowTrusted: owners may let their coding
 	// agents act without asking, unless a platform admin switched it off.
 	TrustedAgents bool
+	// DeviceLoginOff is auth.deviceLogin.enabled false: no device login
+	// routes and no /llms.txt.
+	DeviceLoginOff bool
 	// Storage is the platform config's storage section, defaults applied,
 	// for GET /api/storage and the admin storage report.
 	Storage model.ClusterStorageSpec
@@ -327,10 +330,12 @@ func NewServer(cfg Config) *Server {
 	storage.RegisterFiles(api, listings, nss, st)
 
 	(&authn.TokensAPI{Store: cfg.Tokens, Roles: cfg.Roles, Apps: cfg.Store.Apps(), MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, Now: now, Docs: cfg.API.Docs.Enabled}).Register(api)
-	(&authn.DeviceAPI{
-		DB: cfg.Store, Tokens: cfg.Tokens, MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, PublicURL: cfg.MCP.PublicURL,
-		Limiter: ratelimit.NewBuckets(), Now: now,
-	}).Register(api)
+	if !cfg.DeviceLoginOff {
+		(&authn.DeviceAPI{
+			DB: cfg.Store, Tokens: cfg.Tokens, MaxLifetime: cfg.API.Tokens.MaxLifetime.Duration, PublicURL: cfg.MCP.PublicURL,
+			Limiter: ratelimit.NewBuckets(), Now: now,
+		}).Register(api)
+	}
 	(&jobs.API{DB: cfg.Store, Namespaces: nss, Rules: sz, Runs: cfg.Runs, Homes: cfg.Homes, Engines: cfg.Engines, Environments: envs, Streams: logStreams}).Register(api)
 
 	if cfg.CodeHosts != nil {
@@ -362,7 +367,9 @@ func NewServer(cfg Config) *Server {
 	if cfg.MCP.Enabled {
 		mountMCP(mux, api.OpenAPI(), ws.DescribeActions(), a.LiveToken, cfg.MCP.PublicURL)
 	}
-	mux.Handle("GET "+llmsRoute, noSniff(a.WithOrigin(llmsHandler(cfg.MCP.PublicURL))))
+	if !cfg.DeviceLoginOff {
+		mux.Handle("GET "+llmsRoute, noSniff(a.WithOrigin(llmsHandler(cfg.MCP.PublicURL))))
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	// /readyz is what the pod waits on before it gets traffic; /healthz only
 	// says the process is alive.

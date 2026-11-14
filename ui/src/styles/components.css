@@ -559,7 +559,10 @@ a.side-foot:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;bo
 .timer{flex:none;display:inline-flex;gap:6px;align-items:center;font-size:var(--fs-xs);color:var(--text-2);padding:4px 10px;border-radius:999px;border:1px solid var(--border);white-space:nowrap;font-variant-numeric:tabular-nums}
 .timer.soon{color:var(--warn);border-color:currentColor}
 .say{margin:0;max-width:62ch}
-.devcode{flex:none;font-family:var(--font-mono);font-size:var(--fs-md);font-weight:600;letter-spacing:.12em;padding:4px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);white-space:nowrap}
+.devcheck{margin:0;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:var(--fs-sm);font-weight:600}
+.devcode{flex:none;font-family:var(--font-mono);font-size:var(--fs-xl);font-weight:600;letter-spacing:.12em;padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);white-space:nowrap}
+.devfacts{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:var(--fs-sm);color:var(--text-2);max-width:62ch;overflow-wrap:anywhere}
+.devfacts b{font-weight:600;color:var(--text)}
 .grants{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 24px;font-size:var(--fs-sm);max-width:62ch}
 .grants li{display:grid;grid-template-columns:subgrid;grid-column:1/-1}
 .grants b{font-weight:600;color:var(--text-2)}

@@ -57,7 +57,7 @@ function CodeForm() {
   )
 }
 
-/** The request as an approval card, like the inbox's: the agent on the left; the question, what it grants and the buttons on the right. */
+/** The request as an approval card, like the inbox's: when it was made on the left; the question, the code to check, who asked as the server recorded it, what it grants and the buttons on the right. */
 function Request({ code }: { code: string }) {
   const titleId = useId()
   const q = useQuery({
@@ -96,18 +96,35 @@ function Request({ code }: { code: string }) {
               <span className="agent">
                 <Bot size={20} aria-hidden="true" />
               </span>
-              <b>Agent on your computer</b>
+              <b>Sign-in request</b>
               <span>{`Requested ${ago(q.data.createdAt)}`}</span>
             </div>
             <div className="what">
               <div className="what-top">
                 <h2 id={titleId}>Let an agent act as you?</h2>
-                <code className="devcode" title="Check it matches the code your agent shows">
-                  {q.data.userCode}
-                </code>
               </div>
+              <p className="devcheck">
+                <code className="devcode">{q.data.userCode}</code>
+                <span>Check this matches the code in your terminal.</span>
+              </p>
+              {(q.data.askedFrom || q.data.clientName) && (
+                <ul className="devfacts" aria-label="Who is asking">
+                  {q.data.askedFrom && (
+                    <li>
+                      Asked from <b>{q.data.askedFrom}</b>
+                    </li>
+                  )}
+                  {q.data.clientName && <li>It calls itself &ldquo;{q.data.clientName}&rdquo;. Anyone can choose this name.</li>}
+                </ul>
+              )}
+              {q.data.fromAnotherAddress && (
+                <p className="devwarn warn" role="alert">
+                  <CircleAlert size={17} aria-hidden="true" />
+                  <span>This request did not come from the address your browser is on. If someone sent you this link, deny it.</span>
+                </p>
+              )}
               <p className="say">
-                An agent asked to act as you through the API for {hours(q.data.tokenHours)}. Approve only if you started this yourself just now.
+                Approving signs that device in as you through the API for {hours(q.data.tokenHours)}. Approve only if you started this yourself just now.
               </p>
               <ul className="grants" aria-label="What the agent can do">
                 {GRANTS.map(([area, can]) => (

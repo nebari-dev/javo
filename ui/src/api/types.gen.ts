@@ -573,8 +573,20 @@ export type DeviceToken = {
 };
 
 export type DeviceView = {
+    /**
+     * The address the request was started from; empty when the gateway cannot tell clients apart
+     */
+    askedFrom: string;
+    /**
+     * What the device called itself when it asked; empty when it gave no name. Not checked: anyone can choose it
+     */
+    clientName: string;
     createdAt: string;
     expiresAt: string;
+    /**
+     * True when askedFrom is known and is not the address this request came from
+     */
+    fromAnotherAddress: boolean;
     state: 'pending' | 'approved' | 'denied' | 'spent';
     /**
      * How many hours the token an approval gives lasts
@@ -1756,6 +1768,13 @@ export type SourceView = {
     url: string;
     webURL: string;
     webhookConfigured: boolean;
+};
+
+export type StartDeviceLoginRequest = {
+    /**
+     * What the device calls itself on the approval page, such as coding agent on Linux. Letters, numbers, punctuation and plain spaces. Leave out the computer's and the person's name.
+     */
+    clientName?: string;
 };
 
 export type StartRunInputBody = {
@@ -3545,13 +3564,17 @@ export type GetAiStatusResponses = {
 export type GetAiStatusResponse = GetAiStatusResponses[keyof GetAiStatusResponses];
 
 export type StartDeviceLoginData = {
-    body?: never;
+    body?: StartDeviceLoginRequest;
     path?: never;
     query?: never;
     url: '/api/auth/device';
 };
 
 export type StartDeviceLoginErrors = {
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
     /**
      * Too Many Requests
      */

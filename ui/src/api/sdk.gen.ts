@@ -513,7 +513,14 @@ export const getAiStatus = <ThrowOnError extends boolean = false>(options?: Opti
  *
  * For a coding agent without a browser. Show the person userCode and verificationURL, then poll POST /api/auth/device/token with deviceCode every interval seconds until the person approves or the request expires.
  */
-export const startDeviceLogin = <ThrowOnError extends boolean = false>(options?: Options<StartDeviceLoginData, ThrowOnError>): RequestResult<StartDeviceLoginResponses, StartDeviceLoginErrors, ThrowOnError> => (options?.client ?? client).post<StartDeviceLoginResponses, StartDeviceLoginErrors, ThrowOnError>({ url: '/api/auth/device', ...options });
+export const startDeviceLogin = <ThrowOnError extends boolean = false>(options?: Options<StartDeviceLoginData, ThrowOnError>): RequestResult<StartDeviceLoginResponses, StartDeviceLoginErrors, ThrowOnError> => (options?.client ?? client).post<StartDeviceLoginResponses, StartDeviceLoginErrors, ThrowOnError>({
+    url: '/api/auth/device',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers
+    }
+});
 
 /**
  * Ask for the token of an agent sign-in

@@ -25,9 +25,9 @@ describe('Device login page', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Approve an agent login' })).toBeTruthy()
     // The same card an approval in the inbox is: who asks, then the question.
     const card = screen.getByRole('article', { name: 'Let an agent act as you?' })
-    expect(within(card).getByText('Agent on your computer')).toBeTruthy()
     expect(within(card).getByText('WDJB-MJHT')).toBeTruthy()
-    expect(screen.getByText('An agent asked to act as you through the API for 8 hours. Approve only if you started this yourself just now.')).toBeTruthy()
+    expect(within(card).getByText('Check this matches the code in your terminal.')).toBeTruthy()
+    expect(screen.getByText('Approving signs that device in as you through the API for 8 hours. Approve only if you started this yourself just now.')).toBeTruthy()
     const grants = screen.getByRole('list', { name: 'What the agent can do' })
     const rows = within(grants).getAllByRole('listitem').map((li) => [li.querySelector('b')?.textContent, li.querySelector('span')?.textContent])
     expect(rows).toEqual([
@@ -38,6 +38,33 @@ describe('Device login page', () => {
       ['API access', 'Give an app its own, which lasts until you turn it off'],
     ])
     expect(screen.getByText("It can't use admin powers, make or revoke tokens, or approve requests.")).toBeTruthy()
+  })
+
+  it('says where the request came from and what the device calls itself, as the server recorded them', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view({ askedFrom: '203.0.113.7', clientName: 'coding agent on Linux' }) } })
+    renderApp('/device?code=WDJB-MJHT')
+    const facts = await screen.findByRole('list', { name: 'Who is asking' })
+    expect(within(facts).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Asked from 203.0.113.7',
+      'It calls itself \u201ccoding agent on Linux\u201d. Anyone can choose this name.',
+    ])
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('claims nothing the server did not record: no address, no name, no place', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view({ askedFrom: '', clientName: '' }) } })
+    renderApp('/device?code=WDJB-MJHT')
+    const card = await screen.findByRole('article', { name: 'Let an agent act as you?' })
+    expect(within(card).queryByRole('list', { name: 'Who is asking' })).toBeNull()
+    expect(card.textContent).not.toMatch(/on your computer|Asked from|calls itself/)
+  })
+
+  it('warns when the request came from another address than the browser', async () => {
+    mockApi({ 'GET /api/me': { body: me }, [ROUTE]: { body: view({ askedFrom: '203.0.113.7', fromAnotherAddress: true }) } })
+    renderApp('/device?code=WDJB-MJHT')
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'This request did not come from the address your browser is on. If someone sent you this link, deny it.',
+    )
   })
 
   it('says when the request was made', async () => {

@@ -76,7 +76,8 @@ type Config struct {
 	// the owner's own session opens it; nil (Nebi off) does nothing.
 	NebiTokens *nebi.Tokens
 	// SecureCookies is the gateway's (see config.URLs.SecureCookies): it names
-	// the UI session cookie apps read when they share the UI's origin.
+	// the UI session cookie apps read when they share the UI's origin, and
+	// makes the cookies the proxy sets Secure.
 	SecureCookies bool
 	// Seal seals the route cookie that names the app a browser opened last
 	// (see rootroute.go); share the sessions key, which every replica has.
@@ -241,6 +242,10 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.startedByAnotherApp(r, t) || foreignOrigin(r) {
 		refuseFromAnotherApp(w, r)
+		return
+	}
+	if workerOutsideApp(r, p.cfg.Exposure.BasePath(t.Owner, t.Name)) {
+		http.Error(w, reasons.Msg(reasons.MsgWorkerOutsideApp), http.StatusForbidden)
 		return
 	}
 	if p.cfg.Exposure.SeparateHost() && t.Rest == ticketPath {
@@ -441,7 +446,7 @@ func (p *proxy) appsShareOrigin() bool {
 // cookie when they share the UI's origin. uiID is the ID of the ui session
 // behind it, and tok the app session's token.
 func (p *proxy) session(r *http.Request, t exposure.Target, app *model.App) (sess session.Session, uiID, tok string, ok bool) {
-	name, kind := model.CookieName(model.SessionCookieName, p.cfg.URLs.SecureCookies(p.cfg.SecureCookies)), session.KindUI
+	name, kind := model.CookieName(model.SessionCookieName, p.secureCookies()), session.KindUI
 	if p.cfg.Exposure.SeparateHost() {
 		name, kind = p.appCookie(t).Name, session.KindApp
 		if isRoot(r) {
@@ -493,11 +498,18 @@ func (p *proxy) revalidateUI(ctx context.Context, id string, sess session.Sessio
 	return fresh, true
 }
 
+// secureCookies is true when the gateway's cookies are Secure (see
+// config.URLs.SecureCookies): one answer for the UI session cookie the proxy
+// reads and every cookie it sets.
+func (p *proxy) secureCookies() bool {
+	return p.cfg.URLs.SecureCookies(p.cfg.SecureCookies)
+}
+
 // appCookie is the app cookie for t without its value. A Secure cookie that
 // covers the whole of one host gets the __Host- prefix.
 func (p *proxy) appCookie(t exposure.Target) http.Cookie {
 	domain, path := p.cfg.Exposure.CookieScope(t)
-	secure := p.cfg.URLs.URLScheme() == "https"
+	secure := p.secureCookies()
 	return http.Cookie{
 		Name: model.CookieName(model.AppCookieName, secure && domain == "" && path == "/"), Domain: domain, Path: path,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure,

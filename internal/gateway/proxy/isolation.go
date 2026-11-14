@@ -54,6 +54,29 @@ func fromAnotherApp(r *http.Request, base string) bool {
 	return !ownPage
 }
 
+// workerOutsideApp is true for a browser's request for the script of a
+// service worker or a shared worker whose address is not inside the app at
+// base, while apps share one origin. A service worker may take the folder of
+// its script as its scope with no header (Service-Worker-Allowed, the only
+// way to widen it, never leaves the proxy: see sanitizeResponse), and it
+// then answers for every page there for as long as the browser keeps it,
+// after the share or the app is gone. A shared worker is reached by every
+// page of the origin that names its address. So neither is served for a root
+// request, whose folder is the whole origin, nor from the app's bare address
+// "/u/<owner>/<app>", whose folder is every app of its owner. A page's own
+// worker (new Worker) has no scope and ends with its page: it is served.
+func workerOutsideApp(r *http.Request, base string) bool {
+	switch r.Header.Get("Sec-Fetch-Dest") {
+	case "serviceworker", "sharedworker":
+	default:
+		// Browsers name a service worker script in this header too.
+		if r.Header.Get("Service-Worker") == "" {
+			return false
+		}
+	}
+	return isRoot(r) || !strings.HasPrefix(r.URL.Path, base)
+}
+
 // fromSiblingApp is true when a browser request was started by a page of
 // another host of the same site, in subdomain mode. Every app has a host of
 // its own there, but the apps and the UI host are one site, and SameSite does
