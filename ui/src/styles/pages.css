@@ -139,7 +139,7 @@ a.btn{text-decoration:none}
 .hb{display:flex;flex-direction:column;gap:12px;min-width:0;container-type:inline-size}
 .hb-q{margin:0}
 .hb-box{border:1px solid var(--border);border-radius:var(--radius-sm)}
-.hb-head{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;padding:10px 14px;border-bottom:1px solid var(--border);border-radius:var(--radius-sm) var(--radius-sm) 0 0;background:var(--surface-2)}
+.hb-head{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;padding:14px 16px;border-bottom:1px solid var(--border);border-radius:var(--radius-sm) var(--radius-sm) 0 0;background:var(--surface-2)}
 .hb-legend{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;font-size:var(--fs-2xs);color:var(--text-2)}
 .hb-legend ul{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .hb-legend li{padding:2px 8px 2px 10px;border-radius:4px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);cursor:default}
