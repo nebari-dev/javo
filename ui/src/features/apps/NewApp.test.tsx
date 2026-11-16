@@ -60,6 +60,12 @@ async function pickStreamlit() {
 }
 
 // The code and size cards start as one row each when they hold a default.
+// The file at path in the picker's tree, by its name and how deep it is.
+const rowAt = async (picker: HTMLElement, path: string) => {
+  const parts = path.split('/')
+  const rows = await within(picker).findAllByRole('treeitem', { name: parts[parts.length - 1] })
+  return rows.find((r) => r.getAttribute('aria-level') === String(parts.length))!
+}
 const openCode = async () => userEvent.click(await screen.findByRole('button', { name: /^Code: / }))
 // The sizes show open, once they have loaded.
 const sizesLoaded = async () => screen.findByRole('radiogroup', { name: 'Size' })
@@ -86,8 +92,8 @@ describe('New app', () => {
     await userEvent.click(trigger)
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
     expect(picker.getAttribute('aria-modal')).toBe('true')
-    await within(picker).findByRole('button', { name: /README\.md/ })
-    expect(document.activeElement).toBe(within(picker).getByRole('searchbox', { name: 'Search this folder' }))
+    await within(picker).findByRole('treeitem', { name: /README\.md/ })
+    expect(document.activeElement).toBe(within(picker).getByRole('searchbox', { name: 'Search by name' }))
     for (let i = 0; i < 12; i++) {
       await userEvent.tab()
       expect(picker.contains(document.activeElement)).toBe(true)
@@ -148,8 +154,8 @@ describe('New app', () => {
     await pickStreamlit()
     await userEvent.click(screen.getByRole('button', { name: /Choose a file/ }))
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    await userEvent.click(await within(picker).findByRole('button', { name: /sales/ }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /app\.py/ }))
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: 'sales' }))
+    await userEvent.click(await rowAt(picker, 'sales/app.py'))
     await userEvent.click(within(picker).getByRole('button', { name: /^Choose/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     const group = await screen.findByRole('radiogroup', { name: 'What do you want to run?' })
@@ -173,12 +179,12 @@ describe('New app', () => {
     await pickStreamlit()
     await userEvent.click(screen.getByRole('button', { name: /Choose a file/ }))
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    expect(await within(picker).findByRole('button', { name: /README\.md/ })).toBeTruthy()
-    expect(within(picker).getByRole('button', { name: /README\.md/ }).getAttribute('aria-disabled')).toBe('true')
-    await userEvent.click(within(picker).getByRole('button', { name: /sales/ }))
-    const app = await within(picker).findByRole('button', { name: /app\.py/ })
+    expect(await within(picker).findByRole('treeitem', { name: /README\.md/ })).toBeTruthy()
+    expect(within(picker).getByRole('treeitem', { name: /README\.md/ }).getAttribute('aria-disabled')).toBe('true')
+    await userEvent.click(within(picker).getByRole('treeitem', { name: /sales/ }))
+    const app = await within(picker).findByRole('treeitem', { name: /app\.py/ })
     expect(app.getAttribute('aria-disabled')).toBeNull()
-    expect(within(picker).getByRole('button', { name: /sales\.csv/ }).getAttribute('aria-disabled')).toBe('true')
+    expect(within(picker).getByRole('treeitem', { name: /sales\.csv/ }).getAttribute('aria-disabled')).toBe('true')
     await userEvent.click(app)
     await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -200,7 +206,7 @@ describe('New app', () => {
     await pickStreamlit()
     await userEvent.click(screen.getByRole('button', { name: /Choose a file/ }))
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    await within(picker).findByRole('button', { name: /README\.md/ })
+    await within(picker).findByRole('treeitem', { name: /README\.md/ })
     expect(within(picker).queryByText(/Showing the first/)).toBeNull()
   })
 
@@ -219,7 +225,7 @@ describe('New app', () => {
     // A quick open is not explained (see HomePicker.test.tsx for a slow one).
     expect(within(picker).queryByText(REASONS.HomeStarting.title)).toBeNull()
     await act(() => vi.advanceTimersByTimeAsync(500))
-    expect(await within(picker).findByRole('button', { name: /README\.md/ })).toBeTruthy()
+    expect(await within(picker).findByRole('treeitem', { name: /README\.md/ })).toBeTruthy()
   })
 
   it('explains a busy home folder with the failure card from the API', async () => {
@@ -288,8 +294,8 @@ describe('New app', () => {
     await userEvent.type(screen.getByLabelText('Name'), 'Sales app')
     await userEvent.click(screen.getByRole('button', { name: /Choose a file/ }))
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    await userEvent.click(await within(picker).findByRole('button', { name: /sales/ }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /app\.py/ }))
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: 'sales' }))
+    await userEvent.click(await rowAt(picker, 'sales/app.py'))
     await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     await waitFor(() => expect(location()).toBe('/apps/sales-app'))
@@ -369,9 +375,8 @@ describe('New app samples', () => {
     expect(screen.queryByRole('button', { name: 'Use the sample again' })).toBeNull()
     await openCode()
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    await userEvent.click(within(within(picker).getByRole('navigation', { name: 'Breadcrumbs' })).getByRole('button', { name: 'Home' }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /sales/ }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /app\.py/ }))
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: 'sales' }))
+    await userEvent.click(await rowAt(picker, 'sales/app.py'))
     await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
     // Still one row, with the choice in it.
     expect(screen.getByRole('button', { name: 'Code: Home folder · sales/app.py, change' })).toBeTruthy()
@@ -385,9 +390,8 @@ describe('New app samples', () => {
     await pickStreamlit()
     await openCode()
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    await userEvent.click(within(within(picker).getByRole('navigation', { name: 'Breadcrumbs' })).getByRole('button', { name: 'Home' }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /sales/ }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /app\.py/ }))
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: 'sales' }))
+    await userEvent.click(await rowAt(picker, 'sales/app.py'))
     await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
     expect(screen.getByRole('button', { name: 'Code: Home folder · sales/app.py, change' })).toBeTruthy()
     expect(screen.queryByText(/^Sample:/)).toBeNull()
@@ -402,9 +406,8 @@ describe('New app samples', () => {
     await pickStreamlit()
     await openCode()
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    await userEvent.click(within(within(picker).getByRole('navigation', { name: 'Breadcrumbs' })).getByRole('button', { name: 'Home' }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /sales/ }))
-    await userEvent.click(await within(picker).findByRole('button', { name: /app\.py/ }))
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: 'sales' }))
+    await userEvent.click(await rowAt(picker, 'sales/app.py'))
     await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
     await userEvent.click(screen.getByRole('button', { name: 'Use the sample again' }))
     expect(screen.getByRole('button', { name: 'Code: Home folder · Sample: Sales explorer, change' })).toBeTruthy()
@@ -443,12 +446,12 @@ describe('New app samples', () => {
     },
   }
   const withCopied = () => withSamples({ 'GET /api/files': files({ '': home, sales, ...copied }) })
-  const crumbs = (picker: HTMLElement) =>
-    within(within(picker).getByRole('navigation', { name: 'Breadcrumbs' }))
-      .getAllByRole('button')
-      .map((b) => b.textContent)
-  const goHome = (picker: HTMLElement) =>
-    userEvent.click(within(within(picker).getByRole('navigation', { name: 'Breadcrumbs' })).getByRole('button', { name: 'Home' }))
+  // The folders on the way to what is chosen are open.
+  const openFolders = (picker: HTMLElement) =>
+    within(picker)
+      .getAllByRole('treeitem')
+      .filter((r) => r.getAttribute('aria-expanded') === 'true')
+      .map((r) => r.getAttribute('aria-label'))
   const pickJupyter = async () => userEvent.click(await screen.findByRole('radio', { name: /JupyterLab/ }))
 
   for (const [where, setup, tag] of [
@@ -461,10 +464,10 @@ describe('New app samples', () => {
       await pickStreamlit()
       await openCode()
       const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-      const app = await within(picker).findByRole('button', { name: /app\.py/ })
-      expect(app.getAttribute('aria-pressed')).toBe('true')
+      const app = await within(picker).findByRole('treeitem', { name: /app\.py/ })
+      expect(app.getAttribute('aria-selected')).toBe('true')
       expect(within(app).getByText(tag)).toBeTruthy()
-      expect(crumbs(picker)).toEqual(['Home', 'samples', 'streamlit'])
+      expect(openFolders(picker)).toEqual(['samples', 'streamlit'])
       expect(within(picker).getByText('samples/streamlit/app.py')).toBeTruthy()
       await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
       expect(screen.queryByRole('dialog')).toBeNull()
@@ -480,10 +483,10 @@ describe('New app samples', () => {
       expect(screen.getByRole('button', { name: 'Code: Home folder · Sample: Notebook tour, change' })).toBeTruthy()
       await openCode()
       const picker = await screen.findByRole('dialog', { name: 'Choose a folder' })
-      const lab = await within(picker).findByRole('button', { name: /^jupyterlab/ })
-      expect(lab.getAttribute('aria-pressed')).toBe('true')
+      const lab = await within(picker).findByRole('treeitem', { name: /^jupyterlab/ })
+      expect(lab.getAttribute('aria-selected')).toBe('true')
       expect(within(lab).getByText(tag)).toBeTruthy()
-      expect(crumbs(picker)).toEqual(['Home', 'samples'])
+      expect(openFolders(picker)).toEqual(['samples'])
       await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
       expect(screen.getByRole('button', { name: 'Code: Home folder · Sample: Notebook tour, change' })).toBeTruthy()
       await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
@@ -497,11 +500,10 @@ describe('New app samples', () => {
     await pickJupyter()
     await openCode()
     const picker = await screen.findByRole('dialog', { name: 'Choose a folder' })
-    await within(picker).findByRole('button', { name: /^jupyterlab/ })
-    await goHome(picker)
-    const samples = await within(picker).findByRole('button', { name: /^samples/ })
+    await within(picker).findByRole('treeitem', { name: /^jupyterlab/ })
+    const samples = await within(picker).findByRole('treeitem', { name: /^samples/ })
     expect(within(samples).getByText('Made when the app starts')).toBeTruthy()
-    expect(within(picker).getByRole('button', { name: /^sales/ })).toBeTruthy()
+    expect(within(picker).getByRole('treeitem', { name: /^sales/ })).toBeTruthy()
   })
 
   it('a folder template switches to a folder of your own', async () => {
@@ -510,11 +512,10 @@ describe('New app samples', () => {
     await pickJupyter()
     await openCode()
     const picker = await screen.findByRole('dialog', { name: 'Choose a folder' })
-    await within(picker).findByRole('button', { name: /^jupyterlab/ })
-    await goHome(picker)
-    const files = await within(picker).findByRole('button', { name: /README\.md/ })
+    await within(picker).findByRole('treeitem', { name: /^jupyterlab/ })
+    const files = await within(picker).findByRole('treeitem', { name: /README\.md/ })
     expect(files.getAttribute('aria-disabled')).toBe('true')
-    await userEvent.click(within(picker).getByRole('button', { name: /^sales/ }))
+    await userEvent.click(within(picker).getByRole('treeitem', { name: /^sales/ }))
     await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
     expect(screen.queryByText(/^Sample:/)).toBeNull()
     expect(screen.getByRole('button', { name: 'Code: Home folder · sales, change' })).toBeTruthy()
@@ -539,17 +540,16 @@ describe('New app samples', () => {
     const open = async () => {
       await openCode()
       const picker = await screen.findByRole('dialog', { name: 'Choose a folder' })
-      await goHome(picker)
-      await within(picker).findByRole('button', { name: /^sales/ })
+        await within(picker).findByRole('treeitem', { name: /^sales/ })
       return picker
     }
     let picker = await open()
-    expect(within(picker).queryByRole('button', { name: /^\.config/ })).toBeNull()
-    await userEvent.click(within(picker).getByRole('switch', { name: 'Show hidden files' }))
-    expect(within(picker).getByRole('button', { name: /^\.config/ })).toBeTruthy()
+    expect(within(picker).queryByRole('treeitem', { name: /^\.config/ })).toBeNull()
+    await userEvent.click(within(picker).getByRole('switch', { name: 'Show hidden files and folders' }))
+    expect(within(picker).getByRole('treeitem', { name: /^\.config/ })).toBeTruthy()
     await userEvent.click(within(picker).getByRole('button', { name: 'Cancel' }))
     picker = await open()
-    expect(within(picker).getByRole('button', { name: /^\.config/ })).toBeTruthy()
+    expect(within(picker).getByRole('treeitem', { name: /^\.config/ })).toBeTruthy()
     expect(localStorage.getItem(`javo.picker.hidden.${me.id}`)).toBe('show')
   })
 
@@ -1091,8 +1091,8 @@ describe('New app from a Git repository', () => {
     expect((screen.getByRole('radio', { name: 'Home folder' }) as HTMLInputElement).checked).toBe(true)
     await userEvent.click(screen.getByRole('button', { name: /Choose a file/ }))
     const picker = await screen.findByRole('dialog', { name: 'Choose a file' })
-    expect((await within(picker).findByRole('button', { name: /index\.html/ })).getAttribute('aria-disabled')).not.toBe('true')
-    expect(within(picker).getByRole('button', { name: /README\.md/ }).getAttribute('aria-disabled')).toBe('true')
+    expect((await within(picker).findByRole('treeitem', { name: /index\.html/ })).getAttribute('aria-disabled')).not.toBe('true')
+    expect(within(picker).getByRole('treeitem', { name: /README\.md/ }).getAttribute('aria-disabled')).toBe('true')
   })
 
   it('shows the API text under the address when it is refused', async () => {

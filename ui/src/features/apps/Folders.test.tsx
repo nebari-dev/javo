@@ -353,7 +353,7 @@ describe('What a locked coding agent can open', () => {
     page(folders([], '/workspace/site'))
     renderApp('/apps/cc')
     await row('projects')
-    const project = within(await card()).getByText('/workspace/site', { selector: '.mono' }).closest('.hb-row') as HTMLElement
+    const project = within(await card()).getByText('/workspace/site', { selector: '.mono' }).closest('.tree-row') as HTMLElement
     expect(project.textContent).toContain("This app's project. Claude Code can always read and change it")
     expect(project.textContent).toContain('Read and change')
     expect(lines('can')[0]).toBe('Read, edit, add and delete files in /workspace/site')

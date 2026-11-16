@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeQueryClient } from '../../lib/queries'
 import { mockApi, type Reply } from '../../test/api'
@@ -22,13 +23,21 @@ function listing(names: string[], extra: Record<string, unknown> = {}): Reply {
   return { body: { path: '', entries, count: entries.length, truncated: false, stale: false, ageSeconds: 0, ...extra } }
 }
 
-function renderPicker() {
+function renderPicker(over: Partial<Parameters<typeof HomePicker>[0]> = {}) {
   render(
     <QueryClientProvider client={makeQueryClient()}>
-      <HomePicker extensions={['.py']} acceptReason="Streamlit runs .py files" onChoose={vi.fn()} onClose={vi.fn()} />
+      <HomePicker extensions={['.py']} acceptReason="Streamlit runs .py files" onChoose={vi.fn()} onClose={vi.fn()} {...over} />
     </QueryClientProvider>,
   )
-  return screen.getByRole('dialog', { name: 'Choose a file' })
+  return screen.getByRole('dialog', { name: over.folders ? 'Choose a folder' : 'Choose a file' })
+}
+
+/** A home with a folder and two files at the top, and one file in the folder. */
+function home(c: { path: string }): Reply {
+  const path = new URL(c.path, 'http://x').searchParams.get('path') ?? ''
+  const at = (name: string, kind: string) => ({ name, kind, size: 10, modified: '2026-10-30T10:00:00Z' })
+  const entries = path === 'sales' ? [at('app.py', 'file')] : [at('sales', 'folder'), at('notes.md', 'file'), at('main.py', 'file')]
+  return { body: { path, entries, count: entries.length, truncated: false, stale: false, ageSeconds: 0 } }
 }
 
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
@@ -43,7 +52,7 @@ describe('HomePicker', () => {
     expect(within(picker).getByRole('status', { name: 'Loading this folder' })).toBeTruthy()
     expect(within(picker).queryByText(REASONS.HomeStarting.title)).toBeNull()
     await advance(600)
-    expect(await within(picker).findByRole('button', { name: /app\.py/ })).toBeTruthy()
+    expect(await within(picker).findByRole('treeitem', { name: /app\.py/ })).toBeTruthy()
     expect(within(picker).queryByRole('status', { name: 'Loading this folder' })).toBeNull()
     expect(within(picker).queryByText(REASONS.HomeStarting.title)).toBeNull()
   })
@@ -85,7 +94,7 @@ describe('HomePicker', () => {
     await advance(2000)
     expect(calls()).toBe(5)
     await advance(10)
-    expect(within(picker).getByRole('button', { name: /app\.py/ })).toBeTruthy()
+    expect(within(picker).getByRole('treeitem', { name: /app\.py/ })).toBeTruthy()
     await advance(10000)
     expect(calls()).toBe(5)
   })
@@ -94,13 +103,13 @@ describe('HomePicker', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const api = mockApi({ 'GET /api/files': [listing(['old.py'], { stale: true, ageSeconds: 40 }), listing(['old.py', 'new.py'])] })
     const picker = renderPicker()
-    const old = await within(picker).findByRole('button', { name: /old\.py/ })
+    const old = await within(picker).findByRole('treeitem', { name: /old\.py/ })
     expect(within(picker).getByRole('status', { name: 'Updating this folder' })).toBeTruthy()
     expect(within(picker).queryByRole('status', { name: 'Loading this folder' })).toBeNull()
     await advance(600)
-    expect(await within(picker).findByRole('button', { name: /new\.py/ })).toBeTruthy()
+    expect(await within(picker).findByRole('treeitem', { name: /new\.py/ })).toBeTruthy()
     // The row already shown is the same element, updated in place.
-    expect(within(picker).getByRole('button', { name: /old\.py/ })).toBe(old)
+    expect(within(picker).getByRole('treeitem', { name: /old\.py/ })).toBe(old)
     expect(within(picker).queryByRole('status', { name: 'Updating this folder' })).toBeNull()
     await advance(10000)
     expect(api.count('GET', '/api/files')).toBe(2)
@@ -112,5 +121,48 @@ describe('HomePicker', () => {
     const card = await within(picker).findByRole('alert')
     expect(within(card).getByText(REASONS.HomeBusy.title)).toBeTruthy()
     expect(within(picker).queryByRole('status', { name: 'Loading this folder' })).toBeNull()
+  })
+
+  it('opens folders in place and chooses an accepted file, with the others dimmed and saying why', async () => {
+    mockApi({ 'GET /api/files': home })
+    const onChoose = vi.fn()
+    const picker = renderPicker({ onChoose })
+    const notes = await within(picker).findByRole('treeitem', { name: 'notes.md' })
+    expect(notes.getAttribute('aria-disabled')).toBe('true')
+    expect(notes.getAttribute('title')).toBe('Streamlit runs .py files')
+    await userEvent.click(within(picker).getByRole('treeitem', { name: 'sales' }))
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: 'app.py' }))
+    expect(within(picker).getByText('sales/app.py')).toBeTruthy()
+    await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
+    expect(onChoose).toHaveBeenCalledWith('sales/app.py')
+  })
+
+  it('narrows the rows by name, and says so when nothing matches', async () => {
+    mockApi({ 'GET /api/files': home })
+    const picker = renderPicker()
+    await within(picker).findByRole('treeitem', { name: 'main.py' })
+    await userEvent.type(within(picker).getByRole('searchbox', { name: 'Search by name' }), 'main')
+    expect(within(picker).getAllByRole('treeitem').map((r) => r.getAttribute('aria-label'))).toEqual(['main.py'])
+    await userEvent.type(within(picker).getByRole('searchbox', { name: 'Search by name' }), 'zzz')
+    expect(within(picker).getByText('No files match your search')).toBeTruthy()
+  })
+
+  it('chooses the home folder itself in folder mode until a folder is picked', async () => {
+    mockApi({ 'GET /api/files': home })
+    const onChoose = vi.fn()
+    const picker = renderPicker({ folders: true, onChoose })
+    await within(picker).findByRole('treeitem', { name: 'sales' })
+    expect(within(picker).getByText('Home folder')).toBeTruthy()
+    await userEvent.click(within(picker).getByRole('button', { name: 'Choose' }))
+    expect(onChoose).toHaveBeenCalledWith('')
+  })
+
+  it('shows an error with Retry, which asks again', async () => {
+    const api = mockApi({ 'GET /api/files': [{ status: 500, body: { title: 'The home folder could not be read.' } }, { body: { path: '', entries: [], count: 0, truncated: false, stale: false, ageSeconds: 0 } }] })
+    const picker = renderPicker()
+    expect(await within(picker).findByText('The home folder could not be read.')).toBeTruthy()
+    await userEvent.click(within(picker).getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(api.count('GET', '/api/files')).toBe(2))
+    expect(await within(picker).findByText('This folder is empty')).toBeTruthy()
   })
 })
