@@ -735,7 +735,7 @@ export function NewApp() {
           {tpl && lockView && (
             <Section part="access" title="Access">
               <Card className="pad">
-                <FolderBrowser kind={tpl.kind} agent={AGENTS[tpl.kind] ?? tpl.displayName} view={lockView} grants={grants} onChange={setFolders} />
+                <FolderBrowser agent={AGENTS[tpl.kind] ?? tpl.displayName} view={lockView} grants={grants} onChange={setFolders} />
                 {errs.fields.folders && (
                   <p className="tight errmsg fb-refused" role="alert">
                     {errs.fields.folders}

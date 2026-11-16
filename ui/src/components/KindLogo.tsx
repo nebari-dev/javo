@@ -63,11 +63,6 @@ export function kindSite(kind: string): string | undefined {
   return LOGOS[kind]?.site
 }
 
-/** Whether the kind has a project logo of its own, not a line icon standing in for one. */
-export function hasLogo(kind: string): boolean {
-  return kind in LOGOS
-}
-
 /**
  * The app kind's mark: the project's logo, a line icon for kinds without one, or a neutral terminal for custom and unknown kinds.
  * inline draws it at icon size with no tile, for use inside a button or a line of text.

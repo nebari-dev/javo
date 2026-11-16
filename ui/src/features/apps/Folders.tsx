@@ -3,7 +3,6 @@ import { Fragment, useId, useRef, useState, type KeyboardEvent, type ReactNode }
 import type { FolderGrant, FoldersView, Workspace } from '../../api'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
-import { hasLogo, KindLogo } from '../../components/KindLogo'
 import { Segmented } from '../../components/Segmented'
 import { Switch } from '../../components/Switch'
 import type { HomeEntry } from '../../lib/files'
@@ -17,19 +16,8 @@ const whyFailed = (err: unknown) => fieldErrors(err).fields.folders ?? problemTe
 
 const MODE_LABEL: Record<Mode, string> = { read: 'Read only', write: 'Read and change' }
 
-/** The agent's name led by its logo, for a heading; a kind with no logo of its own gets the name alone. */
-function AgentName({ kind, agent }: { kind: string; agent: string }) {
-  return (
-    <span className="agent-name">
-      {hasLogo(kind) && <KindLogo kind={kind} inline />}
-      {agent}
-    </span>
-  )
-}
-
 /** What the rows of the tree share: whose choice it is, what is ticked, and what a click does. */
 interface Browser {
-  kind: string
   agent: string
   view: FoldersView
   grants: FolderGrant[]
@@ -141,7 +129,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
         {ask && (
           <div className="fb-ask" role="group" aria-labelledby={askId}>
             <strong id={askId}>
-              Let <AgentName kind={b.kind} agent={b.agent} /> read {ask.what} in <code>~/{path}</code>?
+              Let {b.agent} read {ask.what} in <code>~/{path}</code>?
             </strong>
             <ul>
               <li>{b.agent}, and every command it runs, will be able to read them.</li>
@@ -214,7 +202,7 @@ const listed = (items: ReactNode[], word = ', ') => items.flatMap((x, i) => (i ?
  * agent can do, and what it cannot, down to the folders at the top of the
  * home it sees nothing of and the risky places not allowed.
  */
-function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string; view: FoldersView; grants: FolderGrant[] }) {
+function CanCannot({ agent, view, grants }: { agent: string; view: FoldersView; grants: FolderGrant[] }) {
   const top = useHomeFolder('', true).data
   const names = top?.kind === 'listed' ? top.folder.entries : []
   const project = projectPath(view)
@@ -265,7 +253,7 @@ function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string;
       <div className="cc">
         <div className="cc-can">
           <h4>
-            <AgentName kind={kind} agent={agent} /> can
+            {agent} can
           </h4>
           <ul>
             {can.map((line) => (
@@ -278,7 +266,7 @@ function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string;
         </div>
         <div className="cc-cannot">
           <h4>
-            <AgentName kind={kind} agent={agent} /> cannot
+            {agent} cannot
           </h4>
           <ul>
             {cannot.map((line) => (
@@ -301,8 +289,7 @@ function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string;
  * makes the app and on the app's page. grants is the choice so far; every
  * click hands back the whole new list.
  */
-export function FolderBrowser({ kind, agent, view, grants, onChange }: {
-  kind: string
+export function FolderBrowser({ agent, view, grants, onChange }: {
   agent: string
   view: FoldersView
   grants: FolderGrant[]
@@ -324,7 +311,6 @@ export function FolderBrowser({ kind, agent, view, grants, onChange }: {
     setAsking(null)
   }
   const b: Browser = {
-    kind,
     agent,
     view,
     grants,
@@ -401,7 +387,7 @@ export function FolderBrowser({ kind, agent, view, grants, onChange }: {
   return (
     <div className="fb">
       <h3 className="fb-q">
-        Which files and folders can <AgentName kind={kind} agent={agent} /> access?
+        Which files and folders can {agent} access?
       </h3>
       <p className="tight muted small">Tick what {agent} may access. Highlighted rows: it has access. Dimmed rows: it has no access.</p>
       <div className="fb-box">
@@ -434,7 +420,7 @@ export function FolderBrowser({ kind, agent, view, grants, onChange }: {
           <FolderRows b={b} dir="" level={1} />
         </div>
       </div>
-      <CanCannot kind={kind} agent={agent} view={view} grants={grants} />
+      <CanCannot agent={agent} view={view} grants={grants} />
     </div>
   )
 }
@@ -460,7 +446,7 @@ export function FoldersCard({ ws }: { ws: Workspace }) {
   }
   return (
     <Card className="pad open-card">
-      <FolderBrowser kind={ws.kind} agent={agent} view={view} grants={draft ?? saved} onChange={setDraft} />
+      <FolderBrowser agent={agent} view={view} grants={draft ?? saved} onChange={setDraft} />
       {changed && (
         <div className="fb-save">
           <p className="tight small" role="status">

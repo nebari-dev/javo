@@ -67,6 +67,11 @@ const tick = (r: HTMLElement) => within(r).getByRole('checkbox') as HTMLInputEle
 const showHidden = async () => userEvent.click(await screen.findByRole('switch', { name: 'Show hidden files and folders' }))
 const card = async () => (await screen.findByRole('heading', { name: /^Which files and folders can .* access\?$/ })).closest('.card') as HTMLElement
 const sent = (api: ReturnType<typeof mockApi>) => api.calls.find((c) => c.method === 'PUT')?.body
+/** The lines under "<agent> can" or "<agent> cannot". */
+const lines = (which: 'can' | 'cannot') =>
+  within(screen.getByRole('heading', { name: `Claude Code ${which}` }).parentElement as HTMLElement)
+    .getAllByRole('listitem')
+    .map((li) => li.textContent)
 const open = async (name: string) => userEvent.click(within(await row(name)).getByRole('button', { name: `Expand ${name}` }))
 
 describe('What a locked coding agent can open', () => {
@@ -249,5 +254,86 @@ describe('What a locked coding agent can open', () => {
     await showHidden()
     expect(await row('.ssh')).toBeTruthy()
     expect(within(await tree()).queryByRole('treeitem', { name: '.npmrc' })).toBeNull()
+  })
+
+  it('says what the agent can and cannot do in sentences with the real paths, and keeps them up with every tick', async () => {
+    page(folders([{ path: 'data/sales-2026', mode: 'read' }]))
+    renderApp('/apps/cc')
+    await row('notebooks')
+    expect(lines('can')).toEqual([
+      'Read, edit, add and delete files in ~/projects/sales-dashboard',
+      'Read files in ~/data/sales-2026. It cannot change or delete them',
+      'Use the internet. This choice covers files only.',
+    ])
+    expect(lines('cannot')).toEqual([
+      'Read or change anything in ~/Documents, ~/notebooks',
+      'Read or change anything in ~/data or ~/projects except what is ticked there',
+      'Change or delete any file outside the folders it may change',
+      "Read ~/.ssh (your SSH keys), ~/.npmrc (a tool's settings or sign-ins), ~/.config/gh (your GitHub sign-in). You have not given it access",
+    ])
+    expect((await card()).textContent).toContain('Read means look at what is in a file. Change means edit it, add new files, or delete it.')
+
+    await userEvent.click(tick(await row('notebooks')))
+    await userEvent.click(within(await row('notebooks')).getByRole('radio', { name: 'Read and change' }))
+    await showHidden()
+    await userEvent.click(tick(await row('.ssh')))
+    await userEvent.click(within(await row('.ssh')).getByRole('button', { name: 'Let Claude Code read your SSH keys' }))
+    expect(lines('can')).toEqual([
+      'Read, edit, add and delete files in ~/projects/sales-dashboard',
+      'Read files in ~/data/sales-2026. It cannot change or delete them',
+      'Read, edit, add and delete files in ~/notebooks',
+      'Risky: read your SSH keys in ~/.ssh. Anyone who has these keys can sign in to your servers and push code as you.',
+      'Use the internet. This choice covers files only.',
+    ])
+    expect(lines('cannot')).toEqual([
+      'Read or change anything in ~/Documents',
+      'Read or change anything in ~/data or ~/projects except what is ticked there',
+      'Change or delete any file outside the folders it may change',
+      "Read ~/.npmrc (a tool's settings or sign-ins), ~/.config/gh (your GitHub sign-in). You have not given it access",
+    ])
+  })
+
+  it('shows a refusal in the server\'s words and keeps the changes to try again', async () => {
+    const refusals: Reply[] = [
+      { status: 422, body: { title: 'Unprocessable Entity', errors: [{ location: 'body.folders', message: 'Not added. "notes.md": it is a link.' }] } },
+      { status: 403, body: { title: 'Forbidden', detail: 'Only the owner, signed in in the browser, can change what an agent can open.' } },
+    ]
+    page(folders([]), { 'PUT /api/workspaces/cc/folders': refusals })
+    renderApp('/apps/cc')
+    await userEvent.click(tick(await row('notes.md')))
+    const save = () => within(screen.getByRole('heading', { name: /access\?$/ }).closest('.card') as HTMLElement).getByRole('button', { name: 'Save' })
+    await userEvent.click(save())
+    expect((await within(await card()).findByRole('alert')).textContent).toBe('Not added. "notes.md": it is a link.')
+    expect(tick(await row('notes.md')).checked).toBe(true)
+    await userEvent.click(save())
+    await waitFor(async () =>
+      expect(within(await card()).getByRole('alert').textContent).toBe('Only the owner, signed in in the browser, can change what an agent can open.'),
+    )
+    // A new choice is a new try: the last refusal goes.
+    await userEvent.click(tick(await row('notes.md')))
+    expect(within(await card()).queryByRole('alert')).toBeNull()
+  })
+
+  it('is worked with the keyboard: arrows move and expand, Space ticks', async () => {
+    page(folders([]))
+    renderApp('/apps/cc')
+    const first = await row('Documents')
+    first.focus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(document.activeElement).toBe(await row('data'))
+    await userEvent.keyboard('{ArrowRight}')
+    expect((await row('data')).getAttribute('aria-expanded')).toBe('true')
+    await row('customers')
+    await userEvent.keyboard('{ArrowRight}{ArrowDown}')
+    expect(document.activeElement).toBe(await row('sales-2026'))
+    await userEvent.keyboard(' ')
+    expect(tick(await row('sales-2026')).checked).toBe(true)
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(document.activeElement).toBe(await row('data'))
+    await userEvent.keyboard('{ArrowLeft}')
+    expect((await row('data')).getAttribute('aria-expanded')).toBe('false')
+    // One row is the tab stop: the one last on.
+    expect((await row('data')).tabIndex).toBe(0)
+    expect((await row('Documents')).tabIndex).toBe(-1)
   })
 })

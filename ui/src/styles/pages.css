@@ -136,7 +136,6 @@ a.btn{text-decoration:none}
 .trust-terms dd{margin:0 0 8px;color:var(--text-2)}
 .trust-terms dd:last-child{margin-bottom:0}
 /* What a locked coding agent can open: the home as a tree of tick boxes, and what the choice comes to. */
-.agent-name{display:inline-flex;align-items:center;gap:6px;vertical-align:bottom}
 .fb{display:flex;flex-direction:column;gap:12px;min-width:0;container-type:inline-size}
 .fb-q{margin:0}
 .fb-box{border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden}
@@ -189,7 +188,7 @@ button.fb-twist:hover{background:var(--hover);color:var(--text)}
 .cc>div{padding:14px 16px;border-radius:var(--radius-sm)}
 .cc-can{background:var(--ok-soft)}
 .cc-cannot{background:var(--err-soft)}
-.cc h4{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 10px;font-size:var(--fs-sm);font-weight:600}
+.cc h4{margin:0 0 10px;font-size:var(--fs-sm);font-weight:600}
 .cc-can h4,.cc-can li>svg{color:var(--ok)}
 .cc-cannot h4,.cc-cannot li>svg{color:var(--err)}
 .cc ul{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;font-size:var(--fs-sm)}
