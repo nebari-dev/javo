@@ -59,7 +59,7 @@ func agentSpec(t *testing.T, name string) workload.Spec {
 	if err := pixienv.Add(&s, testPixiImage, testImages.Runner, pixienv.Source{Default: tpl.Spec.Environment}); err != nil {
 		t.Fatal(err)
 	}
-	addSSHAgent(&s, tpl)
+	addSSHAgent(&s, tpl, false)
 	return s
 }
 
@@ -158,7 +158,7 @@ func TestOtherTemplatesGetNoSSHAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := podOf(s)
-			addSSHAgent(&s, tpl)
+			addSSHAgent(&s, tpl, false)
 			if pod := podOf(s); !reflect.DeepEqual(before, pod) {
 				t.Fatalf("pod changed for %s", name)
 			}
@@ -190,5 +190,58 @@ func TestAgentAppPodHasTheSSHAgentSidecar(t *testing.T) {
 	}
 	if got, ok := plainEnv(pod, "SSH_AUTH_SOCK"); !ok || got != sshAgentDir+"/agent.sock" {
 		t.Fatalf("SSH_AUTH_SOCK = %q", got)
+	}
+}
+
+// An owner who allowed their locked agent into ~/.ssh, or into one file of
+// it, gets what they allowed: the agent's ~/.ssh is the real folder, with
+// no folder of public files over it, and the lock is told so, to open no
+// more of it than was added (JAVO_SSH_OWN: agent-lock.sh). The sidecar
+// stays, so SSH works as before whatever part was added. Without such a
+// grant, while the lock is off, and for an app an agent made, the keys
+// stay out of reach.
+func TestAnAgentAllowedIntoSSHSeesTheRealFolder(t *testing.T) {
+	t.Parallel()
+	tpl := shippedTemplate(t, "claude-code")
+	allowed := []model.FolderGrant{{Path: ".ssh/config", Mode: model.FolderRead, Risky: true}}
+	pi := &model.App{ID: "app-0", Namespace: "javo-apps", Name: "pi", Owner: "alice", Template: tpl.Name, Folders: allowed}
+	for name, tc := range map[string]struct {
+		folders []model.FolderGrant
+		lock    bool
+		madeBy  string
+		real    bool
+	}{
+		"allowed":                  {folders: allowed, lock: true, real: true},
+		"not acknowledged":         {folders: []model.FolderGrant{{Path: ".ssh", Mode: model.FolderRead}}, lock: true},
+		"another hidden place":     {folders: []model.FolderGrant{{Path: ".aws", Mode: model.FolderRead, Risky: true}}, lock: true},
+		"the lock is off":          {folders: allowed},
+		"made by an allowed agent": {lock: true, madeBy: "pi"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			img := testImages
+			img.LockAgents = tc.lock
+			ws := &model.App{ID: "app-1", Namespace: "javo-apps", Name: "agent", Owner: "alice", Template: tpl.Name, File: "projects/api", Folders: tc.folders, MadeBy: tc.madeBy}
+			in := Inputs{App: ws, Template: tpl, BaseURL: "/u/a/agent/", Layout: testLayout(FixedUID), Images: img}
+			if tc.madeBy != "" {
+				in.Maker = pi
+			}
+			s, err := Plan(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pod := podOf(s)
+			over := mountAtPath(&pod.Spec.Containers[0], homeDir+"/.ssh")
+			_, told := plainEnv(pod, "JAVO_SSH_OWN")
+			if (over == nil) != tc.real || told != tc.real {
+				t.Fatalf("mount over ~/.ssh = %v, JAVO_SSH_OWN set = %v; want the real folder: %v", over, told, tc.real)
+			}
+			if _, side := initContainer(pod, SSHAgentContainer); side == nil {
+				t.Fatal("no ssh-agent sidecar")
+			}
+			if got, _ := plainEnv(pod, "SSH_AUTH_SOCK"); got != sshAgentDir+"/agent.sock" {
+				t.Fatalf("SSH_AUTH_SOCK = %q", got)
+			}
+		})
 	}
 }

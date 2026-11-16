@@ -814,7 +814,7 @@ func TestHarfWorksInTheChosenFolder(t *testing.T) {
 			if p := ctr.ReadinessProbe; p == nil || p.HTTPGet == nil || p.HTTPGet.Path != "/healthz" {
 				t.Fatalf("readiness probe = %+v, want GET /healthz", p)
 			}
-			addSSHAgent(&s, tpl)
+			addSSHAgent(&s, tpl, false)
 			_, side := initContainer(podOf(s), SSHAgentContainer)
 			if side == nil {
 				t.Fatalf("no %s sidecar", SSHAgentContainer)

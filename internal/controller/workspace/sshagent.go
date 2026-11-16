@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/nebari-dev/javo/internal/model"
@@ -34,7 +35,13 @@ const (
 // need no passphrase. It runs in the app's image and environment, so it
 // comes after the environment's install step. Other templates are left as
 // they are.
-func addSSHAgent(s *workload.Spec, t *model.Template) {
+//
+// own leaves the main unit's ~/.ssh as the home has it: its owner let the
+// agent into it (ownsSSH). The lock, which alone then keeps the agent to
+// what was added, is told not to open the folder by itself (envSSHOwn).
+// The step stays, so that SSH still finds the keys when only a part of the
+// folder was added (its config, say).
+func addSSHAgent(s *workload.Spec, t *model.Template, own bool) {
 	if t.Spec.Category != model.CategoryAgents {
 		return
 	}
@@ -64,8 +71,29 @@ func addSSHAgent(s *workload.Spec, t *model.Template) {
 		// its first git command already has them.
 		Ready: &workload.Check{Exec: []string{"test", "-e", path.Join(sshAgentDir, "ready")}, Tries: 60},
 	})
-	app.Mounts = append(app.Mounts,
-		workload.Mount{Volume: sshPublicVolume, Path: path.Join(homeDir, ".ssh")},
-		workload.Mount{Volume: sshAgentVolume, Path: sshAgentDir, ReadOnly: true})
+	if own {
+		app.SetEnv(workload.Env{Name: envSSHOwn, Value: "1"})
+	} else {
+		app.Mounts = append(app.Mounts, workload.Mount{Volume: sshPublicVolume, Path: path.Join(homeDir, ".ssh")})
+	}
+	app.Mounts = append(app.Mounts, workload.Mount{Volume: sshAgentVolume, Path: sshAgentDir, ReadOnly: true})
 	app.SetEnv(workload.Env{Name: "SSH_AUTH_SOCK", Value: path.Join(sshAgentDir, "agent.sock")})
+}
+
+// envSSHOwn tells agent-lock.sh that the container's ~/.ssh is the
+// person's own, private keys and all, not the folder of public files it
+// otherwise grants to read: only what the owner added of it is opened.
+const envSSHOwn = "JAVO_SSH_OWN"
+
+// ownsSSH reports whether the coding agent app of in is to see its owner's
+// real ~/.ssh: it starts in a lock of its own, and its owner added the
+// folder, or something in it, to what it opens (LockFolders: after the
+// warning). An app an agent made never does, whatever its agent was
+// allowed.
+func ownsSSH(in Inputs) bool {
+	if in.App.MadeBy != "" || !locksAgent(in.Template, in.Images.LockAgents) {
+		return false
+	}
+	added, _ := LockFolders(in.App, in.App.Folders)
+	return slices.ContainsFunc(added, func(g model.FolderGrant) bool { return within(".ssh", g.Path) })
 }

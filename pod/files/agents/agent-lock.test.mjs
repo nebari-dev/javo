@@ -168,6 +168,25 @@ test('on a host does not grant ~/.ssh, which holds the private keys there', () =
   assert.ok(!covers([...got.rw, ...got.ro], join(home, '.ssh', 'a-private-key')), `--rw ${got.rw} --ro ${got.ro}`)
 })
 
+// A person may let their agent into ~/.ssh, or one file of it, after a
+// warning. The container then has the real folder, and is told so
+// (JAVO_SSH_OWN): nothing of it is granted but what was added.
+test('in a container told ~/.ssh is the person\'s own grants only what was added of it', () => {
+  const home = temp()
+  mkdirSync(join(home, '.ssh'))
+  const key = join(home, '.ssh', 'a-private-key')
+  const config = join(home, '.ssh', 'config')
+  writeFileSync(key, 'key')
+  writeFileSync(config, 'Host *')
+  const none = lockWith({ JAVO_SSH_OWN: '1' }, home, join(home, 'p'), 'git')
+  assert.ok(!covers([...none.rw, ...none.ro], config), `--rw ${none.rw} --ro ${none.ro}`)
+  const got = run({ JAVO_SSH_OWN: '1' }, home, [join(home, 'p'), '--ro', config, '--', 'git'])
+  assert.ok(got.ro.includes(config), `--ro ${got.ro}`)
+  assert.ok(!covers([...got.rw, ...got.ro], key), `--rw ${got.rw} --ro ${got.ro}`)
+  const whole = run({ JAVO_SSH_OWN: '1' }, home, [join(home, 'p'), '--rw', join(home, '.ssh'), '--', 'git'])
+  assert.ok(whole.rw.includes(join(home, '.ssh')), `--rw ${whole.rw}`)
+})
+
 // The platform's own variables (JAVO_...) are not an app's to set;
 // TMUX_TMPDIR is, and a container is told none by the platform. One set
 // there is the app's own, and is not a folder to grant: it could name the

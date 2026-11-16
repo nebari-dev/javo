@@ -9,9 +9,10 @@
 # the installed environments. The rest of the home (other projects, the
 # person's dotfiles) is refused, but for what the person added: each PATH,
 # a folder or file of the home, to read (--ro) or to read and change (--rw).
-# The platform checks what a person may add (not their keys, not the home);
-# here a PATH only has to be a plain path inside the home, and one that is
-# not there is left out, never made.
+# The platform checks what a person may add (not the home, not its own
+# sign-in, and their keys only after a warning); here a PATH only has to be
+# a plain path inside the home, and one that is not there is left out,
+# never made.
 #
 # The state folders are those of every agent in the environment, as any of
 # them may run in another's terminal: Claude Code (~/.claude and its
@@ -141,7 +142,10 @@ fi
 # in a container, and where JAVO_FILES_DIR and JAVO_ENV_DIR say on a machine
 # the app is a process of (pod-user.sh). On such a machine no sidecar keeps
 # the keys apart: ~/.ssh is the person's own, private keys and all, and is
-# not granted (an empty path is never there).
+# not granted (an empty path is never there). It is the person's own in a
+# container too once they let the agent into it, or into a file of it: the
+# platform says so (JAVO_SSH_OWN), and only what they added is granted,
+# above.
 #
 # An app that runs from a repository reads its clone (/srv/src; it writes
 # the folder it is locked to, which is in the clone when the app names one
@@ -153,7 +157,7 @@ fi
 # command opens no more than that agent: the platform says where the run has
 # its runner (JAVO_RUNNER_DIR, a folder of the run's own), to read and run.
 ssh=$HOME/.ssh
-[ -z "${JAVO_FILES_DIR:-}" ] || ssh=
+[ -z "${JAVO_FILES_DIR:-}${JAVO_SSH_OWN:-}" ] || ssh=
 for p in /usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc "${JAVO_FILES_DIR:-/opt/javo}" "${JAVO_ENV_DIR:-/opt/javo-env}" /proc /sys /home/AGENTS.md \
   "${JAVO_RUNNER_DIR:-}" /srv/src /opt/javo-nebi /var/run/javo/nebi \
   "$HOME/.javo/envs" "$ssh" "$HOME/.gitconfig" "$HOME/.config/git"; do

@@ -124,7 +124,7 @@ func Plan(in Inputs) (workload.Spec, error) {
 		at.onHost(&s)
 		return s, nil
 	}
-	addSSHAgent(&s, t)
+	addSSHAgent(&s, t, ownsSSH(in))
 	if ws.MadeBy != "" && t.Spec.Category != model.CategoryAgents {
 		// A coding agent's template has the step above instead.
 		hideSSH(&s, at.home)
