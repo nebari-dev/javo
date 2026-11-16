@@ -344,7 +344,7 @@ button.tree-twist:hover{background:var(--hover);color:var(--text)}
 /* By the room the tree has, not the window: what follows a row's name goes under it. */
 @container (max-width:520px){
   .tree-row{--tree-in:calc(var(--tree-level,0)*14px)}
-  .tree-name{flex-basis:calc(100% - 80px);flex-direction:column;gap:2px}
+  .tree-name{flex:1 1 calc(100% - 120px);flex-direction:column;gap:2px}
   .tree-meta{display:none}
   .tree-line>:where(.seg,.chip,.hb-mode){margin-left:34px}
 }

@@ -136,7 +136,7 @@ a.btn{text-decoration:none}
 .trust-terms dd{margin:0 0 8px;color:var(--text-2)}
 .trust-terms dd:last-child{margin-bottom:0}
 /* What a locked coding agent can access: HomeTree with a tick box on every row, and what the choice comes to. */
-.hb{display:flex;flex-direction:column;gap:12px;min-width:0}
+.hb{display:flex;flex-direction:column;gap:12px;min-width:0;container-type:inline-size}
 .hb-q{margin:0}
 .hb-box{border:1px solid var(--border);border-radius:var(--radius-sm)}
 .hb-head{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;padding:10px 14px;border-bottom:1px solid var(--border);border-radius:var(--radius-sm) var(--radius-sm) 0 0;background:var(--surface-2)}
@@ -183,6 +183,7 @@ a.btn{text-decoration:none}
 .cc li>svg{flex:none;margin-top:3px}
 .cc li>span{min-width:0;overflow-wrap:anywhere}
 .hb-sum{display:flex;flex-direction:column;gap:10px}
+@container (max-width:560px){.cc{grid-template-columns:minmax(0,1fr)}}
 .hb-save{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
 .hb-save p{flex:1 1 220px;min-width:0}
 .hb-save-actions{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}

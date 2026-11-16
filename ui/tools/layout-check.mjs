@@ -50,6 +50,21 @@ const openPal = `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k',
 const typePal = (text) => askText('[cmdk-input]', text)
 const enterPal = `document.querySelector('[cmdk-input]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`
 const openPicker = click('button', 'Choose a file from your home folder')
+// New app's Code row: its Change opens the file picker.
+const codeChange = `document.querySelector('button[aria-label^="Code:"]').click()`
+const pause = 'new Promise((r) => setTimeout(r, 500))'
+// What a locked agent can access, on New app: named after an existing project, a subfolder ticked and open, then a risky place asked about.
+const accessNew = '/apps/new?template=claude-code&sample=none'
+const tickSales = [
+  askText('input[placeholder="Sales app"]', 'Sales dashboard'),
+  pause,
+  `document.querySelector('button[aria-label="Expand data"]').click()`,
+  pause,
+  `document.querySelector('input[aria-label="Let Claude Code access ~/data/sales-2026"]').click()`,
+  `document.querySelector('button[aria-label="Expand sales-2026"]').click()`,
+  pause,
+]
+const askSsh = [...tickSales, click('button[role=switch]', 'Show hidden files and folders'), pause, `document.querySelector('input[aria-label="Let Claude Code access ~/.ssh"]').click()`]
 
 // Each page, and for some the clicks that open the state to look at.
 const PAGES = [
@@ -178,21 +193,27 @@ const PAGES = [
   { path: '/apps', name: 'palette ask AI', act: [openPal, typePal('stop my idle apps'), enterPal] },
   { path: '/apps', name: 'palette ask AI for a new app', act: [openPal, typePal('create a streamlit dashboard'), enterPal] },
   { path: '/apps?admin=1', name: 'palette cluster question', act: [openPal, typePal('why are apps stuck'), click('[cmdk-item]', 'Ask about this cluster')] },
-  { path: '/apps/new?template=streamlit', name: 'file picker from a sample not copied yet', act: [click('button', 'Change')] },
-  { path: '/apps/new?template=streamlit&samples=copied', name: 'file picker from a copied sample', act: [click('button', 'Change')] },
-  { path: '/apps/new?template=claude-code', name: 'folder picker from a sample not copied yet', act: [click('button', 'Change')] },
-  { path: '/apps/new?template=claude-code&samples=copied', name: 'folder picker from a copied sample', act: [click('button', 'Change')] },
+  { path: '/apps/new?template=streamlit', name: 'file picker from a sample not copied yet', act: [codeChange] },
+  { path: '/apps/new?template=streamlit&samples=copied', name: 'file picker from a copied sample', act: [codeChange] },
+  { path: '/apps/new?template=claude-code', name: 'folder picker from a sample not copied yet', act: [codeChange] },
+  { path: '/apps/new?template=claude-code&samples=copied', name: 'folder picker from a copied sample', act: [codeChange] },
   { path: '/?scenario=noshared', name: 'home with storage banners' },
   { path: '/?scenario=noshared', name: 'home with storage banners opened', act: [click('button.more-toggle', 'Show')] },
   { path: '/apps?scenario=noshared', name: 'apps with storage banners' },
   { path: '/apps/new?scenario=noshared', name: 'new app placement banner', act: [click('label.choice', 'Streamlit')] },
-  { path: '/apps/new?template=streamlit', name: 'file picker with group folder places', act: [click('button', 'Change'), click('.pk-side button', 'data-science')] },
-  { path: '/apps/sales-agent', name: 'locked agent with what it can open' },
-  { path: '/apps/sales-agent', name: 'adding a folder a locked agent can open', act: [click('button', 'Add a folder or file'), click('.pk-row', 'data')] },
+  { path: '/apps/new?template=streamlit', name: 'file picker with group folder places', act: [codeChange, click('.pk-side button', 'data-science')] },
+  { path: '/apps/sales-agent', name: 'locked agent with what it can access' },
+  { path: '/apps/sales-agent', name: 'locked agent with unsaved changes', act: [`document.querySelector('input[aria-label="Let Claude Code access ~/notebooks"]').click()`] },
+  { path: '/apps/sales-agent', name: 'locked agent, a row inside a ticked folder explained', act: [`document.querySelector('button[aria-label="Expand shared-lib"]').click()`, pause, `document.querySelector('input[aria-label="Let Claude Code access ~/projects/shared-lib/README.md"]').click()`] },
+  { path: accessNew, name: 'new agent, what it can access', act: [tickSales[0], pause] },
+  { path: accessNew, name: 'new agent, a subfolder ticked and open', act: tickSales },
+  { path: accessNew, name: 'new agent, the warning of a risky place', act: askSsh },
+  { path: accessNew, name: 'new agent, a risky place allowed', act: [...askSsh, click('.hb-ask button', 'Let Claude Code read')] },
+  { path: '/files?path=projects', name: 'files page with a folder open' },
   { path: '/apps/plots', name: 'app with the folders that are not saved', act: [click('button.more-toggle', 'Folders that are not saved')] },
   { path: '/settings/storage?admin=1', name: 'storage settings with things to fix', act: [click('button.more-toggle', 'Details')] },
   { path: '/settings/storage?admin=1&scenario=quiet', name: 'storage settings, nothing needs attention' },
-  { path: '/apps/new?template=claude-code&samples=copied', name: 'folder picker inside the sample with hidden files', act: [click('button', 'Change'), `document.querySelector('button[aria-label="Open claude-code"]').click()`, `document.querySelector('button[aria-label="Show hidden files"]').click()`] },
+  { path: '/apps/new?template=claude-code&samples=copied', name: 'folder picker inside the sample with hidden files', act: [codeChange, pause, `document.querySelector('button[aria-label="Expand claude-code"]').click()`, click('button[role=switch]', 'Show hidden files and folders')] },
 ]
 const MIN_GAP = 8
 const MIN_PAD = 8
