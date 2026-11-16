@@ -46,6 +46,10 @@ wrong and `errors` names the field.
   `AgentLockUnavailable`). Only the owner, by changing what it runs in the
   browser, makes it their own.
 - Home files are yours to read and write here, in the folders you can open.
+  If you are locked in, that is your project folder and what the owner
+  added. Only the owner changes that, in the browser, on this app's page
+  ("What can the agent open?"): when you need another folder, say which
+  and why. No API call of yours can add one.
   The files API (`/api/files`) and the export (`/api/workspaces/export`)
   answer 403 to you.
 - SSH: `git clone git@github.com:...` and `ssh` work through an ssh-agent
@@ -53,6 +57,8 @@ wrong and `errors` names the field.
   readable here: `~/.ssh` is a folder of this app with only `known_hosts`,
   `config` and the public keys, and what you write to it is lost at restart.
   Keys with a passphrase are not loaded; `ssh-add -L` lists the ones that are.
+  When the owner let you into `~/.ssh`, or a file in it, the folder is their
+  own and you read what they added of it.
 
 ## Look around first
 
