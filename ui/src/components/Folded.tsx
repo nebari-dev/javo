@@ -50,6 +50,10 @@ interface FoldedProps {
   value: string
   /** The full card. */
   children: ReactNode
+  /** What Change on the row does instead of opening the full card, when one step does the common change (opening a file picker). */
+  onChange?: () => void
+  /** Other changes, under the row, while it is one row. */
+  actions?: ReactNode
 }
 
 /**
@@ -58,7 +62,7 @@ interface FoldedProps {
  * current choice. Something inside that needs attention, such as an
  * error, opens it, and once shown open it stays open.
  */
-export function Folded({ foldable, attention, icon, title, value, children }: FoldedProps) {
+export function Folded({ foldable, attention, icon, title, value, children, onChange, actions }: FoldedProps) {
   const [opened, setOpened] = useState(false)
   // Set by Change: the opened card fades in and takes focus; a card open from the start does neither.
   const [byHand, setByHand] = useState(false)
@@ -77,16 +81,27 @@ export function Folded({ foldable, attention, icon, title, value, children }: Fo
     target?.focus()
   }, [open, byHand])
   if (!open) {
-    return (
+    const row = (
       <ChosenRow
         icon={icon}
         title={value}
         label={`${title}: ${value}`}
-        onChange={() => {
-          setByHand(true)
-          setOpened(true)
-        }}
+        onChange={
+          onChange ??
+          (() => {
+            setByHand(true)
+            setOpened(true)
+          })
+        }
       />
+    )
+    return actions ? (
+      <div className="stack tight-gap">
+        {row}
+        <div className="chosen-actions">{actions}</div>
+      </div>
+    ) : (
+      row
     )
   }
   return (

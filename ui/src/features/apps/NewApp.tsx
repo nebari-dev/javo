@@ -646,6 +646,24 @@ export function NewApp() {
               icon={<KindLogo kind="home" />}
               title="Code"
               value={['Home folder', sample ? `Sample: ${sample.title}` : file].filter(Boolean).join(' · ')}
+              // One click to the picker; a command sample's Change leaves it for a command of the person's own.
+              onChange={sample && !changeOpensPicker ? () => setOwnCode(true) : () => setPicking(true)}
+              actions={
+                ((tpl.sample && !sample) || tpl.fromRepo === 'Optional') && (
+                  <>
+                    {tpl.sample && !sample && (
+                      <button type="button" className="textlink small" onClick={() => setOwnCode(false)}>
+                        Use the sample again
+                      </button>
+                    )}
+                    {tpl.fromRepo === 'Optional' && (
+                      <button type="button" className="textlink small" onClick={() => setWhere('repo')}>
+                        Use a Git repository instead
+                      </button>
+                    )}
+                  </>
+                )
+              }
             >
               <Card className="pad">
                 <h2 className="card-h">Where is the code?</h2>
