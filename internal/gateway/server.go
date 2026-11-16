@@ -279,7 +279,7 @@ func NewServer(cfg Config) *Server {
 	trust := apps.TrustPolicy{Config: cfg.TrustedAgents, DB: cfg.Store}
 	a := &authn.Authenticator{
 		Providers: cfg.Providers, People: cfg.People, Roles: cfg.Roles, Sessions: cfg.Sessions,
-		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(), Trusted: cfg.TrustedProxies,
+		Secure: cfg.URLs.SecureCookies(cfg.SecureCookies), Limiter: ratelimit.NewLogin(now), Trusted: cfg.TrustedProxies,
 		Clock: cfg.Now, Revalidator: cfg.Revalidator, Tokens: cfg.Tokens, GroupsMaxAge: cfg.API.Tokens.GroupsMaxAge.Duration,
 		Apps: apps.AppTokenWanted(cfg.Store), Jobs: jobs.JobTokenWanted(cfg.Store), Agents: apps.AgentTokens(cfg.Store, ctrljobs.PeopleAccess{People: cfg.People, Roles: cfg.Roles}, trust, now),
 	}

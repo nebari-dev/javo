@@ -9,9 +9,7 @@ import (
 // fakeLogin is a Login on a clock the test moves.
 func fakeLogin() (*Login, *time.Time) {
 	now := time.Unix(0, 0)
-	l := NewLogin()
-	l.now = func() time.Time { return now }
-	return l, &now
+	return NewLogin(func() time.Time { return now }), &now
 }
 
 // fail is n wrong passwords at username; it reports how many were admitted.

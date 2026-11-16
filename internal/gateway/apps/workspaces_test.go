@@ -550,7 +550,9 @@ func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
 		t.Fatal("client never limited")
 	}
 
-	f := apitest.New(t, apitest.Options{Trusted: []netip.Prefix{netip.MustParsePrefix(proxyIP + "/32")}})
+	// A stopped clock: no attempt comes back while the test runs, however slow.
+	stopped := (&apitest.TestClock{T: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}).Now
+	f := apitest.New(t, apitest.Options{Trusted: []netip.Prefix{netip.MustParsePrefix(proxyIP + "/32")}, Now: stopped})
 	exhaust(f, proxyIP)
 	if w := f.LoginVia(proxyIP, "192.0.2.8", "carol", "wrong"); w.Code != http.StatusUnauthorized {
 		t.Fatalf("other client behind the proxy: %d", w.Code)
@@ -564,10 +566,30 @@ func TestLoginLimitUsesClientBehindTrustedProxy(t *testing.T) {
 	// itself, whatever client it names. (A private untrusted peer keys no
 	// bucket at all: TestOneClientBehindAnUntrustedProxyCannotLockEveryoneOut.)
 	const publicPeer = "198.51.100.1"
-	untrusted := apitest.New(t, apitest.Options{})
+	untrusted := apitest.New(t, apitest.Options{Now: stopped})
 	exhaust(untrusted, publicPeer)
 	if w := untrusted.LoginVia(publicPeer, "192.0.2.8", "carol", "wrong"); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("untrusted proxy header was believed: %d", w.Code)
+	}
+}
+
+// The login limits run on the gateway's clock: an address that spent its
+// attempts gets one back when that clock has moved on, not before.
+func TestLoginLimitRunsOnTheGatewaysClock(t *testing.T) {
+	t.Parallel()
+	clk := &apitest.TestClock{T: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
+	f := apitest.New(t, apitest.Options{Now: clk.Now})
+	const peer = "198.51.100.9"
+	limited := false
+	for i := 0; i < 60 && !limited; i++ {
+		limited = f.LoginVia(peer, "", fmt.Sprintf("user%d", i), "wrong").Code == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("address never limited")
+	}
+	clk.Add(3 * time.Second)
+	if w := f.LoginVia(peer, "", "erin", "wrong"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("after the gateway's clock moved on: %d", w.Code)
 	}
 }
 

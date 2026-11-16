@@ -132,9 +132,11 @@ type failures struct {
 	checking int
 }
 
-// NewLogin returns an empty login limiter.
-func NewLogin() *Login {
-	return &Login{Buckets: NewBuckets(), seed: maphash.MakeSeed(), failed: map[uint64]*failures{}}
+// NewLogin returns an empty login limiter on the clock now.
+func NewLogin(now func() time.Time) *Login {
+	b := NewBuckets()
+	b.now = now
+	return &Login{Buckets: b, seed: maphash.MakeSeed(), failed: map[uint64]*failures{}}
 }
 
 // Allow takes one attempt from the per-address buckets.
