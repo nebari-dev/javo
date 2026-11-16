@@ -737,7 +737,7 @@ export function NewApp() {
               <Card className="pad">
                 <FolderBrowser agent={AGENTS[tpl.kind] ?? tpl.displayName} view={lockView} grants={grants} onChange={setFolders} />
                 {errs.fields.folders && (
-                  <p className="tight errmsg fb-refused" role="alert">
+                  <p className="tight errmsg hb-refused" role="alert">
                     {errs.fields.folders}
                   </p>
                 )}

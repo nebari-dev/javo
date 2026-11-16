@@ -336,4 +336,28 @@ describe('What a locked coding agent can open', () => {
     expect((await row('data')).tabIndex).toBe(0)
     expect((await row('Documents')).tabIndex).toBe(-1)
   })
+
+  it('adds no more than 16, and says so', async () => {
+    const full = Array.from({ length: 16 }, (_, i): FolderGrant => ({ path: `archive/${i}`, mode: 'read' }))
+    page(folders(full))
+    renderApp('/apps/cc')
+    await userEvent.click(tick(await row('notebooks')))
+    expect(within(await row('notebooks')).getByRole('status').textContent).toBe(
+      'You have ticked 16 folders and files, the most one agent can have. Untick one to tick another.',
+    )
+    expect(tick(await row('notebooks')).checked).toBe(false)
+    expect(within(await card()).queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('shows the project of an app from a repository as the API gives it, above the home', async () => {
+    page(folders([], '/workspace/site'))
+    renderApp('/apps/cc')
+    await row('projects')
+    const project = within(await card()).getByText('/workspace/site', { selector: '.mono' }).closest('.hb-row') as HTMLElement
+    expect(project.textContent).toContain("This app's project. Claude Code can always read and change it")
+    expect(project.textContent).toContain('Read and change')
+    expect(lines('can')[0]).toBe('Read, edit, add and delete files in /workspace/site')
+    // Nothing in the home leads to it.
+    expect((await row('projects')).getAttribute('aria-expanded')).toBe('false')
+  })
 })

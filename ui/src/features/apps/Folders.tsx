@@ -9,7 +9,7 @@ import type { HomeEntry } from '../../lib/files'
 import { ApiError, fieldErrors, problemText } from '../../lib/http'
 import { useHomeFolder, useSetFolders } from '../../lib/queries'
 import { agentOf } from './agents'
-import { openTo, placeOf, projectPath, rowOf, sameGrants, within, withGrant, type Mode, type Row } from './folderAccess'
+import { MAX_GRANTS, openTo, placeOf, projectPath, rowOf, sameGrants, within, withGrant, type Mode, type Row } from './folderAccess'
 
 /** Why saving the list failed: the server's words about the folder, else about the request. */
 const whyFailed = (err: unknown) => fieldErrors(err).fields.folders ?? problemText(err)
@@ -80,24 +80,24 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
         aria-level={level}
         aria-expanded={opens ? open : undefined}
         tabIndex={b.active === path || (b.active === null && first) ? 0 : -1}
-        className={`fb-row${look}`}
-        style={{ '--fb-level': level - 1 } as React.CSSProperties}
+        className={`hb-row${look}`}
+        style={{ '--hb-level': level - 1 } as React.CSSProperties}
         onFocus={() => b.setActive(path)}
       >
-        <div className="fb-line">
+        <div className="hb-line">
           {opens ? (
-            <button type="button" className="fb-twist" tabIndex={-1} aria-label={`${open ? 'Collapse' : 'Expand'} ${entry.name}`} onClick={() => b.toggle(path)}>
+            <button type="button" className="hb-twist" tabIndex={-1} aria-label={`${open ? 'Collapse' : 'Expand'} ${entry.name}`} onClick={() => b.toggle(path)}>
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           ) : (
-            <span className="fb-twist" />
+            <span className="hb-twist" />
           )}
           {r.is === 'shut' ? (
-            <Lock size={16} aria-hidden="true" className="fb-shut" />
+            <Lock size={16} aria-hidden="true" className="hb-shut" />
           ) : (
             <input
               type="checkbox"
-              className="fb-tick"
+              className="hb-tick"
               tabIndex={-1}
               checked={!!mode}
               aria-disabled={r.is === 'added' || r.is === 'free' ? undefined : true}
@@ -105,10 +105,10 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
               onChange={() => b.tick(path)}
             />
           )}
-          <Icon size={18} aria-hidden="true" className="fb-icon" />
-          <span className="fb-name">
+          <Icon size={18} aria-hidden="true" className="hb-icon" />
+          <span className="hb-name">
             <span className="mono">{entry.name}</span>
-            {why && <span className="fb-why">{why}</span>}
+            {why && <span className="hb-why">{why}</span>}
           </span>
           {r.is === 'added' ? (
             <Segmented
@@ -121,13 +121,13 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
               ]}
             />
           ) : mode ? (
-            <span className="fb-mode">{MODE_LABEL[mode]}</span>
+            <span className="hb-mode">{MODE_LABEL[mode]}</span>
           ) : (
             r.is === 'free' && r.place && <span className="chip warn">Risky</span>
           )}
         </div>
         {ask && (
-          <div className="fb-ask" role="group" aria-labelledby={askId}>
+          <div className="hb-ask" role="group" aria-labelledby={askId}>
             <strong id={askId}>
               Let {b.agent} read {ask.what} in <code>~/{path}</code>?
             </strong>
@@ -136,7 +136,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
               {ask.means && <li>{ask.means}</li>}
               <li>{b.agent} can use the internet. If a web page, file or package tricks it, these files can be sent anywhere.</li>
             </ul>
-            <div className="fb-ask-actions">
+            <div className="hb-ask-actions">
               <Button size="sm" onClick={() => b.answer(false)}>
                 Keep no access
               </Button>
@@ -147,7 +147,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
           </div>
         )}
         {b.said?.path === path && (
-          <p className="fb-said tight small" role="status">
+          <p className="hb-said tight small" role="status">
             {b.said.text}
           </p>
         )}
@@ -168,7 +168,7 @@ function FolderRows({ b, dir, level, absent = false }: { b: Browser; dir: string
   // The next name on the way from here to the project.
   const step = project && (dir === '' || project.startsWith(`${dir}/`)) ? project.slice(dir ? dir.length + 1 : 0).split('/')[0] : undefined
   const note = (text: ReactNode, err = false) => (
-    <div className={`fb-note${err ? ' errmsg' : ''}`} role={err ? 'alert' : undefined} style={{ '--fb-level': level - 1 } as React.CSSProperties}>
+    <div className={`hb-note${err ? ' errmsg' : ''}`} role={err ? 'alert' : undefined} style={{ '--hb-level': level - 1 } as React.CSSProperties}>
       {text}
     </div>
   )
@@ -249,7 +249,7 @@ function CanCannot({ agent, view, grants }: { agent: string; view: FoldersView; 
     ),
   ].filter((line) => !!line)
   return (
-    <div className="fb-sum">
+    <div className="hb-sum">
       <div className="cc">
         <div className="cc-can">
           <h4>
@@ -303,6 +303,7 @@ export function FolderBrowser({ agent, view, grants, onChange }: {
   const [asking, setAsking] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const tree = useRef<HTMLDivElement>(null)
+  const legendId = useId()
   const project = projectPath(view)
   const leads = (path: string) => [...(project ? [project] : []), ...ticked].some((p) => p.startsWith(`${path}/`))
   // A click anywhere in the tree closes the warning or explanation of the one before.
@@ -325,7 +326,9 @@ export function FolderBrowser({ agent, view, grants, onChange }: {
       const say = (text: ReactNode) => setSaid({ path, text })
       quiet()
       if (r.is === 'added') onChange(grants.filter((g) => g.path !== path))
-      else if (r.is === 'free' && r.place) setAsking(path)
+      else if (r.is === 'free' && withGrant(grants, path, false).length > MAX_GRANTS) {
+        say(`You have ticked ${MAX_GRANTS} folders and files, the most one agent can have. Untick one to tick another.`)
+      } else if (r.is === 'free' && r.place) setAsking(path)
       else if (r.is === 'free') onChange(withGrant(grants, path, false))
       else if (r.is === 'project') say(`This is the app's project. ${agent} always reads and changes it.`)
       else if (r.is === 'fixed') say(`${agent} always has access to this. It cannot be taken away here.`)
@@ -360,7 +363,7 @@ export function FolderBrowser({ agent, view, grants, onChange }: {
     const rows = [...tree.current.querySelectorAll<HTMLElement>('[role=treeitem]')]
     const i = rows.indexOf(at)
     const expanded = at.getAttribute('aria-expanded')
-    const twist = () => at.querySelector<HTMLElement>('button.fb-twist')?.click()
+    const twist = () => at.querySelector<HTMLElement>('button.hb-twist')?.click()
     const level = Number(at.getAttribute('aria-level'))
     const act: Record<string, () => void> = {
       ArrowDown: () => rows[i + 1]?.focus(),
@@ -376,8 +379,8 @@ export function FolderBrowser({ agent, view, grants, onChange }: {
               .reverse()
               .find((r) => Number(r.getAttribute('aria-level')) < level)
               ?.focus(),
-      ' ': () => at.querySelector<HTMLElement>('input.fb-tick')?.click(),
-      Enter: () => at.querySelector<HTMLElement>('input.fb-tick')?.click(),
+      ' ': () => at.querySelector<HTMLElement>('input.hb-tick')?.click(),
+      Enter: () => at.querySelector<HTMLElement>('input.hb-tick')?.click(),
     }
     if (!act[e.key]) return
     e.preventDefault()
@@ -385,27 +388,22 @@ export function FolderBrowser({ agent, view, grants, onChange }: {
   }
 
   return (
-    <div className="fb">
-      <h3 className="fb-q">
+    <div className="hb">
+      <h3 className="hb-q">
         Which files and folders can {agent} access?
       </h3>
       <p className="tight muted small">Tick what {agent} may access. Highlighted rows: it has access. Dimmed rows: it has no access.</p>
-      <div className="fb-box">
-        <div className="fb-head">
-          <ul className="fb-legend" aria-label="What the colours mean">
-            <li>
-              <span className="fb-key write" />
-              Read and change
-            </li>
-            <li>
-              <span className="fb-key read" />
-              Read only
-            </li>
-            <li>
-              <span className="fb-key none" />
-              No access
-            </li>
-          </ul>
+      <div className="hb-box">
+        <div className="hb-head">
+          {/* A key, not controls: each entry is a sample of how a row of that kind looks. */}
+          <div className="hb-legend">
+            <span id={legendId}>Row colours:</span>
+            <ul aria-labelledby={legendId}>
+              <li className="write">{MODE_LABEL.write}</li>
+              <li className="read">{MODE_LABEL.read}</li>
+              <li>No access</li>
+            </ul>
+          </div>
           <Switch
             label="Show hidden files and folders"
             checked={showHidden}
@@ -416,7 +414,19 @@ export function FolderBrowser({ agent, view, grants, onChange }: {
             }}
           />
         </div>
-        <div className="fb-tree" role="tree" aria-label="Your home" ref={tree} onKeyDown={onKeyDown}>
+        {project === undefined && (
+          <div className="hb-row lit write hb-apart">
+            <div className="hb-line">
+              <Folder size={18} aria-hidden="true" className="hb-icon" />
+              <span className="hb-name">
+                <span className="mono">{view.project}</span>
+                <span className="hb-why">{whyOf({ is: 'project', mode: 'write' }, agent, false)}</span>
+              </span>
+              <span className="hb-mode">{MODE_LABEL.write}</span>
+            </div>
+          </div>
+        )}
+        <div className="hb-tree" role="tree" aria-label="Your home" ref={tree} onKeyDown={onKeyDown}>
           <FolderRows b={b} dir="" level={1} />
         </div>
       </div>
@@ -448,7 +458,7 @@ export function FoldersCard({ ws }: { ws: Workspace }) {
     <Card className="pad open-card">
       <FolderBrowser agent={agent} view={view} grants={draft ?? saved} onChange={setDraft} />
       {changed && (
-        <div className="fb-save">
+        <div className="hb-save">
           <p className="tight small" role="status">
             {agent} restarts to pick this up. It takes a few seconds.
           </p>
@@ -457,7 +467,7 @@ export function FoldersCard({ ws }: { ws: Workspace }) {
               {whyFailed(set.error)}
             </p>
           )}
-          <div className="fb-save-actions">
+          <div className="hb-save-actions">
             <Button size="sm" disabled={set.isPending} onClick={discard}>
               Discard changes
             </Button>
