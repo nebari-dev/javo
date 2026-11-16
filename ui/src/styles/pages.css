@@ -337,6 +337,7 @@ a.btn{text-decoration:none}
 .textlink:hover{text-decoration:underline}
 .filechip + .textlink{margin-top:2px}
 .chosen-actions{display:flex;flex-wrap:wrap;gap:6px 20px;padding:0 4px}
+.folded-done{display:flex;justify-content:flex-end}
 .filechip .fi,.pickbtn .fi{color:var(--text-2);flex:none}
 .pickbtn{display:flex;align-items:center;gap:12px;width:100%;padding:16px;border:1.5px dashed var(--border-strong);border-radius:12px;background:transparent;color:var(--text);text-align:left}
 .pickbtn:hover{border-color:var(--accent);background:var(--accent-soft)}

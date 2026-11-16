@@ -59,15 +59,21 @@ interface FoldedProps {
 /**
  * A card that holds a sensible default shows as one row ("Size: Small ·
  * 1 CPU · 2 GB, change"); Change opens the full card with focus on its
- * current choice. Something inside that needs attention, such as an
- * error, opens it, and once shown open it stays open.
+ * current choice, and Done folds it back. Something inside that needs
+ * attention, such as an error, opens it, and it never folds by itself.
  */
 export function Folded({ foldable, attention, icon, title, value, children, onChange, actions }: FoldedProps) {
   const [opened, setOpened] = useState(false)
   // Set by Change: the opened card fades in and takes focus; a card open from the start does neither.
   const [byHand, setByHand] = useState(false)
   const body = useRef<HTMLDivElement>(null)
-  // Open once, open for good: it never folds under the person, even when it later holds a sensible choice.
+  // Set by Done: the row it folds to takes focus, so the keyboard stays where the card was.
+  const [foldedByHand, setFoldedByHand] = useState(false)
+  const rowButton = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (foldedByHand) rowButton.current?.focus()
+  }, [foldedByHand])
+  // It never folds under the person, even when it later holds a sensible choice; only Done folds it.
   useEffect(() => {
     if (attention || !foldable) setOpened(true)
   }, [attention, foldable])
@@ -83,6 +89,7 @@ export function Folded({ foldable, attention, icon, title, value, children, onCh
   if (!open) {
     const row = (
       <ChosenRow
+        buttonRef={rowButton}
         icon={icon}
         title={value}
         label={`${title}: ${value}`}
@@ -90,6 +97,7 @@ export function Folded({ foldable, attention, icon, title, value, children, onCh
           onChange ??
           (() => {
             setByHand(true)
+            setFoldedByHand(false)
             setOpened(true)
           })
         }
@@ -105,8 +113,23 @@ export function Folded({ foldable, attention, icon, title, value, children, onCh
     )
   }
   return (
-    <div ref={body} className={byHand ? 'tpl-in' : undefined}>
+    <div ref={body} className={`stack tight-gap${byHand ? ' tpl-in' : ''}`}>
       {children}
+      {foldable && !attention && (
+        <div className="folded-done">
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => {
+              setOpened(false)
+              setByHand(false)
+              setFoldedByHand(true)
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
     </div>
   )
 }

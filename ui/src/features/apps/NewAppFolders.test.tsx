@@ -78,6 +78,10 @@ describe('New app, what a locked agent can access', () => {
     await openAccess()
     await userEvent.click(tick(await row('data')))
     expect(screen.queryByRole('button', { name: /^Access: / })).toBeNull()
+    // Done folds it back to one row that now counts what was ticked.
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('tree')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Access: ~/projects/claude-code-app and 1 more, change' }))
   })
 
   it('follows the name of the app, and sends what was ticked with the new app', async () => {
