@@ -1,161 +1,485 @@
-import { Folder, Lock, Plus, Shield } from 'lucide-react'
-import { useState } from 'react'
+import { Check, ChevronRight, File, Folder, Lock, X } from 'lucide-react'
+import { Fragment, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { FolderGrant, FoldersView, Workspace } from '../../api'
-import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { hasLogo, KindLogo } from '../../components/KindLogo'
 import { Segmented } from '../../components/Segmented'
-import { fieldErrors, problemText } from '../../lib/http'
-import { useSetFolders } from '../../lib/queries'
-import { HomePicker } from '../files/HomePicker'
+import { Switch } from '../../components/Switch'
+import type { HomeEntry } from '../../lib/files'
+import { ApiError, fieldErrors, problemText } from '../../lib/http'
+import { useHomeFolder, useSetFolders } from '../../lib/queries'
 import { agentOf } from './agents'
-
-type Mode = FolderGrant['mode']
+import { openTo, placeOf, projectPath, rowOf, sameGrants, within, withGrant, type Mode, type Row } from './folderAccess'
 
 /** Why saving the list failed: the server's words about the folder, else about the request. */
 const whyFailed = (err: unknown) => fieldErrors(err).fields.folders ?? problemText(err)
 
 const MODE_LABEL: Record<Mode, string> = { read: 'Read only', write: 'Read and change' }
 
-/** True when path is dir or inside it. */
-const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`)
-
-/**
- * Why the path of the home cannot be added to what the agent can open, or
- * undefined when it can: it is open already, or (never) the API says no agent
- * is let into it: a place it lists with a reason of its own, else anything
- * hidden at the top of the home, for the one reason it gives for those. The
- * API decides again on save.
- */
-function whyNot(view: FoldersView, path: string): { why: string; never?: boolean } | undefined {
-  if (view.project.startsWith('~/') && within(view.project.slice(2), path)) return { why: 'already open' }
-  if ((view.grants ?? []).some((g) => g.path === path)) return { why: 'already added' }
-  if (!path.startsWith('.')) return undefined
-  return { why: (view.never ?? []).find((n) => within(n.path, path))?.why ?? view.hidden, never: true }
+/** The agent's name led by its logo, for a heading; a kind with no logo of its own gets the name alone. */
+function AgentName({ kind, agent }: { kind: string; agent: string }) {
+  return (
+    <span className="agent-name">
+      {hasLogo(kind) && <KindLogo kind={kind} inline />}
+      {agent}
+    </span>
+  )
 }
 
-function ModeTag({ mode }: { mode: Mode }) {
-  return <span className={`chip ${mode === 'write' ? 'acc' : 'idle'}`}>{MODE_LABEL[mode]}</span>
-}
-
-/** The dialog that adds one folder or file of the home, to read unless the person picks more. */
-function AddFolder({ agent, view, busy, error, onAdd, onClose }: {
+/** What the rows of the tree share: whose choice it is, what is ticked, and what a click does. */
+interface Browser {
+  kind: string
   agent: string
   view: FoldersView
-  busy: boolean
-  error: unknown
-  onAdd: (grant: FolderGrant) => void
-  onClose: () => void
-}) {
-  const [mode, setMode] = useState<Mode>('read')
+  grants: FolderGrant[]
+  /** Whether the folder at path shows what is in it. */
+  isOpen: (path: string) => boolean
+  toggle: (path: string) => void
+  tick: (path: string) => void
+  setMode: (path: string, mode: Mode) => void
+  /** Whether what is hidden at the top of the home is listed; what leads to the project or to something ticked always is. */
+  shows: (path: string) => boolean
+  /** The risky place whose tick waits for the warning under its row to be answered. */
+  asking: string | null
+  answer: (allow: boolean) => void
+  /** What the last click on a row that cannot change was answered with, shown under that row. */
+  said: { path: string; text: ReactNode } | null
+  /** The row arrow keys start from: the one last focused, or the first. */
+  active: string | null
+  setActive: (path: string) => void
+}
+
+const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
+
+/** The words beside a row's name: why it is open, or what it holds. */
+function whyOf(r: Row, made: boolean): string {
+  switch (r.is) {
+    case 'project':
+      return made ? "This app's project, made when the app starts. Always open" : "This app's project. Always open"
+    case 'fixed':
+      return `${r.place.what}. Always open`
+    case 'shut':
+      return r.place.rule === 'around' ? (r.place.means ?? '') : [`Holds ${r.place.what}.`, r.place.means].filter(Boolean).join(' ')
+    case 'added':
+      return r.place ? `Holds ${r.place.what}. You allowed this` : ''
+    case 'included':
+      return `Included with ~/${r.from}`
+    case 'free':
+      return r.place ? `Holds ${r.place.what}. Asks you first` : ''
+  }
+}
+
+/** One folder or file of the home: its tick box, its name, why it is open or closed, and how open it is. */
+function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: string; entry: HomeEntry; level: number; first: boolean; made: boolean }) {
+  const askId = useId()
+  const path = join(dir, entry.name)
+  const r = rowOf(b.view, b.grants, path)
+  const mode = openTo(r)
+  const folder = entry.kind === 'folder'
+  // Nothing in a place no agent opens can be ticked, so it does not open; a folder around one does.
+  const opens = folder && !(r.is === 'shut' && r.place.rule === 'closed')
+  const open = opens && b.isOpen(path)
+  const why = whyOf(r, made)
+  const ask = b.asking === path && r.is === 'free' ? r.place : undefined
+  const look = mode ? ` lit ${r.is !== 'project' && r.is !== 'fixed' && r.place ? 'risky' : mode}` : ''
+  const Icon = folder ? Folder : File
   return (
-    <HomePicker
-      folders
-      filesToo
-      extensions={[]}
-      acceptReason=""
-      title={`Let ${agent} open another folder`}
-      subtitle="Pick a folder or file in your home."
-      refused={(path) => whyNot(view, path)}
-      chooseLabel={(path) => (path === null ? 'Pick a folder or file' : `Let ${agent} ${mode === 'read' ? 'read' : 'read and change'} ~/${path}`)}
-      options={
-        <>
-          <div className="field fit tight">
-            <span className="field-label">{agent} can</span>
+    <>
+      <div
+        role="treeitem"
+        aria-label={entry.name}
+        aria-level={level}
+        aria-expanded={opens ? open : undefined}
+        tabIndex={b.active === path || (b.active === null && first) ? 0 : -1}
+        className={`fb-row${look}`}
+        style={{ '--fb-level': level - 1 } as React.CSSProperties}
+        onFocus={() => b.setActive(path)}
+      >
+        <div className="fb-line">
+          {opens ? (
+            <button type="button" className="fb-twist" tabIndex={-1} aria-label={`${open ? 'Close' : 'Open'} ${entry.name}`} onClick={() => b.toggle(path)}>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+          ) : (
+            <span className="fb-twist" />
+          )}
+          {r.is === 'shut' ? (
+            <Lock size={16} aria-hidden="true" className="fb-shut" />
+          ) : (
+            <input
+              type="checkbox"
+              className="fb-tick"
+              tabIndex={-1}
+              checked={!!mode}
+              aria-disabled={r.is === 'added' || r.is === 'free' ? undefined : true}
+              aria-label={`Let ${b.agent} open ~/${path}`}
+              onChange={() => b.tick(path)}
+            />
+          )}
+          <Icon size={18} aria-hidden="true" className="fb-icon" />
+          <span className="fb-name">
+            <span className="mono">{entry.name}</span>
+            {why && <span className="fb-why">{why}</span>}
+          </span>
+          {r.is === 'added' ? (
             <Segmented
-              label={`${agent} can`}
-              value={mode}
-              onChange={setMode}
+              label={`What ${b.agent} can do in ~/${path}`}
+              value={r.mode}
+              onChange={(m) => b.setMode(path, m)}
               options={[
-                { value: 'read', label: 'Only read it' },
-                { value: 'write', label: 'Read and change it' },
+                { value: 'read', label: MODE_LABEL.read },
+                { value: 'write', label: MODE_LABEL.write },
               ]}
             />
+          ) : mode ? (
+            <span className="fb-mode">{MODE_LABEL[mode]}</span>
+          ) : (
+            r.is === 'free' && r.place && <span className="chip warn">Risky</span>
+          )}
+        </div>
+        {ask && (
+          <div className="fb-ask" role="group" aria-labelledby={askId}>
+            <strong id={askId}>
+              Let <AgentName kind={b.kind} agent={b.agent} /> read {ask.what} in <code>~/{path}</code>?
+            </strong>
+            <ul>
+              <li>{b.agent}, and every command it runs, will be able to read them.</li>
+              {ask.means && <li>{ask.means}</li>}
+              <li>{b.agent} can use the internet. If a web page, file or package tricks it, these files can be sent anywhere.</li>
+            </ul>
+            <div className="fb-ask-actions">
+              <Button size="sm" onClick={() => b.answer(false)}>
+                Keep it closed
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => b.answer(true)}>
+                Let {b.agent} read {ask.what}
+              </Button>
+            </div>
           </div>
-          <Banner tone="info" title={`${agent} restarts to pick this up`}>
-            It takes a few seconds.
-          </Banner>
-        </>
-      }
-      busy={busy}
-      failure={error ? whyFailed(error) : undefined}
-      onChoose={(path) => onAdd({ path, mode })}
-      onClose={onClose}
-    />
+        )}
+        {b.said?.path === path && (
+          <p className="fb-said tight small" role="status">
+            {b.said.text}
+          </p>
+        )}
+      </div>
+      {open && <FolderRows b={b} dir={path} level={level + 1} absent={made} />}
+    </>
   )
 }
 
 /**
- * What a coding agent that starts locked in can open: its project, which
- * stays, and the folders and files of the home its owner added, each to read
- * or to read and change. Nothing for an app that is not locked in (the API
- * sends no folders).
+ * What is in one folder of the home, read when the folder is first shown.
+ * The project is listed where it will be even before it is made (absent: the
+ * folder itself is not there yet, so it is not read).
+ */
+function FolderRows({ b, dir, level, absent = false }: { b: Browser; dir: string; level: number; absent?: boolean }) {
+  const q = useHomeFolder(dir, !absent)
+  const project = projectPath(b.view)
+  // The next name on the way from here to the project.
+  const step = project && (dir === '' || project.startsWith(`${dir}/`)) ? project.slice(dir ? dir.length + 1 : 0).split('/')[0] : undefined
+  const note = (text: ReactNode, err = false) => (
+    <div className={`fb-note${err ? ' errmsg' : ''}`} role={err ? 'alert' : undefined} style={{ '--fb-level': level - 1 } as React.CSSProperties}>
+      {text}
+    </div>
+  )
+  let entries: HomeEntry[] = []
+  if (!absent) {
+    const gone = q.error instanceof ApiError && q.error.status === 404 && step !== undefined
+    if (q.isError && !gone) return note(problemText(q.error), true)
+    if (q.isPending) return note('Loading')
+    if (q.data?.kind === 'opening') return note(q.data.reason.title ?? 'Your home folder is opening')
+    if (q.data?.kind === 'listed') entries = q.data.folder.entries
+  }
+  const missing = step !== undefined && !entries.some((e) => e.name === step)
+  const rows = (missing ? [{ name: step, kind: 'folder' as const, size: 0, modified: '' }, ...entries] : entries).filter((e) => dir !== '' || b.shows(e.name))
+  if (rows.length === 0) return note('Nothing in this folder')
+  return (
+    <>
+      {rows.map((e, i) => (
+        <EntryRow key={e.name} b={b} dir={dir} entry={e} level={level} first={dir === '' && i === 0} made={absent || (missing && i === 0)} />
+      ))}
+    </>
+  )
+}
+
+const home = (path: string) => <code>~/{path}</code>
+
+/** items with a comma, or the word, between them. */
+const listed = (items: ReactNode[], word = ', ') => items.flatMap((x, i) => (i ? [word, x] : [x]))
+
+/**
+ * What the choice comes to, in whole sentences with the real paths: what the
+ * agent can do, and what it cannot, down to the folders at the top of the
+ * home it sees nothing of and the risky places not allowed.
+ */
+function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string; view: FoldersView; grants: FolderGrant[] }) {
+  const top = useHomeFolder('', true).data
+  const names = top?.kind === 'listed' ? top.folder.entries : []
+  const project = projectPath(view)
+  const edit = (where: ReactNode) => <>Read, edit, add and delete files in {where}</>
+  const can = [
+    <Fragment key="project">{edit(<code>{view.project}</code>)}</Fragment>,
+    ...grants.map((g) => {
+      const place = placeOf(view, g.path)
+      return (
+        <Fragment key={g.path}>
+          {place ? (
+            <>
+              <b>Risky:</b> {g.mode === 'write' ? 'read and change' : 'read'} {place.what} in {home(g.path)}. {place.means}
+            </>
+          ) : g.mode === 'write' ? (
+            edit(home(g.path))
+          ) : (
+            <>Read files in {home(g.path)}. It cannot change or delete them</>
+          )}
+        </Fragment>
+      )
+    }),
+    <Fragment key="net">Use the internet. This choice covers files only.</Fragment>,
+  ]
+  // Folders at the top of the home that are not open as a whole: shut entirely, or but for what is ticked in them.
+  const open = [...(project ? [project] : []), ...grants.map((g) => g.path)]
+  const shut = names.filter((e) => e.kind === 'folder' && !placeOf(view, e.name) && !open.includes(e.name)).map((e) => e.name)
+  const partly = shut.filter((n) => open.some((p) => p.startsWith(`${n}/`)))
+  const wholly = shut.filter((n) => !partly.includes(n))
+  // The risky places of this home that were not allowed: those at its top, and those the API names inside a folder there.
+  const here = names.map((e) => e.name)
+  const risky = [
+    ...here.filter((n) => placeOf(view, n)?.rule === 'risky'),
+    ...(view.places ?? []).filter((p) => p.rule === 'risky' && p.path.includes('/') && here.includes(p.path.split('/')[0])).map((p) => p.path),
+  ].filter((p) => openTo(rowOf(view, grants, p)) === undefined)
+  const cannot = [
+    wholly.length > 0 && <Fragment key="wholly">Open {listed(wholly.map(home))} at all</Fragment>,
+    partly.length > 0 && <Fragment key="partly">Open anything in {listed(partly.map(home), ' or ')} except what is ticked there</Fragment>,
+    <Fragment key="change">Change or delete any file outside the folders it may change</Fragment>,
+    risky.length > 0 && (
+      <Fragment key="risky">
+        Open {listed(risky.map((p) => [home(p), ` (${placeOf(view, p)?.what})`]))}. You have not allowed {risky.length > 1 ? 'them' : 'it'}
+      </Fragment>
+    ),
+  ].filter((line) => !!line)
+  return (
+    <div className="fb-sum">
+      <div className="cc">
+        <div className="cc-can">
+          <h4>
+            <AgentName kind={kind} agent={agent} /> can
+          </h4>
+          <ul>
+            {can.map((line) => (
+              <li key={line.key}>
+                <Check size={16} aria-hidden="true" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="cc-cannot">
+          <h4>
+            <AgentName kind={kind} agent={agent} /> cannot
+          </h4>
+          <ul>
+            {cannot.map((line) => (
+              <li key={line.key}>
+                <X size={16} aria-hidden="true" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <p className="tight muted small">Read means open a file and look at it. Change means edit it, add new files, or delete it.</p>
+    </div>
+  )
+}
+
+/**
+ * The person's home as a tree where a tick opens a folder or file to their
+ * coding agent: the choice of what a locked agent can open, on the form that
+ * makes the app and on the app's page. grants is the choice so far; every
+ * click hands back the whole new list.
+ */
+export function FolderBrowser({ kind, agent, view, grants, onChange }: {
+  kind: string
+  agent: string
+  view: FoldersView
+  grants: FolderGrant[]
+  onChange: (grants: FolderGrant[]) => void
+}) {
+  // Folders the person opened or closed; the rest are open when they lead to the project or to what was ticked at first.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({})
+  const [ticked] = useState(() => grants.map((g) => g.path))
+  const [active, setActive] = useState<string | null>(null)
+  const [said, setSaid] = useState<Browser['said']>(null)
+  const [asking, setAsking] = useState<string | null>(null)
+  const [showHidden, setShowHidden] = useState(false)
+  const tree = useRef<HTMLDivElement>(null)
+  const project = projectPath(view)
+  const leads = (path: string) => [...(project ? [project] : []), ...ticked].some((p) => p.startsWith(`${path}/`))
+  // A click anywhere in the tree closes the warning or explanation of the one before.
+  const quiet = () => {
+    setSaid(null)
+    setAsking(null)
+  }
+  const b: Browser = {
+    kind,
+    agent,
+    view,
+    grants,
+    isOpen: (path) => toggled[path] ?? leads(path),
+    toggle: (path) => {
+      quiet()
+      setToggled((t) => ({ ...t, [path]: !(t[path] ?? leads(path)) }))
+    },
+    shows: (path) => showHidden || !path.startsWith(view.hidden.path) || [...(project ? [project] : []), ...grants.map((g) => g.path)].some((p) => within(path, p)),
+    tick: (path) => {
+      const r = rowOf(view, grants, path)
+      const say = (text: ReactNode) => setSaid({ path, text })
+      quiet()
+      if (r.is === 'added') onChange(grants.filter((g) => g.path !== path))
+      else if (r.is === 'free' && r.place) setAsking(path)
+      else if (r.is === 'free') onChange(withGrant(grants, path, false))
+      else if (r.is === 'project') say(`This is the app's project. ${agent} always reads and changes it.`)
+      else if (r.is === 'fixed') say(`This is always open to ${agent}. It cannot be closed here.`)
+      else if (r.is === 'included' && r.from === project) say(`This is inside the app's project, which ${agent} always reads and changes.`)
+      else if (r.is === 'included') {
+        const from = <code>~/{r.from}</code>
+        say(
+          <>
+            This is inside {from}, which is ticked, so it is open too. To leave it out, untick {from} and tick only the folders you want.
+          </>,
+        )
+      }
+    },
+    asking,
+    answer: (allow) => {
+      if (allow && asking !== null) onChange(withGrant(grants, asking, true))
+      quiet()
+    },
+    setMode: (path, mode) => {
+      quiet()
+      onChange(grants.map((g) => (g.path === path ? { ...g, mode } : g)))
+    },
+    said,
+    active,
+    setActive,
+  }
+
+  // Arrow keys move between rows and open or close a folder; Space or Enter ticks the row.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = e.target as HTMLElement
+    if (at.getAttribute('role') !== 'treeitem' || !tree.current) return
+    const rows = [...tree.current.querySelectorAll<HTMLElement>('[role=treeitem]')]
+    const i = rows.indexOf(at)
+    const expanded = at.getAttribute('aria-expanded')
+    const twist = () => at.querySelector<HTMLElement>('button.fb-twist')?.click()
+    const level = Number(at.getAttribute('aria-level'))
+    const act: Record<string, () => void> = {
+      ArrowDown: () => rows[i + 1]?.focus(),
+      ArrowUp: () => rows[i - 1]?.focus(),
+      Home: () => rows[0]?.focus(),
+      End: () => rows[rows.length - 1]?.focus(),
+      ArrowRight: () => (expanded === 'false' ? twist() : expanded === 'true' && rows[i + 1]?.focus()),
+      ArrowLeft: () =>
+        expanded === 'true'
+          ? twist()
+          : rows
+              .slice(0, i)
+              .reverse()
+              .find((r) => Number(r.getAttribute('aria-level')) < level)
+              ?.focus(),
+      ' ': () => at.querySelector<HTMLElement>('input.fb-tick')?.click(),
+      Enter: () => at.querySelector<HTMLElement>('input.fb-tick')?.click(),
+    }
+    if (!act[e.key]) return
+    e.preventDefault()
+    act[e.key]()
+  }
+
+  return (
+    <div className="fb">
+      <h3 className="fb-q">
+        What can <AgentName kind={kind} agent={agent} /> open?
+      </h3>
+      <p className="tight muted small">Tick what it may open. Lit rows are open to it. Dimmed rows are closed.</p>
+      <div className="fb-box">
+        <div className="fb-head">
+          <ul className="fb-legend" aria-label="What the colours mean">
+            <li>
+              <span className="fb-key write" />
+              Read and change
+            </li>
+            <li>
+              <span className="fb-key read" />
+              Read only
+            </li>
+            <li>
+              <span className="fb-key none" />
+              Closed to {agent}
+            </li>
+          </ul>
+          <Switch
+            label="Show hidden files and folders"
+            checked={showHidden}
+            onChange={(on) => {
+              quiet()
+              setActive(null)
+              setShowHidden(on)
+            }}
+          />
+        </div>
+        <div className="fb-tree" role="tree" aria-label="Your home" ref={tree} onKeyDown={onKeyDown}>
+          <FolderRows b={b} dir="" level={1} />
+        </div>
+      </div>
+      <CanCannot kind={kind} agent={agent} view={view} grants={grants} />
+    </div>
+  )
+}
+
+/**
+ * What a coding agent that starts locked in can open, on its page: the
+ * browser, with the changes kept here until its owner saves them, as saving
+ * restarts the agent. Nothing for an app that is not locked in (the API sends
+ * no folders).
  */
 export function FoldersCard({ ws }: { ws: Workspace }) {
   const set = useSetFolders(ws.name)
-  const [adding, setAdding] = useState(false)
   const view = ws.folders
+  // null until something is ticked or unticked; then the list to save.
+  const [draft, setDraft] = useState<FolderGrant[] | null>(null)
   if (!view) return null
   const agent = agentOf(ws)
-  const grants = view.grants ?? []
+  const saved = view.grants ?? []
+  const changed = draft !== null && !sameGrants(draft, saved)
+  const discard = () => {
+    set.reset()
+    setDraft(null)
+  }
   return (
     <Card className="pad open-card">
-      <h3 className="label">
-        <Shield size={15} aria-hidden="true" className="part-icon" />
-        What {agent} can open
-      </h3>
-      <p className="tight muted small">
-        {agent}, and every command it runs, can open this app's project and what you add here, besides its own settings and the system. Everything
-        else in your home is hidden from it. Adding or removing something restarts {agent}, which takes a few seconds.
-      </p>
-      <ul className="open-list">
-        <li className="open-row">
-          <Folder size={18} aria-hidden="true" />
-          <span className="open-what">
-            <code>{view.project}</code>
-            <span className="muted small">This app's project</span>
-          </span>
-          <ModeTag mode="write" />
-          <span className="open-fixed" role="img" aria-label="Always open" title={`The project is always open to ${agent}`}>
-            <Lock size={16} aria-hidden="true" />
-          </span>
-        </li>
-        {grants.map((g) => (
-          <li key={g.path} className="open-row">
-            <Folder size={18} aria-hidden="true" />
-            <span className="open-what">
-              <code>~/{g.path}</code>
-              <span className="muted small">Added by you</span>
-            </span>
-            <ModeTag mode={g.mode} />
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={`Remove ~/${g.path}`}
-              disabled={set.isPending}
-              onClick={() => set.mutate(grants.filter((o) => o.path !== g.path))}
-            >
-              Remove
+      <FolderBrowser kind={ws.kind} agent={agent} view={view} grants={draft ?? saved} onChange={setDraft} />
+      {changed && (
+        <div className="fb-save">
+          <p className="tight small" role="status">
+            {agent} restarts to pick this up. It takes a few seconds.
+          </p>
+          {set.isError && (
+            <p className="tight errmsg" role="alert">
+              {whyFailed(set.error)}
+            </p>
+          )}
+          <div className="fb-save-actions">
+            <Button size="sm" disabled={set.isPending} onClick={discard}>
+              Discard changes
             </Button>
-          </li>
-        ))}
-      </ul>
-      <Button icon={Plus} onClick={() => setAdding(true)}>
-        Add a folder or file
-      </Button>
-      {set.isError && !adding && <span className="errmsg">{whyFailed(set.error)}</span>}
-      {adding && (
-        <AddFolder
-          agent={agent}
-          view={view}
-          busy={set.isPending}
-          error={set.isError ? set.error : undefined}
-          onAdd={(grant) => set.mutate([...grants, grant], { onSuccess: () => setAdding(false) })}
-          onClose={() => {
-            set.reset()
-            setAdding(false)
-          }}
-        />
+            <Button size="sm" variant="primary" disabled={set.isPending} onClick={() => set.mutate(draft, { onSuccess: discard })}>
+              Save
+            </Button>
+          </div>
+        </div>
       )}
     </Card>
   )

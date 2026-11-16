@@ -2,7 +2,10 @@ import { File as FileIcon, Folder, Sparkles, X } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentLabel, useAgentStatus, useAgentSuggestions, useBuildWithAgent } from '../ai/ai'
-import type { AgentStatus, DraftView, Template } from '../../api'
+import type { AgentStatus, DraftView, FolderGrant, Template } from '../../api'
+import { AGENTS } from './agents'
+import { FolderBrowser } from './Folders'
+import { outsideProject } from './folderAccess'
 import { ApiAccessChoices, type ApiAccess } from './ApiAccess'
 import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
@@ -30,6 +33,7 @@ import {
   useCreateWorkspace,
   useCustomAllowance,
   useIdleStopPolicy,
+  useNewFolders,
   useNewWebhook,
   usePlacement,
   useSecrets,
@@ -64,6 +68,7 @@ const FORM_FIELDS = new Set([
   'token',
   'idleStopMinutes',
   'environment',
+  'folders',
 ])
 // Fields of the Where is the code? card: an error on one opens it.
 const CODE_FIELDS = ['file', 'token', 'source', 'source.url', 'source.ref', 'source.path', 'source.token', 'source.build.command', 'source.build.output']
@@ -347,6 +352,8 @@ export function NewApp() {
   const [envRows, setEnvRows] = useState<EnvRow[]>([])
   // The id of the picked environment; empty for none.
   const [environment, setEnvironment] = useState('')
+  // What a coding agent that starts locked in can open besides its project.
+  const [folders, setFolders] = useState<FolderGrant[]>([])
   const mySecrets = useSecrets().data ?? []
   // null until the user picks; a template that may run from a repository starts from the home folder.
   const [where, setWhere] = useState<'home' | 'repo' | null>(null)
@@ -385,6 +392,12 @@ export function NewApp() {
   // A command template's Change leaves its sample for a command of the user's own;
   // other templates open the picker at the sample.
   const changeOpensPicker = wantsFile || !takesCommand
+  // What the app would be locked to, for one the API says starts locked in. An
+  // app from a repository is not asked about: the API takes no repository here.
+  const lockView = useNewFolders(
+    tpl && !repoMode && name.trim() ? { template: tpl.name, displayName: name.trim(), ...(sample ? { sample: true } : file ? { file } : {}) } : undefined,
+  )
+  const grants = lockView ? outsideProject(lockView, folders) : []
   const launch: Launch = { command: typedCommand ?? sample?.command ?? '', image, port: typedPort ?? String(tpl?.port ?? '') }
   const errs = create.isError ? fieldErrors(create.error) : { fields: draftErrs, other: [] as string[] }
   const other = [...errs.other, ...Object.entries(errs.fields).filter(([f]) => !isFormField(f)).map(([, m]) => m)]
@@ -416,6 +429,7 @@ export function NewApp() {
       setWhere(null)
       setRepo(emptyRepo)
       setPreviews({ enabled: false, max: null, forks: false })
+      setFolders([])
       hook.reset()
       // An image template starts from its sample, as the others do.
       if (t.userImage && t.sample) fillImageSample(t.sample)
@@ -548,6 +562,7 @@ export function NewApp() {
         ...(pickedIdle !== null && pickedIdle !== tpl.defaultIdleStopMinutes ? { idleStopMinutes: pickedIdle } : {}),
         ...(env.length ? { env } : {}),
         ...(environment ? { environment: { id: environment } } : {}),
+        ...(grants.length ? { folders: grants } : {}),
       },
       {
         onSuccess: (ws) => navigate(`/apps/${encodeURIComponent(ws.name)}`),
@@ -715,6 +730,18 @@ export function NewApp() {
                 )}
               </Card>
             </Folded>
+            </Section>
+          )}
+          {tpl && lockView && (
+            <Section part="access" title="Access">
+              <Card className="pad">
+                <FolderBrowser kind={tpl.kind} agent={AGENTS[tpl.kind] ?? tpl.displayName} view={lockView} grants={grants} onChange={setFolders} />
+                {errs.fields.folders && (
+                  <p className="tight errmsg fb-refused" role="alert">
+                    {errs.fields.folders}
+                  </p>
+                )}
+              </Card>
             </Section>
           )}
           {tpl && offersPreviews && previewOptions && (

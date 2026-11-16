@@ -178,12 +178,55 @@ const aiSettingsFromConfig: Record<string, unknown> & { keyStored: boolean; keyL
 let aiSettings = { ...aiSettingsFromConfig }
 let agentSettings = { allowTrusted: true, configAllows: true }
 
-// A few of the places the API gives a reason of its own for, as an app's folders.never carries them.
-const NEVER_FOLDERS = [
-  { path: '.ssh', why: 'holds your SSH keys' },
-  { path: '.config/gh', why: 'holds your GitHub sign-in' },
-  { path: '.bashrc', why: 'runs every time you open a terminal' },
-]
+// The hidden places of a home and how a locked agent is held to each, as an app's folders carry them.
+const shellStart = { what: 'commands your terminal runs every time it opens', means: 'They often hold passwords, and an agent that can change them can run commands as you, outside its lock.' }
+const LOCK_PLACES = [
+  { path: '.ssh', rule: 'risky', what: 'your SSH keys', means: 'Anyone who has these keys can sign in to your servers and push code as you.' },
+  { path: '.gnupg', rule: 'risky', what: 'your GPG keys', means: 'Anyone who has these keys can sign and decrypt as you.' },
+  { path: '.git-credentials', rule: 'risky', what: 'your Git passwords', means: 'Anyone who has them can read and change your repositories as you.' },
+  { path: '.config/gh', rule: 'risky', what: 'your GitHub sign-in', means: 'Anyone who has it can act as you on GitHub.' },
+  { path: '.aws', rule: 'risky', what: 'your cloud login', means: 'Anyone who has it can use your cloud account, and spend money on it.' },
+  { path: '.bashrc', rule: 'risky', ...shellStart },
+  { path: '.profile', rule: 'risky', ...shellStart },
+  { path: '.gitconfig', rule: 'open', mode: 'read', what: "Git's settings" },
+  { path: '.claude', rule: 'open', mode: 'write', what: "Claude Code's own settings" },
+  { path: '.pi', rule: 'open', mode: 'write', what: "Pi's own settings" },
+  { path: '.cache', rule: 'open', mode: 'write', what: 'Tool caches' },
+  { path: '.javo', rule: 'closed', what: "the platform's own files", means: 'They belong to the platform, not to an agent.' },
+  { path: '.config/javo', rule: 'closed', what: 'your sign-in to this platform', means: 'An agent that has it can lift its own lock.' },
+  { path: '.config', rule: 'around', what: 'your sign-in to this platform, in ~/.config/javo', means: 'An agent that has it can lift its own lock. To open something else in ~/.config, tick it there, not the whole folder.' },
+] as const
+const LOCK_HIDDEN = {
+  path: '.', rule: 'risky', what: "a tool's settings or sign-ins",
+  means: "Anyone who has a sign-in kept there can act as you with that tool, and an agent that can change a tool's settings can make it run commands as you.",
+} as const
+type Grant = { path: string; mode: 'read' | 'write'; risky?: boolean }
+const lockView = (project: string, grants: Grant[] = []) => ({ project, grants, places: [...LOCK_PLACES], hidden: LOCK_HIDDEN })
+// The kinds this mock platform starts locked in.
+const LOCKED_KINDS = ['claude-code', 'pi', 'herdr', 'harf']
+/** The refusal of a list of grants, as the API words it, or undefined when all are kept. */
+function grantProblem(project: string, grants: Grant[]): string | undefined {
+  const no = (g: Grant, why: string) => `Not added. "${g.path}": ${why}.`
+  if (grants.length > 16) return no(grants[16], 'an agent can open at most 16 added folders and files')
+  for (const g of grants) {
+    if (`~/${g.path}` === project || `~/${g.path}`.startsWith(`${project}/`)) return no(g, "it is in the app's project, which is already open")
+    if (!g.path.startsWith('.')) continue
+    const place = LOCK_PLACES.filter((p) => g.path === p.path || (p.rule !== 'around' && g.path.startsWith(`${p.path}/`))).sort((a, b) => b.path.length - a.path.length)[0] ?? LOCK_HIDDEN
+    if (place.rule === 'open') return no(g, 'every agent has it open already')
+    if (place.rule !== 'risky') return no(g, `it holds ${place.what}. ${place.means}`.replace(/\.$/, ''))
+    if (!g.risky) return no(g, `it holds ${place.what}. ${place.means} Allow it in the browser first`.replace(/\.$/, ''))
+  }
+  return undefined
+}
+
+/** The folder a new app would be locked to, or undefined for one that does not start locked in. */
+function lockProject(b: { template: string; displayName: string; file?: string; sample?: boolean }): string | undefined {
+  const t = allTemplates.find((x) => x.name === b.template)
+  if (!t || !LOCKED_KINDS.includes(t.kind)) return undefined
+  const file = b.sample ? t.sample?.file : b.file
+  const own = b.displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return file && !file.startsWith('.') ? `~/${file}` : `~/projects/${own}`
+}
 
 const adminStorage = quiet
   ? { summary: "Files are stored on this machine's disk. Nothing needs attention.", rows: facts }
@@ -207,10 +250,10 @@ const apps = [
     trust: { allowed: true, until: new Date(Date.now() + 3 * 3600_000).toISOString() },
     agentPrompt: 'Create a Streamlit app that lets me look at Nvidia stock prices over time, with a date range picker and a moving average.',
   }),
-  // A coding agent that starts locked in, with one folder its owner added.
+  // A coding agent that starts locked in, with two folders its owner added.
   ws('sales-agent', 'Sales dashboard agent', 'Running', allReady(), {
-    kind: 'pi', template: 'pi', file: 'projects/sales-dashboard', apiAccess: 'ReadWrite', trust: { allowed: true },
-    folders: { project: '~/projects/sales-dashboard', grants: [{ path: 'data/sales-2026', mode: 'read' }], never: NEVER_FOLDERS, hidden: 'hidden files and folders hold settings and sign-ins' },
+    kind: 'claude-code', template: 'claude-code', file: 'projects/sales-dashboard', apiAccess: 'ReadWrite', trust: { allowed: true },
+    folders: lockView('~/projects/sales-dashboard', [{ path: 'data/sales-2026', mode: 'read' }, { path: 'projects/shared-lib', mode: 'write' }]),
   }),
   ws('churn-notebook', 'Churn analysis notebook', 'Stopped', allStopped(), {
     kind: 'pi', template: 'pi', file: '', apiAccess: 'ReadWrite', trust: { allowed: true },
@@ -286,39 +329,36 @@ const apps = [
   ]), { template: 'container', kind: 'container', file: '', image: 'traefik/whoami:v1.11', port: 80 }),
 ]
 
+const dirEntry = (name: string) => ({ name, kind: 'folder' as const, size: 0, modified: '2026-11-02T09:00:00Z' })
+const fileEntry = (name: string, size = 2048) => ({ name, kind: 'file' as const, size, modified: '2026-10-30T11:02:00Z' })
 const folders: Record<string, { name: string; kind: 'file' | 'folder'; size: number; modified: string }[]> = {
   '': [
-    { name: '.config', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
-    { name: '.ssh', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
-    { name: 'data', kind: 'folder', size: 0, modified: '2026-11-02T09:00:00Z' },
-    { name: 'notebooks', kind: 'folder', size: 0, modified: '2026-10-27T09:00:00Z' },
-    { name: 'projects', kind: 'folder', size: 0, modified: '2026-11-04T09:00:00Z' },
-    { name: 'sales', kind: 'folder', size: 0, modified: '2026-10-29T10:00:00Z' },
-    { name: '.bashrc', kind: 'file', size: 220, modified: '2026-10-20T09:00:00Z' },
-    { name: 'README.md', kind: 'file', size: 2048, modified: '2026-09-02T10:00:00Z' },
+    ...['.aws', '.claude', '.config', '.javo', '.ssh', 'Documents', 'Downloads', 'data', 'notebooks', 'projects', 'sales'].map(dirEntry),
+    fileEntry('.bashrc', 220),
+    fileEntry('.gitconfig', 180),
+    fileEntry('README.md'),
   ],
-  '.config': [
-    { name: 'gh', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
-    { name: 'ghostty', kind: 'folder', size: 0, modified: '2026-10-20T09:00:00Z' },
-  ],
-  '.config/gh': [],
-  '.config/ghostty': [],
-  '.ssh': [],
-  data: [
-    { name: 'customers', kind: 'folder', size: 0, modified: '2026-11-02T09:00:00Z' },
-    { name: 'sales-2026', kind: 'folder', size: 0, modified: '2026-11-02T09:00:00Z' },
-  ],
-  'data/customers': [],
-  'data/sales-2026': [],
-  projects: [
-    { name: 'marketing-site', kind: 'folder', size: 0, modified: '2026-10-12T09:00:00Z' },
-    { name: 'sales-dashboard', kind: 'folder', size: 0, modified: '2026-11-04T09:00:00Z' },
-    { name: 'shared-lib', kind: 'folder', size: 0, modified: '2026-10-30T09:00:00Z' },
-  ],
-  'projects/marketing-site': [],
-  'projects/sales-dashboard': [],
-  'projects/shared-lib': [],
-  notebooks: [],
+  '.aws': [fileEntry('config', 310)],
+  '.claude': [fileEntry('settings.json', 640)],
+  '.config': ['gh', 'ghostty', 'javo'].map(dirEntry),
+  '.config/gh': [fileEntry('hosts.yml', 120)],
+  '.config/ghostty': [fileEntry('config', 900)],
+  '.config/javo': [],
+  '.javo': [],
+  '.ssh': [fileEntry('config', 400), fileEntry('known_hosts', 5200)],
+  Documents: [dirEntry('contracts'), fileEntry('notes.md')],
+  'Documents/contracts': [fileEntry('acme.pdf', 482000)],
+  Downloads: [fileEntry('report.zip', 9400000)],
+  data: ['customers', 'sales-2026'].map(dirEntry),
+  'data/customers': [fileEntry('people.csv', 730000)],
+  'data/sales-2026': [fileEntry('q1.csv', 1200000), fileEntry('q2.csv', 1400000)],
+  projects: ['marketing-site', 'sales-dashboard', 'shared-lib'].map(dirEntry),
+  'projects/marketing-site': [fileEntry('index.html', 5100)],
+  'projects/sales-dashboard': [dirEntry('tests'), fileEntry('app.py', 4096), fileEntry('load.py', 2100)],
+  'projects/sales-dashboard/tests': [fileEntry('test_load.py', 1500)],
+  'projects/shared-lib': [dirEntry('src'), fileEntry('README.md')],
+  'projects/shared-lib/src': [fileEntry('utils.py', 3300)],
+  notebooks: [fileEntry('forecast.ipynb', 88000), fileEntry('scratch.ipynb', 12000)],
   plots: [{ name: 'app.py', kind: 'file', size: 92, modified: '2026-10-30T11:02:00Z' }],
   'sales/pages': [],
   sales: [
@@ -927,7 +967,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   if (req.method === 'PUT' && opens) {
     const w = apps.find((a) => a.name === opens[1])
     if (!w?.folders) return reply(404, { title: 'No app with that name.' })
-    w.folders = { ...w.folders, grants: (await req.json()).folders }
+    const grants: Grant[] = (await req.json()).folders ?? []
+    const problem = grantProblem(w.folders.project, grants)
+    if (problem) return reply(422, { title: 'Unprocessable Entity', errors: [{ location: 'body.folders', message: problem }] })
+    w.folders = { ...w.folders, grants }
     return reply(200, w)
   }
   const trust = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/trust$/)
@@ -973,7 +1016,27 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (b.displayName === 'Sales app') {
       return reply(422, { title: 'Unprocessable Entity', errors: [{ location: 'body.displayName', message: 'You already have an app called "Sales app".' }] })
     }
-    return reply(201, ws('new-app', b.displayName, 'Pending', stepsAt(0, 'Starting')))
+    const t = allTemplates.find((x) => x.name === b.template)
+    const project = lockProject(b)
+    const problem = project && b.folders ? grantProblem(project, b.folders) : undefined
+    if (problem) return reply(422, { title: 'Unprocessable Entity', errors: [{ location: 'body.folders', message: problem }] })
+    const made = ws('new-app', b.displayName, 'Pending', stepsAt(0, 'Starting'), {
+      ...(t ? { template: t.name, kind: t.kind } : {}),
+      file: b.file ?? '',
+      ...(project ? { folders: lockView(project, b.folders ?? []) } : {}),
+    })
+    // The page it opens on shows what was asked for.
+    apps.splice(0, apps.length, ...apps.filter((a) => a.name !== made.name), made)
+    return reply(201, made)
+  }
+  if (key === 'GET /api/workspace-folders') {
+    const q = url.searchParams
+    const displayName = q.get('displayName') ?? ''
+    if (!/[a-z]/i.test(displayName)) {
+      return reply(422, { title: 'Unprocessable Entity', errors: [{ location: 'query.displayName', message: 'The name needs at least one letter.' }] })
+    }
+    const project = lockProject({ template: q.get('template') ?? '', displayName, file: q.get('file') ?? '', sample: q.get('sample') === 'true' })
+    return reply(200, project ? { folders: lockView(project) } : {})
   }
   if (key === 'GET /api/files') {
     if (filesMode === 'starting') return reply(503, { status: 503, reason: 'HomeStarting', ...REASONS.HomeStarting }, { 'Retry-After': '2' })
