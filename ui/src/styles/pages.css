@@ -137,7 +137,7 @@ a.btn{text-decoration:none}
 .trust-terms dd:last-child{margin-bottom:0}
 /* What a locked coding agent can open: the home as a tree of tick boxes, and what the choice comes to. */
 .agent-name{display:inline-flex;align-items:center;gap:6px;vertical-align:bottom}
-.fb{display:flex;flex-direction:column;gap:12px;min-width:0}
+.fb{display:flex;flex-direction:column;gap:12px;min-width:0;container-type:inline-size}
 .fb-q{margin:0}
 .fb-box{border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden}
 .fb-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 16px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}
@@ -201,12 +201,13 @@ button.fb-twist:hover{background:var(--hover);color:var(--text)}
 .fb-save p{flex:1 1 220px;min-width:0}
 .fb-save-actions{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
 .fb-refused{margin-top:12px}
-@media (max-width:640px){
+/* By the room the browser has, not the window: a row's switch and words go under its name. */
+@container (max-width:520px){
   .fb-row{--fb-in:calc(var(--fb-level)*14px)}
   .fb-note{--fb-in:calc(var(--fb-level)*14px)}
   .fb-line{padding-right:12px}
   .fb-name{flex-basis:calc(100% - 100px);flex-direction:column;gap:2px}
-  .fb-line .seg,.fb-line .chip,.fb-mode{margin-left:90px}
+  .fb-line .seg,.fb-line .chip,.fb-mode{margin-left:34px}
   .cc{grid-template-columns:minmax(0,1fr)}
 }
 @media (prefers-reduced-motion:reduce){.fb-row,.fb-tick,.fb-twist svg,.fb-name .mono{transition:none}}

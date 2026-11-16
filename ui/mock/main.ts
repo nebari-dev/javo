@@ -212,7 +212,7 @@ function grantProblem(project: string, grants: Grant[]): string | undefined {
     if (`~/${g.path}` === project || `~/${g.path}`.startsWith(`${project}/`)) return no(g, "it is in the app's project, which is already open")
     if (!g.path.startsWith('.')) continue
     const place = LOCK_PLACES.filter((p) => g.path === p.path || (p.rule !== 'around' && g.path.startsWith(`${p.path}/`))).sort((a, b) => b.path.length - a.path.length)[0] ?? LOCK_HIDDEN
-    if (place.rule === 'open') return no(g, 'every agent has it open already')
+    if (place.rule === 'open') return no(g, 'every agent has access to it already')
     if (place.rule !== 'risky') return no(g, `it holds ${place.what}. ${place.means}`.replace(/\.$/, ''))
     if (!g.risky) return no(g, `it holds ${place.what}. ${place.means} Allow it in the browser first`.replace(/\.$/, ''))
   }

@@ -53,16 +53,16 @@ interface Browser {
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
 
 /** The words beside a row's name: why it is open, or what it holds. */
-function whyOf(r: Row, made: boolean): string {
+function whyOf(r: Row, agent: string, made: boolean): string {
   switch (r.is) {
     case 'project':
-      return made ? "This app's project, made when the app starts. Always open" : "This app's project. Always open"
+      return `This app's project${made ? ', made when the app starts' : ''}. ${agent} can always read and change it`
     case 'fixed':
-      return `${r.place.what}. Always open`
+      return `${r.place.what}. ${agent} always has access`
     case 'shut':
       return r.place.rule === 'around' ? (r.place.means ?? '') : [`Holds ${r.place.what}.`, r.place.means].filter(Boolean).join(' ')
     case 'added':
-      return r.place ? `Holds ${r.place.what}. You allowed this` : ''
+      return r.place ? `Holds ${r.place.what}. You gave ${agent} access` : ''
     case 'included':
       return `Included with ~/${r.from}`
     case 'free':
@@ -80,7 +80,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
   // Nothing in a place no agent opens can be ticked, so it does not open; a folder around one does.
   const opens = folder && !(r.is === 'shut' && r.place.rule === 'closed')
   const open = opens && b.isOpen(path)
-  const why = whyOf(r, made)
+  const why = whyOf(r, b.agent, made)
   const ask = b.asking === path && r.is === 'free' ? r.place : undefined
   const look = mode ? ` lit ${r.is !== 'project' && r.is !== 'fixed' && r.place ? 'risky' : mode}` : ''
   const Icon = folder ? Folder : File
@@ -98,7 +98,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
       >
         <div className="fb-line">
           {opens ? (
-            <button type="button" className="fb-twist" tabIndex={-1} aria-label={`${open ? 'Close' : 'Open'} ${entry.name}`} onClick={() => b.toggle(path)}>
+            <button type="button" className="fb-twist" tabIndex={-1} aria-label={`${open ? 'Collapse' : 'Expand'} ${entry.name}`} onClick={() => b.toggle(path)}>
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           ) : (
@@ -113,7 +113,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
               tabIndex={-1}
               checked={!!mode}
               aria-disabled={r.is === 'added' || r.is === 'free' ? undefined : true}
-              aria-label={`Let ${b.agent} open ~/${path}`}
+              aria-label={`Let ${b.agent} access ~/${path}`}
               onChange={() => b.tick(path)}
             />
           )}
@@ -150,7 +150,7 @@ function EntryRow({ b, dir, entry, level, first, made }: { b: Browser; dir: stri
             </ul>
             <div className="fb-ask-actions">
               <Button size="sm" onClick={() => b.answer(false)}>
-                Keep it closed
+                Keep no access
               </Button>
               <Button size="sm" variant="danger" onClick={() => b.answer(true)}>
                 Let {b.agent} read {ask.what}
@@ -189,7 +189,7 @@ function FolderRows({ b, dir, level, absent = false }: { b: Browser; dir: string
     const gone = q.error instanceof ApiError && q.error.status === 404 && step !== undefined
     if (q.isError && !gone) return note(problemText(q.error), true)
     if (q.isPending) return note('Loading')
-    if (q.data?.kind === 'opening') return note(q.data.reason.title ?? 'Your home folder is opening')
+    if (q.data?.kind === 'opening') return note(q.data.reason.title ?? 'Your home folder is getting ready')
     if (q.data?.kind === 'listed') entries = q.data.folder.entries
   }
   const missing = step !== undefined && !entries.some((e) => e.name === step)
@@ -251,12 +251,12 @@ function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string;
     ...(view.places ?? []).filter((p) => p.rule === 'risky' && p.path.includes('/') && here.includes(p.path.split('/')[0])).map((p) => p.path),
   ].filter((p) => openTo(rowOf(view, grants, p)) === undefined)
   const cannot = [
-    wholly.length > 0 && <Fragment key="wholly">Open {listed(wholly.map(home))} at all</Fragment>,
-    partly.length > 0 && <Fragment key="partly">Open anything in {listed(partly.map(home), ' or ')} except what is ticked there</Fragment>,
+    wholly.length > 0 && <Fragment key="wholly">Read or change anything in {listed(wholly.map(home))}</Fragment>,
+    partly.length > 0 && <Fragment key="partly">Read or change anything in {listed(partly.map(home), ' or ')} except what is ticked there</Fragment>,
     <Fragment key="change">Change or delete any file outside the folders it may change</Fragment>,
     risky.length > 0 && (
       <Fragment key="risky">
-        Open {listed(risky.map((p) => [home(p), ` (${placeOf(view, p)?.what})`]))}. You have not allowed {risky.length > 1 ? 'them' : 'it'}
+        Read {listed(risky.map((p) => [home(p), ` (${placeOf(view, p)?.what})`]))}. You have not given it access
       </Fragment>
     ),
   ].filter((line) => !!line)
@@ -290,7 +290,7 @@ function CanCannot({ kind, agent, view, grants }: { kind: string; agent: string;
           </ul>
         </div>
       </div>
-      <p className="tight muted small">Read means open a file and look at it. Change means edit it, add new files, or delete it.</p>
+      <p className="tight muted small">Read means look at what is in a file. Change means edit it, add new files, or delete it.</p>
     </div>
   )
 }
@@ -342,13 +342,13 @@ export function FolderBrowser({ kind, agent, view, grants, onChange }: {
       else if (r.is === 'free' && r.place) setAsking(path)
       else if (r.is === 'free') onChange(withGrant(grants, path, false))
       else if (r.is === 'project') say(`This is the app's project. ${agent} always reads and changes it.`)
-      else if (r.is === 'fixed') say(`This is always open to ${agent}. It cannot be closed here.`)
+      else if (r.is === 'fixed') say(`${agent} always has access to this. It cannot be taken away here.`)
       else if (r.is === 'included' && r.from === project) say(`This is inside the app's project, which ${agent} always reads and changes.`)
       else if (r.is === 'included') {
         const from = <code>~/{r.from}</code>
         say(
           <>
-            This is inside {from}, which is ticked, so it is open too. To leave it out, untick {from} and tick only the folders you want.
+            This is inside {from}, which is ticked, so {agent} has access to it too. To leave it out, untick {from} and tick only the folders you want.
           </>,
         )
       }
@@ -401,9 +401,9 @@ export function FolderBrowser({ kind, agent, view, grants, onChange }: {
   return (
     <div className="fb">
       <h3 className="fb-q">
-        What can <AgentName kind={kind} agent={agent} /> open?
+        Which files and folders can <AgentName kind={kind} agent={agent} /> access?
       </h3>
-      <p className="tight muted small">Tick what it may open. Lit rows are open to it. Dimmed rows are closed.</p>
+      <p className="tight muted small">Tick what {agent} may access. Highlighted rows: it has access. Dimmed rows: it has no access.</p>
       <div className="fb-box">
         <div className="fb-head">
           <ul className="fb-legend" aria-label="What the colours mean">
@@ -417,7 +417,7 @@ export function FolderBrowser({ kind, agent, view, grants, onChange }: {
             </li>
             <li>
               <span className="fb-key none" />
-              Closed to {agent}
+              No access
             </li>
           </ul>
           <Switch

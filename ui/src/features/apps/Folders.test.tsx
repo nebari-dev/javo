@@ -65,19 +65,19 @@ const tree = () => screen.findByRole('tree', { name: 'Your home' })
 const row = async (name: string) => within(await tree()).findByRole('treeitem', { name })
 const tick = (r: HTMLElement) => within(r).getByRole('checkbox') as HTMLInputElement
 const showHidden = async () => userEvent.click(await screen.findByRole('switch', { name: 'Show hidden files and folders' }))
-const card = async () => (await screen.findByRole('heading', { name: /^What can .* open\?$/ })).closest('.card') as HTMLElement
+const card = async () => (await screen.findByRole('heading', { name: /^Which files and folders can .* access\?$/ })).closest('.card') as HTMLElement
 const sent = (api: ReturnType<typeof mockApi>) => api.calls.find((c) => c.method === 'PUT')?.body
-const open = async (name: string) => userEvent.click(within(await row(name)).getByRole('button', { name: `Open ${name}` }))
+const open = async (name: string) => userEvent.click(within(await row(name)).getByRole('button', { name: `Expand ${name}` }))
 
 describe('What a locked coding agent can open', () => {
   it('shows the home as a tree, with the project and what was added ticked and everything else not', async () => {
     page(folders([{ path: 'data/sales-2026', mode: 'read' }]))
     renderApp('/apps/cc')
-    expect(await screen.findByRole('heading', { name: 'What can Claude Code open?' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Which files and folders can Claude Code access?' })).toBeTruthy()
 
     // The folders around the project and around what was added are open already.
     const project = await row('sales-dashboard')
-    expect(project.textContent).toContain("This app's project. Always open")
+    expect(project.textContent).toContain("This app's project. Claude Code can always read and change it")
     expect(project.textContent).toContain('Read and change')
     expect(tick(project).checked).toBe(true)
     expect(tick(project).getAttribute('aria-disabled')).toBe('true')
@@ -100,7 +100,7 @@ describe('What a locked coding agent can open', () => {
     page(undefined)
     renderApp('/apps/cc')
     await screen.findByRole('heading', { name: 'Sales agent' })
-    expect(screen.queryByRole('heading', { name: /can .* open/ })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /can .* access/ })).toBeNull()
     expect(screen.queryByRole('tree')).toBeNull()
   })
 
@@ -151,7 +151,7 @@ describe('What a locked coding agent can open', () => {
 
     await userEvent.click(tick(q1))
     expect(within(await row('q1.csv')).getByRole('status').textContent).toBe(
-      'This is inside ~/data/sales-2026, which is ticked, so it is open too. To leave it out, untick ~/data/sales-2026 and tick only the folders you want.',
+      'This is inside ~/data/sales-2026, which is ticked, so Claude Code has access to it too. To leave it out, untick ~/data/sales-2026 and tick only the folders you want.',
     )
     expect(tick(await row('q1.csv')).checked).toBe(true)
 
@@ -186,11 +186,11 @@ describe('What a locked coding agent can open', () => {
 
     // Open: every agent has it, to the mode the API names, and it is not the person's to change.
     const own = await row('.claude')
-    expect(own.textContent).toContain("Claude Code's own settings. Always open")
+    expect(own.textContent).toContain("Claude Code's own settings. Claude Code always has access")
     expect(own.textContent).toContain('Read and change')
     expect(tick(own).checked).toBe(true)
     expect(tick(own).getAttribute('aria-disabled')).toBe('true')
-    expect((await row('.gitconfig')).textContent).toMatch(/Git's settings\. Always open.*Read only/)
+    expect((await row('.gitconfig')).textContent).toMatch(/Git's settings\. Claude Code always has access.*Read only/)
 
     // Closed: no tick box, nothing to open.
     const closed = await row('.javo')
@@ -223,7 +223,7 @@ describe('What a locked coding agent can open', () => {
     ])
     expect(tick(await row('.ssh')).checked).toBe(false)
 
-    await userEvent.click(within(ask).getByRole('button', { name: 'Keep it closed' }))
+    await userEvent.click(within(ask).getByRole('button', { name: 'Keep no access' }))
     expect(within(await row('.ssh')).queryByRole('group')).toBeNull()
     expect(tick(await row('.ssh')).checked).toBe(false)
     expect(within(await card()).queryByRole('button', { name: 'Save' })).toBeNull()
@@ -231,7 +231,7 @@ describe('What a locked coding agent can open', () => {
     await userEvent.click(tick(await row('.ssh')))
     await userEvent.click(within(await row('.ssh')).getByRole('button', { name: 'Let Claude Code read your SSH keys' }))
     const allowed = await row('.ssh')
-    expect(allowed.textContent).toContain('Holds your SSH keys. You allowed this')
+    expect(allowed.textContent).toContain('Holds your SSH keys. You gave Claude Code access')
     expect(allowed.textContent).not.toContain('Risky')
     expect(tick(allowed).checked).toBe(true)
     expect(within(allowed).getByRole('radio', { name: 'Read only' }).getAttribute('aria-checked')).toBe('true')
