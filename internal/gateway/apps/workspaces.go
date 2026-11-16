@@ -235,6 +235,7 @@ type createInput struct {
 		LaunchBody
 
 		Environment *environments.EnvironmentPick `json:"environment,omitempty" doc:"Run the app in this pixi environment from GET /api/environments; its newest version is copied in now"`
+		Folders     []model.FolderGrant           `json:"folders,omitempty" maxItems:"16" doc:"For a coding agent that starts locked to its project: what else of your home it can open, as in PUT /api/workspaces/{name}/folders. Browser session only: a request with an API token that names any is refused"`
 	}
 }
 
@@ -456,7 +457,12 @@ func (s *Workspaces) Templates(ctx context.Context) (map[string]*model.Template,
 func (s *Workspaces) create(ctx context.Context, in *createInput) (*workspaceOutput, error) {
 	b := in.Body
 	u := authn.User(ctx)
-	app := appRequest{displayName: b.DisplayName, template: b.Template, file: b.File, size: b.Size, resources: b.Resources, team: b.Team, apiAccess: b.APIAccess, idleStop: b.IdleStopMinutes, launch: b.launch(), source: b.Source.model(), env: b.Env, environment: b.Environment}
+	app := appRequest{displayName: b.DisplayName, template: b.Template, file: b.File, size: b.Size, resources: b.Resources, team: b.Team, apiAccess: b.APIAccess, idleStop: b.IdleStopMinutes, launch: b.launch(), source: b.Source.model(), env: b.Env, environment: b.Environment, folders: b.Folders}
+	if len(b.Folders) > 0 {
+		if err := foldersOwnerOnly(ctx, u.ID); err != nil {
+			return nil, err
+		}
+	}
 	previews, secrets, err := s.repoExtras(ctx, b.Source)
 	if err != nil {
 		return nil, err
@@ -572,6 +578,9 @@ type appRequest struct {
 	environment *environments.EnvironmentPick
 	// agentPrompt is the first prompt of a coding-agent app; "" for none.
 	agentPrompt string
+	// folders are what a locked coding agent is to open besides its
+	// project, not yet checked; create has made sure its owner asks.
+	folders []model.FolderGrant
 	launch
 }
 
@@ -696,6 +705,11 @@ func (s *Workspaces) check(ctx context.Context, u authz.Principal, b appRequest)
 		APIAccess: b.apiAccess, IdleStopMinutes: idle, Source: b.source, AgentPrompt: b.agentPrompt,
 	}
 	app.Size, app.Resources = sz.Stored()
+	if len(b.folders) > 0 {
+		if app.Folders, err = s.lockFolders(app, t, b.folders); err != nil {
+			return nil, err
+		}
+	}
 	return app, nil
 }
 
@@ -958,6 +972,7 @@ func (s *Workspaces) Register(api huma.API) {
 	s.registerAgent(api)
 	s.registerTrust(api)
 	s.registerFolders(api)
+	s.registerNewFolders(api)
 	s.registerDiagnosis(api)
 	pa := &plansAPI{ws: s, plans: c.Plans}
 	pa.register(api)

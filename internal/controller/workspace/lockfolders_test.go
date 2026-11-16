@@ -18,6 +18,7 @@ func TestLockFolders(t *testing.T) {
 	app := &model.App{Name: "api", Owner: "alice", File: "projects/api"}
 	read := func(p string) model.FolderGrant { return model.FolderGrant{Path: p, Mode: model.FolderRead} }
 	write := func(p string) model.FolderGrant { return model.FolderGrant{Path: p, Mode: model.FolderWrite} }
+	risky := func(g model.FolderGrant) model.FolderGrant { g.Risky = true; return g }
 	long := strings.Repeat("a", maxLockFolderPath+1)
 	many := func(n int) (out []model.FolderGrant) {
 		for i := range n {
@@ -46,6 +47,8 @@ func TestLockFolders(t *testing.T) {
 			want: []model.FolderGrant{read("projects/web/.github"), write("data/.cache")}},
 		{name: "the rest is kept", asked: []model.FolderGrant{read("data"), read(".ssh"), write("notes.md")},
 			want: []model.FolderGrant{read("data"), write("notes.md")}, refused: "SSH keys"},
+		{name: "a hidden place its owner allowed", asked: []model.FolderGrant{read("data"), risky(read(".ssh")), risky(write(".config/gh/hosts.yml"))},
+			want: []model.FolderGrant{read("data"), risky(read(".ssh")), risky(write(".config/gh/hosts.yml"))}},
 
 		{name: "no path", asked: []model.FolderGrant{read("")}, refused: "inside your home"},
 		{name: "the home", asked: []model.FolderGrant{read(".")}, refused: "inside your home"},
@@ -70,9 +73,9 @@ func TestLockFolders(t *testing.T) {
 
 		{name: "the SSH keys", asked: []model.FolderGrant{read(".ssh")}, refused: "SSH keys"},
 		{name: "one of the SSH keys", asked: []model.FolderGrant{read(".ssh/a-private-key")}, refused: "SSH keys"},
-		{name: "a folder that holds a listed one", asked: []model.FolderGrant{read(".config")}, refused: "hidden files and folders"},
-		{name: "the agents' own state", asked: []model.FolderGrant{write(".claude/projects")}, refused: "already open"},
-		{name: "all of the platform's folder", asked: []model.FolderGrant{read(".javo/envs")}, refused: "~/.javo"},
+		{name: "the folder around the sign-in to the platform", asked: []model.FolderGrant{risky(read(".config"))}, refused: "tick it there, not the whole folder"},
+		{name: "the agents' own state", asked: []model.FolderGrant{risky(write(".claude/projects"))}, refused: "already open"},
+		{name: "all of the platform's folder", asked: []model.FolderGrant{risky(read(".javo/envs"))}, refused: "no agent can open ~/.javo"},
 		{name: "a listed place says its own reason", asked: []model.FolderGrant{read(".config/gh/hosts.yml")}, refused: "GitHub sign-in"},
 
 		{name: "as many as allowed", asked: many(MaxLockFolders), want: many(MaxLockFolders)},
@@ -94,55 +97,73 @@ func TestLockFolders(t *testing.T) {
 	}
 }
 
-// Every place no agent is let into is refused, by itself, by anything in it
-// and by the folder it is in, to read as much as to change: the person's
-// keys and sign-ins, the files their shell runs at every start, the
-// platform's folder and what the agents keep, which is open already.
-func TestNoAgentIsLetIntoTheNeverFolders(t *testing.T) {
+// What the warning cannot open: the platform's own places (the sign-in to
+// it lifts the lock), by themselves, by anything in them and by a folder
+// around them, and what every agent has open already, which is not the
+// owner's to add. Each says why, to read as much as to change.
+func TestNoWarningOpensThePlatformsPlacesOrWhatIsOpenAlready(t *testing.T) {
 	t.Parallel()
 	app := &model.App{Name: "api", Owner: "alice", File: "projects/api"}
-	want := []string{".ssh", ".git-credentials", ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zshenv", ".config/gh", ".aws", ".kube",
-		".gnupg", ".netrc", ".docker", ".javo", ".config/javo", ".claude", ".claude.json", ".pi", ".harf", ".config/herdr"}
-	listed := map[string]bool{}
-	for _, n := range NeverFolders() {
-		listed[n.Path] = true
-		if n.Why == "" {
-			t.Errorf("%s: no reason to show", n.Path)
-		}
-	}
-	for _, p := range want {
-		if !listed[p] {
-			t.Errorf("%s is not on the list", p)
-		}
-		asked := []string{p, p + "/sub/file"}
-		if dir := strings.LastIndex(p, "/"); dir > 0 {
-			asked = append(asked, p[:dir])
-		}
-		for _, a := range asked {
-			for _, mode := range []string{model.FolderRead, model.FolderWrite} {
-				if got, err := LockFolders(app, []model.FolderGrant{{Path: a, Mode: mode}}); err == nil || len(got) != 0 {
-					t.Errorf("%s to %s: kept %v, err %v; want it refused", a, mode, got, err)
-				}
+	for p, why := range map[string]string{
+		".javo": "no agent can open ~/.javo", ".javo/envs/x": "no agent can open ~/.javo",
+		".config/javo": "can lift its own lock", ".config/javo/credentials.json": "can lift its own lock", ".config": "can lift its own lock",
+		".claude": "already open", ".claude.json": "already open", ".claude/projects/x": "already open", ".pi": "already open", ".harf": "already open",
+		".config/herdr": "already open", ".gitconfig": "already open", ".config/git/config": "already open",
+		".cache": "already open", ".cache/pip/wheels": "already open", ".npm": "already open",
+	} {
+		for _, mode := range []string{model.FolderRead, model.FolderWrite} {
+			got, err := LockFolders(app, []model.FolderGrant{{Path: p, Mode: mode, Risky: true}})
+			if len(got) != 0 || err == nil || !strings.Contains(err.Error(), why) {
+				t.Errorf("%s to %s: kept %v, err %v; want it refused, about %q", p, mode, got, err, why)
 			}
 		}
 	}
 }
 
-// The list of places with a reason of their own cannot name every file a
-// tool reads its sign-in from or runs at its start, so nothing hidden at
-// the top of the home can be added at all, to read (a token) or to change
-// (a command that then runs as the person, outside the lock): whatever is,
-// or is in, a name there that starts with a dot.
-func TestNothingHiddenAtTheTopOfTheHomeIsAdded(t *testing.T) {
+// The page is handed every place with words of its own, each with what it
+// holds, and the folders around a closed one with what to tick instead.
+func TestLockPlacesSayWhatTheyHold(t *testing.T) {
+	t.Parallel()
+	rules := map[string]string{}
+	for _, n := range LockPlaces() {
+		rules[n.Path] = n.Rule
+		if n.What == "" || n.Rule != PlaceOpen && n.Means == "" || (n.Rule == PlaceOpen) != (n.Mode != "") {
+			t.Errorf("%+v: want what it holds, what that means unless it is open, and a mode only when it is", n)
+		}
+	}
+	for p, want := range map[string]string{".ssh": PlaceRisky, ".aws": PlaceRisky, ".config/gh": PlaceRisky, ".bashrc": PlaceRisky,
+		".claude": PlaceOpen, ".config/herdr": PlaceOpen, ".javo": PlaceClosed, ".config/javo": PlaceClosed, ".config": PlaceAround} {
+		if rules[p] != want {
+			t.Errorf("%s is %q, want %q", p, rules[p], want)
+		}
+	}
+	if h := HiddenPlace(); h.Rule != PlaceRisky || h.What == "" || h.Means == "" {
+		t.Errorf("every other hidden name: %+v, want it risky with what it holds", h)
+	}
+}
+
+// A person may let their agent into a hidden place at the top of their
+// home (their keys, a tool's sign-in) once they were warned: the grant
+// says so itself (Risky), and is kept with that. Without it the same path
+// is refused, with what the place holds.
+func TestAHiddenPlaceIsAddedOnlyWithTheWarningAcknowledged(t *testing.T) {
 	t.Parallel()
 	app := &model.App{Name: "api", Owner: "alice", File: "projects/api"}
-	for _, p := range []string{".npmrc", ".pypirc", ".condarc", ".jupyter", ".ipython/profile_default/startup", ".local/bin", ".vscode-server",
-		".config/systemd", ".config/autostart", ".config/fish/config.fish", ".config/ghostty", ".sshfs", ".x", "./.npmrc", "/home/user/.local"} {
+	for _, p := range []string{".ssh", ".ssh/a-private-key", ".aws", ".config/gh", ".bashrc", ".npmrc", ".local/bin", ".config/ghostty"} {
 		for _, mode := range []string{model.FolderRead, model.FolderWrite} {
-			got, err := LockFolders(app, []model.FolderGrant{{Path: p, Mode: mode}})
-			if len(got) != 0 || err == nil || !strings.Contains(err.Error(), HiddenFolderWhy) {
-				t.Errorf("%s to %s: kept %v, err %v; want it refused as hidden", p, mode, got, err)
+			allowed := model.FolderGrant{Path: p, Mode: mode, Risky: true}
+			if got, err := LockFolders(app, []model.FolderGrant{allowed}); err != nil || !reflect.DeepEqual(got, []model.FolderGrant{allowed}) {
+				t.Errorf("%s to %s, acknowledged: kept %v, err %v; want it kept as asked", p, mode, got, err)
+			}
+			if got, err := LockFolders(app, []model.FolderGrant{{Path: p, Mode: mode}}); err == nil || len(got) != 0 || !strings.Contains(err.Error(), "warning") {
+				t.Errorf("%s to %s, not acknowledged: kept %v, err %v; want it refused until the warning is accepted", p, mode, got, err)
 			}
 		}
+	}
+	// The acknowledgement is about hidden places only: it is not kept on
+	// any other grant.
+	got, err := LockFolders(app, []model.FolderGrant{{Path: "data", Mode: model.FolderRead, Risky: true}})
+	if want := []model.FolderGrant{{Path: "data", Mode: model.FolderRead}}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("data: kept %v, err %v; want %v", got, err, want)
 	}
 }

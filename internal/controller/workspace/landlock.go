@@ -61,12 +61,12 @@ func (p places) ownProject(ws *model.App) string {
 // the one it opens, else one of its own. Locked to the whole home the lock
 // would keep nothing out, so a path that names the home itself ("." in an
 // app made past the gateway, which stores that as no folder) is no folder
-// either, and neither is what no agent may be let into (neverProblem,
-// the rule for the folders an owner adds): the lock folder is opened to
-// read and change. filePath keeps every other path under the home.
+// either, and neither is anything hidden at the top of the home, which an
+// owner adds only after a warning (placeProblem): the lock folder is opened
+// to read and change. filePath keeps every other path under the home.
 func (p places) lockFolder(ws *model.App) string {
 	folder := p.filePath(ws)
-	if in, inHome := strings.CutPrefix(folder, p.home+"/"); folder == "" || folder == p.home || inHome && neverProblem(in) != nil {
+	if in, inHome := strings.CutPrefix(folder, p.home+"/"); folder == "" || folder == p.home || inHome && hiddenAtTop(in) {
 		return p.ownProject(ws)
 	}
 	return folder

@@ -134,6 +134,10 @@ type FolderGrant struct {
 	// Path is relative to the home.
 	Path string `json:"path"`
 	Mode string `json:"mode" enum:"read,write"`
+	// Risky says the owner was warned what the path holds and allowed it:
+	// a hidden file or folder at the top of the home (their keys, a tool's
+	// sign-in) is opened only with it.
+	Risky bool `json:"risky,omitempty"`
 }
 
 // Sharing says who besides the owner may open the app. The zero value means

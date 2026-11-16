@@ -421,6 +421,10 @@ export type CreateInputBody = {
      */
     file?: string;
     /**
+     * For a coding agent that starts locked to its project: what else of your home it can open, as in PUT /api/workspaces/{name}/folders. Browser session only: a request with an API token that names any is refused
+     */
+    folders?: Array<FolderGrant> | null;
+    /**
      * Stop the app after this many minutes without use; 0 is Off. Absent means the template's default (defaultIdleStopMinutes in GET /api/templates).
      */
     idleStopMinutes?: number;
@@ -843,28 +847,29 @@ export type FileListing = {
 export type FolderGrant = {
     mode: 'read' | 'write';
     path: string;
+    risky?: boolean;
 };
 
 export type FoldersInputBody = {
     /**
-     * Every folder and file of your home the agent can open besides its project: the whole list, each with a path relative to the home and read or write
+     * Every folder and file of your home the agent can open besides its project: the whole list, each with a path relative to the home and read or write, and risky: true on a hidden file or folder at the top of the home, once you read what it holds
      */
     folders: Array<FolderGrant> | null;
 };
 
 export type FoldersView = {
     /**
-     * What the owner added, as paths relative to the home
+     * What the owner added, as paths relative to the home; risky on what is hidden at the top of it
      */
     grants: Array<FolderGrant> | null;
     /**
-     * Why nothing else hidden at the top of the home can be added either: any path whose first name starts with a dot
+     * How every other hidden file or folder at the top of a home is held; its path is not one but what the path of each starts with (a dot)
      */
-    hidden: string;
+    hidden: LockPlace;
     /**
-     * Places of a home no agent can be let into, each with why
+     * The hidden files and folders at the top of a home with a rule and words of their own. A path that starts as hidden.path does is held by the longest place it is or is in (a place of rule around holds only itself), else by hidden; any other path is held by none
      */
-    never: Array<NeverFolder> | null;
+    places: Array<LockPlace> | null;
     /**
      * The folder the agent works in and is locked to, always open to read and change; ~ is the home
      */
@@ -1113,6 +1118,17 @@ export type LaunchBody = {
     port?: number;
 };
 
+export type LockPlace = {
+    means?: string;
+    mode?: 'read' | 'write';
+    path: string;
+    /**
+     * risky: opened only with the owner's acknowledgement on the grant; open: always open to the agent, to mode; closed: never opened, nor anything in it; around: never opened as a whole, as it holds a closed place
+     */
+    rule: 'risky' | 'open' | 'closed' | 'around';
+    what: string;
+};
+
 export type LogLine = {
     text: string;
     time?: string;
@@ -1141,9 +1157,11 @@ export type Me = {
     username: string;
 };
 
-export type NeverFolder = {
-    path: string;
-    why: string;
+export type NewFoldersOutputBody = {
+    /**
+     * Absent when the app would not start locked in
+     */
+    folders?: FoldersView;
 };
 
 export type NewWebhookInputBody = {
@@ -2164,6 +2182,10 @@ export type CreateInputBodyWritable = {
      * Path relative to the home folder
      */
     file?: string;
+    /**
+     * For a coding agent that starts locked to its project: what else of your home it can open, as in PUT /api/workspaces/{name}/folders. Browser session only: a request with an API token that names any is refused
+     */
+    folders?: Array<FolderGrant> | null;
     /**
      * Stop the app after this many minutes without use; 0 is Off. Absent means the template's default (defaultIdleStopMinutes in GET /api/templates).
      */
@@ -5978,6 +6000,61 @@ export type RevokeTokenResponses = {
 };
 
 export type RevokeTokenResponse = RevokeTokenResponses[keyof RevokeTokenResponses];
+
+export type NewWorkspaceFoldersData = {
+    body?: never;
+    path?: never;
+    query: {
+        template: string;
+        /**
+         * The name the app would get: an agent with no folder works in a folder of its own, named after it
+         */
+        displayName: string;
+        /**
+         * The folder the app would open, relative to the home
+         */
+        file?: string;
+        /**
+         * The app would run the template's sample; file is then ignored
+         */
+        sample?: boolean;
+    };
+    url: '/api/workspace-folders';
+};
+
+export type NewWorkspaceFoldersErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ErrorModel;
+    /**
+     * Forbidden
+     */
+    403: ErrorModel;
+    /**
+     * Not Found
+     */
+    404: ErrorModel;
+    /**
+     * Unprocessable Entity
+     */
+    422: ErrorModel;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorModel;
+};
+
+export type NewWorkspaceFoldersError = NewWorkspaceFoldersErrors[keyof NewWorkspaceFoldersErrors];
+
+export type NewWorkspaceFoldersResponses = {
+    /**
+     * OK
+     */
+    200: NewFoldersOutputBody;
+};
+
+export type NewWorkspaceFoldersResponse = NewWorkspaceFoldersResponses[keyof NewWorkspaceFoldersResponses];
 
 export type ListWorkspacesData = {
     body?: never;

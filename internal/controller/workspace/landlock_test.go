@@ -307,7 +307,9 @@ func TestFlippingTheLockRestartsRunningAgentsAndNothingElse(t *testing.T) {
 // The folders a person added to their agent go to agent-lock.sh in front of
 // the command, each with how it may be opened and as a path of the home
 // the app is planned for. The stored list is checked again here: a grant
-// the API would refuse (written past it) opens nothing. With the lock off
+// the API would refuse (written past it) opens nothing, so a hidden place
+// is opened only when the grant says its owner allowed it, and the
+// platform's own never. With the lock off
 // there is nothing to add to.
 func TestLockedAgentIsToldTheFoldersItsOwnerAdded(t *testing.T) {
 	t.Parallel()
@@ -317,12 +319,14 @@ func TestLockedAgentIsToldTheFoldersItsOwnerAdded(t *testing.T) {
 		{Path: ".ssh", Mode: model.FolderRead},
 		{Path: "../bob", Mode: model.FolderWrite},
 		{Path: "notes.md", Mode: model.FolderWrite},
+		{Path: ".aws", Mode: model.FolderRead, Risky: true},
+		{Path: ".config/javo", Mode: model.FolderRead, Risky: true},
 	}}
 	unlocked := argvOf(t, ws, tpl, testImages)
 	if slices.Contains(unlocked, "--ro") || slices.Contains(unlocked, "--rw") {
 		t.Fatalf("lock off: argv = %q, want no folders", unlocked)
 	}
-	want := slices.Concat([]string{agentLock, "/home/user/projects/api", "--ro", "/home/user/data/sales-2026", "--rw", "/home/user/notes.md", "--"}, unlocked)
+	want := slices.Concat([]string{agentLock, "/home/user/projects/api", "--ro", "/home/user/data/sales-2026", "--rw", "/home/user/notes.md", "--ro", "/home/user/.aws", "--"}, unlocked)
 	if got := argvOf(t, ws, tpl, lockedImages()); !slices.Equal(got, want) {
 		t.Fatalf("argv =\n%q\nwant\n%q", got, want)
 	}
@@ -339,7 +343,7 @@ func TestLockedAgentIsToldTheFoldersItsOwnerAdded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	onHost := []string{hostFiles + "/agents/agent-lock.sh", hostHome + "/projects/demo", "--ro", hostHome + "/data/sales-2026", "--rw", hostHome + "/notes.md", "--"}
+	onHost := []string{hostFiles + "/agents/agent-lock.sh", hostHome + "/projects/demo", "--ro", hostHome + "/data/sales-2026", "--rw", hostHome + "/notes.md", "--ro", hostHome + "/.aws", "--"}
 	if len(s.Main.Command) < len(onHost) || !slices.Equal(s.Main.Command[:len(onHost)], onHost) {
 		t.Fatalf("on a host: command = %q, want it to start with %q", s.Main.Command, onHost)
 	}
