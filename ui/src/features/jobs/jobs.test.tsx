@@ -380,8 +380,8 @@ const cronField = () => screen.getByLabelText('Cron') as HTMLInputElement
 describe('New job', () => {
   async function chooseNotebook() {
     await userEvent.click(await screen.findByRole('button', { name: /Choose a file from your home folder/ }))
-    await userEvent.click(await screen.findByRole('button', { name: /reports/ }))
-    await userEvent.click(await screen.findByRole('button', { name: /sales.ipynb/ }))
+    await userEvent.click(await screen.findByRole('treeitem', { name: /reports/ }))
+    await userEvent.click(await screen.findByRole('treeitem', { name: /sales.ipynb/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Choose' }))
   }
 
@@ -705,8 +705,8 @@ describe('New command job', () => {
 describe('Run once', () => {
   async function fillRunOnce() {
     await userEvent.click(await screen.findByRole('button', { name: /Choose a file from your home folder/ }))
-    await userEvent.click(await screen.findByRole('button', { name: /reports/ }))
-    await userEvent.click(await screen.findByRole('button', { name: /sales.ipynb/ }))
+    await userEvent.click(await screen.findByRole('treeitem', { name: /reports/ }))
+    await userEvent.click(await screen.findByRole('treeitem', { name: /sales.ipynb/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Choose' }))
     await userEvent.clear(await screen.findByLabelText('Name'))
     await userEvent.type(screen.getByLabelText('Name'), 'Weekly report')

@@ -689,6 +689,7 @@ export function AppDetail() {
             </Card>
           )}
           {!stopped && !migrating && <LogsCard name={ws.name} run={ws.run} />}
+          {!managed && <FoldersCard ws={ws} />}
         </div>
         <div className="stack">
           <SourceCard ws={ws} />
@@ -725,7 +726,6 @@ export function AppDetail() {
             </dl>
             <ScratchFolders />
           </Card>
-          {!managed && <FoldersCard ws={ws} />}
           {!managed && <TrustCard ws={ws} />}
           {ws.run && <WhatRuns run={ws.run} />}
           {ws.source?.previewsAvailable && !managed && <PreviewsCard ws={ws} />}

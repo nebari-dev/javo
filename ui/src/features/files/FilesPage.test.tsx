@@ -26,19 +26,31 @@ describe('the file browser', () => {
             ]),
     })
     renderApp('/files')
-    expect(await screen.findByRole('link', { name: /README\.md/ })).toBeTruthy()
-    expect(screen.queryByRole('link', { name: /\.bashrc/ })).toBeNull()
-    await userEvent.click(screen.getByRole('link', { name: /notes/ }))
+    expect(await screen.findByRole('treeitem', { name: 'README.md' })).toBeTruthy()
+    expect(screen.queryByRole('treeitem', { name: '.bashrc' })).toBeNull()
+    // A folder opens in place, and the address names it.
+    await userEvent.click(screen.getByRole('treeitem', { name: 'notes' }))
     expect(location()).toBe('/files?path=notes')
-    await userEvent.click(await screen.findByRole('link', { name: /a\.py/ }))
+    await userEvent.click(await screen.findByRole('treeitem', { name: 'a.py' }))
     // The file view loads on first visit; the route changes once it has.
     await waitFor(() => expect(location()).toBe('/files/view?path=notes%2Fa.py'))
+  })
+
+  it('opens at the folder the address names', async () => {
+    mockApi({
+      'GET /api/me': ME,
+      'GET /api/files': (c) =>
+        c.path.includes('path=notes') ? listing('notes', [{ name: 'a.py', kind: 'file', size: 2048 }]) : listing('', [{ name: 'notes', kind: 'folder' }]),
+    })
+    renderApp('/files?path=notes')
+    expect(await screen.findByRole('treeitem', { name: 'a.py' })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: 'notes' }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('creates an empty file and opens it', async () => {
     const api = mockApi({
       'GET /api/me': ME,
-      'GET /api/files': listing('notes', []),
+      'GET /api/files': (c) => (c.path.includes('path=notes') ? listing('notes', []) : listing('', [{ name: 'notes', kind: 'folder' }])),
       'PUT /api/files/raw': { status: 201, body: { path: 'notes/new.md', size: 0, modified: '2026-11-03T12:00:00Z', etag: '"0-1"' } },
       'GET /api/files/raw': { body: '', headers: { ETag: '"0-1"', 'Content-Length': '0' } },
     })

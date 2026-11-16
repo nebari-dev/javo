@@ -1,13 +1,11 @@
-import { ChevronRight, File, FilePlus, Folder } from 'lucide-react'
+import { FilePlus } from 'lucide-react'
 import { Fragment, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { Banner } from '../../components/Banner'
 import { Button } from '../../components/Button'
-import { EmptyState } from '../../components/EmptyState'
-import { Switch } from '../../components/Switch'
-import { formatSize } from '../../lib/files'
+import { fileViewUrl } from '../../lib/files'
 import { problemText } from '../../lib/http'
-import { useHomeFolder, useWarmHome } from '../../lib/queries'
+import { useWarmHome } from '../../lib/queries'
+import { HomeTree, TreeTools, useShowHidden } from './HomeTree'
 import { saveHomeFile } from './fileApi'
 import { folderCrumbs } from './FileView'
 
@@ -47,46 +45,19 @@ function NewFile({ dir, onDone }: { dir: string; onDone: () => void }) {
   )
 }
 
-/** The home folder, one folder at a time: folders open here, files in the file view. */
+/**
+ * The home folder as a tree: folders open in place, files in the file view.
+ * The folder last opened is where a new file goes, and the address names it.
+ */
 export function FilesPage() {
   useWarmHome()
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const dir = params.get('path') ?? ''
-  const folder = useHomeFolder(dir, true)
-  const [showHidden, setShowHidden] = useState(false)
+  const [query, setQuery] = useState('')
+  const [showHidden, setShowHidden] = useShowHidden()
   const [creating, setCreating] = useState(false)
-  const read = folder.data
-  const listed = read?.kind === 'listed' ? read.folder : undefined
-  const entries = (listed?.entries ?? []).filter((e) => showHidden || !e.name.startsWith('.'))
   const crumbs = folderCrumbs(dir)
-
-  let body
-  if (folder.error) {
-    body = <Banner tone="err" title={problemText(folder.error)} actions={<Button size="sm" onClick={() => void folder.refetch()}>Retry</Button>} />
-  } else if (!listed) {
-    body = <p className="muted">{read?.kind === 'opening' ? read.reason.title : 'Opening this folder'}</p>
-  } else if (entries.length === 0) {
-    body = <EmptyState title="This folder is empty" body="Make a file here with New file, or save one from an app." />
-  } else {
-    body = (
-      <div className="fb-list">
-        {entries.map((e) => {
-          const path = join(dir, e.name)
-          const isDir = e.kind === 'folder'
-          const to = isDir ? `/files?path=${encodeURIComponent(path)}` : `/files/view?path=${encodeURIComponent(path)}`
-          return (
-            <Link key={e.name} to={to} className="pk-row">
-              <span className="fi">{isDir ? <Folder size={18} aria-hidden="true" /> : <File size={18} aria-hidden="true" />}</span>
-              <span className={`nm${isDir ? ' dir' : ''}`}>{e.name}</span>
-              <span className="md">{new Date(e.modified).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-              <span className="sz">{isDir ? <ChevronRight size={14} aria-hidden="true" /> : formatSize(e.size)}</span>
-            </Link>
-          )
-        })}
-        {listed.truncated && <div className="pk-note faint">Showing the first {listed.entries.length} items</div>}
-      </div>
-    )
-  }
 
   return (
     <>
@@ -108,10 +79,30 @@ export function FilesPage() {
             </Fragment>
           ))}
         </nav>
-        <Switch label="Show hidden files" checked={showHidden} onChange={setShowHidden} />
+        <span className="fb-tools">
+          <TreeTools query={query} onQuery={setQuery} showHidden={showHidden} onShowHidden={setShowHidden} />
+        </span>
       </div>
       {creating && <NewFile dir={dir} onDone={() => setCreating(false)} />}
-      {body}
+      <div className="fb-list">
+        <HomeTree
+          label="Your home"
+          query={query}
+          showHidden={showHidden}
+          meta
+          openAt={dir ? [`${dir}/`] : []}
+          reveal={dir || undefined}
+          look={(e) => ({ selected: e.path === dir ? true : undefined, className: e.path === dir ? 'sel' : undefined })}
+          onActivate={(e, toggle) => {
+            if (e.kind === 'file') {
+              navigate(fileViewUrl(e.path))
+              return
+            }
+            toggle()
+            navigate(`/files?path=${encodeURIComponent(e.path)}`, { replace: true })
+          }}
+        />
+      </div>
     </>
   )
 }

@@ -39,6 +39,7 @@ import {
   setWorkspaceApiAccess,
   setWorkspaceIdleStop,
   setWorkspaceTrust,
+  newWorkspaceFolders,
   setWorkspaceFolders,
   setWorkspaceThumbnail,
   removeWorkspaceThumbnail,
@@ -53,6 +54,7 @@ import {
   stopWorkspace,
   type EnvVar,
   type FolderGrant,
+  type FoldersView,
   type StepLogRecord,
   type CreateInputBody,
   type SecretCreateInputBody,
@@ -390,6 +392,25 @@ export function useSetTrust(name: string) {
       void qc.invalidateQueries({ queryKey: keys.workspaces, exact: true })
     },
   })
+}
+
+/**
+ * What an app not created yet would be locked to (project, no grants), or
+ * undefined when it would not start locked in. While the answer for a new
+ * name or folder is on its way, or the name is one no app can have, the last
+ * answer for the same template stands.
+ */
+export function useNewFolders(app: { template: string; displayName: string; file?: string; sample?: boolean } | undefined): FoldersView | undefined {
+  const last = useRef<{ template: string; view: FoldersView | undefined } | null>(null)
+  const q = useQuery({
+    queryKey: ['workspace-folders', app],
+    enabled: !!app,
+    retry: false,
+    queryFn: async () => (await newWorkspaceFolders({ query: app!, throwOnError: true })).data,
+  })
+  if (!app) return undefined
+  if (q.data) last.current = { template: app.template, view: q.data.folders }
+  return last.current?.template === app.template ? last.current.view : undefined
 }
 
 /** Set every folder and file a locked coding agent can open besides its project; a running agent restarts. */

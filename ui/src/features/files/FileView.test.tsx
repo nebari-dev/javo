@@ -189,7 +189,7 @@ describe('the file view', () => {
       'GET /api/files': { body: { path: 'agents/data', entries: [{ name: 'rows.csv', kind: 'file', size: 3, modified: '2026-10-30T10:00:00Z' }], count: 1, truncated: false, stale: false, ageSeconds: 0 } },
     })
     renderApp('/files/view?path=agents/data')
-    expect(await screen.findByRole('link', { name: /rows\.csv/ })).toBeTruthy()
+    expect(await screen.findAllByRole('treeitem', { name: 'rows.csv' })).toBeTruthy()
     expect(location()).toBe('/files?path=agents%2Fdata')
   })
 })
