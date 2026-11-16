@@ -54,6 +54,11 @@ function base(extra: Parameters<typeof mockApi>[0] = {}) {
 }
 
 const heading = () => screen.findByRole('heading', { name: 'Which files and folders can Claude Code access?' })
+/** Access starts folded to one row; Change opens the file browser. */
+async function openAccess() {
+  await userEvent.click(await screen.findByRole('button', { name: /^Access: .*, change$/ }))
+  return heading()
+}
 const row = async (name: string) => within(await screen.findByRole('tree', { name: 'Your home' })).findByRole('treeitem', { name })
 const tick = (r: HTMLElement) => within(r).getByRole('checkbox') as HTMLInputElement
 const posted = (api: ReturnType<typeof mockApi>) => api.calls.find((c) => c.method === 'POST' && c.path === '/api/workspaces')?.body as Record<string, unknown>
@@ -65,10 +70,20 @@ async function rename(to: string) {
 }
 
 describe('New app, what a locked agent can access', () => {
+  it('starts folded to one row naming the project, and Change opens the file browser', async () => {
+    base()
+    renderApp('/apps/new?template=claude-code')
+    await screen.findByRole('button', { name: 'Access: ~/projects/claude-code-app only, change' })
+    expect(screen.queryByRole('tree')).toBeNull()
+    await openAccess()
+    await userEvent.click(tick(await row('data')))
+    expect(screen.queryByRole('button', { name: /^Access: / })).toBeNull()
+  })
+
   it('follows the name of the app, and sends what was ticked with the new app', async () => {
     const api = base()
     renderApp('/apps/new?template=claude-code')
-    await heading()
+    await openAccess()
     // An agent with no folder gets one named after it, listed where it will be.
     const own = await row('claude-code-app')
     expect(own.textContent).toContain("This app's project, made when the app starts. Claude Code can always read and change it")
@@ -87,7 +102,7 @@ describe('New app, what a locked agent can access', () => {
   it('sends no folders when nothing was ticked', async () => {
     const api = base()
     renderApp('/apps/new?template=claude-code')
-    await heading()
+    await screen.findByRole('button', { name: /^Access: / })
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     await waitFor(() => expect(posted(api)).toBeTruthy())
     expect('folders' in posted(api)).toBe(false)
@@ -99,12 +114,14 @@ describe('New app, what a locked agent can access', () => {
     await waitFor(() => expect(api.count('GET', '/api/workspace-folders')).toBeGreaterThan(0))
     await screen.findByRole('button', { name: 'Create app' })
     expect(screen.queryByRole('heading', { name: /can .* access\?/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Access: / })).toBeNull()
     expect(screen.queryByRole('tree')).toBeNull()
   })
 
   it('stays as it was, without an error, while the name is one no app can have', async () => {
     const api = base()
     renderApp('/apps/new?template=claude-code')
+    await openAccess()
     await row('claude-code-app')
     await rename('123')
     await waitFor(() => expect(api.calls.some((c) => c.path.includes('displayName=123'))).toBe(true))
@@ -120,6 +137,7 @@ describe('New app, what a locked agent can access', () => {
       },
     })
     renderApp('/apps/new?template=claude-code')
+    await openAccess()
     await userEvent.click(tick(await row('data')))
     await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
     const card = (await heading()).closest('.card') as HTMLElement

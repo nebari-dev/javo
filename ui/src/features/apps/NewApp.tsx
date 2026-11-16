@@ -394,8 +394,9 @@ export function NewApp() {
   const changeOpensPicker = wantsFile || !takesCommand
   // What the app would be locked to, for one the API says starts locked in. An
   // app from a repository is not asked about: the API takes no repository here.
+  // An empty name is asked about too, so it keeps the last answer like any name the API refuses.
   const lockView = useNewFolders(
-    tpl && !repoMode && name.trim() ? { template: tpl.name, displayName: name.trim(), ...(sample ? { sample: true } : file ? { file } : {}) } : undefined,
+    tpl && !repoMode ? { template: tpl.name, displayName: name.trim(), ...(sample ? { sample: true } : file ? { file } : {}) } : undefined,
   )
   const grants = lockView ? outsideProject(lockView, folders) : []
   const launch: Launch = { command: typedCommand ?? sample?.command ?? '', image, port: typedPort ?? String(tpl?.port ?? '') }
@@ -752,6 +753,14 @@ export function NewApp() {
           )}
           {tpl && lockView && (
             <Section part="access" title="Access">
+            <Folded
+              key={tpl.name}
+              foldable
+              attention={!!errs.fields.folders}
+              icon={<KindLogo kind="home" />}
+              title="Access"
+              value={grants.length ? `${lockView.project} and ${grants.length} more` : `${lockView.project} only`}
+            >
               <Card className="pad">
                 <FolderBrowser agent={AGENTS[tpl.kind] ?? tpl.displayName} view={lockView} grants={grants} onChange={setFolders} />
                 {errs.fields.folders && (
@@ -760,6 +769,7 @@ export function NewApp() {
                   </p>
                 )}
               </Card>
+            </Folded>
             </Section>
           )}
           {tpl && offersPreviews && previewOptions && (
