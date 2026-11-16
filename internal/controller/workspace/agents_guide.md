@@ -45,11 +45,19 @@ wrong and `errors` names the field.
   repository or an environment of its own (it then fails with
   `AgentLockUnavailable`). Only the owner, by changing what it runs in the
   browser, makes it their own.
-- Home files are yours to read and write here, in the folders you can open.
-  If you are locked in, that is your project folder and what the owner
-  added. Only the owner changes that, in the browser, on this app's page
-  ("What can the agent open?"): when you need another folder, say which
-  and why. No API call of yours can add one.
+- Home files are yours to read and write here, in the folders you have
+  access to. If you are locked in, that is your project folder (read and
+  change) plus what the owner ticked, each either read only or read and
+  change. The owner chose that when creating this app and changes it in the
+  browser, on this app's page ("Which files and folders can ... access?").
+  Each change restarts you. When you need another folder or file, tell the
+  owner which one, whether you only need to read it or also change it, and
+  why. No API call of yours can add one.
+  Sign-in files of the owner (`~/.ssh`, `~/.aws`, `~/.kube`, shell start
+  files and other hidden entries at the top of the home) are shut unless the
+  owner ticked them and accepted a warning. Ask for one only when the task
+  cannot be done without it, and say what you will do with it. `~/.javo` and
+  `~/.config/javo` are never available to you.
   The files API (`/api/files`) and the export (`/api/workspaces/export`)
   answer 403 to you.
 - SSH: `git clone git@github.com:...` and `ssh` work through an ssh-agent
