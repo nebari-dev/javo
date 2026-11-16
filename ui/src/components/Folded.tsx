@@ -6,8 +6,12 @@ interface ChosenRowProps {
   title: ReactNode
   /** The muted line under the title, if any. */
   line?: string
-  /** The button's accessible name; ", change" is added. */
+  /** The button's accessible name; ", change" (or the verb's) is added. */
   label: string
+  /** What pressing it does: "Change" by default, "Done" on top of an open card. */
+  verb?: string
+  /** Set on a row that folds and unfolds a card under it. */
+  expanded?: boolean
   buttonRef?: Ref<HTMLButtonElement>
   /** Fades the row in; set once the person folds or unfolds something, never on the first paint. */
   animate?: boolean
@@ -16,13 +20,14 @@ interface ChosenRowProps {
 }
 
 /** A choice already made, as one row; pressing it opens the full choice again. */
-export function ChosenRow({ icon, title, line, label, buttonRef, animate, describedBy, onChange }: ChosenRowProps) {
+export function ChosenRow({ icon, title, line, label, verb = 'Change', expanded, buttonRef, animate, describedBy, onChange }: ChosenRowProps) {
   return (
     <button
       ref={buttonRef}
       type="button"
       className={`card choice tpl chosen${animate ? ' tpl-in' : ''}`}
-      aria-label={`${label}, change`}
+      aria-label={`${label}, ${verb.toLowerCase()}`}
+      aria-expanded={expanded}
       aria-describedby={describedBy}
       onClick={onChange}
     >
@@ -32,7 +37,7 @@ export function ChosenRow({ icon, title, line, label, buttonRef, animate, descri
         {line && <span className="muted small block one-line">{line}</span>}
       </span>
       <span className="btn sm" aria-hidden="true">
-        Change
+        {verb}
       </span>
     </button>
   )
@@ -58,24 +63,27 @@ interface FoldedProps {
 
 /**
  * A card that holds a sensible default shows as one row ("Size: Small ·
- * 1 CPU · 2 GB, change"); Change opens the full card with focus on its
- * current choice, and Done folds it back. Something inside that needs
- * attention, such as an error, opens it, and it never folds by itself.
+ * 1 CPU · 2 GB, change"). Change unfolds the full card under the row, with
+ * focus on its current choice, and the row, now saying Done, folds it back.
+ * Something inside that needs attention, such as an error, opens it, and it
+ * never folds by itself.
  */
 export function Folded({ foldable, attention, icon, title, value, children, onChange, actions }: FoldedProps) {
   const [opened, setOpened] = useState(false)
-  // Set by Change: the opened card fades in and takes focus; a card open from the start does neither.
+  // Set by Change: the opened card takes focus; a card open from the start does not.
   const [byHand, setByHand] = useState(false)
+  // The card is mounted from its first opening on, so folding it can animate; it
+  // unfolds a frame after mounting, so opening animates too.
+  const [mounted, setMounted] = useState(false)
+  // Set once fully open: only then may the card's focus rings and menus spill out of it.
+  const [settled, setSettled] = useState(false)
   const body = useRef<HTMLDivElement>(null)
-  // Set by Done: the row it folds to takes focus, so the keyboard stays where the card was.
-  const [foldedByHand, setFoldedByHand] = useState(false)
-  const rowButton = useRef<HTMLButtonElement>(null)
+  // It never folds under the person, even when it later holds a sensible choice; only the row folds it.
   useEffect(() => {
-    if (foldedByHand) rowButton.current?.focus()
-  }, [foldedByHand])
-  // It never folds under the person, even when it later holds a sensible choice; only Done folds it.
-  useEffect(() => {
-    if (attention || !foldable) setOpened(true)
+    if (attention || !foldable) {
+      setMounted(true)
+      setOpened(true)
+    }
   }, [attention, foldable])
   const open = opened || !foldable
   useEffect(() => {
@@ -84,50 +92,44 @@ export function Folded({ foldable, attention, icon, title, value, children, onCh
     const target =
       el?.querySelector<HTMLElement>('input:checked') ??
       el?.querySelector<HTMLElement>('input, button, select, textarea, [tabindex]:not([tabindex="-1"])')
-    target?.focus()
+    target?.focus({ preventScroll: true })
   }, [open, byHand])
-  if (!open) {
-    const row = (
-      <ChosenRow
-        buttonRef={rowButton}
-        icon={icon}
-        title={value}
-        label={`${title}: ${value}`}
-        onChange={
-          onChange ??
-          (() => {
-            setByHand(true)
-            setFoldedByHand(false)
-            setOpened(true)
-          })
-        }
-      />
-    )
-    return actions ? (
-      <div className="stack tight-gap">
-        {row}
-        <div className="chosen-actions">{actions}</div>
-      </div>
-    ) : (
-      row
-    )
+  if (!foldable) return <>{children}</>
+  const unfold = () => {
+    setByHand(true)
+    setMounted(true)
+    requestAnimationFrame(() => setOpened(true))
+  }
+  const fold = () => {
+    setByHand(false)
+    setSettled(false)
+    setOpened(false)
   }
   return (
-    <div ref={body} className={`stack tight-gap${byHand ? ' tpl-in' : ''}`}>
-      {children}
-      {foldable && !attention && (
-        <div className="folded-done">
-          <button
-            type="button"
-            className="btn sm"
-            onClick={() => {
-              setOpened(false)
-              setByHand(false)
-              setFoldedByHand(true)
-            }}
-          >
-            Done
-          </button>
+    <div className="stack tight-gap">
+      {!attention && (
+        <ChosenRow
+          icon={icon}
+          title={value}
+          label={`${title}: ${value}`}
+          verb={open ? 'Done' : 'Change'}
+          expanded={onChange && !open ? undefined : open}
+          onChange={open ? fold : (onChange ?? unfold)}
+        />
+      )}
+      {!open && actions && <div className="chosen-actions">{actions}</div>}
+      {mounted && (
+        <div
+          className={`fold${open ? ' open' : ''}${settled ? ' settled' : ''}`}
+          aria-hidden={!open}
+          inert={!open}
+          onTransitionEnd={(e) => {
+            if (e.target === e.currentTarget && open) setSettled(true)
+          }}
+        >
+          <div ref={body} className="fold-in">
+            {children}
+          </div>
         </div>
       )}
     </div>

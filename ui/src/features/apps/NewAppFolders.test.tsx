@@ -77,10 +77,12 @@ describe('New app, what a locked agent can access', () => {
     expect(screen.queryByRole('tree')).toBeNull()
     await openAccess()
     await userEvent.click(tick(await row('data')))
-    expect(screen.queryByRole('button', { name: /^Access: / })).toBeNull()
-    // Done folds it back to one row that now counts what was ticked.
-    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    // The row stays on top of the open card and folds it, counting what was ticked.
+    const top = screen.getByRole('button', { name: 'Access: ~/projects/claude-code-app and 1 more, done' })
+    expect(top.getAttribute('aria-expanded')).toBe('true')
+    await userEvent.click(top)
     expect(screen.queryByRole('tree')).toBeNull()
+    expect(top.getAttribute('aria-expanded')).toBe('false')
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Access: ~/projects/claude-code-app and 1 more, change' }))
   })
 
