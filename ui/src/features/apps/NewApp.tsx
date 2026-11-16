@@ -399,6 +399,19 @@ export function NewApp() {
     tpl && !repoMode ? { template: tpl.name, displayName: name.trim(), ...(sample ? { sample: true } : file ? { file } : {}) } : undefined,
   )
   const grants = lockView ? outsideProject(lockView, folders) : []
+  // Under Access, where a locked agent's project is picked.
+  const projectLinks = (
+    <>
+      <button type="button" className="textlink small" onClick={() => setPicking(true)}>
+        Use a different folder
+      </button>
+      {tpl?.sample && !sample && (
+        <button type="button" className="textlink small" onClick={() => setOwnCode(false)}>
+          Use the starter project again
+        </button>
+      )}
+    </>
+  )
   const launch: Launch = { command: typedCommand ?? sample?.command ?? '', image, port: typedPort ?? String(tpl?.port ?? '') }
   const errs = create.isError ? fieldErrors(create.error) : { fields: draftErrs, other: [] as string[] }
   const other = [...errs.other, ...Object.entries(errs.fields).filter(([f]) => !isFormField(f)).map(([, m]) => m)]
@@ -636,7 +649,8 @@ export function NewApp() {
             </Card>
           )}
           </Section>
-          {tpl && !takesImage && (picksFile || tpl.sample || tpl.fromRepo !== 'None') && (
+          {/* An agent that starts locked in picks its project, the folder it works in, under Access. */}
+          {tpl && !takesImage && !lockView && (picksFile || tpl.sample || tpl.fromRepo !== 'None') && (
             <Section part="code" title="Code">
             <Folded
               // A new template starts folded again.
@@ -756,13 +770,16 @@ export function NewApp() {
             <Folded
               key={tpl.name}
               foldable
-              attention={!!errs.fields.folders}
+              attention={!!errs.fields.folders || !!errs.fields.file}
               icon={<KindLogo kind="home" />}
               title="Access"
-              value={grants.length ? `${lockView.project} and ${grants.length} more` : `${lockView.project} only`}
+              value={`Project ${lockView.project} ${grants.length ? `and ${grants.length} more` : 'only'}`}
+              actions={projectLinks}
             >
               <Card className="pad">
                 <FolderBrowser agent={AGENTS[tpl.kind] ?? tpl.displayName} view={lockView} grants={grants} onChange={setFolders} />
+                <div className="chosen-actions">{projectLinks}</div>
+                <FieldError id={ids.fileErr} msg={errs.fields.file} />
                 {errs.fields.folders && (
                   <p className="tight errmsg hb-refused" role="alert">
                     {errs.fields.folders}

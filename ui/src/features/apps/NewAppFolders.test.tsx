@@ -73,17 +73,34 @@ describe('New app, what a locked agent can access', () => {
   it('starts folded to one row naming the project, and Change opens the file browser', async () => {
     base()
     renderApp('/apps/new?template=claude-code')
-    await screen.findByRole('button', { name: 'Access: ~/projects/claude-code-app only, change' })
+    await screen.findByRole('button', { name: 'Access: Project ~/projects/claude-code-app only, change' })
     expect(screen.queryByRole('tree')).toBeNull()
     await openAccess()
     await userEvent.click(tick(await row('data')))
     // The row stays on top of the open card and folds it, counting what was ticked.
-    const top = screen.getByRole('button', { name: 'Access: ~/projects/claude-code-app and 1 more, done' })
+    const top = screen.getByRole('button', { name: 'Access: Project ~/projects/claude-code-app and 1 more, done' })
     expect(top.getAttribute('aria-expanded')).toBe('true')
     await userEvent.click(top)
     expect(screen.queryByRole('tree')).toBeNull()
     expect(top.getAttribute('aria-expanded')).toBe('false')
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Access: ~/projects/claude-code-app and 1 more, change' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Access: Project ~/projects/claude-code-app and 1 more, change' }))
+  })
+
+  it('picks the project in Access, with no Code section of its own', async () => {
+    const api = base()
+    renderApp('/apps/new?template=claude-code')
+    await screen.findByRole('button', { name: 'Access: Project ~/projects/claude-code-app only, change' })
+    expect(screen.queryByRole('button', { name: /^Code: / })).toBeNull()
+    expect(screen.queryByText('Where is the code?')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Use a different folder' }))
+    const picker = await screen.findByRole('dialog', { name: 'Choose a folder' })
+    await userEvent.click(await within(picker).findByRole('treeitem', { name: /data/ }))
+    await userEvent.click(within(picker).getByRole('button', { name: /^Choose/ }))
+    await screen.findByRole('button', { name: 'Access: Project ~/data only, change' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create app' }))
+    await waitFor(() => expect(posted(api)).toMatchObject({ template: 'claude-code', file: 'data' }))
   })
 
   it('follows the name of the app, and sends what was ticked with the new app', async () => {
