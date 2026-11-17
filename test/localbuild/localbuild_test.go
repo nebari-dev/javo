@@ -36,7 +36,6 @@ var notImported = []leftOut{
 	// without a cluster) and the core/v1 types templates and sizes hold.
 	{path: "sigs.k8s.io/controller-runtime", but: []string{
 		"sigs.k8s.io/controller-runtime/pkg/log",
-		"sigs.k8s.io/controller-runtime/pkg/log/zap",
 		"sigs.k8s.io/controller-runtime/pkg/manager/signals",
 	}},
 	{path: "k8s.io/client-go", but: []string{"k8s.io/client-go/util/workqueue"}},
