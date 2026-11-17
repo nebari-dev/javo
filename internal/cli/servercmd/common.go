@@ -4,16 +4,23 @@ package servercmd
 
 import (
 	"context"
+	"fmt"
 	"github.com/nebari-dev/javo/internal/buildinfo"
+	"log/slog"
 	"os"
+	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
+	"k8s.io/klog/v2"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/nebari-dev/javo/internal/cli/dbflag"
 	"github.com/nebari-dev/javo/internal/cli/wiring"
 	"github.com/nebari-dev/javo/internal/config"
 	"github.com/nebari-dev/javo/internal/model"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/telemetry"
 )
 
 // commonFlags are the settings the gateway and the controller share, so
@@ -35,6 +42,7 @@ type commonFlags struct {
 	backupPasswordCreate bool
 	loadConfig           wiring.ConfigLoader
 	database             dbflag.Flags
+	logFormat, logLevel  string
 }
 
 func (c *commonFlags) register(f *pflag.FlagSet) {
@@ -48,6 +56,37 @@ func (c *commonFlags) register(f *pflag.FlagSet) {
 	f.BoolVar(&c.fingerprintKeyCreate, "secret-fingerprint-key-create", false, "make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards")
 	f.StringVar(&c.backupPasswordSecret, "backup-password-secret", "", "Secret in the release namespace whose key \"password\" holds the password every backup in the bucket is encrypted with, read at start instead of backup.s3.passwordFile; empty: the file is read")
 	f.BoolVar(&c.backupPasswordCreate, "backup-password-create", false, "make the --backup-password-secret Secret, immutable with a new random password, when it does not exist; never changed afterwards")
+	f.StringVar(&c.logFormat, "log-format", "json", "how log lines are written: json (one object per line) or text")
+	f.StringVar(&c.logLevel, "log-level", "info", "the least important log lines written: debug, info, warn or error")
+}
+
+// observe makes the logs of the server, Kubernetes' client and the
+// controller library one stream on stderr in --log-format, and sends traces
+// and metrics to the OpenTelemetry collector the standard OTEL_EXPORTER_OTLP_*
+// variables name, if any. stop sends what is left; call it before exiting.
+func (c *commonFlags) observe(ctx context.Context) (stop func(), err error) {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(c.logLevel)); err != nil {
+		return nil, fmt.Errorf("--log-level %q: one of debug, info, warn or error", c.logLevel)
+	}
+	log, err := telemetry.NewLogger(os.Stderr, c.logFormat, level)
+	if err != nil {
+		return nil, fmt.Errorf("--log-format: %w", err)
+	}
+	slog.SetDefault(log)
+	crlog.SetLogger(logr.FromSlogHandler(log.Handler()))
+	klog.SetSlogLogger(log)
+	send, err := telemetry.Start(ctx, "javo", buildinfo.Get().Version)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := send(ctx); err != nil {
+			slog.Warn("sending the last telemetry failed", "error", err)
+		}
+	}, nil
 }
 
 // load reads the platform config and, when the bucket's password is kept in

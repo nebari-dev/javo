@@ -70,6 +70,11 @@ func (s *serverOptions) run(ctx context.Context, flags *pflag.FlagSet) error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	sent, err := common.observe(ctx)
+	if err != nil {
+		return err
+	}
+	defer sent()
 	platform, err := common.load(ctx)
 	if err != nil {
 		return err

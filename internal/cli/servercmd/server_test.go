@@ -77,3 +77,20 @@ func TestServerNeedsADirectoryForScheduledBackups(t *testing.T) {
 		t.Fatalf("server = %v, want an error naming --backup-dir", err)
 	}
 }
+
+// A log format or level the server cannot write is refused before anything
+// starts, by each command that runs a component.
+func TestServerCommandsRefuseAnUnknownLogFormatOrLevel(t *testing.T) {
+	for _, newCmd := range []func() *cobra.Command{NewServer, NewGateway, NewController} {
+		for _, c := range []struct{ arg, flag, value string }{{"--log-format=xml", "--log-format", "xml"}, {"--log-level=loud", "--log-level", "loud"}} {
+			cmd := newCmd()
+			cmd.SetArgs([]string{c.arg})
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			if err := cmd.ExecuteContext(context.Background()); err == nil || !strings.Contains(err.Error(), c.flag) || !strings.Contains(err.Error(), c.value) {
+				t.Errorf("javo %s %s = %v, want an error naming %s and %q", cmd.Name(), c.arg, err, c.flag, c.value)
+			}
+		}
+	}
+}

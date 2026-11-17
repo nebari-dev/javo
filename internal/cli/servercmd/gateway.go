@@ -33,6 +33,7 @@ import (
 	"github.com/nebari-dev/javo/internal/plans"
 	"github.com/nebari-dev/javo/internal/sizes"
 	"github.com/nebari-dev/javo/internal/store"
+	"github.com/nebari-dev/javo/internal/telemetry"
 	"github.com/nebari-dev/javo/internal/templates"
 )
 
@@ -132,6 +133,11 @@ func NewGateway() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			sent, err := common.observe(ctx)
+			if err != nil {
+				return err
+			}
+			defer sent()
 			platform, err := common.load(ctx)
 			if err != nil {
 				return err
@@ -304,7 +310,7 @@ func (o *gatewayOptions) run(ctx context.Context, common *commonFlags, platform 
 	if own.ready != nil {
 		handler = own.ready(handler)
 	}
-	return serve(ctx, o.listen, own.listener, handler)
+	return serve(ctx, o.listen, own.listener, telemetry.Handler(handler))
 }
 
 // minProxySecret is the shortest proxy secret accepted: it must not be

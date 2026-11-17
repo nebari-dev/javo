@@ -288,6 +288,8 @@ Flags:
       --health-probe-bind-address string       health probe address (default ":8082")
   -h, --help                                   help for controller
       --image-pull-secret strings              Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
+      --log-format string                      how log lines are written: json (one object per line) or text (default "json")
+      --log-level string                       the least important log lines written: debug, info, warn or error (default "info")
       --metrics-bind-address string            metrics endpoint address (default ":8081")
       --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
       --netprobe-control-url string            URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller
@@ -418,6 +420,8 @@ Flags:
       --files-image string                     rclone image for file picker pods, pinned by digest (default "rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5")
   -h, --help                                   help for gateway
       --listen string                          address to listen on (default ":8080")
+      --log-format string                      how log lines are written: json (one object per line) or text (default "json")
+      --log-level string                       the least important log lines written: debug, info, warn or error (default "info")
       --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
       --public-host string                     host (and port, if not the default) browsers reach the gateway at; templates read it as .Host, e.g. for a websocket origin check
       --secret-fingerprint-key-create          make the --secret-fingerprint-key-secret Secret, immutable with a new random key, when it does not exist; never changed afterwards
@@ -654,6 +658,8 @@ Flags:
   -h, --help                                   help for server
       --image-pull-secret strings              Secret in the release namespace the runner image is pulled with; copied into every namespace the controller runs pods in (repeatable)
       --listen string                          address to listen on (default ":8080")
+      --log-format string                      how log lines are written: json (one object per line) or text (default "json")
+      --log-level string                       the least important log lines written: debug, info, warn or error (default "info")
       --metrics-bind-address string            metrics endpoint address (default ":8081")
       --namespace string                       the release namespace, where API token records are kept (default $POD_NAMESPACE)
       --netprobe-control-url string            URL of the gateway's health endpoint; the NetworkPolicy probe's dialer must reach it; required to run the controller

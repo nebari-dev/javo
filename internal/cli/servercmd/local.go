@@ -108,6 +108,8 @@ func runLocal(ctx context.Context, out io.Writer, port int, dir string) error {
 	s.common.loadConfig = func() (config.Platform, error) { return platform, nil }
 	s.common.database.Path = dirs.Database
 	s.gw.listen, s.gw.uiDir, s.ctl.runnerImage = addr, "", localRunner
+	// A person reads these in their terminal.
+	s.common.logFormat = "text"
 	db, err := s.common.openDB(ctx, platform)
 	if err != nil {
 		return err

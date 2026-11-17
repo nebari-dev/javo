@@ -42,6 +42,7 @@ spec:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef: {fieldPath: metadata.namespace}
+            {{- include "javo.telemetryEnv" . | nindent 12 }}
             # The Go runtime collects garbage harder as it nears the
             # container's memory limit instead of being OOM-killed past it.
             - name: GOMEMLIMIT

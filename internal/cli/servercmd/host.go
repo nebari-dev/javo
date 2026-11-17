@@ -8,8 +8,6 @@ import (
 
 	"github.com/spf13/pflag"
 	"github.com/tink-crypto/tink-go/v2/tink"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/nebari-dev/javo/internal/buildinfo"
 	"github.com/nebari-dev/javo/internal/capacity"
@@ -188,7 +186,6 @@ func (o *controllerOptions) runOnHost(ctx context.Context, common *commonFlags, 
 	if err != nil {
 		return err
 	}
-	log.SetLogger(zap.New())
 	go host.Keys.RunFingerprints(ctx, host.Fingerprinter, fingerprintEvery)
 	if err := db.StartFeed(ctx); err != nil {
 		return fmt.Errorf("listen for database changes: %w", err)

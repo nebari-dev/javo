@@ -411,6 +411,18 @@ source:
       # public-repo read access only. Empty means anonymous.
       tokenFile: ""
 
+# What Javo tells about itself.
+telemetry:
+  # Log lines: json (one object per line, for a log collector) or text.
+  logFormat: json
+  # The least important lines written: debug, info, warn or error.
+  logLevel: info
+  # An OpenTelemetry collector's OTLP/HTTP address, e.g.
+  # http://otel-collector.monitoring:4318: every request's trace and the
+  # HTTP server metrics are sent there, and log lines carry the trace_id.
+  # Empty sends nothing.
+  otlpEndpoint: ""
+
 ingress:
   enabled: false
   className: ""

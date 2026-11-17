@@ -42,7 +42,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 // runOnCluster runs the controller on the cluster the kubeconfig names:
@@ -80,7 +79,6 @@ func (o *controllerOptions) runOnCluster(ctx context.Context, common *commonFlag
 	if err != nil {
 		return fmt.Errorf("--backup-claim-size: %w", err)
 	}
-	ctrl.SetLogger(zap.New())
 	keys, err := o.secretKeys(ctx, db, releaseNS)
 	if err != nil {
 		return err

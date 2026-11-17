@@ -105,7 +105,13 @@ func NewController() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "controller",
 		Short: "Run the workspace controller",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Before the signal handler, which a process may set up only once.
+			sent, err := common.observe(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer sent()
 			ctx := signals.SetupSignalHandler()
 			platform, err := common.load(ctx)
 			if err != nil {
